@@ -16,7 +16,14 @@ class ChatbotController extends Controller
         ]);
 
         $apiKey = env('GEMINI_API_KEY');
-        $url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={$apiKey}";
+
+        // Daftar model sesuai prioritas fallback limit
+        $models = [
+            'gemini-3.1-flash-lite-preview', // 500 RPD
+            'gemini-2.5-flash',              // 20 RPD
+            'gemini-2.5-flash-lite',         // 20 RPD
+            'gemini-3-flash-preview',        // 20 RPD
+        ];
 
         $systemInstruction = "Kamu adalah AI asisten BangDeliv. Ekstrak pesan menjadi JSON. Format wajib: {\"intent\": \"pesan_makanan\" atau \"out_of_domain\", \"resto\": \"string/null\", \"items\": [{\"menu\": \"string\", \"qty\": integer}]}. Pastikan mengekstrak setiap pesanan menu secara terpisah ke dalam array items! Dilarang merespon teks biasa.";
 
@@ -58,32 +65,51 @@ class ChatbotController extends Controller
             ]
         ];
 
-        try {
-            $response = Http::withHeaders([
-                'Content-Type' => 'application/json',
-            ])->post($url, $payload);
+        $lastError = null;
 
-            if ($response->failed()) {
-                return response()->json([
-                    'status' => 'error',
-                    'message' => 'Gagal terhubung ke Gemini API.'
-                ], 500);
+        foreach ($models as $model) {
+            $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}";
+
+            try {
+                $response = Http::withHeaders([
+                    'Content-Type' => 'application/json',
+                ])->post($url, $payload);
+
+                if ($response->successful()) {
+                    $result = $response->json();
+                    $textResponse = $result['candidates'][0]['content']['parts'][0]['text'] ?? '{}';
+                    $decodedResponse = json_decode($textResponse, true);
+
+                    return response()->json([
+                        'status' => 'success',
+                        'data' => $decodedResponse,
+                        'model_used' => $model
+                    ], 200);
+                }
+
+                // Jika Too Many Requests atau Kuota Habis, loop lanjut ke model berikutnya
+                if ($response->status() === 429) {
+                    \Illuminate\Support\Facades\Log::warning("Gemini API Rate Limit Hit for model: {$model}");
+                    continue;
+                }
+
+                // Error selain ratelimit disave untuk di-return jika semua opsi gagal
+                $lastError = "API Error {$response->status()}: " . $response->body();
+
+            } catch (\Exception $e) {
+                $lastError = $e->getMessage();
+                \Illuminate\Support\Facades\Log::error("Gemini API Exception for model {$model}: " . $e->getMessage());
+                // Lanjut coba model berikutnya jika exception (misal timeout)
+                continue;
             }
-
-            $result = $response->json();
-            $textResponse = $result['candidates'][0]['content']['parts'][0]['text'] ?? '{}';
-            $decodedResponse = json_decode($textResponse, true);
-
-            return response()->json([
-                'status' => 'success',
-                'data' => $decodedResponse
-            ], 200);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Terjadi kesalahan sistem: ' . $e->getMessage()
-            ], 500);
         }
+
+        // Jika loop selesai tapi belum return (berarti semua model ter-exhaust)
+        return response()->json([
+            'status' => 'error',
+            'message' => 'Layanan AI sedang sibuk atau melampaui batas kuota harian. Silakan coba beberapa saat lagi.',
+            'debug_error' => config('app.debug') ? $lastError : null
+        ], 503);
+
     }
 }
