@@ -1,48 +1,48 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-
 use App\Http\Controllers\AdminAuthController;
 
 Route::get('/', function () {
-    return redirect('/admin/login');
+    return redirect()->route('admin.dashboard');
 });
 
-Route::get('/admin/login', [AdminAuthController::class, 'showLoginForm'])->name('login');
+// Auth routes (guest only)
+Route::get('/admin/login',  [AdminAuthController::class, 'showLoginForm'])->name('login');
 Route::post('/admin/login', [AdminAuthController::class, 'login']);
+Route::post('/admin/logout',[AdminAuthController::class, 'logout'])->name('logout');
 
-Route::post('/admin/logout', [AdminAuthController::class, 'logout'])->name('logout');
+// Admin protected routes
+Route::prefix('admin')->middleware(['auth', 'admin'])->group(function () {
 
-Route::middleware(['auth', 'admin'])->group(function () {
-    Route::get('/admin/dashboard', function () {
-        return view('admin.dashboard');
-    })->name('admin.dashboard');
+    // Dashboard
+    Route::get('/dashboard', fn() => view('admin.dashboard.index'))
+        ->name('admin.dashboard');
 
-    Route::get('/admin/pesanan', function () {
-        return view('admin.orders');
-    })->name('admin.pesanan');
+    // Orders
+    Route::get('/pesanan', fn() => view('admin.orders.index'))
+        ->name('admin.orders.index');
 
-    Route::get('/admin/driver', function () {
-        return view('admin.drivers');
-    })->name('admin.driver');
+    // Drivers
+    Route::get('/driver', fn() => view('admin.drivers.index'))
+        ->name('admin.drivers.index');
+    Route::get('/driver/verifikasi', fn() => view('admin.drivers.verification.index'))
+        ->name('admin.verification');
 
-    Route::get('/admin/pelanggan', function () {
-        return view('admin.customers');
-    })->name('admin.pelanggan');
+    // Customers
+    Route::get('/pelanggan', fn() => view('admin.customers.index'))
+        ->name('admin.customers.index');
 
-    Route::get('/admin/restoran', function () {
-        return view('admin.restaurants');
-    })->name('admin.restoran');
+    // Restaurants + nested Menus
+    Route::get('/restoran', fn() => view('admin.restaurants.index'))
+        ->name('admin.restaurants.index');
 
-    Route::get('/admin/verifikasi-driver', function () {
-        return view('admin.driver-verification');
-    })->name('admin.verifikasi-driver');
+    // AI Monitor
+    Route::get('/ai-monitor', fn() => view('admin.ai-monitor.index'))
+        ->name('admin.ai-monitor');
 
-    Route::get('/admin/ai-monitor', function () {
-        return view('admin.ai-monitor');
-    })->name('admin.ai-monitor');
+    // Settings
+    Route::get('/pengaturan', fn() => view('admin.settings.index'))
+        ->name('admin.settings');
 
-    Route::get('/admin/pengaturan', function () {
-        return view('admin.settings');
-    })->name('admin.pengaturan');
 });

@@ -8,8 +8,19 @@
     <link rel="stylesheet" href="{{ asset('css/admin.css') }}">
     <!-- Boxicons (Icon Library as requested) -->
     <link href='https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css' rel='stylesheet'>
+    {{-- 
+        Anti-FOIT: Script ini berjalan SINKRON (blocking) sebelum browser
+        mulai paint apapun, sehingga tema yang benar langsung teraplikasi
+        tanpa Flash of Incorrect Theme.
+    --}}
+    <script>
+        (function() {
+            var saved = localStorage.getItem('theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', saved);
+        })();
+    </script>
 </head>
-<body data-theme="dark">
+<body>
 
     <div class="admin-layout">
         <!-- Sidebar Navigation -->
@@ -30,28 +41,27 @@
                 </a>
 
                 <div class="menu-category">OPERASIONAL</div>
-                <a href="{{ route('admin.pesanan') }}" class="menu-item {{ Request::routeIs('admin.pesanan') ? 'active' : '' }}">
+                <a href="{{ route('admin.orders.index') }}" class="menu-item {{ Request::routeIs('admin.orders.*') ? 'active' : '' }}">
                     <i class='bx bx-receipt'></i>
                     Pesanan
                     <span class="menu-badge">24</span>
                 </a>
-                <a href="{{ route('admin.driver') }}" class="menu-item {{ Request::routeIs('admin.driver') ? 'active' : '' }}">
+                <a href="{{ route('admin.drivers.index') }}" class="menu-item {{ Request::routeIs('admin.drivers.index', 'admin.drivers.show') ? 'active' : '' }}">
                     <i class='bx bx-cycling'></i>
                     Driver
                     <span class="menu-badge" style="background:none;color:var(--color-success)">8</span>
                 </a>
-                <a href="{{ route('admin.pelanggan') }}" class="menu-item {{ Request::routeIs('admin.pelanggan') ? 'active' : '' }}">
+                <a href="{{ route('admin.customers.index') }}" class="menu-item {{ Request::routeIs('admin.customers.*') ? 'active' : '' }}">
                     <i class='bx bxs-group'></i>
                     Pelanggan
                 </a>
-
-                <a href="{{ route('admin.restoran') }}" class="menu-item {{ Request::routeIs('admin.restoran') ? 'active' : '' }}">
+                <a href="{{ route('admin.restaurants.index') }}" class="menu-item {{ Request::routeIs('admin.restaurants.*') ? 'active' : '' }}">
                     <i class='bx bx-store'></i>
                     Restoran / Warung
                 </a>
 
                 <div class="menu-category">SISTEM</div>
-                <a href="{{ route('admin.verifikasi-driver') }}" class="menu-item {{ Request::routeIs('admin.verifikasi-driver') ? 'active' : '' }}">
+                <a href="{{ route('admin.verification') }}" class="menu-item {{ Request::routeIs('admin.verification') ? 'active' : '' }}">
                     <i class='bx bx-check-shield'></i>
                     Verifikasi Driver
                     <span class="menu-badge" style="background:var(--color-warning); color:white;">3</span>
@@ -60,8 +70,7 @@
                     <i class='bx bx-bot'></i>
                     AI Monitor
                 </a>
-
-                <a href="{{ route('admin.pengaturan') }}" class="menu-item {{ Request::routeIs('admin.pengaturan') ? 'active' : '' }}">
+                <a href="{{ route('admin.settings') }}" class="menu-item {{ Request::routeIs('admin.settings') ? 'active' : '' }}">
                     <i class='bx bx-cog'></i>
                     Pengaturan
                 </a>
@@ -118,26 +127,25 @@
     <!-- Theme Persist Script -->
     <script>
         function toggleTheme() {
-            const body = document.body;
-            const currentTheme = body.getAttribute('data-theme');
-            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-            
-            body.setAttribute('data-theme', newTheme);
-            localStorage.setItem('theme', newTheme);
-            updateThemeIcon(newTheme);
+            // Baca dari documentElement (html tag) karena theme diterapkan di sana
+            const current = document.documentElement.getAttribute('data-theme');
+            const next = current === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', next);
+            localStorage.setItem('theme', next);
+            updateThemeIcon(next);
         }
 
         function updateThemeIcon(theme) {
             const icon = document.getElementById('theme-btn-icon');
-            if(icon) {
-               icon.className = theme === 'dark' ? 'bx bx-moon' : 'bx bx-sun';
+            if (icon) {
+                icon.className = theme === 'dark' ? 'bx bx-moon' : 'bx bx-sun';
             }
         }
 
+        // Sinkronkan ikon saat halaman selesai dimuat
         document.addEventListener('DOMContentLoaded', () => {
-            const savedTheme = localStorage.getItem('theme') || 'dark';
-            document.body.setAttribute('data-theme', savedTheme);
-            updateThemeIcon(savedTheme);
+            const saved = localStorage.getItem('theme') || 'dark';
+            updateThemeIcon(saved);
         });
     </script>
     @stack('scripts')
