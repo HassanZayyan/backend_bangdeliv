@@ -105,6 +105,13 @@ a {
     flex: 1;
     overflow-y: auto;
     padding: 10px 0;
+    /* Hide scrollbar */
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+.sidebar-menu::-webkit-scrollbar {
+    display: none;
 }
 
 .menu-category {
@@ -606,4 +613,117 @@ tr:last-child td {
 .user-role {
     font-size: 12px;
     color: var(--text-muted);
+}
+
+/* Tabs */
+.tabs {
+    display: flex;
+    gap: 8px;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 15px;
+    margin-top: 10px;
+    overflow-x: auto;
+    -ms-overflow-style: none;  
+    scrollbar-width: none;  
+}
+
+.tabs::-webkit-scrollbar {
+    display: none;
+}
+
+.tab-btn {
+    padding: 8px 16px;
+    background: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: 20px;
+    color: var(--text-muted);
+    font-weight: 500;
+    font-size: 13px;
+    cursor: pointer;
+    transition: var(--transition);
+    display: flex;
+    align-items: center;
+    white-space: nowrap;
+}
+
+.tab-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-main);
+}
+
+.tab-btn.active {
+    background: var(--color-primary);
+    color: white;
+    border-color: var(--color-primary);
+}
+
+.tab-btn.active .badge {
+    background: white;
+    color: var(--color-primary);
+}
+
+/* Badge Updates */
+.badge-info { 
+    background-color: rgba(59, 130, 246, 0.1); 
+    color: var(--color-info); 
+}
+.badge-info::before { background-color: var(--color-info); }
+
+/* Action Buttons in Table */
+.btn-action {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    border: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 16px;
+    transition: var(--transition);
+}
+
+.btn-action.detail {
+    background: rgba(107, 114, 128, 0.1);
+    color: var(--text-muted);
+}
+.btn-action.detail:hover { background: rgba(107, 114, 128, 0.2); color: var(--text-main); }
+
+.btn-action.warning {
+    background: rgba(245, 158, 11, 0.1);
+    color: var(--color-warning);
+}
+.btn-action.warning:hover { background: rgba(245, 158, 11, 0.2); }
+
+.btn-action.danger {
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--color-danger);
+}
+.btn-action.danger:hover { background: rgba(239, 68, 68, 0.2); }
+
+/* Pagination Controls */
+.btn-page {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-body);
+    color: var(--text-main);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: var(--transition);
+}
+
+.btn-page:hover {
+    background: var(--bg-hover);
+}
+
+.btn-page.active {
+    background: var(--color-primary);
+    color: white;
+    border-color: var(--color-primary);
 }

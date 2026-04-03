@@ -24,50 +24,44 @@
 
             <div class="sidebar-menu">
                 <div class="menu-category">UTAMA</div>
-                <a href="/admin/dashboard" class="menu-item active">
+                <a href="{{ route('admin.dashboard') }}" class="menu-item {{ Request::routeIs('admin.dashboard') ? 'active' : '' }}">
                     <i class='bx bxs-dashboard'></i>
                     Dashboard
                 </a>
 
                 <div class="menu-category">OPERASIONAL</div>
-                <a href="#" class="menu-item">
+                <a href="{{ route('admin.pesanan') }}" class="menu-item {{ Request::routeIs('admin.pesanan') ? 'active' : '' }}">
                     <i class='bx bx-receipt'></i>
                     Pesanan
                     <span class="menu-badge">24</span>
                 </a>
-                <a href="#" class="menu-item">
-                    <i class='bx bxs-car'></i>
+                <a href="{{ route('admin.driver') }}" class="menu-item {{ Request::routeIs('admin.driver') ? 'active' : '' }}">
+                    <i class='bx bx-cycling'></i>
                     Driver
                     <span class="menu-badge" style="background:none;color:var(--color-success)">8</span>
                 </a>
-                <a href="#" class="menu-item">
+                <a href="{{ route('admin.pelanggan') }}" class="menu-item {{ Request::routeIs('admin.pelanggan') ? 'active' : '' }}">
                     <i class='bx bxs-group'></i>
                     Pelanggan
                 </a>
-                <a href="#" class="menu-item">
-                    <i class='bx bx-food-menu'></i>
-                    Kelola Menu
-                </a>
-                <a href="#" class="menu-item">
+
+                <a href="{{ route('admin.restoran') }}" class="menu-item {{ Request::routeIs('admin.restoran') ? 'active' : '' }}">
                     <i class='bx bx-store'></i>
                     Restoran / Warung
                 </a>
 
                 <div class="menu-category">SISTEM</div>
-                <a href="#" class="menu-item">
+                <a href="{{ route('admin.verifikasi-driver') }}" class="menu-item {{ Request::routeIs('admin.verifikasi-driver') ? 'active' : '' }}">
                     <i class='bx bx-check-shield'></i>
                     Verifikasi Driver
                     <span class="menu-badge" style="background:var(--color-warning); color:white;">3</span>
                 </a>
-                <a href="#" class="menu-item">
+                <a href="{{ route('admin.ai-monitor') }}" class="menu-item {{ Request::routeIs('admin.ai-monitor') ? 'active' : '' }}">
                     <i class='bx bx-bot'></i>
                     AI Monitor
                 </a>
-                <a href="#" class="menu-item">
-                    <i class='bx bx-line-chart'></i>
-                    Laporan & Statistik
-                </a>
-                <a href="#" class="menu-item">
+
+                <a href="{{ route('admin.pengaturan') }}" class="menu-item {{ Request::routeIs('admin.pengaturan') ? 'active' : '' }}">
                     <i class='bx bx-cog'></i>
                     Pengaturan
                 </a>
@@ -104,23 +98,13 @@
                 </div>
                 
                 <div class="nav-actions">
-                    <div class="search-bar">
-                        <i class='bx bx-search'></i>
-                        <input type="text" placeholder="Cari pesanan, resi, nomor...">
-                    </div>
-                    
+
                     <button class="icon-btn" style="position:relative">
                         <i class='bx bx-bell'></i>
                         <span style="position:absolute; top:8px; right:8px; width:8px; height:8px; background:var(--color-primary); border-radius:50%"></span>
                     </button>
                     
-                    <button class="icon-btn">
-                        <i class='bx bx-refresh'></i>
-                    </button>
-                    
-                    <button class="btn btn-primary">
-                        <i class='bx bx-plus'></i> Pesanan Baru
-                    </button>
+
                 </div>
             </header>
 
@@ -156,5 +140,6 @@
             updateThemeIcon(savedTheme);
         });
     </script>
+    @stack('scripts')
 </body>
 </html>

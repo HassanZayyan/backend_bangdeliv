@@ -17,4 +17,32 @@ Route::middleware(['auth', 'admin'])->group(function () {
     Route::get('/admin/dashboard', function () {
         return view('admin.dashboard');
     })->name('admin.dashboard');
+
+    Route::get('/admin/pesanan', function () {
+        return view('admin.orders');
+    })->name('admin.pesanan');
+
+    Route::get('/admin/driver', function () {
+        return view('admin.drivers');
+    })->name('admin.driver');
+
+    Route::get('/admin/pelanggan', function () {
+        return view('admin.customers');
+    })->name('admin.pelanggan');
+
+    Route::get('/admin/restoran', function () {
+        return view('admin.restaurants');
+    })->name('admin.restoran');
+
+    Route::get('/admin/verifikasi-driver', function () {
+        return view('admin.driver-verification');
+    })->name('admin.verifikasi-driver');
+
+    Route::get('/admin/ai-monitor', function () {
+        return view('admin.ai-monitor');
+    })->name('admin.ai-monitor');
+
+    Route::get('/admin/pengaturan', function () {
+        return view('admin.settings');
+    })->name('admin.pengaturan');
 });
