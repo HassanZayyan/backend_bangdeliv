@@ -4,27 +4,33 @@
 @section('page-title', 'Mitra Restoran')
 
 @section('content')
+@if(session('success'))
+    <div class="panel" style="margin-bottom: 12px; padding: 12px 16px; color: var(--color-success); font-weight: 600;">
+        {{ session('success') }}
+    </div>
+@endif
 <div class="panel">
     <div class="panel-header" style="flex-direction: column; align-items: stretch; gap: 20px;">
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <div class="panel-title">Daftar Mitra Restoran & Warung</div>
             
             <div style="display: flex; gap: 10px;">
-                <button class="btn btn-primary">
+                <a href="{{ route('admin.restaurants.create') }}" class="btn btn-primary" style="text-decoration:none;">
                     <i class='bx bx-plus'></i> Tambah Mitra
-                </button>
-                <div class="search-bar" style="width: 280px;">
+                </a>
+                <form method="GET" action="{{ route('admin.restaurants.index') }}" class="search-bar" style="width: 280px;">
+                    <input type="hidden" name="status" value="{{ $statusFilter }}">
                     <i class='bx bx-search'></i>
-                    <input type="text" placeholder="Cari Resto, Owner, ID..." style="width: 100%;">
-                </div>
+                    <input type="text" name="q" value="{{ $search }}" placeholder="Cari Resto, Owner, ID..." style="width: 100%;">
+                </form>
             </div>
         </div>
 
         <div class="tabs">
-            <button class="tab-btn active">Semua</button>
-            <button class="tab-btn">Buka</button>
-            <button class="tab-btn">Tutup (Luar Jam)</button>
-            <button class="tab-btn">Suspended <span class="badge badge-danger" style="margin-left:5px;">1</span></button>
+            <a href="{{ route('admin.restaurants.index', ['status' => 'all', 'q' => $search]) }}" class="tab-btn {{ $statusFilter === 'all' ? 'active' : '' }}" style="text-decoration:none;">Semua</a>
+            <a href="{{ route('admin.restaurants.index', ['status' => 'active', 'q' => $search]) }}" class="tab-btn {{ $statusFilter === 'active' ? 'active' : '' }}" style="text-decoration:none;">Buka <span class="badge badge-success" style="margin-left:5px;">{{ $openCount }}</span></a>
+            <a href="{{ route('admin.restaurants.index', ['status' => 'closed', 'q' => $search]) }}" class="tab-btn {{ $statusFilter === 'closed' ? 'active' : '' }}" style="text-decoration:none;">Tutup (Luar Jam) <span class="badge badge-info" style="margin-left:5px;">{{ $closedCount }}</span></a>
+            <a href="{{ route('admin.restaurants.index', ['status' => 'inactive', 'q' => $search]) }}" class="tab-btn {{ $statusFilter === 'inactive' ? 'active' : '' }}" style="text-decoration:none;">Suspended <span class="badge badge-danger" style="margin-left:5px;">{{ $suspendedCount }}</span></a>
         </div>
     </div>
     
@@ -40,139 +46,64 @@
                 </tr>
             </thead>
             <tbody>
-                <!-- Dummy Resto 1 -->
-                <tr>
-                    <td>
-                        <div style="display: flex; align-items: center; gap: 12px;">
-                            <div style="width: 50px; height: 50px; border-radius: 10px; background-color: var(--color-primary); display: flex; align-items:center; justify-content:center; color:white; font-size:24px; flex-shrink:0;">
-                                <i class='bx bx-restaurant'></i>
+                @forelse($restaurants as $restaurant)
+                    @php
+                        $isActive = $restaurant->status === 'active';
+                    @endphp
+                    <tr @if(!$isActive) style="background-color: rgba(239, 68, 68, 0.02);" @endif>
+                        <td>
+                            <div style="display: flex; align-items: center; gap: 12px;">
+                                <div style="width: 50px; height: 50px; border-radius: 10px; background-color: {{ $isActive ? 'var(--color-primary)' : 'var(--color-danger)' }}; display: flex; align-items:center; justify-content:center; color:white; font-size:24px; flex-shrink:0;">
+                                    <i class='bx bx-restaurant'></i>
+                                </div>
+                                <div class="td-user">
+                                    <span class="td-strong">{{ $restaurant->name }}</span>
+                                    <span class="td-sub"><i class='bx bx-phone'></i> {{ $restaurant->phone }}</span>
+                                    <span class="td-sub"><i class='bx bx-map-pin'></i> {{ $restaurant->address }}</span>
+                                </div>
                             </div>
-                            <div class="td-user">
-                                <span class="td-strong">Ayam Geprek Juara</span>
-                                <span class="td-sub"><i class='bx bxs-user-badge'></i> Herman K. (0812-xxxx)</span>
-                                <span class="td-sub"><i class='bx bx-map-pin'></i> Jl. Veteran No.12</span>
+                        </td>
+                        <td>
+                            <span class="td-strong">{{ $restaurant->menus_count }} Item Menu</span>
+                            <span class="td-sub" style="display:block;"><i class='bx bx-time'></i> Est. Prep {{ $restaurant->estimated_prep_time }} menit</span>
+                        </td>
+                        <td>
+                            <span class="td-strong" style="color:var(--color-warning);"><i class='bx bxs-star'></i> {{ number_format((float) $restaurant->avg_rating, 1) }}</span>
+                            <span class="td-sub" style="display:block;">{{ $restaurant->orders_count }} pesanan</span>
+                        </td>
+                        <td>
+                            <span class="badge {{ $isActive ? 'badge-success' : 'badge-danger' }}">{{ $isActive ? 'Buka' : 'Suspended' }}</span>
+                        </td>
+                        <td class="td-action">
+                            <div style="display:flex; gap: 8px;">
+                                <a href="{{ route('admin.restaurants.menus.index', $restaurant) }}" class="btn-action detail" style="width:auto; padding:0 12px; font-size:13px; font-weight:600; color:var(--color-primary); background:rgba(255,119,0,0.1); text-decoration:none; display:inline-flex; align-items:center;" title="Kelola Katalog Menu"><i class='bx bx-food-menu' style="margin-right:5px;"></i> Kelola Menu</a>
+                                <a href="{{ route('admin.restaurants.edit', $restaurant) }}" class="btn-action" style="background: rgba(59,130,246,.1); color: #3b82f6; text-decoration:none;" title="Edit Restoran"><i class='bx bx-edit'></i></a>
+                                <form action="{{ route('admin.restaurants.toggle-status', $restaurant) }}" method="POST">
+                                    @csrf
+                                    @method('PATCH')
+                                    <button type="submit" class="btn-action" style="background: rgba(16,185,129,.1); color: var(--color-success);" title="Ubah Status"><i class='bx bx-refresh'></i></button>
+                                </form>
+                                <form action="{{ route('admin.restaurants.destroy', $restaurant) }}" method="POST" onsubmit="return confirm('Hapus restoran ini?');">
+                                    @csrf
+                                    @method('DELETE')
+                                    <button type="submit" class="btn-action danger" title="Hapus Restoran"><i class='bx bx-trash'></i></button>
+                                </form>
                             </div>
-                        </div>
-                    </td>
-                    <td>
-                        <span class="td-strong">45 Item Menu</span>
-                        <span class="td-sub" style="display:block; color:var(--color-success);"><i class='bx bxs-offer'></i> 2 Promo Aktif</span>
-                    </td>
-                    <td>
-                        <span class="td-strong" style="color:var(--color-warning);"><i class='bx bxs-star'></i> 4.8</span>
-                        <span class="td-sub" style="display:block;">1,520 Terjual</span>
-                    </td>
-                    <td><span class="badge badge-success">Buka</span></td>
-                    <td class="td-action">
-                        <div style="display:flex; gap: 8px;">
-                            <button class="btn-action detail" style="width:auto; padding:0 12px; font-size:13px; font-weight:600; color:var(--color-primary); background:rgba(255,119,0,0.1);" title="Kelola Katalog Menu"><i class='bx bx-food-menu' style="margin-right:5px;"></i> Kelola Menu</button>
-                            <button class="btn-action danger" title="Suspend Restoran"><i class='bx bx-block'></i></button>
-                        </div>
-                    </td>
-                </tr>
-
-                <!-- Dummy Resto 2 -->
-                <tr>
-                    <td>
-                        <div style="display: flex; align-items: center; gap: 12px;">
-                            <div style="width: 50px; height: 50px; border-radius: 10px; background-color: var(--color-info); display: flex; align-items:center; justify-content:center; color:white; font-size:24px; flex-shrink:0;">
-                                <i class='bx bx-coffee-togo'></i>
-                            </div>
-                            <div class="td-user">
-                                <span class="td-strong">Kopi Senja Masa</span>
-                                <span class="td-sub"><i class='bx bxs-user-badge'></i> Dimas A. (0877-xxxx)</span>
-                                <span class="td-sub"><i class='bx bx-map-pin'></i> Komplek Ruko A-1</span>
-                            </div>
-                        </div>
-                    </td>
-                    <td>
-                        <span class="td-strong">28 Item Menu</span>
-                        <span class="td-sub" style="display:block;"><i class='bx bxs-offer'></i> Tidak ada promo</span>
-                    </td>
-                    <td>
-                        <span class="td-strong" style="color:var(--color-warning);"><i class='bx bxs-star'></i> 4.9</span>
-                        <span class="td-sub" style="display:block;">830 Terjual</span>
-                    </td>
-                    <td><span class="badge badge-success">Buka</span></td>
-                    <td class="td-action">
-                        <div style="display:flex; gap: 8px;">
-                            <button class="btn-action detail" style="width:auto; padding:0 12px; font-size:13px; font-weight:600; color:var(--color-primary); background:rgba(255,119,0,0.1);" title="Kelola Katalog Menu"><i class='bx bx-food-menu' style="margin-right:5px;"></i> Kelola Menu</button>
-                            <button class="btn-action danger" title="Suspend Restoran"><i class='bx bx-block'></i></button>
-                        </div>
-                    </td>
-                </tr>
-
-                <!-- Dummy Resto 3 -->
-                <tr>
-                    <td>
-                        <div style="display: flex; align-items: center; gap: 12px;">
-                            <div style="width: 50px; height: 50px; border-radius: 10px; background-color: #a855f7; display: flex; align-items:center; justify-content:center; color:white; font-size:24px; flex-shrink:0;">
-                                <i class='bx bx-bowl-rice'></i>
-                            </div>
-                            <div class="td-user">
-                                <span class="td-strong">Warung Bu Sri</span>
-                                <span class="td-sub"><i class='bx bxs-user-badge'></i> Sri W. (0821-xxxx)</span>
-                                <span class="td-sub"><i class='bx bx-map-pin'></i> Jl. Mawar No.4</span>
-                            </div>
-                        </div>
-                    </td>
-                    <td>
-                        <span class="td-strong">15 Item Menu</span>
-                        <span class="td-sub" style="display:block;"><i class='bx bxs-offer'></i> Tidak ada promo</span>
-                    </td>
-                    <td>
-                        <span class="td-strong" style="color:var(--color-warning);"><i class='bx bxs-star'></i> 4.5</span>
-                        <span class="td-sub" style="display:block;">420 Terjual</span>
-                    </td>
-                    <td><span class="badge badge-info">Tutup (Luar Jam)</span></td>
-                    <td class="td-action">
-                        <div style="display:flex; gap: 8px;">
-                            <button class="btn-action detail" style="width:auto; padding:0 12px; font-size:13px; font-weight:600; color:var(--color-primary); background:rgba(255,119,0,0.1);" title="Kelola Katalog Menu"><i class='bx bx-food-menu' style="margin-right:5px;"></i> Kelola Menu</button>
-                            <button class="btn-action danger" title="Suspend Restoran"><i class='bx bx-block'></i></button>
-                        </div>
-                    </td>
-                </tr>
-
-                 <!-- Dummy Resto 4 -->
-                 <tr style="background-color: rgba(239, 68, 68, 0.02);">
-                    <td>
-                        <div style="display: flex; align-items: center; gap: 12px;">
-                            <div style="width: 50px; height: 50px; border-radius: 10px; background-color: var(--color-danger); display: flex; align-items:center; justify-content:center; color:white; font-size:24px; flex-shrink:0;">
-                                <i class='bx bx-error'></i>
-                            </div>
-                            <div class="td-user">
-                                <span class="td-strong">Mie Level Neraka</span>
-                                <span class="td-sub"><i class='bx bxs-user-badge'></i> Budi J. (0899-xxxx)</span>
-                                <span class="td-sub"><i class='bx bx-map-pin'></i> Jl. Neraka Jahanam 1</span>
-                            </div>
-                        </div>
-                    </td>
-                    <td>
-                        <span class="td-strong">0 Item Aktif</span>
-                        <span class="td-sub" style="display:block; color:var(--color-danger);">Banyak Laporan Palsu</span>
-                    </td>
-                    <td>
-                        <span class="td-strong" style="color:var(--color-danger);"><i class='bx bxs-star'></i> 1.2</span>
-                        <span class="td-sub" style="display:block;">20 Terjual</span>
-                    </td>
-                    <td><span class="badge badge-danger">Suspended</span></td>
-                    <td class="td-action">
-                        <div style="display:flex; gap: 8px;">
-                            <button class="btn-action detail" style="width:auto; padding:0 12px; font-size:13px; font-weight:600; color:var(--text-muted); background:var(--bg-hover);" title="Lihat Laporan"><i class='bx bx-message-error' style="margin-right:5px;"></i> Log</button>
-                            <button class="btn-action" style="background: rgba(16, 185, 129, 0.1); color: var(--color-success);" title="Buka Suspend"><i class='bx bx-check'></i></button>
-                        </div>
-                    </td>
-                </tr>
+                        </td>
+                    </tr>
+                @empty
+                    <tr>
+                        <td colspan="5" class="td-sub" style="text-align:center; padding:24px;">Belum ada data restoran.</td>
+                    </tr>
+                @endforelse
             </tbody>
         </table>
     </div>
     
     <div class="panel-pagination" style="padding: 20px; border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center;">
-        <span style="font-size: 13px; color: var(--text-muted); font-weight: 500;">Menampilkan 4 dari 32 Mitra Restoran</span>
+        <span style="font-size: 13px; color: var(--text-muted); font-weight: 500;">Menampilkan {{ $restaurants->count() }} dari {{ $restaurants->total() }} Mitra Restoran</span>
         <div class="pagination-controls" style="display: flex; gap: 6px;">
-            <button class="btn-page active">1</button>
-            <button class="btn-page">2</button>
-            <button class="btn-page"><i class='bx bx-chevron-right'></i></button>
+            {{ $restaurants->links() }}
         </div>
     </div>
 </div>

@@ -25,6 +25,11 @@
     <div class="admin-layout">
         <!-- Sidebar Navigation -->
         <aside class="sidebar">
+            @php
+                $sidebarOrderCount = \App\Models\Order::count();
+                $sidebarDriverCount = \App\Models\Driver::count();
+                $sidebarVerificationCount = \App\Models\Driver::where('registration_status', 'pending')->count();
+            @endphp
             <div class="sidebar-header">
                 <div class="sidebar-logo">
                     <i class='bx bx-store-alt'></i>
@@ -44,12 +49,16 @@
                 <a href="{{ route('admin.orders.index') }}" class="menu-item {{ Request::routeIs('admin.orders.*') ? 'active' : '' }}">
                     <i class='bx bx-receipt'></i>
                     Pesanan
-                    <span class="menu-badge">24</span>
+                    @if($sidebarOrderCount > 0)
+                        <span class="menu-badge">{{ $sidebarOrderCount }}</span>
+                    @endif
                 </a>
                 <a href="{{ route('admin.drivers.index') }}" class="menu-item {{ Request::routeIs('admin.drivers.index', 'admin.drivers.show') ? 'active' : '' }}">
                     <i class='bx bx-cycling'></i>
                     Driver
-                    <span class="menu-badge" style="background:none;color:var(--color-success)">8</span>
+                    @if($sidebarDriverCount > 0)
+                        <span class="menu-badge" style="background:none;color:var(--color-success)">{{ $sidebarDriverCount }}</span>
+                    @endif
                 </a>
                 <a href="{{ route('admin.customers.index') }}" class="menu-item {{ Request::routeIs('admin.customers.*') ? 'active' : '' }}">
                     <i class='bx bxs-group'></i>
@@ -64,7 +73,9 @@
                 <a href="{{ route('admin.verification') }}" class="menu-item {{ Request::routeIs('admin.verification') ? 'active' : '' }}">
                     <i class='bx bx-check-shield'></i>
                     Verifikasi Driver
-                    <span class="menu-badge" style="background:var(--color-warning); color:white;">3</span>
+                    @if($sidebarVerificationCount > 0)
+                        <span class="menu-badge" style="background:var(--color-warning); color:white;">{{ $sidebarVerificationCount }}</span>
+                    @endif
                 </a>
                 <a href="{{ route('admin.ai-monitor') }}" class="menu-item {{ Request::routeIs('admin.ai-monitor') ? 'active' : '' }}">
                     <i class='bx bx-bot'></i>

@@ -1,0 +1,24 @@
+<?php
+
+namespace App\Http\Requests\Api;
+
+use Illuminate\Foundation\Http\FormRequest;
+
+class CheckoutOrderRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return (bool) $this->user();
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function rules(): array
+    {
+        return [
+            'address_id' => ['required', 'integer', 'exists:addresses,id'],
+            'notes' => ['nullable', 'string', 'max:1000'],
+        ];
+    }
+}

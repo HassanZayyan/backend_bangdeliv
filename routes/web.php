@@ -2,6 +2,8 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AdminAuthController;
+use App\Http\Controllers\Admin\RestaurantController;
+use App\Http\Controllers\Admin\RestaurantMenuController;
 
 Route::get('/', function () {
     return redirect()->route('admin.dashboard');
@@ -13,7 +15,7 @@ Route::post('/admin/login', [AdminAuthController::class, 'login']);
 Route::post('/admin/logout',[AdminAuthController::class, 'logout'])->name('logout');
 
 // Admin protected routes
-Route::prefix('admin')->middleware(['auth', 'admin'])->group(function () {
+Route::prefix('admin')->middleware(['auth', 'role:admin'])->group(function () {
 
     // Dashboard
     Route::get('/dashboard', fn() => view('admin.dashboard.index'))
@@ -34,8 +36,20 @@ Route::prefix('admin')->middleware(['auth', 'admin'])->group(function () {
         ->name('admin.customers.index');
 
     // Restaurants + nested Menus
-    Route::get('/restoran', fn() => view('admin.restaurants.index'))
-        ->name('admin.restaurants.index');
+    Route::prefix('restoran')->name('admin.restaurants.')->group(function () {
+        Route::get('/', [RestaurantController::class, 'index'])->name('index');
+        Route::get('/create', [RestaurantController::class, 'create'])->name('create');
+        Route::post('/', [RestaurantController::class, 'store'])->name('store');
+        Route::get('/{restaurant}/edit', [RestaurantController::class, 'edit'])->name('edit');
+        Route::put('/{restaurant}', [RestaurantController::class, 'update'])->name('update');
+        Route::delete('/{restaurant}', [RestaurantController::class, 'destroy'])->name('destroy');
+        Route::patch('/{restaurant}/toggle-status', [RestaurantController::class, 'toggleStatus'])->name('toggle-status');
+
+        Route::get('/{restaurant}/menus', [RestaurantMenuController::class, 'index'])->name('menus.index');
+        Route::post('/{restaurant}/menus', [RestaurantMenuController::class, 'store'])->name('menus.store');
+        Route::put('/{restaurant}/menus/{menu}', [RestaurantMenuController::class, 'update'])->name('menus.update');
+        Route::delete('/{restaurant}/menus/{menu}', [RestaurantMenuController::class, 'destroy'])->name('menus.destroy');
+    });
 
     // AI Monitor
     Route::get('/ai-monitor', fn() => view('admin.ai-monitor.index'))

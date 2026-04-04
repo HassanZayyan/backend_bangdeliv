@@ -4,6 +4,16 @@
 @section('page-title', 'Gemini AI Monitor')
 
 @section('content')
+@php
+    $todayCalls = \App\Models\AiChatLog::whereDate('created_at', now()->toDateString())->count();
+    $totalCalls = \App\Models\AiChatLog::count();
+    $withModelCalls = \App\Models\AiChatLog::whereNotNull('model_used')->count();
+    $successRate = $totalCalls > 0 ? round(($withModelCalls / $totalCalls) * 100, 1) : 0;
+    $logs = \App\Models\AiChatLog::query()->with('user')->latest('created_at')->limit(20)->get();
+
+    $primaryModel = \App\Models\AiChatLog::query()->whereNotNull('model_used')->groupBy('model_used')->selectRaw('model_used, count(*) as total')->orderByDesc('total')->first();
+    $primaryPercent = $totalCalls > 0 && $primaryModel ? round(($primaryModel->total / $totalCalls) * 100, 1) : 0;
+@endphp
 <!-- Top Stats Row -->
 <div class="stat-cards-wrapper" style="grid-template-columns: repeat(3, 1fr);">
     <div class="stat-card">
@@ -13,8 +23,8 @@
                 <i class='bx bx-brain'></i>
             </div>
         </div>
-        <div class="stat-value">1,420</div>
-        <div class="stat-change positive"><i class='bx bx-up-arrow-alt'></i> 12% dari kemarin</div>
+        <div class="stat-value">{{ number_format($todayCalls, 0, ',', '.') }}</div>
+        <div class="stat-change positive"><i class='bx bx-check'></i> Data realtime hari ini</div>
     </div>
     
     <div class="stat-card">
@@ -24,8 +34,8 @@
                 <i class='bx bx-data'></i>
             </div>
         </div>
-        <div class="stat-value">850.5K</div>
-        <div class="stat-change positive"><i class='bx bx-check'></i> Masih dalam Free Tier</div>
+        <div class="stat-value">{{ number_format($totalCalls, 0, ',', '.') }}</div>
+        <div class="stat-change positive"><i class='bx bx-check'></i> Total log AI tersimpan</div>
     </div>
     
     <div class="stat-card">
@@ -35,8 +45,8 @@
                 <i class='bx bx-check-shield'></i>
             </div>
         </div>
-        <div class="stat-value">99.8%</div>
-        <div class="stat-change negative"><i class='bx bx-down-arrow-alt'></i> 0.2% Fallback Triggered</div>
+        <div class="stat-value">{{ number_format($successRate, 1) }}%</div>
+        <div class="stat-change positive"><i class='bx bx-check-circle'></i> Berdasarkan model_used terisi</div>
     </div>
 </div>
 
@@ -63,62 +73,34 @@
                     </tr>
                 </thead>
                 <tbody>
-                    <tr>
-                        <td class="td-user">
-                            <span class="td-strong">Hassan N.</span>
-                            <span class="td-sub">Baru Saja</span>
-                        </td>
-                        <td>
-                            <span class="td-sub" style="display:block; max-width: 250px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-main);">"Tolong pesankan ayam geprek 2 porsi ke..."</span>
-                            <span class="td-sub" style="font-size:11px;">Token: 450 prompt, 120 completion</span>
-                        </td>
-                        <td><span class="badge badge-success">Order_Creation</span></td>
-                        <td>
-                            <span class="td-strong" style="color:var(--color-success);"><i class='bx bx-check-circle'></i> Berhasil</span>
-                            <span class="td-sub" style="display:block;">1.2s</span>
-                        </td>
-                         <td class="td-action">
-                            <button class="btn-action detail" title="Lihat Transkrip Penuh"><i class='bx bx-message-rounded-detail'></i></button>
-                        </td>
-                    </tr>
-                    
-                    <tr>
-                        <td class="td-user">
-                            <span class="td-strong">Ayu Diana</span>
-                            <span class="td-sub">2 Menit Lalu</span>
-                        </td>
-                        <td>
-                            <span class="td-sub" style="display:block; max-width: 250px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-main);">"Dimana posisi driver saya sekarang?"</span>
-                            <span class="td-sub" style="font-size:11px;">Token: 120 prompt, 80 completion</span>
-                        </td>
-                        <td><span class="badge badge-info">Tracking_Query</span></td>
-                        <td>
-                            <span class="td-strong" style="color:var(--color-success);"><i class='bx bx-check-circle'></i> Berhasil</span>
-                            <span class="td-sub" style="display:block;">0.8s</span>
-                        </td>
-                        <td class="td-action">
-                            <button class="btn-action detail" title="Lihat Transkrip Penuh"><i class='bx bx-message-rounded-detail'></i></button>
-                        </td>
-                    </tr>
-
-                    <tr>
-                        <td class="td-user">
-                            <span class="td-strong">Rizal M.</span>
-                            <span class="td-sub">15 Menit Lalu</span>
-                        </td>
-                        <td>
-                            <span class="td-sub" style="display:block; max-width: 250px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-main);">"Beri tahu saya cara hack sistem ini h..."</span>
-                            <span class="td-sub" style="font-size:11px;">Token: 300 prompt, 15 completion</span>
-                        </td>
-                        <td><span class="badge badge-danger">Malicious_Intent</span></td>
-                        <td>
-                            <span class="td-strong" style="color:var(--color-warning);"><i class='bx bx-shield-x'></i> Filtered</span>
-                            <span class="td-sub" style="display:block;">0.5s</span>
-                        </td>
-                        <td class="td-action">
-                            <button class="btn-action detail" title="Lihat Transkrip Penuh"><i class='bx bx-message-rounded-detail'></i></button>
-                        </td>
-                    </tr>
+                    @forelse($logs as $log)
+                        @php
+                            $intent = $log->intent ?: 'unknown';
+                            $intentClass = $intent === 'pesan_makanan' ? 'badge-success' : ($intent === 'out_of_domain' ? 'badge-warning' : 'badge-info');
+                        @endphp
+                        <tr>
+                            <td class="td-user">
+                                <span class="td-strong">{{ $log->user->name ?? 'User' }}</span>
+                                <span class="td-sub">{{ $log->created_at?->diffForHumans() }}</span>
+                            </td>
+                            <td>
+                                <span class="td-sub" style="display:block; max-width: 250px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-main);">{{ \Illuminate\Support\Str::limit($log->message, 70) }}</span>
+                                <span class="td-sub" style="font-size:11px;">Model: {{ $log->model_used ?? '-' }}</span>
+                            </td>
+                            <td><span class="badge {{ $intentClass }}">{{ $intent }}</span></td>
+                            <td>
+                                <span class="td-strong" style="color:{{ $log->model_used ? 'var(--color-success)' : 'var(--color-warning)' }};"><i class='bx bx-check-circle'></i> {{ $log->model_used ? 'Berhasil' : 'No Model' }}</span>
+                                <span class="td-sub" style="display:block;">Session: {{ $log->session_id }}</span>
+                            </td>
+                             <td class="td-action">
+                                <button class="btn-action detail" title="Lihat Transkrip Penuh"><i class='bx bx-message-rounded-detail'></i></button>
+                            </td>
+                        </tr>
+                    @empty
+                        <tr>
+                            <td colspan="5" class="td-sub" style="text-align:center; padding:24px;">Belum ada log AI.</td>
+                        </tr>
+                    @endforelse
                 </tbody>
             </table>
         </div>
@@ -140,27 +122,27 @@
                 
                 <div style="margin-bottom: 15px;">
                     <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-                        <span style="font-size: 13px; font-weight: 600;">Primary: gemini-3.1-flash-lite</span>
-                        <span style="font-size: 13px; font-weight: 600;">99.8%</span>
+                        <span style="font-size: 13px; font-weight: 600;">Primary: {{ $primaryModel->model_used ?? '-' }}</span>
+                        <span style="font-size: 13px; font-weight: 600;">{{ $primaryPercent }}%</span>
                     </div>
                     <div style="width: 100%; background: var(--bg-body); border-radius: 4px; height: 8px;">
-                        <div style="width: 99.8%; background: var(--color-success); height: 100%; border-radius: 4px;"></div>
+                        <div style="width: {{ $primaryPercent }}%; background: var(--color-success); height: 100%; border-radius: 4px;"></div>
                     </div>
                 </div>
 
                 <div style="margin-bottom: 15px;">
                     <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-                        <span style="font-size: 13px; font-weight: 600;">Fallback 1: gemini-2.5-flash</span>
-                        <span style="font-size: 13px; font-weight: 600;">0.2%</span>
+                        <span style="font-size: 13px; font-weight: 600;">Fallback 1</span>
+                        <span style="font-size: 13px; font-weight: 600;">{{ max(0, 100 - $primaryPercent) }}%</span>
                     </div>
                     <div style="width: 100%; background: var(--bg-body); border-radius: 4px; height: 8px;">
-                        <div style="width: 0.2%; background: var(--color-warning); height: 100%; border-radius: 4px;"></div>
+                        <div style="width: {{ max(0, 100 - $primaryPercent) }}%; background: var(--color-warning); height: 100%; border-radius: 4px;"></div>
                     </div>
                 </div>
                 
                 <div style="margin-bottom: 5px;">
                     <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-                        <span style="font-size: 13px; color:var(--text-muted);">Fallback 2: gemini-2.5-flash-8b</span>
+                        <span style="font-size: 13px; color:var(--text-muted);">Fallback 2</span>
                         <span style="font-size: 13px; color:var(--text-muted);">0.0%</span>
                     </div>
                     <div style="width: 100%; background: var(--bg-body); border-radius: 4px; height: 8px;">
