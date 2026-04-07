@@ -19,7 +19,7 @@
     </div>
 @endif
 
-<div class="panel" style="max-width: 980px;">
+<div class="panel">
     <div class="panel-header">
         <div style="display:flex; align-items:center; gap:12px;">
             <div style="width:36px; height:36px; background:rgba(255,119,0,0.1); border-radius:8px; display:flex; align-items:center; justify-content:center; color:var(--color-primary); font-size:20px;">
