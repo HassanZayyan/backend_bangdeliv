@@ -3,11 +3,17 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Services\ChatbotOrderValidationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 class ChatbotController extends Controller
 {
+    public function __construct(private readonly ChatbotOrderValidationService $validator)
+    {
+    }
+
     public function processChat(Request $request)
     {
         // Validasi request
@@ -80,16 +86,26 @@ class ChatbotController extends Controller
                     $textResponse = $result['candidates'][0]['content']['parts'][0]['text'] ?? '{}';
                     $decodedResponse = json_decode($textResponse, true);
 
+                    if (!is_array($decodedResponse)) {
+                        $decodedResponse = [
+                            'intent' => 'out_of_domain',
+                            'resto' => null,
+                            'items' => [],
+                        ];
+                    }
+
+                    $validatedPayload = $this->validator->validate($decodedResponse);
+
                     return response()->json([
                         'status' => 'success',
-                        'data' => $decodedResponse,
+                        'data' => $validatedPayload,
                         'model_used' => $model
                     ], 200);
                 }
 
                 // Jika Too Many Requests atau Kuota Habis, loop lanjut ke model berikutnya
                 if ($response->status() === 429) {
-                    \Illuminate\Support\Facades\Log::warning("Gemini API Rate Limit Hit for model: {$model}");
+                    Log::warning("Gemini API Rate Limit Hit for model: {$model}");
                     continue;
                 }
 
@@ -98,7 +114,7 @@ class ChatbotController extends Controller
 
             } catch (\Exception $e) {
                 $lastError = $e->getMessage();
-                \Illuminate\Support\Facades\Log::error("Gemini API Exception for model {$model}: " . $e->getMessage());
+                Log::error("Gemini API Exception for model {$model}: " . $e->getMessage());
                 // Lanjut coba model berikutnya jika exception (misal timeout)
                 continue;
             }

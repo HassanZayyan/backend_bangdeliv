@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\ChatbotController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\RestaurantController;
+use App\Http\Controllers\Api\HomeController;
 
 Route::post('/chatbot/process', [ChatbotController::class, 'processChat']);
 
@@ -22,6 +23,7 @@ Route::middleware('auth:sanctum')->group(function () {
 });
 
 Route::prefix('v1')->group(function () {
+    Route::get('/home', [HomeController::class, 'index']);
     Route::get('/restaurants', [RestaurantController::class, 'index']);
     Route::get('/restaurants/{restaurantIdOrSlug}', [RestaurantController::class, 'show']);
     Route::get('/restaurants/{restaurantIdOrSlug}/menus', [RestaurantController::class, 'menus']);
