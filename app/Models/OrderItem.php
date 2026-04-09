@@ -10,12 +10,17 @@ class OrderItem extends Model
     protected $fillable = [
         'order_id',
         'menu_id',
+        'item_source',
         'menu_name',
         'quantity',
         'unit_price',
         'subtotal',
+        'line_service_fee',
+        'line_total',
         'notes',
+        'metadata',
         'is_available',
+        'is_heavy',
     ];
 
     protected function casts(): array
@@ -24,7 +29,11 @@ class OrderItem extends Model
             'quantity' => 'integer',
             'unit_price' => 'decimal:2',
             'subtotal' => 'decimal:2',
+            'line_service_fee' => 'decimal:2',
+            'line_total' => 'decimal:2',
+            'metadata' => 'array',
             'is_available' => 'boolean',
+            'is_heavy' => 'boolean',
         ];
     }
 

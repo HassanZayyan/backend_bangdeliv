@@ -5,8 +5,11 @@ namespace App\Services;
 use App\Exceptions\ApiException;
 use App\Models\Address;
 use App\Models\Order;
+use App\Models\OrderStatus;
 use App\Models\OrderStatusHistory;
 use App\Models\Restaurant;
+use App\Models\ShoppingOrder;
+use App\Models\ServiceType;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -51,22 +54,33 @@ class CheckoutService
         $subtotal = $cart->items->sum(fn ($item) => (float) $item->menu->price * $item->quantity);
 
         $deliveryFee = $this->calculateDeliveryFee();
-        $totalAmount = $subtotal + $deliveryFee;
+        $serviceFee = 0.0;
+        $totalAmount = $subtotal + $deliveryFee + $serviceFee;
+        $shoppingServiceTypeId = ServiceType::query()->where('code', 'SHOPPING')->value('id');
+        $pendingStatusId = OrderStatus::query()->where('code', 'PENDING')->value('id');
 
-        return DB::transaction(function () use ($user, $payload, $cart, $address, $restaurant, $subtotal, $deliveryFee, $totalAmount): Order {
+        if (!$shoppingServiceTypeId || !$pendingStatusId) {
+            throw new ApiException('Konfigurasi service type atau status order belum lengkap.', 500);
+        }
+
+        return DB::transaction(function () use ($user, $payload, $cart, $address, $restaurant, $subtotal, $deliveryFee, $serviceFee, $totalAmount, $shoppingServiceTypeId, $pendingStatusId): Order {
             $order = Order::query()->create([
                 'order_number' => $this->generateOrderNumber(),
                 'user_id' => $user->id,
                 'restaurant_id' => $restaurant->id,
+                'service_type_id' => $shoppingServiceTypeId,
                 'address_id' => $address->id,
                 'delivery_address' => trim($address->full_address.' '.($address->detail ?? '')),
                 'delivery_latitude' => $address->latitude,
                 'delivery_longitude' => $address->longitude,
                 'subtotal' => round($subtotal, 2),
                 'delivery_fee' => round($deliveryFee, 2),
+                'service_fee' => round($serviceFee, 2),
                 'total_amount' => round($totalAmount, 2),
-                'status' => 'confirmed',
+                'total_price' => round($totalAmount, 2),
+                'status_id' => $pendingStatusId,
                 'payment_status' => 'unpaid',
+                'payment_method' => 'COD',
                 'notes' => $payload['notes'] ?? null,
                 'estimated_delivery' => Carbon::now()->addMinutes((int) $restaurant->estimated_prep_time + 25),
             ]);
@@ -77,26 +91,41 @@ class CheckoutService
 
                 $order->items()->create([
                     'menu_id' => $item->menu_id,
+                    'item_source' => 'MENU_DB',
                     'menu_name' => $item->menu->name,
                     'quantity' => $qty,
                     'unit_price' => round($unitPrice, 2),
                     'subtotal' => round($unitPrice * $qty, 2),
+                    'line_service_fee' => 0,
+                    'line_total' => round($unitPrice * $qty, 2),
                     'notes' => $item->notes,
                     'is_available' => true,
+                    'is_heavy' => false,
                 ]);
             }
 
             OrderStatusHistory::query()->create([
                 'order_id' => $order->id,
-                'status' => 'confirmed',
+                'status_id' => $pendingStatusId,
+                'event_type' => 'STATUS_CHANGE',
                 'changed_by_user_id' => $user->id,
                 'note' => 'Order dibuat oleh customer melalui checkout.',
+            ]);
+
+            ShoppingOrder::query()->create([
+                'order_id' => $order->id,
+                'failed_attempt_count' => 0,
+                'item_surcharge' => 0,
+                'overweight_surcharge' => 0,
+                'cancellation_penalty' => 0,
+                'has_overweight_item' => false,
+                'recalculation_version' => 0,
             ]);
 
             $cart->items()->delete();
             $cart->touch();
 
-            return $order->fresh(['restaurant', 'address', 'items', 'statusHistories']);
+            return $order->fresh(['restaurant', 'address', 'items', 'statusRef', 'statusHistories', 'shoppingOrder']);
         });
     }
 

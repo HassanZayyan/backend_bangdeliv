@@ -5,11 +5,15 @@
 
 @section('content')
 @php
+    $statusCodeToId = \App\Models\OrderStatus::query()->pluck('id', 'code');
+    $successStatusIds = collect(['DELIVERED', 'COMPLETED'])->map(fn ($code) => $statusCodeToId[$code] ?? null)->filter()->values()->all();
+    $cancelledStatusIds = collect(['CANCELLED', 'CANCELLED_WITH_FEE'])->map(fn ($code) => $statusCodeToId[$code] ?? null)->filter()->values()->all();
+
     $customers = \App\Models\User::query()
         ->where('role', 'customer')
         ->withCount([
-            'orders as success_orders_count' => fn ($query) => $query->whereIn('status', ['delivered', 'completed']),
-            'orders as cancelled_orders_count' => fn ($query) => $query->where('status', 'cancelled'),
+            'orders as success_orders_count' => fn ($query) => $query->whereIn('status_id', $successStatusIds),
+            'orders as cancelled_orders_count' => fn ($query) => $query->whereIn('status_id', $cancelledStatusIds),
         ])
         ->latest('created_at')
         ->get();

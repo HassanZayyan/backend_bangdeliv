@@ -11,15 +11,19 @@ class OrderStatusHistory extends Model
 
     protected $fillable = [
         'order_id',
-        'status',
+        'status_id',
+        'event_type',
         'changed_by_user_id',
         'note',
+        'price_snapshot',
         'created_at',
     ];
 
     protected function casts(): array
     {
         return [
+            'status_id' => 'integer',
+            'price_snapshot' => 'array',
             'created_at' => 'datetime',
         ];
     }
@@ -32,5 +36,10 @@ class OrderStatusHistory extends Model
     public function changedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'changed_by_user_id');
+    }
+
+    public function statusRef(): BelongsTo
+    {
+        return $this->belongsTo(OrderStatus::class, 'status_id');
     }
 }

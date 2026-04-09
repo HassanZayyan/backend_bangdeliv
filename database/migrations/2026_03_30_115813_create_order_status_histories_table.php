@@ -14,21 +14,15 @@ return new class extends Migration
         Schema::create('order_status_histories', function (Blueprint $table) {
             $table->id();
             $table->foreignId('order_id')->constrained()->cascadeOnDelete();
-            $table->enum('status', [
-                'confirmed',
-                'driver_assigned',
-                'item_unavailable',
-                'picking_up',
-                'on_delivery',
-                'delivered',
-                'completed',
-                'cancelled',
-            ]);
+            $table->foreignId('status_id')->constrained('order_statuses');
+            $table->string('event_type', 40)->default('STATUS_CHANGE');
             $table->foreignId('changed_by_user_id')->nullable()->constrained('users')->nullOnDelete();
             $table->text('note')->nullable();
+            $table->json('price_snapshot')->nullable();
             $table->timestamp('created_at')->useCurrent();
 
             $table->index(['order_id', 'created_at']);
+            $table->index(['order_id', 'status_id'], 'order_status_histories_order_status_idx');
         });
     }
 

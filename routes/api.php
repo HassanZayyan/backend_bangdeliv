@@ -39,5 +39,19 @@ Route::prefix('v1')->group(function () {
         Route::get('/orders', [OrderController::class, 'index']);
         Route::get('/orders/{orderId}', [OrderController::class, 'show']);
         Route::post('/orders/{orderId}/cancel', [OrderController::class, 'cancel']);
+        Route::post('/orders/{orderId}/items', [OrderController::class, 'addShoppingItem']);
+        Route::patch('/orders/{orderId}/items/{itemId}', [OrderController::class, 'updateShoppingItem']);
+        Route::delete('/orders/{orderId}/items/{itemId}', [OrderController::class, 'removeShoppingItem']);
+    });
+
+    Route::middleware(['auth:sanctum', 'role:driver'])->group(function () {
+        Route::post('/orders/{orderId}/attempt-failed', [OrderController::class, 'recordFailedAttemptByDriver']);
+        Route::post('/orders/{orderId}/payment/collect-cod', [OrderController::class, 'recordCodCollectionByDriver']);
+    });
+
+    Route::middleware(['auth:sanctum', 'role:admin'])->group(function () {
+        Route::post('/admin/orders/{orderId}/attempt-failed', [OrderController::class, 'recordFailedAttemptByAdmin']);
+        Route::post('/admin/orders/{orderId}/payment/record-cod', [OrderController::class, 'recordCodCollectionByAdmin']);
+        Route::get('/admin/payments/cod-settlement', [OrderController::class, 'codSettlementReport']);
     });
 });

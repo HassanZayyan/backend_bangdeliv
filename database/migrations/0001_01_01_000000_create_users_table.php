@@ -15,10 +15,23 @@ return new class extends Migration
             $table->id();
             $table->string('name');
             $table->string('email')->unique();
+            $table->string('phone', 20)->unique()->nullable();
             $table->timestamp('email_verified_at')->nullable();
+            $table->timestamp('phone_verified_at')->nullable();
             $table->string('password');
+            $table->enum('role', ['customer', 'driver', 'admin'])->default('customer');
+            $table->string('avatar')->nullable();
+            $table->boolean('is_active')->default(true);
+            $table->boolean('is_blacklisted')->default(false);
+            $table->unsignedInteger('completed_orders_count')->default(0);
+            $table->unsignedInteger('cancelled_orders_count')->default(0);
             $table->rememberToken();
             $table->timestamps();
+            $table->softDeletes();
+
+            $table->index('role');
+            $table->index('is_active');
+            $table->index('is_blacklisted');
         });
 
         Schema::create('password_reset_tokens', function (Blueprint $table) {

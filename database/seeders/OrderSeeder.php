@@ -6,8 +6,11 @@ use App\Models\Address;
 use App\Models\Driver;
 use App\Models\Menu;
 use App\Models\Order;
+use App\Models\OrderStatus;
 use App\Models\OrderStatusHistory;
 use App\Models\Restaurant;
+use App\Models\ShoppingOrder;
+use App\Models\ServiceType;
 use App\Models\User;
 use Illuminate\Database\Seeder;
 
@@ -63,19 +66,28 @@ class OrderSeeder extends Seeder
             return;
         }
 
+        $shoppingServiceTypeId = ServiceType::query()->where('code', 'SHOPPING')->value('id');
+        if (!$shoppingServiceTypeId) {
+            return;
+        }
+
+        $statusMap = OrderStatus::query()->pluck('id', 'code');
+
         $this->seedSingleOrder(
             orderNumber: 'BD-SEED-0001',
             customer: $customer,
             driverId: $driver->id,
             restaurant: $restaurant,
             address: $addressOne,
-            status: 'on_delivery',
+            statusCode: 'ON_THE_WAY',
             paymentStatus: 'paid',
             itemRows: [
                 ['menu' => $menuA, 'qty' => 2, 'notes' => 'Pedas level 2'],
                 ['menu' => $menuB, 'qty' => 2, 'notes' => null],
             ],
-            historyStatuses: ['confirmed', 'driver_assigned', 'picking_up', 'on_delivery']
+            historyStatuses: ['PENDING', 'DRIVER_ASSIGNED', 'PICKED_UP', 'ON_THE_WAY'],
+            shoppingServiceTypeId: (int) $shoppingServiceTypeId,
+            statusMap: $statusMap->all(),
         );
 
         $this->seedSingleOrder(
@@ -84,13 +96,15 @@ class OrderSeeder extends Seeder
             driverId: $driver->id,
             restaurant: $restaurant,
             address: $addressTwo,
-            status: 'completed',
+            statusCode: 'COMPLETED',
             paymentStatus: 'paid',
             itemRows: [
                 ['menu' => $menuA, 'qty' => 1, 'notes' => null],
                 ['menu' => $menuB, 'qty' => 1, 'notes' => null],
             ],
-            historyStatuses: ['confirmed', 'driver_assigned', 'picking_up', 'on_delivery', 'delivered', 'completed']
+            historyStatuses: ['PENDING', 'DRIVER_ASSIGNED', 'PICKED_UP', 'ON_THE_WAY', 'DELIVERED', 'COMPLETED'],
+            shoppingServiceTypeId: (int) $shoppingServiceTypeId,
+            statusMap: $statusMap->all(),
         );
     }
 
@@ -104,11 +118,17 @@ class OrderSeeder extends Seeder
         int $driverId,
         Restaurant $restaurant,
         Address $address,
-        string $status,
+        string $statusCode,
         string $paymentStatus,
         array $itemRows,
-        array $historyStatuses
+        array $historyStatuses,
+        int $shoppingServiceTypeId,
+        array $statusMap
     ): void {
+        if (!isset($statusMap[$statusCode])) {
+            return;
+        }
+
         $subtotal = 0;
         foreach ($itemRows as $row) {
             $subtotal += (float) $row['menu']->price * $row['qty'];
@@ -120,6 +140,7 @@ class OrderSeeder extends Seeder
             [
                 'user_id' => $customer->id,
                 'restaurant_id' => $restaurant->id,
+                'service_type_id' => $shoppingServiceTypeId,
                 'driver_id' => $driverId,
                 'address_id' => $address->id,
                 'delivery_address' => trim($address->full_address.' '.$address->detail),
@@ -127,14 +148,17 @@ class OrderSeeder extends Seeder
                 'delivery_longitude' => $address->longitude,
                 'subtotal' => $subtotal,
                 'delivery_fee' => $deliveryFee,
+                'service_fee' => 0,
                 'delivery_distance_km' => 3.2,
                 'delivery_distance_text' => '3.2 km',
                 'total_amount' => $subtotal + $deliveryFee,
-                'status' => $status,
+                'total_price' => $subtotal + $deliveryFee,
+                'status_id' => $statusMap[$statusCode],
                 'payment_status' => $paymentStatus,
+                'payment_method' => 'COD',
                 'notes' => 'Order seeded for development.',
                 'estimated_delivery' => now()->addMinutes(35),
-                'delivered_at' => $status === 'completed' ? now()->subMinutes(15) : null,
+                'delivered_at' => $statusCode === 'COMPLETED' ? now()->subMinutes(15) : null,
             ]
         );
 
@@ -145,20 +169,41 @@ class OrderSeeder extends Seeder
 
             $order->items()->create([
                 'menu_id' => $row['menu']->id,
+                'item_source' => 'MENU_DB',
                 'menu_name' => $row['menu']->name,
                 'quantity' => $qty,
                 'unit_price' => $unitPrice,
                 'subtotal' => $unitPrice * $qty,
+                'line_service_fee' => 0,
+                'line_total' => $unitPrice * $qty,
                 'notes' => $row['notes'],
                 'is_available' => true,
+                'is_heavy' => false,
             ]);
         }
 
+        ShoppingOrder::query()->updateOrCreate(
+            ['order_id' => $order->id],
+            [
+                'failed_attempt_count' => 0,
+                'item_surcharge' => 0,
+                'overweight_surcharge' => 0,
+                'cancellation_penalty' => 0,
+                'has_overweight_item' => false,
+                'recalculation_version' => 0,
+            ]
+        );
+
         OrderStatusHistory::query()->where('order_id', $order->id)->delete();
         foreach ($historyStatuses as $historyStatus) {
+            if (!isset($statusMap[$historyStatus])) {
+                continue;
+            }
+
             OrderStatusHistory::query()->create([
                 'order_id' => $order->id,
-                'status' => $historyStatus,
+                'status_id' => $statusMap[$historyStatus],
+                'event_type' => 'STATUS_CHANGE',
                 'changed_by_user_id' => $customer->id,
                 'note' => 'Seeded status '.$historyStatus,
                 'created_at' => now(),

@@ -5,30 +5,38 @@
 
 @section('content')
 @php
+    $statusCodeToId = \App\Models\OrderStatus::query()->pluck('id', 'code');
+    $pendingId = $statusCodeToId['PENDING'] ?? null;
+    $driverAssignedId = $statusCodeToId['DRIVER_ASSIGNED'] ?? null;
+    $onTheWayId = $statusCodeToId['ON_THE_WAY'] ?? null;
+    $completedId = $statusCodeToId['COMPLETED'] ?? null;
+    $cancelledIds = collect(['CANCELLED', 'CANCELLED_WITH_FEE'])->map(fn ($code) => $statusCodeToId[$code] ?? null)->filter()->values()->all();
+
     $orders = \App\Models\Order::query()
-        ->with(['user', 'restaurant', 'driver.user'])
+        ->with(['user', 'restaurant', 'driver.user', 'statusRef'])
         ->latest('created_at')
         ->limit(20)
         ->get();
 
     $statusCounts = [
         'all' => \App\Models\Order::count(),
-        'confirmed' => \App\Models\Order::where('status', 'confirmed')->count(),
-        'driver_assigned' => \App\Models\Order::where('status', 'driver_assigned')->count(),
-        'on_delivery' => \App\Models\Order::where('status', 'on_delivery')->count(),
-        'completed' => \App\Models\Order::where('status', 'completed')->count(),
-        'cancelled' => \App\Models\Order::where('status', 'cancelled')->count(),
+        'pending' => $pendingId ? \App\Models\Order::where('status_id', $pendingId)->count() : 0,
+        'driver_assigned' => $driverAssignedId ? \App\Models\Order::where('status_id', $driverAssignedId)->count() : 0,
+        'on_the_way' => $onTheWayId ? \App\Models\Order::where('status_id', $onTheWayId)->count() : 0,
+        'completed' => $completedId ? \App\Models\Order::where('status_id', $completedId)->count() : 0,
+        'cancelled' => \App\Models\Order::whereIn('status_id', $cancelledIds)->count(),
     ];
 
     $statusMap = [
-        'confirmed' => ['label' => 'Menunggu Resto', 'class' => 'badge-warning'],
-        'driver_assigned' => ['label' => 'Mencari Driver', 'class' => 'badge-info'],
-        'item_unavailable' => ['label' => 'Item Tidak Tersedia', 'class' => 'badge-danger'],
-        'picking_up' => ['label' => 'Pickup', 'class' => 'badge-info'],
-        'on_delivery' => ['label' => 'Diantar', 'class' => 'badge-info'],
-        'delivered' => ['label' => 'Terkirim', 'class' => 'badge-success'],
-        'completed' => ['label' => 'Selesai', 'class' => 'badge-success'],
-        'cancelled' => ['label' => 'Dibatalkan', 'class' => 'badge-danger'],
+        'PENDING' => ['label' => 'Menunggu Driver', 'class' => 'badge-warning'],
+        'DRIVER_ASSIGNED' => ['label' => 'Driver Ditugaskan', 'class' => 'badge-info'],
+        'PICKED_UP' => ['label' => 'Pickup', 'class' => 'badge-info'],
+        'ON_THE_WAY' => ['label' => 'Diantar', 'class' => 'badge-info'],
+        'DELIVERED' => ['label' => 'Terkirim', 'class' => 'badge-success'],
+        'COMPLETED' => ['label' => 'Selesai', 'class' => 'badge-success'],
+        'CANCELLED' => ['label' => 'Dibatalkan', 'class' => 'badge-danger'],
+        'CANCELLED_WITH_FEE' => ['label' => 'Batal Dengan Biaya', 'class' => 'badge-danger'],
+        'COMPLAINT' => ['label' => 'Komplain', 'class' => 'badge-danger'],
     ];
 @endphp
 <div class="panel">
@@ -44,9 +52,9 @@
 
         <div class="tabs">
             <button class="tab-btn active">Semua</button>
-            <button class="tab-btn">Menunggu Resto <span class="badge badge-warning" style="margin-left:5px;">{{ $statusCounts['confirmed'] }}</span></button>
+            <button class="tab-btn">Menunggu Driver <span class="badge badge-warning" style="margin-left:5px;">{{ $statusCounts['pending'] }}</span></button>
             <button class="tab-btn">Mencari Driver <span class="badge badge-info" style="margin-left:5px;">{{ $statusCounts['driver_assigned'] }}</span></button>
-            <button class="tab-btn">Diantar <span class="badge badge-info" style="margin-left:5px;">{{ $statusCounts['on_delivery'] }}</span></button>
+            <button class="tab-btn">Diantar <span class="badge badge-info" style="margin-left:5px;">{{ $statusCounts['on_the_way'] }}</span></button>
             <button class="tab-btn">Selesai <span class="badge badge-success" style="margin-left:5px;">{{ $statusCounts['completed'] }}</span></button>
             <button class="tab-btn">Batal <span class="badge badge-danger" style="margin-left:5px;">{{ $statusCounts['cancelled'] }}</span></button>
         </div>
@@ -68,7 +76,8 @@
             <tbody>
                 @forelse($orders as $order)
                     @php
-                        $statusConfig = $statusMap[$order->status] ?? ['label' => ucfirst($order->status), 'class' => 'badge-info'];
+                        $statusCode = $order->statusRef?->code ?? 'UNKNOWN';
+                        $statusConfig = $statusMap[$statusCode] ?? ['label' => $statusCode, 'class' => 'badge-info'];
                     @endphp
                     <tr>
                         <td class="td-id">#{{ $order->order_number }}</td>
@@ -85,7 +94,7 @@
                         <td>
                             <span class="badge {{ $statusConfig['class'] }}">
                                 {{ $statusConfig['label'] }}
-                                @if($order->status === 'on_delivery' && $order->driver?->user)
+                                @if($statusCode === 'ON_THE_WAY' && $order->driver?->user)
                                     ({{ $order->driver->user->name }})
                                 @endif
                             </span>

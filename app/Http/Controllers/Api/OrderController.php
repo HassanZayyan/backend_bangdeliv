@@ -4,8 +4,12 @@ namespace App\Http\Controllers\Api;
 
 use App\Exceptions\ApiException;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Api\AddShoppingOrderItemRequest;
 use App\Http\Requests\Api\CancelOrderRequest;
 use App\Http\Requests\Api\CheckoutOrderRequest;
+use App\Http\Requests\Api\RecordCodPaymentRequest;
+use App\Http\Requests\Api\RecordFailedAttemptRequest;
+use App\Http\Requests\Api\UpdateShoppingOrderItemRequest;
 use App\Http\Responses\ApiResponse;
 use App\Services\CheckoutService;
 use App\Services\OrderService;
@@ -36,7 +40,7 @@ class OrderController extends Controller
     public function index(Request $request): JsonResponse
     {
         $request->validate([
-            'status' => ['nullable', 'in:confirmed,driver_assigned,item_unavailable,picking_up,on_delivery,delivered,completed,cancelled'],
+            'status' => ['nullable', 'string', 'max:40'],
             'page' => ['nullable', 'integer', 'min:1'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:50'],
         ]);
@@ -77,6 +81,110 @@ class OrderController extends Controller
             );
 
             return $this->success($order, 'Order berhasil dibatalkan.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
+    public function addShoppingItem(AddShoppingOrderItemRequest $request, int $orderId): JsonResponse
+    {
+        try {
+            $order = $this->orderService->addShoppingItem($request->user(), $orderId, $request->validated());
+
+            return $this->success($order, 'Item belanja berhasil ditambahkan.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
+    public function updateShoppingItem(UpdateShoppingOrderItemRequest $request, int $orderId, int $itemId): JsonResponse
+    {
+        try {
+            $order = $this->orderService->updateShoppingItem($request->user(), $orderId, $itemId, $request->validated());
+
+            return $this->success($order, 'Item belanja berhasil diperbarui.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
+    public function removeShoppingItem(Request $request, int $orderId, int $itemId): JsonResponse
+    {
+        try {
+            $order = $this->orderService->removeShoppingItem($request->user(), $orderId, $itemId);
+
+            return $this->success($order, 'Item belanja berhasil dihapus.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
+    public function recordFailedAttemptByDriver(RecordFailedAttemptRequest $request, int $orderId): JsonResponse
+    {
+        try {
+            $order = $this->orderService->recordFailedAttempt(
+                $request->user(),
+                $orderId,
+                (string) $request->input('failure_type'),
+                (string) $request->input('reason')
+            );
+
+            return $this->success($order, 'Failed attempt berhasil dicatat.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
+    public function recordFailedAttemptByAdmin(RecordFailedAttemptRequest $request, int $orderId): JsonResponse
+    {
+        try {
+            $order = $this->orderService->recordFailedAttempt(
+                $request->user(),
+                $orderId,
+                (string) $request->input('failure_type'),
+                (string) $request->input('reason')
+            );
+
+            return $this->success($order, 'Failed attempt berhasil dicatat oleh admin.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
+    public function recordCodCollectionByDriver(RecordCodPaymentRequest $request, int $orderId): JsonResponse
+    {
+        try {
+            $order = $this->orderService->recordCodPaymentByDriver($request->user(), $orderId, $request->validated());
+
+            return $this->success($order, 'Pembayaran COD berhasil dicatat.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
+    public function recordCodCollectionByAdmin(RecordCodPaymentRequest $request, int $orderId): JsonResponse
+    {
+        try {
+            $order = $this->orderService->recordCodPaymentByAdmin($request->user(), $orderId, $request->validated());
+
+            return $this->success($order, 'Pembayaran COD berhasil dicatat oleh admin.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
+    public function codSettlementReport(Request $request): JsonResponse
+    {
+        $request->validate([
+            'driver_id' => ['nullable', 'integer', 'exists:drivers,id'],
+            'date_from' => ['nullable', 'date'],
+            'date_to' => ['nullable', 'date', 'after_or_equal:date_from'],
+        ]);
+
+        try {
+            $report = $this->orderService->codSettlementReport($request->user(), $request->all());
+
+            return $this->success($report, 'Laporan settlement COD berhasil diambil.');
         } catch (ApiException $exception) {
             return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
         }

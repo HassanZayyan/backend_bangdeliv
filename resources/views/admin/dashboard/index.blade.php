@@ -7,15 +7,19 @@
 @php
     $now = now();
     $monthStart = $now->copy()->startOfMonth();
+    $statusCodeToId = \App\Models\OrderStatus::query()->pluck('id', 'code');
+    $doneStatusIds = collect(['COMPLETED', 'DELIVERED'])->map(fn ($code) => $statusCodeToId[$code] ?? null)->filter()->values()->all();
+    $activeStatusIds = collect(['PENDING', 'DRIVER_ASSIGNED', 'PICKED_UP', 'ON_THE_WAY'])->map(fn ($code) => $statusCodeToId[$code] ?? null)->filter()->values()->all();
+    $cancelledStatusIds = collect(['CANCELLED', 'CANCELLED_WITH_FEE'])->map(fn ($code) => $statusCodeToId[$code] ?? null)->filter()->values()->all();
 
     $gmvMonth = \App\Models\Order::whereBetween('created_at', [$monthStart, $now])->sum('total_amount');
     $totalOrdersMonth = \App\Models\Order::whereBetween('created_at', [$monthStart, $now])->count();
-    $cancelledOrdersMonth = \App\Models\Order::whereBetween('created_at', [$monthStart, $now])->where('status', 'cancelled')->count();
+    $cancelledOrdersMonth = \App\Models\Order::whereBetween('created_at', [$monthStart, $now])->whereIn('status_id', $cancelledStatusIds)->count();
     $newUsersMonth = \App\Models\User::whereBetween('created_at', [$monthStart, $now])->count();
 
-    $statusDone = \App\Models\Order::whereIn('status', ['completed', 'delivered'])->count();
-    $statusActive = \App\Models\Order::whereIn('status', ['confirmed', 'driver_assigned', 'picking_up', 'on_delivery'])->count();
-    $statusCancelled = \App\Models\Order::where('status', 'cancelled')->count();
+    $statusDone = \App\Models\Order::whereIn('status_id', $doneStatusIds)->count();
+    $statusActive = \App\Models\Order::whereIn('status_id', $activeStatusIds)->count();
+    $statusCancelled = \App\Models\Order::whereIn('status_id', $cancelledStatusIds)->count();
 
     $topRestaurants = \App\Models\Restaurant::query()
         ->withCount('orders')
