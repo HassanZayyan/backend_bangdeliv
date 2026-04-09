@@ -20,6 +20,11 @@ Route::post('/auth/login', [AuthController::class, 'login']);
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::get('/user', [AuthController::class, 'me']);
+    Route::put('/user', [AuthController::class, 'updateProfile']);
+    Route::put('/user/password', [AuthController::class, 'changePassword']);
+    Route::post('/user/addresses', [AuthController::class, 'storeAddress']);
+    Route::put('/user/addresses/{addressId}', [AuthController::class, 'updateAddress']);
+    Route::delete('/user/addresses/{addressId}', [AuthController::class, 'deleteAddress']);
 });
 
 Route::prefix('v1')->group(function () {
