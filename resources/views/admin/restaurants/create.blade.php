@@ -50,12 +50,6 @@
                     @error('name') <div style="color:var(--color-danger); font-size:12px; margin-top:4px;"><i class='bx bx-error-circle'></i> {{ $message }}</div> @enderror
                 </div>
 
-                <div class="form-group" style="margin-bottom:0;">
-                    <label>Slug <span style="font-size:12px; font-weight:400; color:var(--text-muted);">(opsional, auto-generate jika kosong)</span></label>
-                    <input type="text" name="slug" value="{{ old('slug') }}" class="form-control" placeholder="Contoh: warung-pak-budi">
-                    @error('slug') <div style="color:var(--color-danger); font-size:12px; margin-top:4px;"><i class='bx bx-error-circle'></i> {{ $message }}</div> @enderror
-                </div>
-
                 <div class="form-group" style="margin-bottom:0; grid-column: span 2;">
                     <label>Alamat Lengkap <span style="color:var(--color-danger);">*</span></label>
                     <textarea name="address" rows="2" class="form-control" placeholder="Jl. Contoh No. 1, Kelurahan, Kecamatan, Kota" required>{{ old('address') }}</textarea>
