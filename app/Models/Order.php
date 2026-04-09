@@ -105,9 +105,14 @@ class Order extends Model
         return $this->hasMany(OrderStatusHistory::class);
     }
 
+    public function orderLocations(): HasMany
+    {
+        return $this->hasMany(OrderLocation::class);
+    }
+
     public function locations(): HasMany
     {
-        return $this->hasMany(Location::class);
+        return $this->orderLocations();
     }
 
     public function evidences(): HasMany

@@ -11,7 +11,7 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('locations', function (Blueprint $table) {
+        Schema::create('order_locations', function (Blueprint $table) {
             $table->id();
             $table->foreignId('order_id')->constrained()->cascadeOnDelete();
             $table->enum('location_role', ['PICKUP', 'DROPOFF']);
@@ -25,8 +25,8 @@ return new class extends Migration
             $table->text('notes')->nullable();
             $table->timestamps();
 
-            $table->unique(['order_id', 'location_role'], 'locations_order_role_unique');
-            $table->index(['order_id', 'sequence_no'], 'locations_order_sequence_idx');
+            $table->unique(['order_id', 'location_role'], 'order_locations_order_role_unique');
+            $table->index(['order_id', 'sequence_no'], 'order_locations_order_sequence_idx');
         });
     }
 
@@ -35,6 +35,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('locations');
+        Schema::dropIfExists('order_locations');
     }
 };

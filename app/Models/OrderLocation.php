@@ -5,8 +5,10 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class Location extends Model
+class OrderLocation extends Model
 {
+    protected $table = 'order_locations';
+
     protected $fillable = [
         'order_id',
         'location_role',
