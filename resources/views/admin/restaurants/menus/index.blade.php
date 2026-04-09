@@ -10,48 +10,71 @@
     </div>
 @endif
 
-<div class="dashboard-grid" style="grid-template-columns: 360px 1fr;">
+@if($errors->any())
+    <div class="panel" style="margin-bottom: 12px; padding: 12px 16px; color: var(--color-danger); font-weight: 600; border-left:4px solid var(--color-danger);">
+        <div style="margin-bottom:8px;"><i class='bx bx-error-circle'></i> Terdapat kesalahan pada input menu</div>
+        <ul style="margin:0; padding-left:18px; color:var(--text-muted); font-weight:500; font-size:13px;">
+            @foreach ($errors->all() as $error)
+                <li>{{ $error }}</li>
+            @endforeach
+        </ul>
+    </div>
+@endif
+
+<div class="panel" style="margin-bottom: 16px;">
+    <div class="panel-header" style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+        <div>
+            <div class="panel-title">Kelola Menu Restoran</div>
+            <div style="font-size:13px; color:var(--text-muted); margin-top:4px;">{{ $restaurant->name }} | {{ $menus->count() }} menu ditampilkan</div>
+        </div>
+        <a href="{{ route('admin.restaurants.index') }}" class="btn" style="background:var(--bg-hover); color:var(--text-muted); text-decoration:none;">
+            <i class='bx bx-arrow-back'></i> Kembali
+        </a>
+    </div>
+</div>
+
+<div class="dashboard-grid" style="grid-template-columns: minmax(320px, 360px) minmax(0, 1fr); align-items:start;">
     <div class="panel">
         <div class="panel-header">
             <div class="panel-title">Tambah Menu Baru</div>
         </div>
-        <form action="{{ route('admin.restaurants.menus.store', $restaurant) }}" method="POST" style="padding:20px; display:flex; flex-direction:column; gap:12px;">
+        <form action="{{ route('admin.restaurants.menus.store', $restaurant) }}" method="POST" style="padding:20px;">
             @csrf
-            <div>
+            <div class="form-group" style="margin-bottom:14px;">
                 <label>Nama Menu</label>
-                <input type="text" name="name" value="{{ old('name') }}" class="input" required>
+                <input type="text" name="name" value="{{ old('name') }}" class="form-control" required>
             </div>
-            <div>
+            <div class="form-group" style="margin-bottom:14px;">
                 <label>Harga</label>
-                <input type="number" step="0.01" min="0" name="price" value="{{ old('price') }}" class="input" required>
+                <input type="number" step="0.01" min="0" name="price" value="{{ old('price') }}" class="form-control" required>
             </div>
-            <div>
+            <div class="form-group" style="margin-bottom:14px;">
                 <label>Kategori</label>
-                <select name="menu_category_id" class="input">
+                <select name="menu_category_id" class="form-control">
                     <option value="">Tanpa Kategori</option>
                     @foreach($categories as $category)
                         <option value="{{ $category->id }}" @selected(old('menu_category_id') == $category->id)>{{ $category->name }}</option>
                     @endforeach
                 </select>
             </div>
-            <div>
+            <div class="form-group" style="margin-bottom:14px;">
                 <label>Kategori Baru (opsional)</label>
-                <input type="text" name="new_category_name" value="{{ old('new_category_name') }}" class="input" placeholder="Contoh: Paket Hemat">
+                <input type="text" name="new_category_name" value="{{ old('new_category_name') }}" class="form-control" placeholder="Contoh: Paket Hemat">
             </div>
-            <div>
+            <div class="form-group" style="margin-bottom:14px;">
                 <label>Urutan</label>
-                <input type="number" min="0" name="sort_order" value="{{ old('sort_order', 0) }}" class="input">
+                <input type="number" min="0" name="sort_order" value="{{ old('sort_order', 0) }}" class="form-control">
             </div>
-            <div>
+            <div class="form-group" style="margin-bottom:14px;">
                 <label>Status</label>
-                <select name="is_available" class="input" required>
+                <select name="is_available" class="form-control" required>
                     <option value="1" @selected(old('is_available', '1') == '1')>Tersedia</option>
                     <option value="0" @selected(old('is_available') === '0')>Tidak Tersedia</option>
                 </select>
             </div>
-            <div>
+            <div class="form-group" style="margin-bottom:16px;">
                 <label>Deskripsi</label>
-                <textarea name="description" rows="3" class="input">{{ old('description') }}</textarea>
+                <textarea name="description" rows="3" class="form-control">{{ old('description') }}</textarea>
             </div>
             <div style="display:flex; justify-content:flex-end;">
                 <button type="submit" class="btn btn-primary">Tambah Menu</button>
@@ -60,9 +83,9 @@
     </div>
 
     <div class="panel">
-        <div class="panel-header" style="display:flex; justify-content:space-between; align-items:center;">
+        <div class="panel-header" style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
             <div class="panel-title">Daftar Menu</div>
-            <a href="{{ route('admin.restaurants.index') }}" class="btn" style="text-decoration:none;">Kembali</a>
+            <span class="badge badge-info">Total {{ $menus->count() }}</span>
         </div>
 
         <div class="table-responsive">
@@ -85,40 +108,37 @@
                                     <span class="td-sub">{{ $menu->description ?: '-' }}</span>
                                 </div>
                             </td>
-                            <td>{{ $menu->category?->name ?? '-' }}</td>
-                            <td>Rp {{ number_format((float) $menu->price, 0, ',', '.') }}</td>
+                            <td>
+                                <span class="td-sub" style="font-size:13px;">{{ $menu->category?->name ?? '-' }}</span>
+                            </td>
+                            <td>
+                                <span class="td-strong" style="color:var(--color-primary);">Rp {{ number_format((float) $menu->price, 0, ',', '.') }}</span>
+                            </td>
                             <td>
                                 <span class="badge {{ $menu->is_available ? 'badge-success' : 'badge-danger' }}">{{ $menu->is_available ? 'Tersedia' : 'Tidak Tersedia' }}</span>
                             </td>
                             <td>
-                                <details>
-                                    <summary class="btn-action detail" style="display:inline-flex; align-items:center; cursor:pointer;">Edit</summary>
-                                    <form action="{{ route('admin.restaurants.menus.update', [$restaurant, $menu]) }}" method="POST" style="margin-top:10px; display:grid; gap:8px; min-width:260px;">
+                                <div style="display:flex; align-items:flex-start; gap:8px; flex-wrap:wrap;">
+                                    <button
+                                        type="button"
+                                        class="btn-action detail js-edit-menu-btn"
+                                        title="Edit Menu"
+                                        data-update-url="{{ route('admin.restaurants.menus.update', [$restaurant, $menu]) }}"
+                                        data-name="{{ $menu->name }}"
+                                        data-price="{{ $menu->price }}"
+                                        data-category-id="{{ $menu->menu_category_id ?? '' }}"
+                                        data-sort-order="{{ $menu->sort_order }}"
+                                        data-is-available="{{ (int) $menu->is_available }}"
+                                        data-description="{{ $menu->description ?? '' }}"
+                                    >
+                                        <i class='bx bx-edit'></i>
+                                    </button>
+                                    <form action="{{ route('admin.restaurants.menus.destroy', [$restaurant, $menu]) }}" method="POST" onsubmit="return confirm('Hapus menu ini?');">
                                         @csrf
-                                        @method('PUT')
-                                        <input type="text" name="name" class="input" value="{{ $menu->name }}" required>
-                                        <input type="number" step="0.01" min="0" name="price" class="input" value="{{ $menu->price }}" required>
-                                        <select name="menu_category_id" class="input">
-                                            <option value="">Tanpa Kategori</option>
-                                            @foreach($categories as $category)
-                                                <option value="{{ $category->id }}" @selected($menu->menu_category_id == $category->id)>{{ $category->name }}</option>
-                                            @endforeach
-                                        </select>
-                                        <input type="text" name="new_category_name" class="input" placeholder="Kategori baru (opsional)">
-                                        <input type="number" min="0" name="sort_order" class="input" value="{{ $menu->sort_order }}">
-                                        <select name="is_available" class="input" required>
-                                            <option value="1" @selected((int)$menu->is_available === 1)>Tersedia</option>
-                                            <option value="0" @selected((int)$menu->is_available === 0)>Tidak Tersedia</option>
-                                        </select>
-                                        <textarea name="description" class="input" rows="2">{{ $menu->description }}</textarea>
-                                        <button type="submit" class="btn btn-primary">Simpan</button>
+                                        @method('DELETE')
+                                        <button type="submit" class="btn-action danger" title="Hapus Menu"><i class='bx bx-trash'></i></button>
                                     </form>
-                                </details>
-                                <form action="{{ route('admin.restaurants.menus.destroy', [$restaurant, $menu]) }}" method="POST" onsubmit="return confirm('Hapus menu ini?');" style="margin-top:8px;">
-                                    @csrf
-                                    @method('DELETE')
-                                    <button type="submit" class="btn-action danger"><i class='bx bx-trash'></i></button>
-                                </form>
+                                </div>
                             </td>
                         </tr>
                     @empty
@@ -131,4 +151,6 @@
         </div>
     </div>
 </div>
+
+<x-menu-edit-modal :categories="$categories" title="Edit Menu" />
 @endsection

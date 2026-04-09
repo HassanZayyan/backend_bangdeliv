@@ -4,81 +4,134 @@
 @section('page-title', 'Edit Mitra Restoran')
 
 @section('content')
-<div class="panel" style="max-width: 980px;">
+
+{{-- Flash Error --}}
+@if ($errors->any())
+    <div class="panel" style="margin-bottom: 16px; padding: 14px 20px; border-left: 4px solid var(--color-danger);">
+        <div style="display:flex; align-items:center; gap:10px; color:var(--color-danger); font-weight:600; margin-bottom:8px;">
+            <i class='bx bx-error-circle' style="font-size:20px;"></i> Terdapat kesalahan pada form
+        </div>
+        <ul style="list-style:none; display:flex; flex-direction:column; gap:4px;">
+            @foreach ($errors->all() as $error)
+                <li style="font-size:13px; color:var(--text-muted);"><i class='bx bx-chevron-right' style="color:var(--color-danger);"></i> {{ $error }}</li>
+            @endforeach
+        </ul>
+    </div>
+@endif
+
+<div class="panel">
     <div class="panel-header">
-        <div class="panel-title">Form Edit Restoran</div>
+        <div style="display:flex; align-items:center; gap:12px;">
+            <div style="width:36px; height:36px; background:rgba(255,119,0,0.1); border-radius:8px; display:flex; align-items:center; justify-content:center; color:var(--color-primary); font-size:20px;">
+                <i class='bx bx-edit'></i>
+            </div>
+            <div>
+                <div class="panel-title">Form Edit Restoran</div>
+                <div style="font-size:12px; color:var(--text-muted); margin-top:2px;">Memperbarui data: <strong>{{ $restaurant->name }}</strong></div>
+            </div>
+        </div>
+        <a href="{{ route('admin.restaurants.index') }}" class="btn" style="background:var(--bg-hover); color:var(--text-muted); text-decoration:none;">
+            <i class='bx bx-arrow-back'></i> Kembali
+        </a>
     </div>
 
-    <form action="{{ route('admin.restaurants.update', $restaurant) }}" method="POST" style="padding:20px; display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px;">
+    <form action="{{ route('admin.restaurants.update', $restaurant) }}" method="POST" style="padding: 24px;">
         @csrf
         @method('PUT')
 
-        <div>
-            <label>Nama Restoran</label>
-            <input type="text" name="name" value="{{ old('name', $restaurant->name) }}" class="input" required>
-            @error('name') <div style="color:#ef4444; font-size:12px;">{{ $message }}</div> @enderror
+        {{-- SECTION: Informasi Dasar --}}
+        <div style="margin-bottom: 24px;">
+            <div style="font-size:11px; text-transform:uppercase; letter-spacing:1px; font-weight:600; color:var(--text-muted); margin-bottom:16px; padding-bottom:8px; border-bottom:1px solid var(--border-color);">
+                <i class='bx bx-info-circle'></i> Informasi Dasar
+            </div>
+            <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:16px;">
+                <div class="form-group" style="margin-bottom:0;">
+                    <label>Nama Restoran <span style="color:var(--color-danger);">*</span></label>
+                    <input type="text" name="name" value="{{ old('name', $restaurant->name) }}" class="form-control" placeholder="Contoh: Warung Makan Pak Budi" required>
+                    @error('name') <div style="color:var(--color-danger); font-size:12px; margin-top:4px;"><i class='bx bx-error-circle'></i> {{ $message }}</div> @enderror
+                </div>
+
+                <div class="form-group" style="margin-bottom:0;">
+                    <label>Slug <span style="font-size:12px; font-weight:400; color:var(--text-muted);">(opsional, auto-generate jika kosong)</span></label>
+                    <input type="text" name="slug" value="{{ old('slug', $restaurant->slug) }}" class="form-control" placeholder="Contoh: warung-pak-budi">
+                    @error('slug') <div style="color:var(--color-danger); font-size:12px; margin-top:4px;"><i class='bx bx-error-circle'></i> {{ $message }}</div> @enderror
+                </div>
+
+                <div class="form-group" style="margin-bottom:0; grid-column: span 2;">
+                    <label>Alamat Lengkap <span style="color:var(--color-danger);">*</span></label>
+                    <textarea name="address" rows="2" class="form-control" placeholder="Jl. Contoh No. 1, Kelurahan, Kecamatan, Kota" required>{{ old('address', $restaurant->address) }}</textarea>
+                    @error('address') <div style="color:var(--color-danger); font-size:12px; margin-top:4px;"><i class='bx bx-error-circle'></i> {{ $message }}</div> @enderror
+                </div>
+
+                <div class="form-group" style="margin-bottom:0;">
+                    <label>Nomor Telepon <span style="color:var(--color-danger);">*</span></label>
+                    <input type="text" name="phone" value="{{ old('phone', $restaurant->phone) }}" class="form-control" placeholder="Contoh: 081234567890" required>
+                    @error('phone') <div style="color:var(--color-danger); font-size:12px; margin-top:4px;"><i class='bx bx-error-circle'></i> {{ $message }}</div> @enderror
+                </div>
+
+                <div class="form-group" style="margin-bottom:0;">
+                    <label>Estimasi Persiapan <span style="font-size:12px; font-weight:400; color:var(--text-muted);">(menit)</span> <span style="color:var(--color-danger);">*</span></label>
+                    <input type="number" min="1" max="240" name="estimated_prep_time" value="{{ old('estimated_prep_time', $restaurant->estimated_prep_time) }}" class="form-control" required>
+                    @error('estimated_prep_time') <div style="color:var(--color-danger); font-size:12px; margin-top:4px;"><i class='bx bx-error-circle'></i> {{ $message }}</div> @enderror
+                </div>
+
+                <div class="form-group" style="margin-bottom:0;">
+                    <label>Status <span style="color:var(--color-danger);">*</span></label>
+                    <select name="status" class="form-control" required>
+                        <option value="active" @selected(old('status', $restaurant->status) === 'active')>Aktif</option>
+                        <option value="inactive" @selected(old('status', $restaurant->status) === 'inactive')>Tidak Aktif (Suspended)</option>
+                    </select>
+                    @error('status') <div style="color:var(--color-danger); font-size:12px; margin-top:4px;"><i class='bx bx-error-circle'></i> {{ $message }}</div> @enderror
+                </div>
+
+                <div class="form-group" style="margin-bottom:0; grid-column: span 2;">
+                    <label>Deskripsi <span style="font-size:12px; font-weight:400; color:var(--text-muted);">(opsional)</span></label>
+                    <textarea name="description" rows="3" class="form-control" placeholder="Ceritakan sedikit tentang restoran ini...">{{ old('description', $restaurant->description) }}</textarea>
+                    @error('description') <div style="color:var(--color-danger); font-size:12px; margin-top:4px;"><i class='bx bx-error-circle'></i> {{ $message }}</div> @enderror
+                </div>
+            </div>
         </div>
 
-        <div>
-            <label>Slug (opsional)</label>
-            <input type="text" name="slug" value="{{ old('slug', $restaurant->slug) }}" class="input">
-            @error('slug') <div style="color:#ef4444; font-size:12px;">{{ $message }}</div> @enderror
+        {{-- SECTION: Koordinat Lokasi --}}
+        <div style="margin-bottom: 24px;">
+            <div style="font-size:11px; text-transform:uppercase; letter-spacing:1px; font-weight:600; color:var(--text-muted); margin-bottom:16px; padding-bottom:8px; border-bottom:1px solid var(--border-color);">
+                <i class='bx bx-map-pin'></i> Koordinat Lokasi
+            </div>
+            <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:16px;">
+                <div class="form-group" style="margin-bottom:0;">
+                    <label>Latitude <span style="font-size:12px; font-weight:400; color:var(--text-muted);">(-90 s/d 90)</span> <span style="color:var(--color-danger);">*</span></label>
+                    <input id="latitude" type="text" name="latitude" value="{{ old('latitude', $restaurant->latitude) }}" class="form-control" placeholder="Contoh: -7.33158552" required>
+                    @error('latitude') <div style="color:var(--color-danger); font-size:12px; margin-top:4px;"><i class='bx bx-error-circle'></i> {{ $message }}</div> @enderror
+                </div>
+
+                <div class="form-group" style="margin-bottom:0;">
+                    <label>Longitude <span style="font-size:12px; font-weight:400; color:var(--text-muted);">(-180 s/d 180)</span> <span style="color:var(--color-danger);">*</span></label>
+                    <input id="longitude" type="text" name="longitude" value="{{ old('longitude', $restaurant->longitude) }}" class="form-control" placeholder="Contoh: 110.50229678" required>
+                    @error('longitude') <div style="color:var(--color-danger); font-size:12px; margin-top:4px;"><i class='bx bx-error-circle'></i> {{ $message }}</div> @enderror
+                </div>
+
+                <div style="grid-column: span 2; display:flex; gap:10px; align-items:center; flex-wrap:wrap; background:var(--bg-body); border:1px solid var(--border-color); border-radius:8px; padding:12px 16px;">
+                    <button type="button" id="btn-detect-location" class="btn btn-primary" style="font-size:13px;">
+                        <i class='bx bx-current-location'></i> Gunakan Lokasi Saat Ini
+                    </button>
+                    <button type="button" id="btn-swap-coordinates" class="btn" style="background:var(--bg-card); border:1px solid var(--border-color); font-size:13px;">
+                        <i class='bx bx-transfer'></i> Tukar Lat/Lng
+                    </button>
+                    <span style="font-size:12px; color:var(--text-muted);">
+                        <i class='bx bx-info-circle'></i> Sistem akan auto normalisasi format koma dan deteksi jika koordinat tertukar.
+                    </span>
+                </div>
+            </div>
         </div>
 
-        <div style="grid-column: span 2;">
-            <label>Alamat</label>
-            <textarea name="address" rows="2" class="input" required>{{ old('address', $restaurant->address) }}</textarea>
-            @error('address') <div style="color:#ef4444; font-size:12px;">{{ $message }}</div> @enderror
-        </div>
-
-        <div>
-            <label>Telepon</label>
-            <input type="text" name="phone" value="{{ old('phone', $restaurant->phone) }}" class="input" required>
-            @error('phone') <div style="color:#ef4444; font-size:12px;">{{ $message }}</div> @enderror
-        </div>
-
-        <div>
-            <label>Estimasi Prep (menit)</label>
-            <input type="number" min="1" max="240" name="estimated_prep_time" value="{{ old('estimated_prep_time', $restaurant->estimated_prep_time) }}" class="input" required>
-            @error('estimated_prep_time') <div style="color:#ef4444; font-size:12px;">{{ $message }}</div> @enderror
-        </div>
-
-        <div>
-            <label>Latitude (-90 s/d 90)</label>
-            <input id="latitude" type="text" name="latitude" value="{{ old('latitude', $restaurant->latitude) }}" class="input" placeholder="Contoh: -7.33158552" required>
-            @error('latitude') <div style="color:#ef4444; font-size:12px;">{{ $message }}</div> @enderror
-        </div>
-
-        <div>
-            <label>Longitude (-180 s/d 180)</label>
-            <input id="longitude" type="text" name="longitude" value="{{ old('longitude', $restaurant->longitude) }}" class="input" placeholder="Contoh: 110.50229678" required>
-            @error('longitude') <div style="color:#ef4444; font-size:12px;">{{ $message }}</div> @enderror
-        </div>
-
-        <div style="grid-column: span 2; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
-            <button type="button" id="btn-detect-location" class="btn" style="background: var(--bg-hover);">Gunakan Lokasi Saat Ini</button>
-            <button type="button" id="btn-swap-coordinates" class="btn" style="background: var(--bg-hover);">Tukar Latitude/Longitude</button>
-            <span style="font-size:12px; color: var(--text-muted);">Tip: Sistem akan auto normalisasi format koma dan deteksi jika koordinat tertukar.</span>
-        </div>
-
-        <div>
-            <label>Status</label>
-            <select name="status" class="input" required>
-                <option value="active" @selected(old('status', $restaurant->status) === 'active')>Active</option>
-                <option value="inactive" @selected(old('status', $restaurant->status) === 'inactive')>Inactive</option>
-            </select>
-            @error('status') <div style="color:#ef4444; font-size:12px;">{{ $message }}</div> @enderror
-        </div>
-
-        <div style="grid-column: span 2;">
-            <label>Deskripsi</label>
-            <textarea name="description" rows="3" class="input">{{ old('description', $restaurant->description) }}</textarea>
-            @error('description') <div style="color:#ef4444; font-size:12px;">{{ $message }}</div> @enderror
-        </div>
-
-        <div style="grid-column: span 2; display:flex; justify-content:flex-end; gap:10px;">
-            <a href="{{ route('admin.restaurants.index') }}" class="btn" style="text-decoration:none;">Batal</a>
-            <button type="submit" class="btn btn-primary">Update</button>
+        {{-- ACTION BUTTONS --}}
+        <div style="display:flex; justify-content:flex-end; gap:10px; padding-top:20px; border-top:1px solid var(--border-color);">
+            <a href="{{ route('admin.restaurants.index') }}" class="btn" style="background:var(--bg-hover); color:var(--text-muted); text-decoration:none;">
+                Batal
+            </a>
+            <button type="submit" class="btn btn-primary">
+                <i class='bx bx-save'></i> Update Restoran
+            </button>
         </div>
     </form>
 </div>
@@ -115,11 +168,22 @@ document.addEventListener('DOMContentLoaded', function () {
             return;
         }
 
+        const originalText = detectBtn.innerHTML;
+        detectBtn.innerHTML = "<i class='bx bx-loader-alt bx-spin'></i> Mendeteksi...";
+        detectBtn.disabled = true;
+
         navigator.geolocation.getCurrentPosition(function (position) {
             latInput.value = position.coords.latitude.toFixed(8);
             lngInput.value = position.coords.longitude.toFixed(8);
+            detectBtn.innerHTML = "<i class='bx bx-check'></i> Lokasi Terdeteksi";
+            setTimeout(() => {
+                detectBtn.innerHTML = originalText;
+                detectBtn.disabled = false;
+            }, 2000);
         }, function () {
             alert('Lokasi gagal diambil. Pastikan izin lokasi diaktifkan.');
+            detectBtn.innerHTML = originalText;
+            detectBtn.disabled = false;
         }, {
             enableHighAccuracy: true,
             timeout: 10000,
