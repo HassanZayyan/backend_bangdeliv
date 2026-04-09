@@ -5,10 +5,12 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\Driver;
+use App\Models\Review;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class AuthController extends Controller
 {
@@ -17,22 +19,30 @@ class AuthController extends Controller
      */
     public function registerCustomer(Request $request)
     {
-        $validator = Validator::make($request->all(), [
+        $payload = [
+            'name' => $request->input('name'),
+            'email' => strtolower((string) $request->input('email', '')),
+            'phone' => $this->normalizePhone((string) $request->input('phone', '')),
+            'password' => $request->input('password'),
+        ];
+
+        $validator = Validator::make($payload, [
             'name' => 'required|string|max:255',
-            'email' => 'required|string|email|max:255|unique:users',
+            'email' => 'required|string|email|max:255|unique:users,email',
             'phone' => 'required|string|max:20|unique:users',
-            'password' => 'required|string|min:8|confirmed',
+            'password' => 'required|string|min:8',
         ]);
 
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
+        $validated = $validator->validated();
         $user = User::create([
-            'name' => $request->name,
-            'email' => $request->email,
-            'phone' => $request->phone,
-            'password' => Hash::make($request->password),
+            'name' => $validated['name'],
+            'email' => $validated['email'],
+            'phone' => $validated['phone'],
+            'password' => Hash::make($validated['password']),
             'role' => 'customer',
         ]);
 
@@ -44,6 +54,11 @@ class AuthController extends Controller
             'access_token' => $token,
             'token_type' => 'Bearer',
         ], 201);
+    }
+
+    private function normalizePhone(string $phone): string
+    {
+        return preg_replace('/[^0-9+]/', '', trim($phone)) ?? '';
     }
 
     /**
@@ -108,14 +123,23 @@ class AuthController extends Controller
      */
     public function login(Request $request)
     {
-        $request->validate([
-            'email' => 'required|email',
-            'password' => 'required',
+        $payload = [
+            'email' => strtolower((string) $request->input('email', '')),
+            'password' => $request->input('password'),
+        ];
+
+        $validator = Validator::make($payload, [
+            'email' => 'required|string|email|max:255',
+            'password' => 'required|string',
         ]);
 
-        $user = User::where('email', $request->email)->first();
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
 
-        if (! $user || ! Hash::check($request->password, $user->password)) {
+        $user = User::where('email', $payload['email'])->first();
+
+        if (!$user || !Hash::check($payload['password'], $user->password)) {
             return response()->json(['message' => 'Kredensial tidak valid.'], 401);
         }
 
@@ -152,7 +176,7 @@ class AuthController extends Controller
     public function me(Request $request)
     {
         $user = $request->user();
-        $responseUserData = $user->toArray();
+        $responseUserData = $this->buildProfilePayload($user);
         
         if ($user->role === 'driver') {
             $responseUserData['driver_profile'] = $user->driver;
@@ -160,6 +184,226 @@ class AuthController extends Controller
 
         return response()->json([
             'data' => $responseUserData
+        ]);
+    }
+
+    /**
+     * Update Current Profile
+     */
+    public function updateProfile(Request $request)
+    {
+        $user = $request->user();
+
+        $payload = [
+            'name' => $request->input('name'),
+            'email' => $request->filled('email') ? strtolower((string) $request->input('email')) : null,
+            'phone' => $this->normalizePhone((string) $request->input('phone', '')),
+        ];
+
+        $validator = Validator::make($payload, [
+            'name' => 'required|string|max:255',
+            'email' => [
+                'nullable',
+                'string',
+                'email',
+                'max:255',
+                Rule::unique('users', 'email')->ignore($user->id),
+            ],
+            'phone' => [
+                'required',
+                'string',
+                'max:20',
+                Rule::unique('users', 'phone')->ignore($user->id),
+            ],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $validated = $validator->validated();
+
+        $user->update([
+            'name' => $validated['name'],
+            'phone' => $validated['phone'],
+            'email' => $validated['email'] ?? $user->email,
+        ]);
+
+        return response()->json([
+            'message' => 'Profil berhasil diperbarui.',
+            'data' => $this->buildProfilePayload($user->fresh()),
+        ]);
+    }
+
+    /**
+     * Update current user password
+     */
+    public function changePassword(Request $request)
+    {
+        $user = $request->user();
+
+        $payload = [
+            'current_password' => $request->input('current_password'),
+            'new_password' => $request->input('new_password'),
+            'new_password_confirmation' => $request->input('new_password_confirmation'),
+        ];
+
+        $validator = Validator::make($payload, [
+            'current_password' => 'required|string',
+            'new_password' => 'required|string|min:8|confirmed|different:current_password',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        if (!Hash::check((string) $payload['current_password'], (string) $user->password)) {
+            return response()->json([
+                'errors' => [
+                    'current_password' => ['Password saat ini tidak sesuai.'],
+                ],
+            ], 422);
+        }
+
+        $user->update([
+            'password' => Hash::make((string) $payload['new_password']),
+        ]);
+
+        // Rotate tokens so sessions use fresh credentials.
+        $user->tokens()->delete();
+        $token = $user->createToken('auth_token')->plainTextToken;
+
+        return response()->json([
+            'message' => 'Password berhasil diperbarui.',
+            'access_token' => $token,
+            'token_type' => 'Bearer',
+        ]);
+    }
+
+    /**
+     * Store a new saved address for current user
+     */
+    public function storeAddress(Request $request)
+    {
+        $user = $request->user();
+
+        $payload = [
+            'label' => $request->input('label'),
+            'recipient_name' => $request->input('recipient_name', $user->name),
+            'phone' => $this->normalizePhone((string) $request->input('phone', $user->phone)),
+            'full_address' => $request->input('full_address'),
+            'detail' => $request->input('detail'),
+            'latitude' => $request->input('latitude', 0),
+            'longitude' => $request->input('longitude', 0),
+            'is_default' => (bool) $request->boolean('is_default'),
+        ];
+
+        $validator = Validator::make($payload, [
+            'label' => 'required|string|max:50',
+            'recipient_name' => 'required|string|max:255',
+            'phone' => 'required|string|max:20',
+            'full_address' => 'required|string|max:1000',
+            'detail' => 'nullable|string|max:255',
+            'latitude' => 'numeric|between:-90,90',
+            'longitude' => 'numeric|between:-180,180',
+            'is_default' => 'boolean',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $validated = $validator->validated();
+
+        if ((bool) $validated['is_default'] || !$user->addresses()->exists()) {
+            $user->addresses()->update(['is_default' => false]);
+            $validated['is_default'] = true;
+        }
+
+        $address = $user->addresses()->create($validated);
+
+        return response()->json([
+            'message' => 'Alamat berhasil disimpan.',
+            'data' => $address,
+        ], 201);
+    }
+
+    /**
+     * Update saved address for current user
+     */
+    public function updateAddress(Request $request, int $addressId)
+    {
+        $user = $request->user();
+        $address = $user->addresses()->whereKey($addressId)->first();
+
+        if (!$address) {
+            return response()->json(['message' => 'Alamat tidak ditemukan.'], 404);
+        }
+
+        $payload = [
+            'label' => $request->input('label'),
+            'recipient_name' => $request->input('recipient_name', $address->recipient_name),
+            'phone' => $this->normalizePhone((string) $request->input('phone', $address->phone)),
+            'full_address' => $request->input('full_address'),
+            'detail' => $request->input('detail'),
+            'latitude' => $request->input('latitude', $address->latitude),
+            'longitude' => $request->input('longitude', $address->longitude),
+            'is_default' => (bool) $request->boolean('is_default'),
+        ];
+
+        $validator = Validator::make($payload, [
+            'label' => 'required|string|max:50',
+            'recipient_name' => 'required|string|max:255',
+            'phone' => 'required|string|max:20',
+            'full_address' => 'required|string|max:1000',
+            'detail' => 'nullable|string|max:255',
+            'latitude' => 'numeric|between:-90,90',
+            'longitude' => 'numeric|between:-180,180',
+            'is_default' => 'boolean',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $validated = $validator->validated();
+
+        if ((bool) $validated['is_default']) {
+            $user->addresses()->where('id', '!=', $addressId)->update(['is_default' => false]);
+        }
+
+        $address->update($validated);
+
+        return response()->json([
+            'message' => 'Alamat berhasil diperbarui.',
+            'data' => $address->fresh(),
+        ]);
+    }
+
+    /**
+     * Delete saved address for current user
+     */
+    public function deleteAddress(Request $request, int $addressId)
+    {
+        $user = $request->user();
+        $address = $user->addresses()->whereKey($addressId)->first();
+
+        if (!$address) {
+            return response()->json(['message' => 'Alamat tidak ditemukan.'], 404);
+        }
+
+        $wasDefault = (bool) $address->is_default;
+        $address->delete();
+
+        if ($wasDefault) {
+            $replacementDefault = $user->addresses()->latest('id')->first();
+            if ($replacementDefault) {
+                $replacementDefault->update(['is_default' => true]);
+            }
+        }
+
+        return response()->json([
+            'message' => 'Alamat berhasil dihapus.',
         ]);
     }
 
@@ -172,5 +416,36 @@ class AuthController extends Controller
         $request->user()->currentAccessToken()->delete();
 
         return response()->json(['message' => 'Logged out successfully']);
+    }
+
+    private function buildProfilePayload(User $user): array
+    {
+        $addresses = $user->addresses()
+            ->orderByDesc('is_default')
+            ->latest()
+            ->get([
+                'id',
+                'label',
+                'recipient_name',
+                'phone',
+                'full_address',
+                'detail',
+                'is_default',
+            ]);
+
+        $totalOrders = $user->orders()->count();
+        $totalPaid = (float) $user->orders()->where('payment_status', 'paid')->sum('total_amount');
+        $rating = (float) (Review::query()->where('user_id', $user->id)->avg('rating') ?? 0);
+
+        $responseUserData = $user->toArray();
+        $responseUserData['address_count'] = $addresses->count();
+        $responseUserData['addresses'] = $addresses->toArray();
+        $responseUserData['stats'] = [
+            'total_orders' => $totalOrders,
+            'total_paid' => $totalPaid,
+            'rating' => round($rating, 1),
+        ];
+
+        return $responseUserData;
     }
 }
