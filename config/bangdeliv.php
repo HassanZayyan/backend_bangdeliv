@@ -39,4 +39,17 @@ return [
     'new_account_order_limit' => env('NEW_ACCOUNT_ORDER_LIMIT', 50000), // Rp 50.000
     'new_account_threshold'   => env('NEW_ACCOUNT_THRESHOLD', 3),       // 3 order pertama
 
+    /*
+    |--------------------------------------------------------------------------
+    | Chatbot Rate Limit
+    |--------------------------------------------------------------------------
+    |
+    | Batas request chatbot per user terautentikasi untuk mencegah abuse.
+    |
+    */
+    'chatbot' => [
+        'rate_limit_per_minute' => env('CHATBOT_RATE_LIMIT_PER_MINUTE', 12),
+        'rate_limit_per_hour' => env('CHATBOT_RATE_LIMIT_PER_HOUR', 120),
+    ],
+
 ];

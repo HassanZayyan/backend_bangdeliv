@@ -5,11 +5,18 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Services\ChatbotOrderValidationService;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class ChatbotController extends Controller
 {
+    private const SERVICE_TYPE_MAP = [
+        'antar_jemput' => 'RIDE',
+        'kurir' => 'COURIER',
+        'nitip' => 'SHOPPING',
+    ];
+
     public function __construct(private readonly ChatbotOrderValidationService $validator)
     {
     }
@@ -17,9 +24,13 @@ class ChatbotController extends Controller
     public function processChat(Request $request)
     {
         // Validasi request
-        $request->validate([
+        $validated = $request->validate([
             'message' => 'required|string',
+            'service_type' => ['nullable', Rule::in(array_keys(self::SERVICE_TYPE_MAP))],
         ]);
+
+        $serviceType = (string) ($validated['service_type'] ?? 'nitip');
+        $serviceCode = self::SERVICE_TYPE_MAP[$serviceType];
 
         $apiKey = env('GEMINI_API_KEY');
 
@@ -98,6 +109,10 @@ class ChatbotController extends Controller
 
                     return response()->json([
                         'status' => 'success',
+                        'service_context' => [
+                            'service_type' => $serviceType,
+                            'service_code' => $serviceCode,
+                        ],
                         'data' => $validatedPayload,
                         'model_used' => $model
                     ], 200);

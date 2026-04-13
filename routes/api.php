@@ -10,14 +10,13 @@ use App\Http\Controllers\Api\DriverVerificationController;
 use App\Http\Controllers\Api\RestaurantController;
 use App\Http\Controllers\Api\HomeController;
 
-Route::post('/chatbot/process', [ChatbotController::class, 'processChat']);
-
 // Public Auth Routes
 Route::post('/auth/register/customer', [AuthController::class, 'registerCustomer']);
 Route::post('/auth/login', [AuthController::class, 'login']);
 
 // Protected Auth Routes
 Route::middleware('auth:sanctum')->group(function () {
+    Route::post('/chatbot/process', [ChatbotController::class, 'processChat'])->middleware('throttle:chatbot');
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::get('/user', [AuthController::class, 'me']);
     Route::post('/user/upgrade-to-driver', [AuthController::class, 'upgradeToDriver'])->middleware('role:customer');
