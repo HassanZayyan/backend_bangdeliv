@@ -15,6 +15,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
             'role' => \App\Http\Middleware\EnsureUserRole::class,
+            'driver.active' => \App\Http\Middleware\EnsureDriverIsActive::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

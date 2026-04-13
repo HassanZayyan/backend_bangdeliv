@@ -70,7 +70,7 @@
                 </a>
 
                 <div class="menu-category">SISTEM</div>
-                <a href="{{ route('admin.verification') }}" class="menu-item {{ Request::routeIs('admin.verification') ? 'active' : '' }}">
+                <a href="{{ route('admin.verification') }}" class="menu-item {{ Request::routeIs('admin.verification*') ? 'active' : '' }}">
                     <i class='bx bx-check-shield'></i>
                     Verifikasi Driver
                     @if($sidebarVerificationCount > 0)

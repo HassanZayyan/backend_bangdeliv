@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\CartController;
 use App\Http\Controllers\Api\ChatbotController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\OrderController;
+use App\Http\Controllers\Api\DriverVerificationController;
 use App\Http\Controllers\Api\RestaurantController;
 use App\Http\Controllers\Api\HomeController;
 
@@ -13,13 +14,13 @@ Route::post('/chatbot/process', [ChatbotController::class, 'processChat']);
 
 // Public Auth Routes
 Route::post('/auth/register/customer', [AuthController::class, 'registerCustomer']);
-Route::post('/auth/register/driver', [AuthController::class, 'registerDriver']);
 Route::post('/auth/login', [AuthController::class, 'login']);
 
 // Protected Auth Routes
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::get('/user', [AuthController::class, 'me']);
+    Route::post('/user/upgrade-to-driver', [AuthController::class, 'upgradeToDriver'])->middleware('role:customer');
     Route::put('/user', [AuthController::class, 'updateProfile']);
     Route::put('/user/password', [AuthController::class, 'changePassword']);
     Route::post('/user/addresses', [AuthController::class, 'storeAddress']);
@@ -50,13 +51,22 @@ Route::prefix('v1')->group(function () {
     });
 
     Route::middleware(['auth:sanctum', 'role:driver'])->group(function () {
-        Route::post('/orders/{orderId}/attempt-failed', [OrderController::class, 'recordFailedAttemptByDriver']);
-        Route::post('/orders/{orderId}/payment/collect-cod', [OrderController::class, 'recordCodCollectionByDriver']);
+        Route::get('/driver/verification', [DriverVerificationController::class, 'myStatus']);
+        Route::post('/driver/verification/documents', [DriverVerificationController::class, 'submitDocuments']);
+
+        Route::middleware('driver.active')->group(function () {
+            Route::post('/orders/{orderId}/attempt-failed', [OrderController::class, 'recordFailedAttemptByDriver']);
+            Route::post('/orders/{orderId}/payment/collect-cod', [OrderController::class, 'recordCodCollectionByDriver']);
+        });
     });
 
     Route::middleware(['auth:sanctum', 'role:admin'])->group(function () {
         Route::post('/admin/orders/{orderId}/attempt-failed', [OrderController::class, 'recordFailedAttemptByAdmin']);
         Route::post('/admin/orders/{orderId}/payment/record-cod', [OrderController::class, 'recordCodCollectionByAdmin']);
         Route::get('/admin/payments/cod-settlement', [OrderController::class, 'codSettlementReport']);
+
+        Route::get('/admin/drivers/verification', [DriverVerificationController::class, 'adminIndex']);
+        Route::get('/admin/drivers/{driverId}/verification', [DriverVerificationController::class, 'adminShow']);
+        Route::post('/admin/drivers/{driverId}/verification/review', [DriverVerificationController::class, 'adminReview']);
     });
 });

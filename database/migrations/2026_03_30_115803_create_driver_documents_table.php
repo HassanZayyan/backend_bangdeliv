@@ -21,6 +21,9 @@ return new class extends Migration
             $table->timestamp('verified_at')->nullable();
             $table->foreignId('verified_by')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamps();
+
+            $table->unique(['driver_id', 'document_type'], 'driver_documents_driver_type_unique');
+            $table->index(['driver_id', 'verification_status'], 'driver_documents_driver_status_index');
         });
     }
 

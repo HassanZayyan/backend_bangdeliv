@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AdminAuthController;
+use App\Http\Controllers\Admin\DriverVerificationController;
 use App\Http\Controllers\Admin\RestaurantController;
 use App\Http\Controllers\Admin\RestaurantMenuController;
 
@@ -28,8 +29,16 @@ Route::prefix('admin')->middleware(['auth', 'role:admin'])->group(function () {
     // Drivers
     Route::get('/driver', fn() => view('admin.drivers.index'))
         ->name('admin.drivers.index');
-    Route::get('/driver/verifikasi', fn() => view('admin.drivers.verification.index'))
+    Route::get('/driver/verifikasi', [DriverVerificationController::class, 'index'])
         ->name('admin.verification');
+    Route::get('/driver/verifikasi/{driverId}', [DriverVerificationController::class, 'show'])
+        ->name('admin.verification.show');
+    Route::post('/driver/verifikasi/{driverId}/review', [DriverVerificationController::class, 'review'])
+        ->name('admin.verification.review');
+    Route::get('/driver/verifikasi/{driverId}/documents/{documentType}/preview', [DriverVerificationController::class, 'previewDocument'])
+        ->name('admin.verification.documents.preview');
+    Route::delete('/driver/verifikasi/{driverId}/documents/{documentType}', [DriverVerificationController::class, 'deleteDocument'])
+        ->name('admin.verification.documents.destroy');
 
     // Customers
     Route::get('/pelanggan', fn() => view('admin.customers.index'))

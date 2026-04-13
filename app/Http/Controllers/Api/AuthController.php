@@ -3,14 +3,15 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Api\UpgradeToDriverRequest;
 use App\Models\User;
-use App\Models\Driver;
 use App\Models\Review;
+use App\Services\DriverOnboardingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class AuthController extends Controller
 {
@@ -62,59 +63,31 @@ class AuthController extends Controller
     }
 
     /**
-     * Register Driver
+     * Upgrade authenticated customer to driver
      */
-    public function registerDriver(Request $request)
+    public function upgradeToDriver(
+        UpgradeToDriverRequest $request,
+        DriverOnboardingService $service
+    )
     {
-        $validator = Validator::make($request->all(), [
-            'name' => 'required|string|max:255',
-            'email' => 'required|string|email|max:255|unique:users',
-            'phone' => 'required|string|max:20|unique:users',
-            'password' => 'required|string|min:8|confirmed',
-            'vehicle_plate' => 'required|string|max:20',
-            'license_number' => 'required|string|max:50',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
-        }
-
         try {
-            DB::beginTransaction();
-
-            $user = User::create([
-                'name' => $request->name,
-                'email' => $request->email,
-                'phone' => $request->phone,
-                'password' => Hash::make($request->password),
-                'role' => 'driver',
-            ]);
-
-            $driver = Driver::create([
-                'user_id' => $user->id,
-                'vehicle_plate' => $request->vehicle_plate,
-                'license_number' => $request->license_number,
-                'registration_status' => 'pending',
-                'status' => 'offline',
-            ]);
-
-            DB::commit();
-
-            $token = $user->createToken('auth_token')->plainTextToken;
+            $payload = $service->upgradeCustomerToDriver(
+                $request->user(),
+                $request->validated()
+            );
 
             return response()->json([
-                'message' => 'Driver registered successfully. Pending admin approval.',
-                'data' => [
-                    'user' => $user,
-                    'driver_profile' => $driver
-                ],
-                'access_token' => $token,
-                'token_type' => 'Bearer',
+                'message' => 'Upgrade ke driver berhasil. Dokumen menunggu verifikasi admin.',
+                'data' => $payload,
             ], 201);
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            return response()->json(['message' => 'Registration failed', 'error' => $e->getMessage()], 500);
+        } catch (HttpException $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+            ], $e->getStatusCode());
+        } catch (\Throwable $e) {
+            return response()->json([
+                'message' => 'Upgrade akun driver gagal. Silakan coba lagi.',
+            ], 500);
         }
     }
 
