@@ -176,6 +176,39 @@ a {
     color: white;
 }
 
+.menu-group {
+    margin-bottom: 4px;
+}
+
+.menu-submenu {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 6px 0 10px 50px;
+}
+
+.menu-subitem {
+    display: flex;
+    align-items: center;
+    border-radius: 8px;
+    color: var(--text-muted);
+    font-size: 13px;
+    font-weight: 500;
+    padding: 6px 10px;
+    margin-right: 12px;
+    transition: var(--transition);
+}
+
+.menu-subitem:hover {
+    background-color: var(--bg-hover);
+    color: var(--text-main);
+}
+
+.menu-subitem.active {
+    color: var(--color-primary);
+    background-color: rgba(255, 119, 0, 0.12);
+}
+
 .sidebar-footer {
     padding: 20px 24px;
     border-top: 1px solid var(--border-color);

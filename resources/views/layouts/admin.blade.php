@@ -29,6 +29,21 @@
                 $sidebarOrderCount = \App\Models\Order::count();
                 $sidebarDriverCount = \App\Models\Driver::count();
                 $sidebarVerificationCount = \App\Models\Driver::where('registration_status', 'pending')->count();
+                $serviceTypeIdMap = \App\Models\ServiceType::query()->pluck('id', 'code');
+                $sidebarShoppingCount = isset($serviceTypeIdMap['SHOPPING'])
+                    ? \App\Models\Order::where('service_type_id', $serviceTypeIdMap['SHOPPING'])->count()
+                    : 0;
+                $sidebarCourierCount = isset($serviceTypeIdMap['COURIER'])
+                    ? \App\Models\Order::where('service_type_id', $serviceTypeIdMap['COURIER'])->count()
+                    : 0;
+                $sidebarRideCount = isset($serviceTypeIdMap['RIDE'])
+                    ? \App\Models\Order::where('service_type_id', $serviceTypeIdMap['RIDE'])->count()
+                    : 0;
+                $isOrdersRoute = Request::routeIs('admin.orders.*');
+                $orderServiceFilter = request()->query('service', 'all');
+                if (!in_array($orderServiceFilter, ['all', 'shopping', 'courier', 'ride'], true)) {
+                    $orderServiceFilter = 'all';
+                }
             @endphp
             <div class="sidebar-header">
                 <div class="sidebar-logo">
@@ -46,13 +61,32 @@
                 </a>
 
                 <div class="menu-category">OPERASIONAL</div>
-                <a href="{{ route('admin.orders.index') }}" class="menu-item {{ Request::routeIs('admin.orders.*') ? 'active' : '' }}">
-                    <i class='bx bx-receipt'></i>
-                    Pesanan
-                    @if($sidebarOrderCount > 0)
-                        <span class="menu-badge">{{ $sidebarOrderCount }}</span>
-                    @endif
-                </a>
+                <div class="menu-group">
+                    <a href="{{ route('admin.orders.index', ['service' => 'all']) }}" class="menu-item {{ $isOrdersRoute ? 'active' : '' }}">
+                        <i class='bx bx-receipt'></i>
+                        Pesanan
+                        @if($sidebarOrderCount > 0)
+                            <span class="menu-badge">{{ $sidebarOrderCount }}</span>
+                        @endif
+                    </a>
+                    <div class="menu-submenu">
+                        <a href="{{ route('admin.orders.index', ['service' => 'all']) }}" class="menu-subitem {{ $isOrdersRoute && $orderServiceFilter === 'all' ? 'active' : '' }}">
+                            Semua Layanan
+                        </a>
+                        <a href="{{ route('admin.orders.index', ['service' => 'shopping']) }}" class="menu-subitem {{ $isOrdersRoute && $orderServiceFilter === 'shopping' ? 'active' : '' }}">
+                            Titip Belanja
+                            <span style="margin-left:auto; font-size:11px; color:var(--text-muted);">{{ $sidebarShoppingCount }}</span>
+                        </a>
+                        <a href="{{ route('admin.orders.index', ['service' => 'courier']) }}" class="menu-subitem {{ $isOrdersRoute && $orderServiceFilter === 'courier' ? 'active' : '' }}">
+                            Kurir
+                            <span style="margin-left:auto; font-size:11px; color:var(--text-muted);">{{ $sidebarCourierCount }}</span>
+                        </a>
+                        <a href="{{ route('admin.orders.index', ['service' => 'ride']) }}" class="menu-subitem {{ $isOrdersRoute && $orderServiceFilter === 'ride' ? 'active' : '' }}">
+                            Antar Jemput
+                            <span style="margin-left:auto; font-size:11px; color:var(--text-muted);">{{ $sidebarRideCount }}</span>
+                        </a>
+                    </div>
+                </div>
                 <a href="{{ route('admin.drivers.index') }}" class="menu-item {{ Request::routeIs('admin.drivers.index', 'admin.drivers.show') ? 'active' : '' }}">
                     <i class='bx bx-cycling'></i>
                     Driver
