@@ -24,7 +24,7 @@
     $isRideView = $selectedService === 'ride';
 
     if ($isCourierView) {
-        $searchPlaceholder = 'Cari ID, pelanggan, deskripsi paket, komplain...';
+        $searchPlaceholder = 'Cari ID, pelanggan, deskripsi paket, deadline...';
     } elseif ($isRideView) {
         $searchPlaceholder = 'Cari ID, pelanggan, catatan perjalanan...';
     } else {
@@ -172,7 +172,7 @@
 
     $resultStart = $orders->firstItem() ?? 0;
     $resultEnd = $orders->lastItem() ?? 0;
-    $emptyColspan = $isCourierView ? 11 : ($isRideView ? 9 : 8);
+    $emptyColspan = $isCourierView ? 8 : ($isRideView ? 9 : 8);
 @endphp
 <div class="panel">
     <div class="panel-header" style="flex-direction: column; align-items: stretch; gap: 20px;">
@@ -230,11 +230,8 @@
                         <th>ID Pesanan</th>
                         <th>Waktu</th>
                         <th>Pelanggan</th>
-                        <th>Deskripsi Paket</th>
-                        <th>Bukti Foto</th>
-                        <th>Deadline Konfirmasi</th>
-                        <th>Auto Konfirmasi</th>
-                        <th>Alasan Komplain</th>
+                        <th>Ringkasan Paket</th>
+                        <th>SLA Konfirmasi</th>
                         <th>Total</th>
                         <th>Status</th>
                         <th>Aksi</th>
@@ -273,6 +270,7 @@
                         $serviceConfig = $serviceBadgeMap[$serviceCode] ?? ['label' => $serviceCode, 'class' => 'badge-info'];
                         $statusCode = $order->statusRef?->code ?? 'UNKNOWN';
                         $statusConfig = $statusMap[$statusCode] ?? ['label' => $statusCode, 'class' => 'badge-info'];
+                        $detailUrl = route('admin.orders.show', ['order' => $order->id, 'back' => url()->full()]);
 
                         $requiresPhotoEvidence = $courierOrder?->requires_photo_evidence;
                         if ($requiresPhotoEvidence === true) {
@@ -284,6 +282,34 @@
                         } else {
                             $requiresPhotoLabel = '-';
                             $requiresPhotoClass = 'badge-info';
+                        }
+
+                        $confirmationDeadlineAt = $courierOrder?->confirmation_deadline_at;
+                        $autoConfirmedAt = $courierOrder?->auto_confirmed_at;
+                        if ($autoConfirmedAt) {
+                            $slaLabel = 'Auto Konfirmasi';
+                            $slaClass = 'badge-info';
+                            $slaSub = $autoConfirmedAt->format('d M Y, H:i');
+                        } elseif (!$confirmationDeadlineAt) {
+                            $slaLabel = 'Tanpa Batas';
+                            $slaClass = 'badge-success';
+                            $slaSub = '-';
+                        } else {
+                            $isPastDeadline = $confirmationDeadlineAt->isPast();
+                            $minutesToDeadline = now()->diffInMinutes($confirmationDeadlineAt, false);
+
+                            if ($isPastDeadline) {
+                                $slaLabel = 'Melewati SLA';
+                                $slaClass = 'badge-danger';
+                            } elseif ($minutesToDeadline <= 120) {
+                                $slaLabel = 'Mendesak';
+                                $slaClass = 'badge-warning';
+                            } else {
+                                $slaLabel = 'Aman';
+                                $slaClass = 'badge-success';
+                            }
+
+                            $slaSub = $confirmationDeadlineAt->format('d M Y, H:i');
                         }
 
                         if ($serviceCode === 'SHOPPING') {
@@ -316,17 +342,24 @@
                         <tr>
                             <td class="td-id">#{{ $order->order_number }}</td>
                             <td class="td-sub">{{ $order->created_at?->format('d M Y, H:i') ?? '-' }}</td>
-                            <td class="td-user">
-                                <span class="td-strong">{{ $order->user->name ?? '-' }}</span>
-                                <span class="td-sub"><i class='bx bx-phone'></i> {{ $order->user->phone ?? '-' }}</span>
-                            </td>
-                            <td class="td-sub">{{ \Illuminate\Support\Str::limit($courierOrder?->package_description ?? '-', 55) }}</td>
                             <td>
-                                <span class="badge {{ $requiresPhotoClass }}">{{ $requiresPhotoLabel }}</span>
+                                <div class="td-user">
+                                    <span class="td-strong">{{ $order->user->name ?? '-' }}</span>
+                                    <span class="td-sub"><i class='bx bx-phone'></i> {{ $order->user->phone ?? '-' }}</span>
+                                </div>
                             </td>
-                            <td class="td-sub">{{ $courierOrder?->confirmation_deadline_at?->format('d M Y, H:i') ?? '-' }}</td>
-                            <td class="td-sub">{{ $courierOrder?->auto_confirmed_at?->format('d M Y, H:i') ?? '-' }}</td>
-                            <td class="td-sub">{{ \Illuminate\Support\Str::limit($courierOrder?->complaint_reason ?? '-', 45) }}</td>
+                            <td>
+                                <div class="td-resto">
+                                    <span class="td-strong">{{ \Illuminate\Support\Str::limit($courierOrder?->package_description ?? '-', 55) }}</span>
+                                    <span class="td-sub">Bukti Foto: <span class="badge {{ $requiresPhotoClass }}">{{ $requiresPhotoLabel }}</span></span>
+                                </div>
+                            </td>
+                            <td>
+                                <div class="td-resto">
+                                    <span class="badge {{ $slaClass }}">{{ $slaLabel }}</span>
+                                    <span class="td-sub">{{ $slaSub }}</span>
+                                </div>
+                            </td>
                             <td class="td-price">Rp {{ number_format((float) $order->total_amount, 0, ',', '.') }}</td>
                             <td>
                                 <span class="badge {{ $statusConfig['class'] }}">
@@ -335,7 +368,7 @@
                             </td>
                             <td class="td-action">
                                 <div style="display:flex; gap: 8px;">
-                                    <button class="btn-action detail" title="Lihat Detail Log"><i class='bx bx-show'></i></button>
+                                    <a href="{{ $detailUrl }}" class="btn-action detail" title="Lihat Detail & Aksi" style="text-decoration:none;"><i class='bx bx-show'></i></a>
                                 </div>
                             </td>
                         </tr>
@@ -343,9 +376,11 @@
                         <tr>
                             <td class="td-id">#{{ $order->order_number }}</td>
                             <td class="td-sub">{{ $order->created_at?->format('d M Y, H:i') ?? '-' }}</td>
-                            <td class="td-user">
-                                <span class="td-strong">{{ $order->user->name ?? '-' }}</span>
-                                <span class="td-sub"><i class='bx bx-phone'></i> {{ $order->user->phone ?? '-' }}</span>
+                            <td>
+                                <div class="td-user">
+                                    <span class="td-strong">{{ $order->user->name ?? '-' }}</span>
+                                    <span class="td-sub"><i class='bx bx-phone'></i> {{ $order->user->phone ?? '-' }}</span>
+                                </div>
                             </td>
                             <td class="td-sub">{{ $rideOrder?->picked_up_at?->format('d M Y, H:i') ?? '-' }}</td>
                             <td class="td-sub">{{ $rideOrder?->arrived_at?->format('d M Y, H:i') ?? '-' }}</td>
@@ -358,7 +393,7 @@
                             </td>
                             <td class="td-action">
                                 <div style="display:flex; gap: 8px;">
-                                    <button class="btn-action detail" title="Lihat Detail Log"><i class='bx bx-show'></i></button>
+                                    <a href="{{ $detailUrl }}" class="btn-action detail" title="Lihat Detail & Aksi" style="text-decoration:none;"><i class='bx bx-show'></i></a>
                                 </div>
                             </td>
                         </tr>
@@ -369,26 +404,30 @@
                                 <span class="badge {{ $serviceConfig['class'] }}">{{ $serviceConfig['label'] }}</span>
                             </td>
                             <td class="td-sub">{{ $order->created_at?->format('d M Y, H:i') }}</td>
-                            <td class="td-user">
-                                <span class="td-strong">{{ $order->user->name ?? '-' }}</span>
-                                <span class="td-sub"><i class='bx bx-phone'></i> {{ $order->user->phone ?? '-' }}</span>
+                            <td>
+                                <div class="td-user">
+                                    <span class="td-strong">{{ $order->user->name ?? '-' }}</span>
+                                    <span class="td-sub"><i class='bx bx-phone'></i> {{ $order->user->phone ?? '-' }}</span>
+                                </div>
                             </td>
-                            <td class="td-resto">
-                                <span class="td-strong">{{ $detailTitle }}</span>
-                                <span class="td-sub">{{ $detailSub }}</span>
+                            <td>
+                                <div class="td-resto">
+                                    <span class="td-strong">{{ $detailTitle }}</span>
+                                    <span class="td-sub">{{ $detailSub }}</span>
+                                </div>
                             </td>
                             <td class="td-price">Rp {{ number_format((float) $order->total_amount, 0, ',', '.') }}</td>
                             <td>
                                 <span class="badge {{ $statusConfig['class'] }}">
                                     {{ $statusConfig['label'] }}
-                                    @if($statusCode === 'ON_THE_WAY' && $order->driver?->user)
-                                        ({{ $order->driver->user->name }})
-                                    @endif
                                 </span>
+                                @if($statusCode === 'ON_THE_WAY' && $order->driver?->user)
+                                    <div class="td-sub" style="margin-top:4px;">Driver: {{ $order->driver->user->name }}</div>
+                                @endif
                             </td>
                             <td class="td-action">
                                 <div style="display:flex; gap: 8px;">
-                                    <button class="btn-action detail" title="Lihat Detail Log"><i class='bx bx-show'></i></button>
+                                    <a href="{{ $detailUrl }}" class="btn-action detail" title="Lihat Detail & Aksi" style="text-decoration:none;"><i class='bx bx-show'></i></a>
                                 </div>
                             </td>
                         </tr>

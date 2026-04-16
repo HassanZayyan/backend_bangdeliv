@@ -5,6 +5,7 @@ use App\Http\Controllers\AdminAuthController;
 use App\Http\Controllers\Admin\DriverVerificationController;
 use App\Http\Controllers\Admin\RestaurantController;
 use App\Http\Controllers\Admin\RestaurantMenuController;
+use App\Models\Order;
 
 Route::get('/', function () {
     return redirect()->route('admin.dashboard');
@@ -25,6 +26,33 @@ Route::prefix('admin')->middleware(['auth', 'role:admin'])->group(function () {
     // Orders
     Route::get('/pesanan', fn() => view('admin.orders.index'))
         ->name('admin.orders.index');
+    Route::get('/pesanan/{order}', function (Order $order) {
+        $order->load([
+            'user',
+            'driver.user',
+            'restaurant',
+            'serviceType',
+            'statusRef',
+            'items',
+            'shoppingOrder',
+            'courierOrder',
+            'rideOrder',
+            'orderLocations',
+            'statusHistories.statusRef',
+            'statusHistories.changedBy',
+            'logs.changedBy',
+        ]);
+
+        $backUrl = request()->query('back');
+        if (!is_string($backUrl) || !str_starts_with($backUrl, url('/admin/pesanan'))) {
+            $backUrl = route('admin.orders.index');
+        }
+
+        return view('admin.orders.show', [
+            'order' => $order,
+            'backUrl' => $backUrl,
+        ]);
+    })->name('admin.orders.show');
 
     // Drivers
     Route::get('/driver', fn() => view('admin.drivers.index'))

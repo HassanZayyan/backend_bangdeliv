@@ -464,6 +464,19 @@ tr:last-child td {
     gap: 4px;
 }
 
+/* Keep table layout stable when these helpers are applied directly on <td>. */
+td.td-user,
+td.td-resto {
+    display: table-cell;
+}
+
+td.td-user .td-strong,
+td.td-user .td-sub,
+td.td-resto .td-strong,
+td.td-resto .td-sub {
+    display: block;
+}
+
 .td-strong {
     font-weight: 600;
     color: var(--text-main);
@@ -478,6 +491,7 @@ tr:last-child td {
 .td-price {
     font-weight: 600;
     color: var(--color-primary);
+    white-space: nowrap;
 }
 
 /* Badges */
@@ -489,6 +503,7 @@ tr:last-child td {
     display: inline-flex;
     align-items: center;
     gap: 6px;
+    white-space: nowrap;
 }
 
 .badge::before {
