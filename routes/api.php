@@ -41,6 +41,7 @@ Route::prefix('v1')->group(function () {
         Route::delete('/cart', [CartController::class, 'clear']);
 
         Route::post('/orders/checkout', [OrderController::class, 'checkout']);
+        Route::post('/orders/ride', [OrderController::class, 'createRideOrder']);
         Route::get('/orders', [OrderController::class, 'index']);
         Route::get('/orders/{orderId}', [OrderController::class, 'show']);
         Route::post('/orders/{orderId}/cancel', [OrderController::class, 'cancel']);

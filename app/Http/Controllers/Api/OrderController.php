@@ -7,12 +7,14 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\AddShoppingOrderItemRequest;
 use App\Http\Requests\Api\CancelOrderRequest;
 use App\Http\Requests\Api\CheckoutOrderRequest;
+use App\Http\Requests\Api\CreateRideOrderRequest;
 use App\Http\Requests\Api\RecordCodPaymentRequest;
 use App\Http\Requests\Api\RecordFailedAttemptRequest;
 use App\Http\Requests\Api\UpdateShoppingOrderItemRequest;
 use App\Http\Responses\ApiResponse;
 use App\Services\CheckoutService;
 use App\Services\OrderService;
+use App\Services\RideOrderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -22,7 +24,8 @@ class OrderController extends Controller
 
     public function __construct(
         private readonly CheckoutService $checkoutService,
-        private readonly OrderService $orderService
+        private readonly OrderService $orderService,
+        private readonly RideOrderService $rideOrderService
     ) {
     }
 
@@ -32,6 +35,17 @@ class OrderController extends Controller
             $order = $this->checkoutService->checkout($request->user(), $request->validated());
 
             return $this->success($order, 'Checkout berhasil.', 201);
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
+    public function createRideOrder(CreateRideOrderRequest $request): JsonResponse
+    {
+        try {
+            $order = $this->rideOrderService->create($request->user(), $request->validated());
+
+            return $this->success($order, 'Order Antar Jemput berhasil dibuat.', 201);
         } catch (ApiException $exception) {
             return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
         }
