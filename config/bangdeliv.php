@@ -15,6 +15,21 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Google Maps Geocoding API
+    |--------------------------------------------------------------------------
+    |
+    | Konfigurasi geocoding untuk validasi alamat tujuan layanan antar jemput.
+    |
+    */
+    'geocoding' => [
+        'endpoint' => env('GOOGLE_MAPS_GEOCODING_ENDPOINT', 'https://maps.googleapis.com/maps/api/geocode/json'),
+        'timeout_seconds' => (int) env('GOOGLE_MAPS_GEOCODING_TIMEOUT', 8),
+        'language' => env('GOOGLE_MAPS_GEOCODING_LANGUAGE', 'id'),
+        'region' => env('GOOGLE_MAPS_GEOCODING_REGION', 'id'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Delivery Fee Configuration
     |--------------------------------------------------------------------------
     |

@@ -22,6 +22,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/user/upgrade-to-driver', [AuthController::class, 'upgradeToDriver'])->middleware('role:customer');
     Route::put('/user', [AuthController::class, 'updateProfile']);
     Route::put('/user/password', [AuthController::class, 'changePassword']);
+    Route::post('/user/addresses/validate', [AuthController::class, 'validateAddress']);
     Route::post('/user/addresses', [AuthController::class, 'storeAddress']);
     Route::put('/user/addresses/{addressId}', [AuthController::class, 'updateAddress']);
     Route::delete('/user/addresses/{addressId}', [AuthController::class, 'deleteAddress']);
@@ -41,6 +42,8 @@ Route::prefix('v1')->group(function () {
         Route::delete('/cart', [CartController::class, 'clear']);
 
         Route::post('/orders/checkout', [OrderController::class, 'checkout']);
+        Route::post('/orders/ride/validate-destination', [OrderController::class, 'validateRideDestination']);
+        Route::post('/orders/ride', [OrderController::class, 'createRideOrder']);
         Route::get('/orders', [OrderController::class, 'index']);
         Route::get('/orders/{orderId}', [OrderController::class, 'show']);
         Route::post('/orders/{orderId}/cancel', [OrderController::class, 'cancel']);
