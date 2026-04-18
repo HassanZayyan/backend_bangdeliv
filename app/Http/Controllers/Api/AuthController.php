@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Models\Review;
 use App\Services\DriverOnboardingService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
@@ -365,15 +366,23 @@ class AuthController extends Controller
             return response()->json(['message' => 'Alamat tidak ditemukan.'], 404);
         }
 
-        $wasDefault = (bool) $address->is_default;
-        $address->delete();
+        DB::transaction(function () use ($address, $user) {
+            $wasDefault = (bool) $address->is_default;
 
-        if ($wasDefault) {
-            $replacementDefault = $user->addresses()->latest('id')->first();
-            if ($replacementDefault) {
-                $replacementDefault->update(['is_default' => true]);
+            // Keep order history intact while allowing address deletion.
+            DB::table('orders')
+                ->where('address_id', $address->id)
+                ->update(['address_id' => null]);
+
+            $address->delete();
+
+            if ($wasDefault) {
+                $replacementDefault = $user->addresses()->latest('id')->first();
+                if ($replacementDefault) {
+                    $replacementDefault->update(['is_default' => true]);
+                }
             }
-        }
+        });
 
         return response()->json([
             'message' => 'Alamat berhasil dihapus.',
