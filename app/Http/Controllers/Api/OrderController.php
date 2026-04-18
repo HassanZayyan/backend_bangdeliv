@@ -11,6 +11,7 @@ use App\Http\Requests\Api\CreateRideOrderRequest;
 use App\Http\Requests\Api\RecordCodPaymentRequest;
 use App\Http\Requests\Api\RecordFailedAttemptRequest;
 use App\Http\Requests\Api\UpdateShoppingOrderItemRequest;
+use App\Http\Requests\Api\ValidateRideDestinationRequest;
 use App\Http\Responses\ApiResponse;
 use App\Services\CheckoutService;
 use App\Services\OrderService;
@@ -46,6 +47,19 @@ class OrderController extends Controller
             $order = $this->rideOrderService->create($request->user(), $request->validated());
 
             return $this->success($order, 'Order Antar Jemput berhasil dibuat.', 201);
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
+    public function validateRideDestination(ValidateRideDestinationRequest $request): JsonResponse
+    {
+        try {
+            $destination = $this->rideOrderService->validateDestination(
+                (string) $request->input('destination_address')
+            );
+
+            return $this->success($destination, 'Alamat tujuan valid.');
         } catch (ApiException $exception) {
             return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
         }

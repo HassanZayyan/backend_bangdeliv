@@ -4,17 +4,29 @@ namespace Tests\Feature\Api;
 
 use App\Models\Address;
 use App\Models\Order;
+use App\Models\OrderStatus;
 use App\Models\Restaurant;
 use App\Models\Review;
+use App\Models\ServiceType;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 class AuthProfileTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        config([
+            'bangdeliv.google_maps_api_key' => 'test-google-maps-key',
+        ]);
+    }
 
     public function test_authenticated_user_can_get_profile_with_stats_and_addresses(): void
     {
@@ -53,10 +65,29 @@ class AuthProfileTest extends TestCase
             'estimated_prep_time' => 20,
         ]);
 
+        $serviceType = ServiceType::query()->firstOrCreate(
+            ['code' => 'SHOPPING'],
+            [
+                'display_name' => 'Shopping',
+                'description' => 'Test service type',
+                'sort_order' => 1,
+            ]
+        );
+
+        $completedStatus = OrderStatus::query()->firstOrCreate(
+            ['code' => 'COMPLETED'],
+            [
+                'display_name' => 'Completed',
+                'is_terminal' => true,
+                'sort_order' => 99,
+            ]
+        );
+
         $order = Order::query()->create([
             'order_number' => 'ORD-0001',
             'user_id' => $user->id,
             'restaurant_id' => $restaurant->id,
+            'service_type_id' => $serviceType->id,
             'driver_id' => null,
             'address_id' => $address->id,
             'delivery_address' => 'Jl. Sudirman No. 1',
@@ -67,7 +98,8 @@ class AuthProfileTest extends TestCase
             'delivery_distance_km' => 2.5,
             'delivery_distance_text' => '2.5 km',
             'total_amount' => 35000,
-            'status' => 'completed',
+            'total_price' => 35000,
+            'status_id' => $completedStatus->id,
             'payment_status' => 'paid',
             'cancellation_reason' => null,
             'cancelled_by' => null,
@@ -190,6 +222,23 @@ class AuthProfileTest extends TestCase
 
         Sanctum::actingAs($user);
 
+        Http::fake([
+            'https://maps.googleapis.com/maps/api/geocode/*' => Http::response([
+                'status' => 'OK',
+                'results' => [
+                    [
+                        'formatted_address' => 'Jl. Kenanga No. 7, Salatiga, Jawa Tengah, Indonesia',
+                        'geometry' => [
+                            'location' => [
+                                'lat' => -7.33165000,
+                                'lng' => 110.49950000,
+                            ],
+                        ],
+                    ],
+                ],
+            ], 200),
+        ]);
+
         $response = $this->postJson('/api/user/addresses', [
             'label' => 'Kos',
             'recipient_name' => 'Alamat User',
@@ -203,15 +252,21 @@ class AuthProfileTest extends TestCase
             ->assertJsonPath('message', 'Alamat berhasil disimpan.')
             ->assertJsonPath('data.label', 'Kos')
             ->assertJsonPath('data.phone', '081233330000')
+            ->assertJsonPath('data.latitude', '-7.33165000')
+            ->assertJsonPath('data.longitude', '110.49950000')
             ->assertJsonPath('data.is_default', true);
 
         $this->assertDatabaseHas('addresses', [
             'user_id' => $user->id,
             'label' => 'Kos',
             'phone' => '081233330000',
-            'full_address' => 'Jl. Kenanga No. 7, Salatiga',
+            'full_address' => 'Jl. Kenanga No. 7, Salatiga, Jawa Tengah, Indonesia',
+            'latitude' => -7.33165000,
+            'longitude' => 110.49950000,
             'is_default' => true,
         ]);
+
+        Http::assertSentCount(1);
     }
 
     public function test_authenticated_user_can_update_saved_address(): void
@@ -238,6 +293,23 @@ class AuthProfileTest extends TestCase
 
         Sanctum::actingAs($user);
 
+        Http::fake([
+            'https://maps.googleapis.com/maps/api/geocode/*' => Http::response([
+                'status' => 'OK',
+                'results' => [
+                    [
+                        'formatted_address' => 'Alamat Baru, Kota Semarang, Jawa Tengah, Indonesia',
+                        'geometry' => [
+                            'location' => [
+                                'lat' => -6.97030000,
+                                'lng' => 110.42570000,
+                            ],
+                        ],
+                    ],
+                ],
+            ], 200),
+        ]);
+
         $response = $this->putJson('/api/user/addresses/' . $address->id, [
             'label' => 'Kantor',
             'recipient_name' => 'Edit Alamat Baru',
@@ -251,7 +323,9 @@ class AuthProfileTest extends TestCase
             ->assertJsonPath('message', 'Alamat berhasil diperbarui.')
             ->assertJsonPath('data.label', 'Kantor')
             ->assertJsonPath('data.phone', '081200099901')
-            ->assertJsonPath('data.full_address', 'Alamat Baru')
+            ->assertJsonPath('data.full_address', 'Alamat Baru, Kota Semarang, Jawa Tengah, Indonesia')
+            ->assertJsonPath('data.latitude', '-6.97030000')
+            ->assertJsonPath('data.longitude', '110.42570000')
             ->assertJsonPath('data.is_default', true);
 
         $this->assertDatabaseHas('addresses', [
@@ -259,10 +333,85 @@ class AuthProfileTest extends TestCase
             'label' => 'Kantor',
             'recipient_name' => 'Edit Alamat Baru',
             'phone' => '081200099901',
-            'full_address' => 'Alamat Baru',
+            'full_address' => 'Alamat Baru, Kota Semarang, Jawa Tengah, Indonesia',
             'detail' => 'Belakang minimarket',
+            'latitude' => -6.97030000,
+            'longitude' => 110.42570000,
             'is_default' => true,
         ]);
+
+        Http::assertSentCount(1);
+    }
+
+    public function test_authenticated_user_can_validate_saved_address(): void
+    {
+        $user = User::query()->create([
+            'name' => 'Validasi Alamat',
+            'email' => 'validasi.alamat@example.com',
+            'phone' => '081233340000',
+            'password' => Hash::make('rahasia123'),
+            'role' => 'customer',
+        ]);
+
+        Sanctum::actingAs($user);
+
+        Http::fake([
+            'https://maps.googleapis.com/maps/api/geocode/*' => Http::response([
+                'status' => 'OK',
+                'results' => [
+                    [
+                        'formatted_address' => 'Jl. Sudirman No. 10, Jakarta, Indonesia',
+                        'geometry' => [
+                            'location' => [
+                                'lat' => -6.21462000,
+                                'lng' => 106.84513000,
+                            ],
+                        ],
+                    ],
+                ],
+            ], 200),
+        ]);
+
+        $response = $this->postJson('/api/user/addresses/validate', [
+            'full_address' => 'Jl. Sudirman No. 10, Jakarta',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('message', 'Alamat valid.')
+            ->assertJsonPath('data.formatted_address', 'Jl. Sudirman No. 10, Jakarta, Indonesia')
+            ->assertJsonPath('data.latitude', -6.21462)
+            ->assertJsonPath('data.longitude', 106.84513);
+
+        Http::assertSentCount(1);
+    }
+
+    public function test_authenticated_user_cannot_validate_invalid_saved_address(): void
+    {
+        $user = User::query()->create([
+            'name' => 'Validasi Invalid',
+            'email' => 'validasi.invalid@example.com',
+            'phone' => '081233340001',
+            'password' => Hash::make('rahasia123'),
+            'role' => 'customer',
+        ]);
+
+        Sanctum::actingAs($user);
+
+        Http::fake([
+            'https://maps.googleapis.com/maps/api/geocode/*' => Http::response([
+                'status' => 'ZERO_RESULTS',
+                'results' => [],
+            ], 200),
+        ]);
+
+        $response = $this->postJson('/api/user/addresses/validate', [
+            'full_address' => 'isekai',
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJsonPath('message', 'Alamat tidak valid atau tidak ditemukan di peta.');
+
+        Http::assertSentCount(1);
     }
 
     public function test_authenticated_user_can_delete_saved_address(): void

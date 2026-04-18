@@ -15,6 +15,11 @@ use Illuminate\Support\Facades\DB;
 
 class RideOrderService
 {
+    public function __construct(
+        private readonly GoogleMapsGeocodingService $geocodingService
+    ) {
+    }
+
     /**
      * @param  array<string, mixed>  $payload
      */
@@ -36,13 +41,17 @@ class RideOrderService
             throw new ApiException('Konfigurasi service type atau status order belum lengkap.', 500);
         }
 
-        $destinationAddress = trim((string) $payload['destination_address']);
+        $resolvedDestination = $this->validateDestination(
+            (string) $payload['destination_address']
+        );
+
         $destinationLatitude = isset($payload['destination_latitude'])
             ? (float) $payload['destination_latitude']
-            : 0.0;
+            : $resolvedDestination['latitude'];
         $destinationLongitude = isset($payload['destination_longitude'])
             ? (float) $payload['destination_longitude']
-            : 0.0;
+            : $resolvedDestination['longitude'];
+        $normalizedDestinationAddress = trim((string) $resolvedDestination['formatted_address']);
 
         $subtotal = 0.0;
         $deliveryFee = $this->calculateRideFee();
@@ -54,7 +63,7 @@ class RideOrderService
             $pickupAddress,
             $rideServiceTypeId,
             $pendingStatusId,
-            $destinationAddress,
+            $normalizedDestinationAddress,
             $destinationLatitude,
             $destinationLongitude,
             $subtotal,
@@ -69,7 +78,7 @@ class RideOrderService
                 'restaurant_id' => null,
                 'service_type_id' => $rideServiceTypeId,
                 'address_id' => $pickupAddress->id,
-                'delivery_address' => $destinationAddress,
+                'delivery_address' => $normalizedDestinationAddress,
                 'delivery_latitude' => round($destinationLatitude, 8),
                 'delivery_longitude' => round($destinationLongitude, 8),
                 'subtotal' => round($subtotal, 2),
@@ -105,6 +114,30 @@ class RideOrderService
                 'serviceType',
             ]);
         });
+    }
+
+    /**
+     * @return array{latitude: float, longitude: float, formatted_address: string}
+     */
+    public function validateDestination(string $destinationAddress): array
+    {
+        $normalizedAddress = trim($destinationAddress);
+
+        if ($normalizedAddress === '') {
+            throw new ApiException('Alamat tujuan wajib diisi.', 422, [
+                'destination_address' => ['Alamat tujuan wajib diisi.'],
+            ]);
+        }
+
+        $resolvedDestination = $this->geocodingService->resolveAddress($normalizedAddress);
+
+        if ($resolvedDestination === null) {
+            throw new ApiException('Alamat tujuan tidak valid atau tidak ditemukan di peta.', 422, [
+                'destination_address' => ['Alamat tujuan tidak valid atau tidak ditemukan di peta.'],
+            ]);
+        }
+
+        return $resolvedDestination;
     }
 
     private function generateOrderNumber(): string

@@ -2,10 +2,15 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Exceptions\ApiException;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Api\StoreAddressRequest;
+use App\Http\Requests\Api\UpdateAddressRequest;
 use App\Http\Requests\Api\UpgradeToDriverRequest;
+use App\Http\Requests\Api\ValidateAddressRequest;
 use App\Models\User;
 use App\Models\Review;
+use App\Services\AddressService;
 use App\Services\DriverOnboardingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -256,55 +261,27 @@ class AuthController extends Controller
     /**
      * Store a new saved address for current user
      */
-    public function storeAddress(Request $request)
+    public function storeAddress(StoreAddressRequest $request, AddressService $addressService)
     {
-        $user = $request->user();
+        try {
+            $address = $addressService->store($request->user(), $request->validated());
 
-        $payload = [
-            'label' => $request->input('label'),
-            'recipient_name' => $request->input('recipient_name', $user->name),
-            'phone' => $this->normalizePhone((string) $request->input('phone', $user->phone)),
-            'full_address' => $request->input('full_address'),
-            'detail' => $request->input('detail'),
-            'latitude' => $request->input('latitude', 0),
-            'longitude' => $request->input('longitude', 0),
-            'is_default' => (bool) $request->boolean('is_default'),
-        ];
-
-        $validator = Validator::make($payload, [
-            'label' => 'required|string|max:50',
-            'recipient_name' => 'required|string|max:255',
-            'phone' => 'required|string|max:20',
-            'full_address' => 'required|string|max:1000',
-            'detail' => 'nullable|string|max:255',
-            'latitude' => 'numeric|between:-90,90',
-            'longitude' => 'numeric|between:-180,180',
-            'is_default' => 'boolean',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
+            return response()->json([
+                'message' => 'Alamat berhasil disimpan.',
+                'data' => $address,
+            ], 201);
+        } catch (ApiException $exception) {
+            return response()->json([
+                'message' => $exception->getMessage(),
+                'errors' => $exception->errors(),
+            ], $exception->status());
         }
-
-        $validated = $validator->validated();
-
-        if ((bool) $validated['is_default'] || !$user->addresses()->exists()) {
-            $user->addresses()->update(['is_default' => false]);
-            $validated['is_default'] = true;
-        }
-
-        $address = $user->addresses()->create($validated);
-
-        return response()->json([
-            'message' => 'Alamat berhasil disimpan.',
-            'data' => $address,
-        ], 201);
     }
 
     /**
      * Update saved address for current user
      */
-    public function updateAddress(Request $request, int $addressId)
+    public function updateAddress(UpdateAddressRequest $request, int $addressId, AddressService $addressService)
     {
         $user = $request->user();
         $address = $user->addresses()->whereKey($addressId)->first();
@@ -313,44 +290,39 @@ class AuthController extends Controller
             return response()->json(['message' => 'Alamat tidak ditemukan.'], 404);
         }
 
-        $payload = [
-            'label' => $request->input('label'),
-            'recipient_name' => $request->input('recipient_name', $address->recipient_name),
-            'phone' => $this->normalizePhone((string) $request->input('phone', $address->phone)),
-            'full_address' => $request->input('full_address'),
-            'detail' => $request->input('detail'),
-            'latitude' => $request->input('latitude', $address->latitude),
-            'longitude' => $request->input('longitude', $address->longitude),
-            'is_default' => (bool) $request->boolean('is_default'),
-        ];
+        try {
+            $updatedAddress = $addressService->update($user, $address, $request->validated());
 
-        $validator = Validator::make($payload, [
-            'label' => 'required|string|max:50',
-            'recipient_name' => 'required|string|max:255',
-            'phone' => 'required|string|max:20',
-            'full_address' => 'required|string|max:1000',
-            'detail' => 'nullable|string|max:255',
-            'latitude' => 'numeric|between:-90,90',
-            'longitude' => 'numeric|between:-180,180',
-            'is_default' => 'boolean',
-        ]);
-
-        if ($validator->fails()) {
-            return response()->json(['errors' => $validator->errors()], 422);
+            return response()->json([
+                'message' => 'Alamat berhasil diperbarui.',
+                'data' => $updatedAddress,
+            ]);
+        } catch (ApiException $exception) {
+            return response()->json([
+                'message' => $exception->getMessage(),
+                'errors' => $exception->errors(),
+            ], $exception->status());
         }
+    }
 
-        $validated = $validator->validated();
+    /**
+     * Validate candidate address and return normalized coordinates.
+     */
+    public function validateAddress(ValidateAddressRequest $request, AddressService $addressService)
+    {
+        try {
+            $resolvedAddress = $addressService->validateAddress((string) $request->input('full_address'));
 
-        if ((bool) $validated['is_default']) {
-            $user->addresses()->where('id', '!=', $addressId)->update(['is_default' => false]);
+            return response()->json([
+                'message' => 'Alamat valid.',
+                'data' => $resolvedAddress,
+            ]);
+        } catch (ApiException $exception) {
+            return response()->json([
+                'message' => $exception->getMessage(),
+                'errors' => $exception->errors(),
+            ], $exception->status());
         }
-
-        $address->update($validated);
-
-        return response()->json([
-            'message' => 'Alamat berhasil diperbarui.',
-            'data' => $address->fresh(),
-        ]);
     }
 
     /**
@@ -403,6 +375,8 @@ class AuthController extends Controller
                 'phone',
                 'full_address',
                 'detail',
+                'latitude',
+                'longitude',
                 'is_default',
             ]);
 
