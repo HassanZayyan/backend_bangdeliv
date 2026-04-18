@@ -7,9 +7,10 @@ use App\Http\Controllers\Controller;
 use App\Models\AiChatLog;
 use App\Models\User;
 use App\Services\ChatbotCourierOrderService;
+use App\Services\ChatbotGeminiService;
 use App\Services\ChatbotOrderValidationService;
+use App\Services\ChatbotRideOrderService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -22,9 +23,29 @@ class ChatbotController extends Controller
         'nitip' => 'SHOPPING',
     ];
 
+    /**
+     * @var array<int, string>
+     */
+    private const CONFIRM_COMMANDS = [
+        'konfirmasi',
+        'confirm',
+        'lanjut',
+    ];
+
+    /**
+     * @var array<int, string>
+     */
+    private const RESET_DESTINATION_COMMANDS = [
+        'ubah tujuan',
+        'ganti tujuan',
+        'reset tujuan',
+    ];
+
     public function __construct(
         private readonly ChatbotOrderValidationService $validator,
-        private readonly ChatbotCourierOrderService $courierOrderService
+        private readonly ChatbotCourierOrderService $courierOrderService,
+        private readonly ChatbotRideOrderService $rideOrderService,
+        private readonly ChatbotGeminiService $geminiService
     ) {
     }
 
@@ -41,8 +62,8 @@ class ChatbotController extends Controller
         $sessionId = $this->resolveSessionId($request, $validated['session_id'] ?? null);
         $message = trim((string) $validated['message']);
 
-        if ($serviceType === 'kurir') {
-            return $this->processCourierChat(
+        if ($serviceType === 'kurir' || $serviceType === 'antar_jemput') {
+            return $this->processTransportChat(
                 user: $request->user(),
                 message: $message,
                 sessionId: $sessionId,
@@ -51,120 +72,16 @@ class ChatbotController extends Controller
             );
         }
 
-        $apiKey = env('GEMINI_API_KEY');
-        $models = [
-            'gemini-3.1-flash-lite-preview',
-            'gemini-2.5-flash',
-            'gemini-2.5-flash-lite',
-            'gemini-3-flash-preview',
-        ];
-
-        $systemInstruction = "Kamu adalah AI asisten BangDeliv. Ekstrak pesan menjadi JSON. Format wajib: {\"intent\": \"pesan_makanan\" atau \"out_of_domain\", \"resto\": \"string/null\", \"items\": [{\"menu\": \"string\", \"qty\": integer}]}. Pastikan mengekstrak setiap pesanan menu secara terpisah ke dalam array items! Dilarang merespon teks biasa.";
-
-        $payload = [
-            'systemInstruction' => [
-                'parts' => [
-                    ['text' => $systemInstruction]
-                ]
-            ],
-            'contents' => [
-                [
-                    'role' => 'user',
-                    'parts' => [
-                        ['text' => $message]
-                    ]
-                ]
-            ],
-            'generationConfig' => [
-                'responseMimeType' => 'application/json',
-                'responseSchema' => [
-                    'type' => 'OBJECT',
-                    'properties' => [
-                        'intent' => ['type' => 'STRING'],
-                        'resto' => ['type' => 'STRING', 'nullable' => true],
-                        'items' => [
-                            'type' => 'ARRAY',
-                            'items' => [
-                                'type' => 'OBJECT',
-                                'properties' => [
-                                    'menu' => ['type' => 'STRING'],
-                                    'qty' => ['type' => 'INTEGER']
-                                ],
-                                'required' => ['menu', 'qty']
-                            ]
-                        ]
-                    ],
-                    'required' => ['intent', 'items']
-                ]
-            ]
-        ];
-
-        $lastError = null;
-
-        foreach ($models as $model) {
-            $url = "https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}";
-
-            try {
-                $response = Http::withHeaders([
-                    'Content-Type' => 'application/json',
-                ])->post($url, $payload);
-
-                if ($response->successful()) {
-                    $result = $response->json();
-                    $textResponse = $result['candidates'][0]['content']['parts'][0]['text'] ?? '{}';
-                    $decodedResponse = json_decode($textResponse, true);
-
-                    if (!is_array($decodedResponse)) {
-                        $decodedResponse = [
-                            'intent' => 'out_of_domain',
-                            'resto' => null,
-                            'items' => [],
-                        ];
-                    }
-
-                    $validatedPayload = $this->validator->validate($decodedResponse);
-                    $validatedPayload['assistant_text'] = $this->buildShoppingAssistantText($validatedPayload);
-                    $this->storeChatLogs(
-                        user: $request->user(),
-                        sessionId: $sessionId,
-                        userMessage: $message,
-                        assistantPayload: $validatedPayload,
-                        modelUsed: $model
-                    );
-
-                    return response()->json([
-                        'status' => 'success',
-                        'service_context' => [
-                            'service_type' => $serviceType,
-                            'service_code' => $serviceCode,
-                        ],
-                        'data' => $validatedPayload,
-                        'model_used' => $model
-                    ], 200);
-                }
-
-                if ($response->status() === 429) {
-                    Log::warning("Gemini API Rate Limit Hit for model: {$model}");
-                    continue;
-                }
-
-                $lastError = "API Error {$response->status()}: " . $response->body();
-
-            } catch (\Exception $e) {
-                $lastError = $e->getMessage();
-                Log::error("Gemini API Exception for model {$model}: " . $e->getMessage());
-                continue;
-            }
-        }
-
-        return response()->json([
-            'status' => 'error',
-            'message' => 'Layanan AI sedang sibuk atau melampaui batas kuota harian. Silakan coba beberapa saat lagi.',
-            'debug_error' => config('app.debug') ? $lastError : null
-        ], 503);
+        return $this->processFoodChat(
+            user: $request->user(),
+            message: $message,
+            sessionId: $sessionId,
+            serviceType: $serviceType,
+            serviceCode: $serviceCode
+        );
     }
 
-    private function processCourierChat(
+    private function processTransportChat(
         User $user,
         string $message,
         string $sessionId,
@@ -172,13 +89,35 @@ class ChatbotController extends Controller
         string $serviceCode
     ) {
         try {
-            $payload = $this->courierOrderService->process($user, $message);
+            $nluPayload = null;
+            $modelUsed = null;
+            $fastCommand = $this->detectTransportFastCommand($message);
+
+            if ($fastCommand !== null) {
+                $nluPayload = ['command' => $fastCommand];
+                $modelUsed = 'deterministic-command';
+            } else {
+                try {
+                    $nluResult = $this->geminiService->interpretTransportMessage($serviceType, $message);
+                    $nluPayload = is_array($nluResult['payload'] ?? null) ? $nluResult['payload'] : null;
+                    $modelUsed = isset($nluResult['model_used']) ? (string) $nluResult['model_used'] : null;
+                } catch (ApiException $exception) {
+                    // Fallback ke parser deterministik jika Gemini unavailable.
+                    $nluPayload = null;
+                    $modelUsed = null;
+                }
+            }
+
+            $payload = $serviceType === 'kurir'
+                ? $this->courierOrderService->process($user, $message, $sessionId, $nluPayload)
+                : $this->rideOrderService->process($user, $message, $sessionId, $nluPayload);
+
             $this->storeChatLogs(
                 user: $user,
                 sessionId: $sessionId,
                 userMessage: $message,
                 assistantPayload: $payload,
-                modelUsed: null
+                modelUsed: $modelUsed
             );
 
             return response()->json([
@@ -188,7 +127,55 @@ class ChatbotController extends Controller
                     'service_code' => $serviceCode,
                 ],
                 'data' => $payload,
-                'model_used' => null,
+                'model_used' => $modelUsed,
+            ], 200);
+        } catch (ApiException $exception) {
+            return response()->json([
+                'status' => 'error',
+                'message' => $exception->getMessage(),
+                'errors' => $exception->errors(),
+            ], $exception->status());
+        }
+    }
+
+    private function processFoodChat(
+        User $user,
+        string $message,
+        string $sessionId,
+        string $serviceType,
+        string $serviceCode
+    ) {
+        try {
+            $parsed = $this->geminiService->parseFoodOrder($message);
+            $rawPayload = is_array($parsed['payload'] ?? null)
+                ? $parsed['payload']
+                : [
+                    'intent' => 'out_of_domain',
+                    'resto' => null,
+                    'items' => [],
+                ];
+
+            $validatedPayload = $this->validator->validate($rawPayload);
+            $validatedPayload['assistant_text'] = $this->buildShoppingAssistantText($validatedPayload);
+
+            $modelUsed = isset($parsed['model_used']) ? (string) $parsed['model_used'] : null;
+
+            $this->storeChatLogs(
+                user: $user,
+                sessionId: $sessionId,
+                userMessage: $message,
+                assistantPayload: $validatedPayload,
+                modelUsed: $modelUsed
+            );
+
+            return response()->json([
+                'status' => 'success',
+                'service_context' => [
+                    'service_type' => $serviceType,
+                    'service_code' => $serviceCode,
+                ],
+                'data' => $validatedPayload,
+                'model_used' => $modelUsed,
             ], 200);
         } catch (ApiException $exception) {
             return response()->json([
@@ -352,5 +339,23 @@ class ChatbotController extends Controller
 
         return substr($candidate, 0, 100);
 
+    }
+
+    private function detectTransportFastCommand(string $message): ?string
+    {
+        $normalized = strtolower(trim((string) preg_replace('/\s+/', ' ', $message)));
+        if ($normalized === '') {
+            return null;
+        }
+
+        if (in_array($normalized, self::RESET_DESTINATION_COMMANDS, true)) {
+            return 'reset_destination';
+        }
+
+        if (in_array($normalized, self::CONFIRM_COMMANDS, true)) {
+            return 'confirm';
+        }
+
+        return null;
     }
 }

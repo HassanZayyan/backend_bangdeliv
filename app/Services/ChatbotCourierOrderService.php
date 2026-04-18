@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Exceptions\ApiException;
+use App\Models\AiChatLog;
 use App\Models\Address;
 use App\Models\CourierOrder;
 use App\Models\Order;
@@ -58,9 +59,48 @@ class ChatbotCourierOrderService
     ];
 
     /**
+     * @var array<int, string>
+     */
+    private array $pickupProfileAliases = [
+        'rumah',
+        'di rumah',
+        'ambil di rumah',
+        'jemput di rumah',
+        'pickup di rumah',
+        'kantor',
+        'di kantor',
+        'ambil di kantor',
+        'jemput di kantor',
+        'pickup di kantor',
+    ];
+
+    /**
+     * @var array<int, string>
+     */
+    private array $confirmCommands = [
+        'konfirmasi',
+        'confirm',
+        'lanjut',
+    ];
+
+    /**
+     * @var array<int, string>
+     */
+    private array $resetCommands = [
+        'ubah tujuan',
+        'ganti tujuan',
+        'reset tujuan',
+    ];
+
+    public function __construct(
+        private readonly GoogleMapsGeocodingService $geocodingService
+    ) {
+    }
+
+    /**
      * @return array<string, mixed>
      */
-    public function process(User $user, string $message): array
+    public function process(User $user, string $message, string $sessionId, ?array $nluPayload = null): array
     {
         if ($user->role !== 'customer') {
             throw new ApiException('Hanya customer yang dapat membuat order kurir dari chatbot.', 403);
@@ -70,48 +110,136 @@ class ChatbotCourierOrderService
             throw new ApiException('Akun tidak memenuhi syarat untuk membuat order kurir.', 403);
         }
 
-        $defaultPickupAddress = $this->resolveDefaultPickupAddress($user);
-        $parsed = $this->parseCourierPayload($message, $defaultPickupAddress);
+        $normalizedMessage = $this->normalizeWhitespace($message);
+        $command = $this->resolveCommand($normalizedMessage, $nluPayload);
 
-        if (($parsed['validation']['is_valid_order'] ?? false) !== true) {
-            $validation = is_array($parsed['validation'] ?? null)
-                ? $parsed['validation']
-                : [
-                    'is_valid_order' => false,
-                    'rejection_reasons' => ['Data kurir belum lengkap.'],
-                    'missing_fields' => [],
-                    'next_actions' => [],
-                ];
-
-            return [
-                'intent' => 'courier_order',
-                'service_type' => 'kurir',
-                'courier' => [
-                    'pickup_address' => $parsed['pickup_address'],
-                    'dropoff_address' => $parsed['dropoff_address'],
-                    'package_description' => $parsed['package_description'],
-                    'used_default_pickup' => $parsed['used_default_pickup'],
-                ],
-                'validation' => $validation,
-                'order' => [
-                    'created' => false,
-                    'id' => null,
-                    'order_number' => null,
-                ],
-                'assistant_text' => $this->buildValidationMessage($parsed),
-            ];
+        if ($command === 'reset_destination') {
+            return $this->handleResetDestination($user);
         }
 
-        $order = $this->createCourierOrder($user, $parsed, $defaultPickupAddress);
+        if ($command === 'confirm') {
+            return $this->confirmPendingDraft($user, $sessionId);
+        }
+
+        $defaultPickupAddress = $this->resolveDefaultPickupAddress($user);
+        $draftSeed = $this->buildDraftSeedFromNlu($nluPayload);
+        $draft = $this->buildCourierDraft($normalizedMessage, $defaultPickupAddress, $draftSeed);
+
+        if (($draft['validation']['is_valid_order'] ?? false) !== true) {
+            return $this->buildValidationPayload($draft);
+        }
+
+        return $this->buildDraftPayload($draft, $user->name);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function handleResetDestination(User $user): array
+    {
+        $defaultPickupAddress = $this->resolveDefaultPickupAddress($user);
+        $pickupText = null;
+
+        if ($defaultPickupAddress !== null) {
+            $resolved = $this->resolveProfilePickupAddress($defaultPickupAddress);
+            if ($resolved !== null) {
+                $pickupText = $resolved['formatted_address'];
+            }
+        }
+
+        $name = trim((string) $user->name) === '' ? 'Kak' : trim((string) $user->name);
+
+        if ($pickupText === null) {
+            $text =
+                'Baik '.$name.', tujuan sebelumnya saya reset. Alamat jemput dari profil belum tersedia. Isi Alamat Saya dulu, lalu kirim tujuan baru.';
+        } else {
+            $text =
+                'Baik '.$name.', tujuan sebelumnya saya reset. Alamat jemput kamu di '.$pickupText.'. Sekarang kirim tujuan baru, misalnya: "Kirim ke Jalan XXX".';
+        }
 
         return [
             'intent' => 'courier_order',
             'service_type' => 'kurir',
             'courier' => [
-                'pickup_address' => $parsed['pickup_address'],
-                'dropoff_address' => $parsed['dropoff_address'],
-                'package_description' => $parsed['package_description'],
-                'used_default_pickup' => $parsed['used_default_pickup'],
+                'pickup_address' => $pickupText,
+                'dropoff_address' => null,
+                'package_description' => null,
+                'ready_to_confirm' => false,
+                'used_default_pickup' => $pickupText !== null,
+            ],
+            'validation' => [
+                'is_valid_order' => false,
+                'rejection_reasons' => [],
+                'missing_fields' => ['dropoff_address', 'package_description'],
+                'next_actions' => $pickupText === null ? ['OPEN_ADDRESSES'] : [],
+            ],
+            'order' => [
+                'created' => false,
+                'id' => null,
+                'order_number' => null,
+                'delivery_fee' => null,
+            ],
+            'assistant_text' => $text,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function confirmPendingDraft(User $user, string $sessionId): array
+    {
+        $pendingDraft = $this->resolvePendingDraft($user, $sessionId);
+
+        if ($pendingDraft === null) {
+            return [
+                'intent' => 'courier_order',
+                'service_type' => 'kurir',
+                'courier' => [
+                    'pickup_address' => null,
+                    'dropoff_address' => null,
+                    'package_description' => null,
+                    'ready_to_confirm' => false,
+                    'used_default_pickup' => false,
+                ],
+                'validation' => [
+                    'is_valid_order' => false,
+                    'rejection_reasons' => [
+                        'Belum ada draft kurir yang siap dikonfirmasi. Kirim detail pickup, tujuan, dan isi paket terlebih dahulu.',
+                    ],
+                    'missing_fields' => [],
+                    'next_actions' => [],
+                ],
+                'order' => [
+                    'created' => false,
+                    'id' => null,
+                    'order_number' => null,
+                    'delivery_fee' => null,
+                ],
+                'assistant_text' =>
+                    'Belum ada draft pengiriman yang siap dikonfirmasi. Kirim dulu detail pickup, tujuan, dan isi paket, lalu ketik "Konfirmasi".',
+            ];
+        }
+
+        $profilePickupAddress = null;
+        $pickupAddressId = $pendingDraft['pickup_address_id'] ?? null;
+        if ($pickupAddressId !== null) {
+            $profilePickupAddress = Address::query()
+                ->where('user_id', $user->id)
+                ->whereKey((int) $pickupAddressId)
+                ->first();
+        }
+
+        $order = $this->createCourierOrder($user, $pendingDraft, $profilePickupAddress);
+
+        return [
+            'intent' => 'courier_order',
+            'service_type' => 'kurir',
+            'courier' => [
+                'pickup_address' => $pendingDraft['pickup_address'],
+                'dropoff_address' => $pendingDraft['dropoff_address'],
+                'package_description' => $pendingDraft['package_description'],
+                'used_default_pickup' => (bool) $pendingDraft['used_default_pickup'],
+                'ready_to_confirm' => false,
             ],
             'validation' => [
                 'is_valid_order' => true,
@@ -128,113 +256,161 @@ class ChatbotCourierOrderService
                 'delivery_fee' => (float) $order->delivery_fee,
                 'estimated_delivery' => $order->estimated_delivery,
             ],
-            'assistant_text' => $this->buildSuccessMessage($order, $parsed),
+            'assistant_text' => $this->buildSuccessMessage($order, $pendingDraft),
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $draft
+     * @return array<string, mixed>
+     */
+    private function buildValidationPayload(array $draft): array
+    {
+        $validation = is_array($draft['validation'] ?? null)
+            ? $draft['validation']
+            : [
+                'is_valid_order' => false,
+                'rejection_reasons' => ['Data kurir belum lengkap.'],
+                'missing_fields' => [],
+                'next_actions' => [],
+            ];
+
+        return [
+            'intent' => 'courier_order',
+            'service_type' => 'kurir',
+            'courier' => [
+                'pickup_address' => $draft['pickup_address'] ?? null,
+                'dropoff_address' => $draft['dropoff_address'] ?? null,
+                'package_description' => $draft['package_description'] ?? null,
+                'used_default_pickup' => (bool) ($draft['used_default_pickup'] ?? false),
+                'ready_to_confirm' => false,
+                'pickup_latitude' => $draft['pickup_latitude'] ?? null,
+                'pickup_longitude' => $draft['pickup_longitude'] ?? null,
+                'dropoff_latitude' => $draft['dropoff_latitude'] ?? null,
+                'dropoff_longitude' => $draft['dropoff_longitude'] ?? null,
+            ],
+            'validation' => $validation,
+            'order' => [
+                'created' => false,
+                'id' => null,
+                'order_number' => null,
+                'delivery_fee' => $draft['delivery_fee'] ?? null,
+            ],
+            'assistant_text' => $this->buildValidationMessage($draft),
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $draft
+     * @return array<string, mixed>
+     */
+    private function buildDraftPayload(array $draft, string $userName): array
+    {
+        return [
+            'intent' => 'courier_order',
+            'service_type' => 'kurir',
+            'courier' => [
+                'pickup_address' => $draft['pickup_address'],
+                'dropoff_address' => $draft['dropoff_address'],
+                'package_description' => $draft['package_description'],
+                'used_default_pickup' => (bool) $draft['used_default_pickup'],
+                'pickup_address_id' => $draft['pickup_address_id'],
+                'ready_to_confirm' => true,
+                'pickup_latitude' => $draft['pickup_latitude'],
+                'pickup_longitude' => $draft['pickup_longitude'],
+                'dropoff_latitude' => $draft['dropoff_latitude'],
+                'dropoff_longitude' => $draft['dropoff_longitude'],
+                'distance_km' => $draft['distance_km'],
+            ],
+            'validation' => [
+                'is_valid_order' => true,
+                'rejection_reasons' => [],
+                'missing_fields' => [],
+                'next_actions' => [],
+            ],
+            'order' => [
+                'created' => false,
+                'id' => null,
+                'order_number' => null,
+                'delivery_fee' => $draft['delivery_fee'],
+            ],
+            'assistant_text' => $this->buildDraftMessage($draft, $userName),
         ];
     }
 
     /**
      * @return array<string, mixed>
      */
-    private function parseCourierPayload(string $message, ?Address $defaultPickupAddress): array
+    private function buildCourierDraft(string $message, ?Address $defaultPickupAddress, ?array $draftSeed = null): array
     {
-        $normalizedMessage = $this->normalizeWhitespace($message);
+        $extracted = $draftSeed ?? $this->extractCourierPayload($message);
+
+        $pickupRawAddress = $extracted['pickup_address'] ?? null;
+        $dropoffRawAddress = $extracted['dropoff_address'] ?? null;
+        $packageDescription = $extracted['package_description'] ?? null;
 
         $pickupAddress = null;
-        $dropoffAddress = null;
-
-        // Prioritaskan format cepat: "dari [pickup] ke [dropoff], isi paket: ..."
-        if (
-            preg_match(
-                '/\bdari\s+(.+?)\s+ke\s+(.+?)(?=(?:\s*,\s*|\s+(?:isi\s+paket|deskripsi\s+paket|paket(?:nya)?|barang(?:nya)?|catatan)\b|$))/iu',
-                $normalizedMessage,
-                $routeMatch
-            ) === 1
-        ) {
-            $pickupCandidate = $this->sanitizeAddressFragment($routeMatch[1] ?? null);
-            $dropoffCandidate = $this->sanitizeAddressFragment($routeMatch[2] ?? null);
-
-            if ($pickupCandidate !== null && $this->isLikelyAddressFragment($pickupCandidate)) {
-                $pickupAddress = $pickupCandidate;
-            }
-
-            if ($dropoffCandidate !== null && $this->isLikelyAddressFragment($dropoffCandidate)) {
-                $dropoffAddress = $dropoffCandidate;
-            }
-        }
-
-        $pickupAddress ??= $this->extractAddressByPatterns($normalizedMessage, [
-            '/\b(?:ambil(?:kan)?|pickup|pick\s*up|jemput(?:\s*barang)?)\s*(?:di|dari|lokasi)?\s*[:\-]?\s*(.+?)(?=(?:\s+(?:antar(?:kan)?|kirim(?:kan)?|drop\s*off|tujuan|isi\s+paket|paket(?:nya)?|barang(?:nya)?|catatan)\b|$))/iu',
-        ]);
-
-        // Untuk pola eksplisit, izinkan lokasi single-word seperti "sraten".
-        $pickupAddress ??= $this->extractPermissiveAddressByPatterns($normalizedMessage, [
-            '/\bambil\s+di\s+(.+?)(?=(?:\s*,\s*|\.|\s+(?:kirim|antar|tujuan|isi\s+paket|paket(?:nya)?|barang(?:nya)?|catatan)\b|$))/iu',
-            '/\bpickup\s+di\s+(.+?)(?=(?:\s*,\s*|\.|\s+(?:kirim|antar|tujuan|isi\s+paket|paket(?:nya)?|barang(?:nya)?|catatan)\b|$))/iu',
-            '/\bjemput\s+di\s+(.+?)(?=(?:\s*,\s*|\.|\s+(?:kirim|antar|tujuan|isi\s+paket|paket(?:nya)?|barang(?:nya)?|catatan)\b|$))/iu',
-        ]);
-
-        $dropoffAddress ??= $this->extractAddressByPatterns($normalizedMessage, [
-            '/\b(?:tujuan|drop\s*off)\s*(?:ke|di|lokasi)?\s*[:\-]?\s*(.+?)(?=(?:\s*,\s*|\s+(?:isi\s+paket|paket(?:nya)?|barang(?:nya)?|catatan)\b|$))/iu',
-            '/\bantar(?:kan)?\s+ke\s+(.+?)(?=(?:\s*,\s*|\s+(?:isi\s+paket|paket(?:nya)?|barang(?:nya)?|catatan)\b|$))/iu',
-            '/\bkirim(?:kan)?\s+ke\s+(.+?)(?=(?:\s*,\s*|\s+(?:isi\s+paket|paket(?:nya)?|barang(?:nya)?|catatan)\b|$))/iu',
-        ]);
-
-        $dropoffAddress ??= $this->extractPermissiveAddressByPatterns($normalizedMessage, [
-            '/\bkirim\s+ke\s+(.+?)(?=(?:\s*,\s*|\.|\s+(?:isi\s+paket|paket(?:nya)?|barang(?:nya)?|catatan)\b|$))/iu',
-            '/\bantar\s+ke\s+(.+?)(?=(?:\s*,\s*|\.|\s+(?:isi\s+paket|paket(?:nya)?|barang(?:nya)?|catatan)\b|$))/iu',
-            '/\btujuan\s+ke\s+(.+?)(?=(?:\s*,\s*|\.|\s+(?:isi\s+paket|paket(?:nya)?|barang(?:nya)?|catatan)\b|$))/iu',
-        ]);
-
-        if ($dropoffAddress === null && preg_match('/\bke\s+(.+)$/iu', $normalizedMessage, $match) === 1) {
-            $dropoffCandidate = $this->sanitizeAddressFragment($match[1] ?? null);
-            if ($dropoffCandidate !== null && $this->isLikelyAddressFragment($dropoffCandidate)) {
-                $dropoffAddress = $dropoffCandidate;
-            }
-        }
-
-        $packageDescription = $this->extractByPatterns($normalizedMessage, [
-            '/\b(?:isi\s+paket|deskripsi\s+paket|paket(?:nya)?|barang(?:nya)?)\s*[:\-]?\s*(.+)$/iu',
-            '/\b(?:kirim(?:kan)?|antar(?:kan)?)\s+(.+?)\s+\b(?:dari|ke)\b/iu',
-        ]);
-
-        if ($packageDescription === null && preg_match('/\b(dokumen|berkas|paket|barang|makanan|obat|surat)\b/iu', $normalizedMessage, $match) === 1) {
-            $packageDescription = $this->normalizeWhitespace($match[1]);
-        }
-
-        if (
-            $dropoffAddress !== null &&
-            $packageDescription !== null &&
-            strtolower($dropoffAddress) === strtolower($packageDescription)
-        ) {
-            $dropoffAddress = null;
-        }
-
+        $pickupLatitude = null;
+        $pickupLongitude = null;
+        $pickupAddressId = null;
         $usedDefaultPickup = false;
-        if ($pickupAddress === null && $defaultPickupAddress !== null) {
-            $pickupAddress = $this->formatAddress($defaultPickupAddress);
-            $usedDefaultPickup = true;
-        }
 
-        $coordinates = $this->extractCoordinateHints($normalizedMessage);
-
-        $pickupLatitude = $coordinates['pickup_latitude'] ?? ($defaultPickupAddress ? (float) $defaultPickupAddress->latitude : null);
-        $pickupLongitude = $coordinates['pickup_longitude'] ?? ($defaultPickupAddress ? (float) $defaultPickupAddress->longitude : null);
-
-        $dropoffLatitude = $coordinates['dropoff_latitude'] ?? $coordinates['pickup_latitude'] ?? $pickupLatitude;
-        $dropoffLongitude = $coordinates['dropoff_longitude'] ?? $coordinates['pickup_longitude'] ?? $pickupLongitude;
+        $dropoffAddress = null;
+        $dropoffLatitude = null;
+        $dropoffLongitude = null;
 
         $reasons = [];
         $missingFields = [];
         $nextActions = [];
 
-        if ($pickupAddress === null) {
-            $reasons[] = 'Lokasi ambil belum terbaca. Tulis contoh: "ambil di Jalan Melati No 3".';
-            $missingFields[] = 'pickup_address';
+        $shouldUseProfilePickup =
+            $pickupRawAddress === null ||
+            $this->isProfilePickupAlias($pickupRawAddress);
+
+        if ($shouldUseProfilePickup) {
+            if ($defaultPickupAddress === null) {
+                $reasons[] = 'Lokasi ambil di profil belum tersedia. Isi Alamat Saya terlebih dahulu.';
+                $missingFields[] = 'pickup_address';
+                $nextActions[] = 'OPEN_ADDRESSES';
+            } else {
+                $resolvedPickup = $this->resolveProfilePickupAddress($defaultPickupAddress);
+                if ($resolvedPickup === null) {
+                    $reasons[] = 'Lokasi ambil dari profil tidak valid di peta. Perbarui Alamat Saya terlebih dahulu.';
+                    $missingFields[] = 'pickup_address';
+                    $nextActions[] = 'OPEN_ADDRESSES';
+                } else {
+                    $pickupAddress = $resolvedPickup['formatted_address'];
+                    $pickupLatitude = $resolvedPickup['latitude'];
+                    $pickupLongitude = $resolvedPickup['longitude'];
+                    $pickupAddressId = $defaultPickupAddress->id;
+                    $usedDefaultPickup = true;
+                }
+            }
+        } else {
+            $resolvedPickup = $this->resolveAddressViaGeocoding((string) $pickupRawAddress);
+            if ($resolvedPickup === null) {
+                $reasons[] = 'Lokasi ambil tidak ditemukan di peta. Gunakan alamat yang lebih spesifik.';
+                $missingFields[] = 'pickup_address';
+            } else {
+                $pickupAddress = $resolvedPickup['formatted_address'];
+                $pickupLatitude = $resolvedPickup['latitude'];
+                $pickupLongitude = $resolvedPickup['longitude'];
+            }
         }
 
-        if ($dropoffAddress === null) {
+        if ($dropoffRawAddress === null) {
             $reasons[] = 'Lokasi tujuan belum terbaca. Tulis contoh: "kirim ke Jalan Sudirman No 10".';
             $missingFields[] = 'dropoff_address';
+        } else {
+            $resolvedDropoff = $this->resolveAddressViaGeocoding((string) $dropoffRawAddress);
+            if ($resolvedDropoff === null) {
+                $reasons[] = 'Lokasi tujuan tidak ditemukan di peta. Gunakan alamat yang lebih spesifik.';
+                $missingFields[] = 'dropoff_address';
+            } else {
+                $dropoffAddress = $resolvedDropoff['formatted_address'];
+                $dropoffLatitude = $resolvedDropoff['latitude'];
+                $dropoffLongitude = $resolvedDropoff['longitude'];
+            }
         }
 
         if ($packageDescription === null) {
@@ -242,22 +418,13 @@ class ChatbotCourierOrderService
             $missingFields[] = 'package_description';
         }
 
-        if ($pickupLatitude === null || $pickupLongitude === null) {
-            $reasons[] = 'Koordinat lokasi ambil belum tersedia. Atur Alamat Saya sebagai default terlebih dahulu.';
-            $missingFields[] = 'pickup_coordinates';
-
-            if ($defaultPickupAddress === null) {
-                $nextActions[] = 'OPEN_ADDRESSES';
-            }
-        }
-
-        if ($dropoffLatitude === null || $dropoffLongitude === null) {
-            $reasons[] = 'Koordinat lokasi tujuan belum tersedia. Tambahkan koordinat (lat,lng) di chat jika perlu.';
-            $missingFields[] = 'dropoff_coordinates';
-        }
-
         $distanceKm = null;
-        if ($pickupLatitude !== null && $pickupLongitude !== null && $dropoffLatitude !== null && $dropoffLongitude !== null) {
+        if (
+            $pickupLatitude !== null &&
+            $pickupLongitude !== null &&
+            $dropoffLatitude !== null &&
+            $dropoffLongitude !== null
+        ) {
             $distanceKm = $this->distanceKm($pickupLatitude, $pickupLongitude, $dropoffLatitude, $dropoffLongitude);
 
             $maxDistance = (float) config('bangdeliv.max_delivery_distance', 15);
@@ -270,6 +437,8 @@ class ChatbotCourierOrderService
             }
         }
 
+        $deliveryFee = $this->calculateDeliveryFee($distanceKm);
+
         return [
             'pickup_address' => $pickupAddress,
             'dropoff_address' => $dropoffAddress,
@@ -278,15 +447,112 @@ class ChatbotCourierOrderService
             'pickup_longitude' => $pickupLongitude,
             'dropoff_latitude' => $dropoffLatitude,
             'dropoff_longitude' => $dropoffLongitude,
+            'pickup_address_id' => $pickupAddressId,
             'distance_km' => $distanceKm,
+            'delivery_fee' => $deliveryFee,
             'used_default_pickup' => $usedDefaultPickup,
             'validation' => [
-                'is_valid_order' => $reasons === [],
+                'is_valid_order' => $reasons === [] &&
+                    $pickupAddress !== null &&
+                    $dropoffAddress !== null &&
+                    $packageDescription !== null,
                 'rejection_reasons' => $reasons,
                 'missing_fields' => array_values(array_unique($missingFields)),
                 'next_actions' => array_values(array_unique($nextActions)),
             ],
         ];
+    }
+
+    /**
+     * @return array{pickup_address: string|null, dropoff_address: string|null, package_description: string|null}
+     */
+    private function extractCourierPayload(string $message): array
+    {
+        $pickupAddress = null;
+        $dropoffAddress = null;
+
+        if (
+            preg_match(
+                '/\bdari\s+(.+?)\s+ke\s+(.+?)(?=(?:\s*,\s*|\.|\s+(?:isi\s+paket|deskripsi\s+paket|paket(?:nya)?|barang(?:nya)?|catatan)\b|$))/iu',
+                $message,
+                $routeMatch
+            ) === 1
+        ) {
+            $pickupAddress = $this->sanitizeAddressFragment($routeMatch[1] ?? null);
+            $dropoffAddress = $this->sanitizeAddressFragment($routeMatch[2] ?? null);
+        }
+
+        $pickupAddress ??= $this->extractPermissiveAddressByPatterns($message, [
+            '/\blokasi\s+ambil\s+(.+?)(?=(?:\s*,\s*|\.|\s+(?:tujuan|kirim|antar|drop\s*off|isi\s+paket|paket(?:nya)?|barang(?:nya)?|catatan)\b|$))/iu',
+            '/\b(?:ambil(?:kan)?|pickup|pick\s*up|jemput(?:\s*barang)?)\s*(?:di|dari|lokasi)?\s*[:\-]?\s*(.+?)(?=(?:\s*,\s*|\.|\s+(?:tujuan|kirim|antar|drop\s*off|isi\s+paket|paket(?:nya)?|barang(?:nya)?|catatan)\b|$))/iu',
+        ]);
+
+        $dropoffAddress ??= $this->extractPermissiveAddressByPatterns($message, [
+            '/\btujuan\s+(?:kirim|antar(?:kan)?)?\s*(?:ke|di)?\s*[:\-]?\s*(.+?)(?=(?:\s*,\s*|\.|\s+(?:isi\s+paket|paket(?:nya)?|barang(?:nya)?|catatan)\b|$))/iu',
+            '/\b(?:kirim(?:kan)?|antar(?:kan)?|drop\s*off)\s+ke\s+(.+?)(?=(?:\s*,\s*|\.|\s+(?:isi\s+paket|paket(?:nya)?|barang(?:nya)?|catatan)\b|$))/iu',
+        ]);
+
+        $dropoffAddress ??= $this->extractPermissiveAddressByPatterns($message, [
+            '/\bke\s+(.+?)(?=(?:\s*,\s*|\.|\s+(?:isi\s+paket|paket(?:nya)?|barang(?:nya)?|catatan)\b|$))/iu',
+        ]);
+
+        $packageDescription = $this->extractByPatterns($message, [
+            '/\b(?:isi\s+paket|deskripsi\s+paket|paket(?:nya)?|barang(?:nya)?)\s*[:\-]?\s*(.+)$/iu',
+            '/\b(?:kirim(?:kan)?|antar(?:kan)?)\s+(.+?)\s+\b(?:dari|ke)\b/iu',
+        ]);
+
+        if (
+            $packageDescription === null &&
+            preg_match('/\b(dokumen|berkas|paket|barang|makanan|obat|surat)\b/iu', $message, $packageMatch) === 1
+        ) {
+            $packageDescription = $this->normalizeWhitespace((string) $packageMatch[1]);
+        }
+
+        if (
+            $dropoffAddress !== null &&
+            $packageDescription !== null &&
+            strtolower($dropoffAddress) === strtolower($packageDescription)
+        ) {
+            $dropoffAddress = null;
+        }
+
+        return [
+            'pickup_address' => $pickupAddress,
+            'dropoff_address' => $dropoffAddress,
+            'package_description' => $packageDescription,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function resolveAddressViaGeocoding(string $rawAddress): ?array
+    {
+        $normalized = $this->normalizeWhitespace($rawAddress);
+        if ($normalized === '') {
+            return null;
+        }
+
+        $resolved = $this->geocodingService->resolveAddress($normalized);
+        if ($resolved === null) {
+            return null;
+        }
+
+        return [
+            'formatted_address' => trim((string) $resolved['formatted_address']),
+            'latitude' => (float) $resolved['latitude'],
+            'longitude' => (float) $resolved['longitude'],
+        ];
+    }
+
+    private function resolveProfilePickupAddress(Address $address): ?array
+    {
+        $resolved = $this->resolveAddressViaGeocoding((string) $address->full_address);
+        if ($resolved === null) {
+            return null;
+        }
+
+        return $resolved;
     }
 
     private function resolveDefaultPickupAddress(User $user): ?Address
@@ -301,7 +567,7 @@ class ChatbotCourierOrderService
     /**
      * @param  array<string, mixed>  $parsed
      */
-    private function createCourierOrder(User $user, array $parsed, ?Address $defaultPickupAddress): Order
+    private function createCourierOrder(User $user, array $parsed, ?Address $profilePickupAddress): Order
     {
         $serviceTypeId = ServiceType::query()->where('code', 'COURIER')->value('id');
         $pendingStatusId = OrderStatus::query()->where('code', 'PENDING')->value('id');
@@ -315,9 +581,13 @@ class ChatbotCourierOrderService
         $serviceFee = 0.0;
         $totalAmount = $deliveryFee + $serviceFee;
 
-        $pickupAddress = (string) $parsed['pickup_address'];
-        $dropoffAddress = (string) $parsed['dropoff_address'];
-        $packageDescription = (string) $parsed['package_description'];
+        $pickupAddress = trim((string) ($parsed['pickup_address'] ?? ''));
+        $dropoffAddress = trim((string) ($parsed['dropoff_address'] ?? ''));
+        $packageDescription = trim((string) ($parsed['package_description'] ?? ''));
+
+        if ($pickupAddress === '' || $dropoffAddress === '' || $packageDescription === '') {
+            throw new ApiException('Draft kurir tidak valid untuk dikonfirmasi. Kirim ulang detail pengiriman.', 422);
+        }
 
         $pickupLatitude = (float) $parsed['pickup_latitude'];
         $pickupLongitude = (float) $parsed['pickup_longitude'];
@@ -328,7 +598,7 @@ class ChatbotCourierOrderService
 
         return DB::transaction(function () use (
             $user,
-            $defaultPickupAddress,
+            $profilePickupAddress,
             $serviceTypeId,
             $pendingStatusId,
             $distanceKm,
@@ -349,7 +619,7 @@ class ChatbotCourierOrderService
                 'user_id' => $user->id,
                 'restaurant_id' => null,
                 'service_type_id' => $serviceTypeId,
-                'address_id' => $defaultPickupAddress?->id,
+                'address_id' => $profilePickupAddress?->id,
                 'delivery_address' => $dropoffAddress,
                 'delivery_latitude' => round($dropoffLatitude, 8),
                 'delivery_longitude' => round($dropoffLongitude, 8),
@@ -378,8 +648,8 @@ class ChatbotCourierOrderService
                 [
                     'location_role' => 'PICKUP',
                     'label' => 'Pickup',
-                    'contact_name' => $defaultPickupAddress?->recipient_name ?? $user->name,
-                    'contact_phone' => $defaultPickupAddress?->phone ?? $user->phone,
+                    'contact_name' => $profilePickupAddress?->recipient_name ?? $user->name,
+                    'contact_phone' => $profilePickupAddress?->phone ?? $user->phone,
                     'full_address' => $pickupAddress,
                     'latitude' => round($pickupLatitude, 8),
                     'longitude' => round($pickupLongitude, 8),
@@ -500,7 +770,7 @@ class ChatbotCourierOrderService
         $cleaned = preg_replace('/\s+/', ' ', $cleaned);
         $cleaned = trim((string) $cleaned, " \t\n\r\0\x0B,.;:-");
 
-        if ($cleaned === '' || strlen($cleaned) < 4) {
+        if ($cleaned === '' || strlen($cleaned) < 3) {
             return null;
         }
 
@@ -541,30 +811,72 @@ class ChatbotCourierOrderService
         return count($parts) >= 2 && strlen($normalized) >= 8;
     }
 
-    /**
-     * @return array{pickup_latitude: float|null, pickup_longitude: float|null, dropoff_latitude: float|null, dropoff_longitude: float|null}
-     */
-    private function extractCoordinateHints(string $message): array
+    private function isProfilePickupAlias(string $value): bool
     {
-        preg_match_all('/(-?\d{1,2}\.\d{4,})\s*,\s*(-?\d{1,3}\.\d{4,})/', $message, $matches, PREG_SET_ORDER);
+        $normalized = strtolower($this->normalizeWhitespace($value));
 
-        $points = [];
-        foreach ($matches as $match) {
-            $lat = (float) $match[1];
-            $lng = (float) $match[2];
+        return in_array($normalized, $this->pickupProfileAliases, true);
+    }
 
-            if ($lat < -90 || $lat > 90 || $lng < -180 || $lng > 180) {
-                continue;
-            }
+    private function isConfirmCommand(string $message): bool
+    {
+        $normalized = strtolower($this->normalizeWhitespace($message));
 
-            $points[] = ['lat' => $lat, 'lng' => $lng];
+        return in_array($normalized, $this->confirmCommands, true);
+    }
+
+    private function isResetDestinationCommand(string $message): bool
+    {
+        $normalized = strtolower($this->normalizeWhitespace($message));
+
+        return in_array($normalized, $this->resetCommands, true);
+    }
+
+    private function resolveCommand(string $normalizedMessage, ?array $nluPayload): ?string
+    {
+        $nluCommand = strtolower(trim((string) ($nluPayload['command'] ?? '')));
+
+        if ($nluCommand === 'confirm') {
+            return 'confirm';
+        }
+
+        if ($nluCommand === 'reset_destination') {
+            return 'reset_destination';
+        }
+
+        if ($this->isResetDestinationCommand($normalizedMessage)) {
+            return 'reset_destination';
+        }
+
+        if ($this->isConfirmCommand($normalizedMessage)) {
+            return 'confirm';
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $nluPayload
+     * @return array{pickup_address: string|null, dropoff_address: string|null, package_description: string|null}|null
+     */
+    private function buildDraftSeedFromNlu(?array $nluPayload): ?array
+    {
+        if (!is_array($nluPayload)) {
+            return null;
+        }
+
+        $pickupAddress = $this->sanitizeAddressFragment(isset($nluPayload['pickup_address']) ? (string) $nluPayload['pickup_address'] : null);
+        $dropoffAddress = $this->sanitizeAddressFragment(isset($nluPayload['dropoff_address']) ? (string) $nluPayload['dropoff_address'] : null);
+        $packageDescription = $this->sanitizeAddressFragment(isset($nluPayload['package_description']) ? (string) $nluPayload['package_description'] : null);
+
+        if ($pickupAddress === null && $dropoffAddress === null && $packageDescription === null) {
+            return null;
         }
 
         return [
-            'pickup_latitude' => $points[0]['lat'] ?? null,
-            'pickup_longitude' => $points[0]['lng'] ?? null,
-            'dropoff_latitude' => $points[1]['lat'] ?? null,
-            'dropoff_longitude' => $points[1]['lng'] ?? null,
+            'pickup_address' => $pickupAddress,
+            'dropoff_address' => $dropoffAddress,
+            'package_description' => $packageDescription,
         ];
     }
 
@@ -613,11 +925,6 @@ class ChatbotCourierOrderService
         return max(20, min(180, $estimated));
     }
 
-    private function formatAddress(Address $address): string
-    {
-        return trim($address->full_address.' '.($address->detail ?? ''));
-    }
-
     private function generateOrderNumber(): string
     {
         do {
@@ -651,6 +958,24 @@ class ChatbotCourierOrderService
     /**
      * @param  array<string, mixed>  $parsed
      */
+    private function buildDraftMessage(array $parsed, string $userName): string
+    {
+        $name = trim($userName) === '' ? 'Kak' : trim($userName);
+        $deliveryFee = number_format((float) ($parsed['delivery_fee'] ?? 0), 0, ',', '.');
+
+        $buffer = "Baik {$name}, saya sudah siapkan draft pengiriman Kurir.\n";
+        $buffer .= 'Pickup: '.(string) $parsed['pickup_address']."\n";
+        $buffer .= 'Tujuan: '.(string) $parsed['dropoff_address']."\n";
+        $buffer .= 'Isi paket: '.(string) $parsed['package_description']."\n";
+        $buffer .= "Estimasi ongkir sementara: Rp {$deliveryFee} (kalkulasi detail menyusul).\n";
+        $buffer .= 'Ketik "Konfirmasi" untuk lanjut atau "Ubah Tujuan" untuk ganti tujuan.';
+
+        return $buffer;
+    }
+
+    /**
+     * @param  array<string, mixed>  $parsed
+     */
     private function buildSuccessMessage(Order $order, array $parsed): string
     {
         $deliveryFee = number_format((float) $order->delivery_fee, 0, ',', '.');
@@ -663,5 +988,86 @@ class ChatbotCourierOrderService
         $buffer .= "Ongkir: Rp {$deliveryFee}.";
 
         return $buffer;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function resolvePendingDraft(User $user, string $sessionId): ?array
+    {
+        $latestAssistantLog = AiChatLog::query()
+            ->where('user_id', $user->id)
+            ->where('session_id', $sessionId)
+            ->where('role', 'assistant')
+            ->latest('id')
+            ->first();
+
+        if ($latestAssistantLog === null) {
+            return null;
+        }
+
+        $payload = $latestAssistantLog->ai_response;
+        if (!is_array($payload)) {
+            return null;
+        }
+
+        if (($payload['intent'] ?? null) !== 'courier_order') {
+            return null;
+        }
+
+        $order = $payload['order'] ?? null;
+        if (!is_array($order) || ($order['created'] ?? false) === true) {
+            return null;
+        }
+
+        $validation = $payload['validation'] ?? null;
+        $courier = $payload['courier'] ?? null;
+        if (!is_array($validation) || !is_array($courier)) {
+            return null;
+        }
+
+        if (($validation['is_valid_order'] ?? false) !== true) {
+            return null;
+        }
+
+        if (($courier['ready_to_confirm'] ?? false) !== true) {
+            return null;
+        }
+
+        $pickupAddress = trim((string) ($courier['pickup_address'] ?? ''));
+        $dropoffAddress = trim((string) ($courier['dropoff_address'] ?? ''));
+        $packageDescription = trim((string) ($courier['package_description'] ?? ''));
+
+        if ($pickupAddress === '' || $dropoffAddress === '' || $packageDescription === '') {
+            return null;
+        }
+
+        $pickupLatitude = isset($courier['pickup_latitude']) ? (float) $courier['pickup_latitude'] : null;
+        $pickupLongitude = isset($courier['pickup_longitude']) ? (float) $courier['pickup_longitude'] : null;
+        $dropoffLatitude = isset($courier['dropoff_latitude']) ? (float) $courier['dropoff_latitude'] : null;
+        $dropoffLongitude = isset($courier['dropoff_longitude']) ? (float) $courier['dropoff_longitude'] : null;
+
+        if (
+            $pickupLatitude === null ||
+            $pickupLongitude === null ||
+            $dropoffLatitude === null ||
+            $dropoffLongitude === null
+        ) {
+            return null;
+        }
+
+        return [
+            'pickup_address' => $pickupAddress,
+            'dropoff_address' => $dropoffAddress,
+            'package_description' => $packageDescription,
+            'pickup_latitude' => $pickupLatitude,
+            'pickup_longitude' => $pickupLongitude,
+            'dropoff_latitude' => $dropoffLatitude,
+            'dropoff_longitude' => $dropoffLongitude,
+            'distance_km' => isset($courier['distance_km']) ? (float) $courier['distance_km'] : null,
+            'delivery_fee' => isset($order['delivery_fee']) ? (float) $order['delivery_fee'] : null,
+            'used_default_pickup' => (bool) ($courier['used_default_pickup'] ?? false),
+            'pickup_address_id' => isset($courier['pickup_address_id']) ? (int) $courier['pickup_address_id'] : null,
+        ];
     }
 }

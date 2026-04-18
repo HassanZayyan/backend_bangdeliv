@@ -26,6 +26,8 @@ class ChatbotAccessTest extends TestCase
         $user = User::factory()->create([
             'role' => 'customer',
             'phone' => '081233333333',
+            'is_active' => true,
+            'is_blacklisted' => false,
         ]);
 
         Sanctum::actingAs($user);
@@ -53,7 +55,7 @@ class ChatbotAccessTest extends TestCase
             ->assertJsonPath('status', 'success')
             ->assertJsonPath('service_context.service_type', 'kurir')
             ->assertJsonPath('service_context.service_code', 'COURIER')
-            ->assertJsonPath('data.intent', 'out_of_domain')
+            ->assertJsonPath('data.intent', 'courier_order')
             ->assertJsonPath('data.validation.is_valid_order', false)
             ->assertJsonPath('model_used', 'gemini-3.1-flash-lite-preview');
     }

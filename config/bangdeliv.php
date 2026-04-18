@@ -65,6 +65,17 @@ return [
     'chatbot' => [
         'rate_limit_per_minute' => env('CHATBOT_RATE_LIMIT_PER_MINUTE', 12),
         'rate_limit_per_hour' => env('CHATBOT_RATE_LIMIT_PER_HOUR', 120),
+        'gemini' => [
+            'api_key' => env('GEMINI_API_KEY'),
+            'timeout_seconds' => env('GEMINI_TIMEOUT_SECONDS', 12),
+            'models' => array_values(array_filter(array_map(
+                'trim',
+                explode(',', (string) env(
+                    'GEMINI_MODELS',
+                    'gemini-3.1-flash-lite-preview,gemini-2.5-flash,gemini-2.5-flash-lite,gemini-3-flash-preview'
+                ))
+            ))),
+        ],
     ],
 
 ];
