@@ -57,6 +57,8 @@ Route::prefix('v1')->group(function () {
         Route::post('/driver/verification/documents', [DriverVerificationController::class, 'submitDocuments']);
 
         Route::middleware('driver.active')->group(function () {
+            Route::get('/driver/availability', [OrderController::class, 'driverAvailability']);
+            Route::patch('/driver/availability', [OrderController::class, 'updateDriverAvailability']);
             Route::get('/driver/history', [OrderController::class, 'driverHistory']);
             Route::get('/driver/orders', [OrderController::class, 'driverOrders']);
             Route::get('/driver/orders/{orderId}', [OrderController::class, 'driverOrderDetail']);

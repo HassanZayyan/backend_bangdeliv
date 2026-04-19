@@ -55,6 +55,11 @@
                 @forelse($drivers as $driver)
                     @php
                         $initial = strtoupper(substr($driver->user->name ?? 'D', 0, 2));
+                        $avatarPath = trim((string) ($driver->user->avatar ?? ''));
+                        $avatarUrl = null;
+                        if ($avatarPath !== '' && \Illuminate\Support\Facades\Storage::disk('public')->exists($avatarPath)) {
+                            $avatarUrl = asset('storage/'.$avatarPath);
+                        }
                         $statusText = 'Offline';
                         $statusClass = 'badge-info';
 
@@ -72,7 +77,18 @@
                     <tr>
                         <td>
                             <div style="display: flex; align-items: center; gap: 12px;">
-                                <div class="driver-avatar" style="width: 45px; height: 45px; flex-shrink: 0;">{{ $initial }}</div>
+                                <div class="driver-avatar {{ $avatarUrl ? 'has-image' : 'is-fallback' }}" style="width: 45px; height: 45px; flex-shrink: 0;">
+                                    @if($avatarUrl)
+                                        <img
+                                            src="{{ $avatarUrl }}"
+                                            alt="Avatar {{ $driver->user->name ?? 'Driver' }}"
+                                            class="driver-avatar-image"
+                                            loading="lazy"
+                                            onerror="this.parentElement.classList.remove('has-image'); this.parentElement.classList.add('is-fallback'); this.remove();"
+                                        >
+                                    @endif
+                                    <span class="driver-avatar-fallback">{{ $initial }}</span>
+                                </div>
                                 <div class="td-user">
                                     <span class="td-strong">{{ $driver->user->name ?? '-' }}</span>
                                     <span class="td-sub"><i class='bx bx-phone'></i> {{ $driver->user->phone ?? '-' }}</span>

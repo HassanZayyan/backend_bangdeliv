@@ -17,6 +17,7 @@ use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class OrderService
 {
@@ -336,19 +337,57 @@ class OrderService
     /**
      * @return array<string, mixed>
      */
+    public function driverAvailability(User $actor): array
+    {
+        $driver = $this->resolveActiveDriverProfile($actor);
+        $hasRunningOrder = $this->hasRunningDriverOrder($driver->id);
+
+        return $this->serializeDriverAvailability($driver, $hasRunningOrder);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function updateDriverAvailability(User $actor, bool $isOnline): array
+    {
+        $driver = $this->resolveActiveDriverProfile($actor);
+
+        return DB::transaction(function () use ($driver, $isOnline): array {
+            $lockedDriver = Driver::query()->lockForUpdate()->find($driver->id);
+            if (!$lockedDriver) {
+                throw new ApiException('Profil driver tidak ditemukan.', 404);
+            }
+
+            $hasRunningOrder = $this->hasRunningDriverOrder($lockedDriver->id);
+
+            if (!$isOnline && $hasRunningOrder) {
+                throw new ApiException('Tidak bisa offline saat masih ada order berjalan.', 409);
+            }
+
+            $targetStatus = $isOnline
+                ? ($hasRunningOrder ? 'busy' : 'available')
+                : 'offline';
+
+            if ((string) $lockedDriver->status !== $targetStatus) {
+                $lockedDriver->update([
+                    'status' => $targetStatus,
+                ]);
+            }
+
+            $lockedDriver->refresh();
+
+            return $this->serializeDriverAvailability($lockedDriver, $hasRunningOrder);
+        });
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
     public function listDriverOrders(User $actor): array
     {
         $driver = $this->resolveActiveDriverProfile($actor);
         $pendingStatusId = $this->resolveStatusId('PENDING');
-        $runningStatusIds = $this->resolveStatusIds([
-            'DRIVER_ASSIGNED',
-            'ARRIVED_MERCHANT',
-            'ARRIVED_PICKUP',
-            'PICKED_UP',
-            'ON_THE_WAY',
-            'ARRIVED_DROPOFF',
-            'DELIVERED',
-        ]);
+        $runningStatusIds = $this->runningDriverOrderStatusIds();
 
         $incoming = Order::query()
             ->with($this->driverOrderRelations())
@@ -690,6 +729,53 @@ class OrderService
     }
 
     /**
+     * @return array<int, int>
+     */
+    private function runningDriverOrderStatusIds(): array
+    {
+        return $this->resolveStatusIdsLenient([
+            'DRIVER_ASSIGNED',
+            'ARRIVED_MERCHANT',
+            'ARRIVED_PICKUP',
+            'PICKED_UP',
+            'ON_THE_WAY',
+            'ARRIVED_DROPOFF',
+            'DELIVERED',
+        ]);
+    }
+
+    private function hasRunningDriverOrder(int $driverId): bool
+    {
+        $runningStatusIds = $this->runningDriverOrderStatusIds();
+        if ($runningStatusIds === []) {
+            return false;
+        }
+
+        return Order::query()
+            ->where('driver_id', $driverId)
+            ->whereIn('status_id', $runningStatusIds)
+            ->exists();
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function serializeDriverAvailability(Driver $driver, bool $hasRunningOrder): array
+    {
+        $status = strtolower(trim((string) ($driver->status ?? 'offline')));
+        if (!in_array($status, ['available', 'offline', 'busy'], true)) {
+            $status = $hasRunningOrder ? 'busy' : 'offline';
+        }
+
+        return [
+            'driver_id' => (int) $driver->id,
+            'status' => $status,
+            'is_online' => in_array($status, ['available', 'busy', 'online'], true),
+            'has_running_order' => $hasRunningOrder,
+        ];
+    }
+
+    /**
      * @param  array<int, string>  $codes
      * @return array<int, int>
      */
@@ -709,6 +795,39 @@ class OrderService
             }
 
             $resolved[] = (int) $id;
+        }
+
+        return $resolved;
+    }
+
+    /**
+     * @param  array<int, string>  $codes
+     * @return array<int, int>
+     */
+    private function resolveStatusIdsLenient(array $codes): array
+    {
+        $map = OrderStatus::query()
+            ->whereIn('code', $codes)
+            ->pluck('id', 'code');
+
+        $missingCodes = [];
+        $resolved = [];
+
+        foreach ($codes as $code) {
+            $id = $map[$code] ?? null;
+            if (!$id) {
+                $missingCodes[] = $code;
+                continue;
+            }
+
+            $resolved[] = (int) $id;
+        }
+
+        if ($missingCodes !== []) {
+            Log::warning('Order status configuration is incomplete for lenient lookup.', [
+                'missing_status_codes' => $missingCodes,
+                'requested_status_codes' => $codes,
+            ]);
         }
 
         return $resolved;

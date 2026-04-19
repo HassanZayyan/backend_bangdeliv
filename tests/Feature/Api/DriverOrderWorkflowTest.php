@@ -144,4 +144,118 @@ class DriverOrderWorkflowTest extends TestCase
             ->assertJsonPath('data.history_orders.0.customer_name', 'Customer Riwayat')
             ->assertJsonPath('data.history_orders.0.status', 'Selesai');
     }
+
+    public function test_driver_can_toggle_availability_online_and_offline(): void
+    {
+        $driverUser = User::query()->create([
+            'name' => 'Driver Availability',
+            'email' => 'driver.availability@example.com',
+            'phone' => '081211119993',
+            'password' => Hash::make('password123'),
+            'role' => 'driver',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        $driver = Driver::query()->create([
+            'user_id' => $driverUser->id,
+            'vehicle_plate' => 'B 1111 AVL',
+            'license_number' => 'SIMC-AVL-2026',
+            'registration_status' => 'active',
+            'status' => 'offline',
+        ]);
+
+        Sanctum::actingAs($driverUser);
+
+        $onlineResponse = $this->patchJson('/api/v1/driver/availability', [
+            'is_online' => true,
+        ]);
+
+        $onlineResponse->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.status', 'available')
+            ->assertJsonPath('data.is_online', true);
+
+        $this->assertDatabaseHas('drivers', [
+            'id' => $driver->id,
+            'status' => 'available',
+        ]);
+
+        $offlineResponse = $this->patchJson('/api/v1/driver/availability', [
+            'is_online' => false,
+        ]);
+
+        $offlineResponse->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.status', 'offline')
+            ->assertJsonPath('data.is_online', false);
+
+        $this->assertDatabaseHas('drivers', [
+            'id' => $driver->id,
+            'status' => 'offline',
+        ]);
+    }
+
+    public function test_driver_cannot_go_offline_when_has_running_order(): void
+    {
+        $driverUser = User::query()->create([
+            'name' => 'Driver Busy',
+            'email' => 'driver.busy@example.com',
+            'phone' => '081211119994',
+            'password' => Hash::make('password123'),
+            'role' => 'driver',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        $driver = Driver::query()->create([
+            'user_id' => $driverUser->id,
+            'vehicle_plate' => 'B 2222 BSY',
+            'license_number' => 'SIMC-BSY-2026',
+            'registration_status' => 'active',
+            'status' => 'available',
+        ]);
+
+        $customer = User::factory()->create([
+            'role' => 'customer',
+        ]);
+
+        $shoppingTypeId = (int) ServiceType::query()->where('code', 'SHOPPING')->value('id');
+        $assignedStatusId = (int) OrderStatus::query()->where('code', 'DRIVER_ASSIGNED')->value('id');
+
+        Order::query()->create([
+            'order_number' => 'BD-DRV-BSY-0001',
+            'user_id' => $customer->id,
+            'restaurant_id' => null,
+            'service_type_id' => $shoppingTypeId,
+            'driver_id' => $driver->id,
+            'address_id' => null,
+            'delivery_address' => 'Jl. Busy Driver No. 1',
+            'delivery_latitude' => -7.001100,
+            'delivery_longitude' => 110.401100,
+            'subtotal' => 12000,
+            'delivery_fee' => 6000,
+            'service_fee' => 0,
+            'total_amount' => 18000,
+            'total_price' => 18000,
+            'status_id' => $assignedStatusId,
+            'payment_status' => 'unpaid',
+            'payment_method' => 'COD',
+        ]);
+
+        Sanctum::actingAs($driverUser);
+
+        $response = $this->patchJson('/api/v1/driver/availability', [
+            'is_online' => false,
+        ]);
+
+        $response->assertStatus(409)
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('message', 'Tidak bisa offline saat masih ada order berjalan.');
+
+        $this->assertDatabaseHas('drivers', [
+            'id' => $driver->id,
+            'status' => 'available',
+        ]);
+    }
 }

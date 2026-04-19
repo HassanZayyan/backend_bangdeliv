@@ -3,6 +3,7 @@
 namespace Tests\Feature\Api;
 
 use App\Models\Address;
+use App\Models\Driver;
 use App\Models\Order;
 use App\Models\OrderStatus;
 use App\Models\Restaurant;
@@ -10,8 +11,10 @@ use App\Models\Review;
 use App\Models\ServiceType;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -130,6 +133,181 @@ class AuthProfileTest extends TestCase
             ->assertJsonPath('data.stats.rating', 5);
     }
 
+    public function test_driver_profile_uses_driver_based_stats(): void
+    {
+        $driverUser = User::query()->create([
+            'name' => 'Driver Satu',
+            'email' => 'driver.satu@example.com',
+            'phone' => '081211110010',
+            'password' => Hash::make('rahasia123'),
+            'role' => 'driver',
+        ]);
+
+        $driver = Driver::query()->create([
+            'user_id' => $driverUser->id,
+            'vehicle_plate' => 'B 1234 XYZ',
+            'license_number' => 'SIMC-8899123',
+            'registration_status' => 'active',
+            'status' => 'available',
+            'avg_rating' => 4.20,
+            'total_deliveries' => 99,
+        ]);
+
+        $customer = User::factory()->create([
+            'role' => 'customer',
+        ]);
+
+        $restaurant = Restaurant::query()->create([
+            'name' => 'Resto Driver',
+            'slug' => 'resto-driver',
+            'description' => null,
+            'address' => 'Jl. Driver No. 7',
+            'latitude' => -6.20000000,
+            'longitude' => 106.81666600,
+            'phone' => '081234567890',
+            'banner_image' => null,
+            'status' => 'active',
+            'avg_rating' => 4.50,
+            'total_reviews' => 10,
+            'estimated_prep_time' => 20,
+        ]);
+
+        $serviceType = ServiceType::query()->firstOrCreate(
+            ['code' => 'SHOPPING'],
+            [
+                'display_name' => 'Shopping',
+                'description' => 'Test service type',
+                'sort_order' => 1,
+            ]
+        );
+
+        $completedStatus = OrderStatus::query()->firstOrCreate(
+            ['code' => 'COMPLETED'],
+            [
+                'display_name' => 'Completed',
+                'is_terminal' => true,
+                'sort_order' => 99,
+            ]
+        );
+
+        $pendingStatus = OrderStatus::query()->firstOrCreate(
+            ['code' => 'PENDING'],
+            [
+                'display_name' => 'Pending',
+                'is_terminal' => false,
+                'sort_order' => 1,
+            ]
+        );
+
+        $completedOrderOne = Order::query()->create([
+            'order_number' => 'ORD-DRV-0001',
+            'user_id' => $customer->id,
+            'restaurant_id' => $restaurant->id,
+            'service_type_id' => $serviceType->id,
+            'driver_id' => $driver->id,
+            'address_id' => null,
+            'delivery_address' => 'Jl. Mawar No. 1',
+            'delivery_latitude' => -6.20000000,
+            'delivery_longitude' => 106.81666600,
+            'subtotal' => 20000,
+            'delivery_fee' => 12000,
+            'total_amount' => 32000,
+            'total_price' => 32000,
+            'status_id' => $completedStatus->id,
+            'payment_status' => 'paid',
+            'payment_method' => 'COD',
+            'delivered_at' => now(),
+        ]);
+
+        $completedOrderTwo = Order::query()->create([
+            'order_number' => 'ORD-DRV-0002',
+            'user_id' => $customer->id,
+            'restaurant_id' => $restaurant->id,
+            'service_type_id' => $serviceType->id,
+            'driver_id' => $driver->id,
+            'address_id' => null,
+            'delivery_address' => 'Jl. Melati No. 2',
+            'delivery_latitude' => -6.21000000,
+            'delivery_longitude' => 106.82666600,
+            'subtotal' => 15000,
+            'delivery_fee' => 8000,
+            'total_amount' => 23000,
+            'total_price' => 23000,
+            'status_id' => $completedStatus->id,
+            'payment_status' => 'paid',
+            'payment_method' => 'COD',
+            'delivered_at' => now(),
+        ]);
+
+        Order::query()->create([
+            'order_number' => 'ORD-DRV-0003',
+            'user_id' => $customer->id,
+            'restaurant_id' => $restaurant->id,
+            'service_type_id' => $serviceType->id,
+            'driver_id' => $driver->id,
+            'address_id' => null,
+            'delivery_address' => 'Jl. Anggrek No. 3',
+            'delivery_latitude' => -6.22000000,
+            'delivery_longitude' => 106.83666600,
+            'subtotal' => 22000,
+            'delivery_fee' => 7000,
+            'total_amount' => 29000,
+            'total_price' => 29000,
+            'status_id' => $pendingStatus->id,
+            'payment_status' => 'unpaid',
+            'payment_method' => 'COD',
+        ]);
+
+        Order::query()->create([
+            'order_number' => 'ORD-DRV-0004',
+            'user_id' => $driverUser->id,
+            'restaurant_id' => $restaurant->id,
+            'service_type_id' => $serviceType->id,
+            'driver_id' => null,
+            'address_id' => null,
+            'delivery_address' => 'Jl. Driver Order Customer',
+            'delivery_latitude' => -6.23000000,
+            'delivery_longitude' => 106.84666600,
+            'subtotal' => 500000,
+            'delivery_fee' => 15000,
+            'total_amount' => 515000,
+            'total_price' => 515000,
+            'status_id' => $completedStatus->id,
+            'payment_status' => 'paid',
+            'payment_method' => 'COD',
+            'delivered_at' => now(),
+        ]);
+
+        Review::query()->create([
+            'order_id' => $completedOrderOne->id,
+            'user_id' => $customer->id,
+            'restaurant_id' => $restaurant->id,
+            'driver_id' => $driver->id,
+            'rating' => 4,
+            'comment' => null,
+        ]);
+
+        Review::query()->create([
+            'order_id' => $completedOrderTwo->id,
+            'user_id' => $customer->id,
+            'restaurant_id' => $restaurant->id,
+            'driver_id' => $driver->id,
+            'rating' => 5,
+            'comment' => null,
+        ]);
+
+        Sanctum::actingAs($driverUser);
+
+        $response = $this->getJson('/api/user');
+
+        $response->assertOk()
+            ->assertJsonPath('data.stats.total_orders', 2)
+            ->assertJsonPath('data.stats.total_paid', 20000)
+            ->assertJsonPath('data.stats.rating', 4.5)
+            ->assertJsonPath('data.driver_profile.vehicle_plate', 'B 1234 XYZ')
+            ->assertJsonPath('data.driver_profile.registration_status', 'active');
+    }
+
     public function test_authenticated_user_can_update_profile(): void
     {
         $user = User::query()->create([
@@ -159,6 +337,91 @@ class AuthProfileTest extends TestCase
             'name' => 'Baru',
             'phone' => '081200000002',
             'email' => 'baru@example.com',
+        ]);
+    }
+
+    public function test_authenticated_user_can_update_profile_with_avatar(): void
+    {
+        Storage::fake('public');
+
+        $user = User::query()->create([
+            'name' => 'Avatar Lama',
+            'email' => 'avatar.lama@example.com',
+            'phone' => '081255550001',
+            'password' => Hash::make('rahasia123'),
+            'role' => 'customer',
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $avatar = UploadedFile::fake()->image('avatar-baru.jpg', 400, 400);
+
+        $response = $this->post('/api/user', [
+            '_method' => 'PUT',
+            'name' => 'Avatar Baru',
+            'phone' => '081255550002',
+            'email' => 'avatar.baru@example.com',
+            'avatar' => $avatar,
+        ], [
+            'Accept' => 'application/json',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('message', 'Profil berhasil diperbarui.')
+            ->assertJsonPath('data.name', 'Avatar Baru');
+
+        $refreshed = $user->fresh();
+
+        $this->assertNotNull($refreshed?->avatar);
+        Storage::disk('public')->assertExists((string) $refreshed?->avatar);
+
+        $this->assertDatabaseHas('users', [
+            'id' => $user->id,
+            'name' => 'Avatar Baru',
+            'phone' => '081255550002',
+            'email' => 'avatar.baru@example.com',
+        ]);
+    }
+
+    public function test_authenticated_user_can_remove_profile_avatar(): void
+    {
+        Storage::fake('public');
+
+        $user = User::query()->create([
+            'name' => 'Avatar Aktif',
+            'email' => 'avatar.aktif@example.com',
+            'phone' => '081255550101',
+            'password' => Hash::make('rahasia123'),
+            'role' => 'customer',
+            'avatar' => 'avatars/999/old-avatar.jpg',
+        ]);
+
+        Storage::disk('public')->put('avatars/999/old-avatar.jpg', 'old-avatar-file');
+
+        Sanctum::actingAs($user);
+
+        $response = $this->putJson('/api/user', [
+            'name' => 'Avatar Dihapus',
+            'phone' => '081255550102',
+            'email' => 'avatar.hapus@example.com',
+            'remove_avatar' => true,
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('message', 'Profil berhasil diperbarui.')
+            ->assertJsonPath('data.name', 'Avatar Dihapus')
+            ->assertJsonPath('data.avatar_url', null);
+
+        $refreshed = $user->fresh();
+        $this->assertNull($refreshed?->avatar);
+        Storage::disk('public')->assertMissing('avatars/999/old-avatar.jpg');
+
+        $this->assertDatabaseHas('users', [
+            'id' => $user->id,
+            'name' => 'Avatar Dihapus',
+            'phone' => '081255550102',
+            'email' => 'avatar.hapus@example.com',
+            'avatar' => null,
         ]);
     }
 

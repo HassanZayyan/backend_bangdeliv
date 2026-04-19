@@ -158,6 +158,35 @@ class OrderController extends Controller
         }
     }
 
+    public function driverAvailability(Request $request): JsonResponse
+    {
+        try {
+            $payload = $this->orderService->driverAvailability($request->user());
+
+            return $this->success($payload, 'Status kerja driver berhasil diambil.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
+    public function updateDriverAvailability(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'is_online' => ['required', 'boolean'],
+        ]);
+
+        try {
+            $payload = $this->orderService->updateDriverAvailability(
+                $request->user(),
+                (bool) $validated['is_online']
+            );
+
+            return $this->success($payload, 'Status kerja driver berhasil diperbarui.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
     public function driverOrders(Request $request): JsonResponse
     {
         try {

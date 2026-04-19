@@ -15,6 +15,7 @@ use App\Services\DriverOnboardingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -155,11 +156,7 @@ class AuthController extends Controller
     public function me(Request $request)
     {
         $user = $request->user();
-        $responseUserData = $this->buildProfilePayload($user);
-        
-        if ($user->role === 'driver') {
-            $responseUserData['driver_profile'] = $user->driver;
-        }
+        $responseUserData = $this->buildProfilePayload($user, $request);
 
         return response()->json([
             'data' => $responseUserData
@@ -177,6 +174,8 @@ class AuthController extends Controller
             'name' => $request->input('name'),
             'email' => $request->filled('email') ? strtolower((string) $request->input('email')) : null,
             'phone' => $this->normalizePhone((string) $request->input('phone', '')),
+            'avatar' => $request->file('avatar'),
+            'remove_avatar' => $request->boolean('remove_avatar'),
         ];
 
         $validator = Validator::make($payload, [
@@ -194,6 +193,8 @@ class AuthController extends Controller
                 'max:20',
                 Rule::unique('users', 'phone')->ignore($user->id),
             ],
+            'avatar' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
+            'remove_avatar' => ['nullable', 'boolean'],
         ]);
 
         if ($validator->fails()) {
@@ -202,15 +203,32 @@ class AuthController extends Controller
 
         $validated = $validator->validated();
 
+        $oldAvatarPath = is_string($user->avatar) ? $user->avatar : null;
+        $avatarPath = $oldAvatarPath;
+        $shouldRemoveAvatar = (bool) ($validated['remove_avatar'] ?? false);
+
+        if ($shouldRemoveAvatar) {
+            $avatarPath = null;
+        }
+
+        if (isset($validated['avatar']) && $validated['avatar'] !== null) {
+            $avatarPath = $validated['avatar']->store('avatars/'.$user->id, 'public');
+        }
+
+        if ($oldAvatarPath && $oldAvatarPath !== $avatarPath && Storage::disk('public')->exists($oldAvatarPath)) {
+            Storage::disk('public')->delete($oldAvatarPath);
+        }
+
         $user->update([
             'name' => $validated['name'],
             'phone' => $validated['phone'],
             'email' => $validated['email'] ?? $user->email,
+            'avatar' => $avatarPath,
         ]);
 
         return response()->json([
             'message' => 'Profil berhasil diperbarui.',
-            'data' => $this->buildProfilePayload($user->fresh()),
+            'data' => $this->buildProfilePayload($user->fresh(), $request),
         ]);
     }
 
@@ -372,7 +390,7 @@ class AuthController extends Controller
         return response()->json(['message' => 'Logged out successfully']);
     }
 
-    private function buildProfilePayload(User $user): array
+    private function buildProfilePayload(User $user, ?Request $request = null): array
     {
         $addresses = $user->addresses()
             ->orderByDesc('is_default')
@@ -389,13 +407,42 @@ class AuthController extends Controller
                 'is_default',
             ]);
 
+        $driver = null;
         $totalOrders = $user->orders()->count();
         $totalPaid = (float) $user->orders()->where('payment_status', 'paid')->sum('total_amount');
         $rating = (float) (Review::query()->where('user_id', $user->id)->avg('rating') ?? 0);
 
+        if ($user->role === 'driver') {
+            $driver = $user->driver()->first();
+
+            if ($driver) {
+                $completedDriverOrders = $driver->orders()
+                    ->whereHas('statusRef', function ($query): void {
+                        $query->where('code', 'COMPLETED');
+                    });
+
+                $totalOrders = (clone $completedDriverOrders)->count();
+                $totalPaid = (float) (clone $completedDriverOrders)->sum('delivery_fee');
+
+                $avgRating = Review::query()
+                    ->where('driver_id', $driver->id)
+                    ->avg('rating');
+
+                if ($avgRating !== null) {
+                    $rating = (float) $avgRating;
+                } elseif ($driver->avg_rating !== null) {
+                    $rating = (float) $driver->avg_rating;
+                } else {
+                    $rating = 0;
+                }
+            }
+        }
+
         $responseUserData = $user->toArray();
         $responseUserData['address_count'] = $addresses->count();
         $responseUserData['addresses'] = $addresses->toArray();
+        $responseUserData['driver_profile'] = $driver?->toArray();
+        $responseUserData['avatar_url'] = $this->resolveAvatarUrl($user, $request);
         $responseUserData['stats'] = [
             'total_orders' => $totalOrders,
             'total_paid' => $totalPaid,
@@ -403,5 +450,32 @@ class AuthController extends Controller
         ];
 
         return $responseUserData;
+    }
+
+    private function resolveAvatarUrl(User $user, ?Request $request = null): ?string
+    {
+        $avatarPath = trim((string) ($user->avatar ?? ''));
+        if ($avatarPath === '') {
+            return null;
+        }
+
+        if (!Storage::disk('public')->exists($avatarPath)) {
+            return null;
+        }
+
+        $relativeUrl = Storage::disk('public')->url($avatarPath);
+        if (str_starts_with($relativeUrl, 'http://') || str_starts_with($relativeUrl, 'https://')) {
+            return $relativeUrl;
+        }
+
+        $baseUrl = $request
+            ? rtrim($request->getSchemeAndHttpHost(), '/')
+            : rtrim((string) config('app.url'), '/');
+
+        if ($baseUrl === '') {
+            return $relativeUrl;
+        }
+
+        return $baseUrl.'/'.ltrim($relativeUrl, '/');
     }
 }
