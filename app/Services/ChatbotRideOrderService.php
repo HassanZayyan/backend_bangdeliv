@@ -30,7 +30,9 @@ class ChatbotRideOrderService
 
     public function __construct(
         private readonly RideOrderService $rideOrderService,
-        private readonly GoogleMapsGeocodingService $geocodingService
+        private readonly GoogleMapsGeocodingService $geocodingService,
+        private readonly GoogleMapsDistanceMatrixService $distanceMatrixService,
+        private readonly DeliveryPricingService $deliveryPricingService
     ) {
     }
 
@@ -249,6 +251,7 @@ class ChatbotRideOrderService
                 'pickup_longitude' => $draft['pickup_longitude'],
                 'destination_latitude' => $draft['destination_latitude'],
                 'destination_longitude' => $draft['destination_longitude'],
+                'distance_km' => $draft['distance_km'],
             ],
             'validation' => [
                 'is_valid_order' => true,
@@ -283,6 +286,7 @@ class ChatbotRideOrderService
         $destinationAddress = null;
         $destinationLatitude = null;
         $destinationLongitude = null;
+        $distanceKm = null;
 
         $reasons = [];
         $missingFields = [];
@@ -325,7 +329,44 @@ class ChatbotRideOrderService
             }
         }
 
-        $deliveryFee = (float) config('bangdeliv.min_delivery_fee', 5000);
+        $deliveryFee = (float) $this->deliveryPricingService->calculateFromDistanceMeters(0)['total_fee'];
+
+        if (
+            $pickupLatitude !== null &&
+            $pickupLongitude !== null &&
+            $destinationLatitude !== null &&
+            $destinationLongitude !== null
+        ) {
+            try {
+                $route = $this->distanceMatrixService->resolveRoute(
+                    $pickupLatitude,
+                    $pickupLongitude,
+                    $destinationLatitude,
+                    $destinationLongitude,
+                );
+
+                $distanceMeters = (float) $route['distance_meters'];
+                $distanceKm = (float) $route['distance_km'];
+
+                if (!$this->deliveryPricingService->isWithinMaxDistance($distanceMeters)) {
+                    $reasons[] = sprintf(
+                        'Jarak %.2f km melebihi batas layanan %.2f km.',
+                        $distanceKm,
+                        $this->deliveryPricingService->getMaxDistanceKm()
+                    );
+                }
+
+                $deliveryFee = (float) $this->deliveryPricingService
+                    ->calculateFromDistanceMeters($distanceMeters)['total_fee'];
+            } catch (ApiException $exception) {
+                if ($exception->status() === 422) {
+                    $reasons[] = 'Rute jemput ke tujuan tidak ditemukan. Gunakan alamat yang lebih spesifik.';
+                    $missingFields[] = 'destination_address';
+                } else {
+                    throw $exception;
+                }
+            }
+        }
 
         return [
             'pickup_address' => $pickupAddress,
@@ -335,6 +376,7 @@ class ChatbotRideOrderService
             'pickup_longitude' => $pickupLongitude,
             'destination_latitude' => $destinationLatitude,
             'destination_longitude' => $destinationLongitude,
+            'distance_km' => $distanceKm,
             'delivery_fee' => $deliveryFee,
             'used_default_pickup' => $pickupAddressId !== null,
             'validation' => [

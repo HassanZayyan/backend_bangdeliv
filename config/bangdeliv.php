@@ -7,8 +7,8 @@ return [
     | Google Maps API
     |--------------------------------------------------------------------------
     |
-    | API key untuk Google Maps Distance Matrix API.
-    | Digunakan untuk kalkulasi jarak & ongkir.
+    | API key untuk Google Maps API.
+    | Digunakan untuk geocoding dan kalkulasi jarak rute.
     |
     */
     'google_maps_api_key' => env('GOOGLE_MAPS_API_KEY'),
@@ -30,16 +30,32 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Google Maps Distance Matrix API
+    |--------------------------------------------------------------------------
+    |
+    | Konfigurasi distance matrix untuk hitung jarak rute jalan dan durasi.
+    |
+    */
+    'distance_matrix' => [
+        'endpoint' => env('GOOGLE_MAPS_DISTANCE_MATRIX_ENDPOINT', 'https://maps.googleapis.com/maps/api/distancematrix/json'),
+        'timeout_seconds' => (int) env('GOOGLE_MAPS_DISTANCE_MATRIX_TIMEOUT', 8),
+        'mode' => env('GOOGLE_MAPS_DISTANCE_MATRIX_MODE', 'driving'),
+        'language' => env('GOOGLE_MAPS_DISTANCE_MATRIX_LANGUAGE', 'id'),
+        'region' => env('GOOGLE_MAPS_DISTANCE_MATRIX_REGION', 'id'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Delivery Fee Configuration
     |--------------------------------------------------------------------------
     |
-    | Konfigurasi tarif ongkir dinamis berdasarkan jarak.
-    | delivery_fee = clamp(jarak_km × rate_per_km, min_fee, max_fee)
+    | Rumus ongkir:
+    | billed_km = ceil(distance_meter / 1000)
+    | delivery_fee = base_fee + (billed_km × rate_per_km)
     |
     */
-    'delivery_rate_per_km' => env('DELIVERY_RATE_PER_KM', 3000),     // Rp 3.000/km
-    'min_delivery_fee'     => env('MIN_DELIVERY_FEE', 5000),          // Rp 5.000
-    'max_delivery_fee'     => env('MAX_DELIVERY_FEE', 25000),         // Rp 25.000
+    'base_delivery_fee'    => env('BASE_DELIVERY_FEE', 5000),         // Rp 5.000
+    'delivery_rate_per_km' => env('DELIVERY_RATE_PER_KM', 2000),      // Rp 2.000 per km tertagih
     'max_delivery_distance' => env('MAX_DELIVERY_DISTANCE', 15),      // 15 km
 
     /*

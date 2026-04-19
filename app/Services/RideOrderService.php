@@ -16,7 +16,9 @@ use Illuminate\Support\Facades\DB;
 class RideOrderService
 {
     public function __construct(
-        private readonly GoogleMapsGeocodingService $geocodingService
+        private readonly GoogleMapsGeocodingService $geocodingService,
+        private readonly GoogleMapsDistanceMatrixService $distanceMatrixService,
+        private readonly DeliveryPricingService $deliveryPricingService
     ) {
     }
 
@@ -53,8 +55,36 @@ class RideOrderService
             : $resolvedDestination['longitude'];
         $normalizedDestinationAddress = trim((string) $resolvedDestination['formatted_address']);
 
+        $pickupLatitude = isset($pickupAddress->latitude) ? (float) $pickupAddress->latitude : null;
+        $pickupLongitude = isset($pickupAddress->longitude) ? (float) $pickupAddress->longitude : null;
+
+        if ($pickupLatitude === null || $pickupLongitude === null) {
+            throw new ApiException('Koordinat alamat jemput belum tersedia. Perbarui Alamat Saya terlebih dahulu.', 422);
+        }
+
+        $route = $this->distanceMatrixService->resolveRoute(
+            $pickupLatitude,
+            $pickupLongitude,
+            $destinationLatitude,
+            $destinationLongitude,
+        );
+
+        $distanceMeters = (float) $route['distance_meters'];
+        $distanceKm = (float) $route['distance_km'];
+
+        if (!$this->deliveryPricingService->isWithinMaxDistance($distanceMeters)) {
+            throw new ApiException(sprintf(
+                'Jarak %.2f km melebihi batas layanan %.2f km.',
+                $distanceKm,
+                $this->deliveryPricingService->getMaxDistanceKm()
+            ), 422);
+        }
+
+        $pricing = $this->deliveryPricingService->calculateFromDistanceMeters($distanceMeters);
+        $estimatedMinutes = $this->estimateTravelMinutes((int) $route['duration_seconds']);
+
         $subtotal = 0.0;
-        $deliveryFee = $this->calculateRideFee();
+        $deliveryFee = (float) $pricing['total_fee'];
         $serviceFee = 0.0;
         $totalAmount = $subtotal + $deliveryFee + $serviceFee;
 
@@ -66,10 +96,13 @@ class RideOrderService
             $normalizedDestinationAddress,
             $destinationLatitude,
             $destinationLongitude,
+            $distanceKm,
+            $route,
             $subtotal,
             $deliveryFee,
             $serviceFee,
             $totalAmount,
+            $estimatedMinutes,
             $payload
         ): Order {
             $order = Order::query()->create([
@@ -84,13 +117,15 @@ class RideOrderService
                 'subtotal' => round($subtotal, 2),
                 'delivery_fee' => round($deliveryFee, 2),
                 'service_fee' => round($serviceFee, 2),
+                'delivery_distance_km' => round($distanceKm, 2),
+                'delivery_distance_text' => (string) ($route['distance_text'] ?? number_format($distanceKm, 2).' km'),
                 'total_amount' => round($totalAmount, 2),
                 'total_price' => round($totalAmount, 2),
                 'status_id' => $pendingStatusId,
                 'payment_status' => 'unpaid',
                 'payment_method' => 'COD',
                 'notes' => $payload['notes'] ?? null,
-                'estimated_delivery' => Carbon::now()->addMinutes(30),
+                'estimated_delivery' => Carbon::now()->addMinutes($estimatedMinutes),
             ]);
 
             OrderStatusHistory::query()->create([
@@ -149,8 +184,10 @@ class RideOrderService
         return $candidate;
     }
 
-    private function calculateRideFee(): float
+    private function estimateTravelMinutes(int $durationSeconds): int
     {
-        return (float) config('bangdeliv.min_delivery_fee', 5000);
+        $minutes = (int) ceil(max(0, $durationSeconds) / 60);
+
+        return max(20, min(180, $minutes + 10));
     }
 }

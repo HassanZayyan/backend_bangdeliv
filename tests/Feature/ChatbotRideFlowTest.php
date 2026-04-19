@@ -241,6 +241,22 @@ class ChatbotRideFlowTest extends TestCase
                     'results' => [],
                 ], 200);
             },
+            'https://maps.googleapis.com/maps/api/distancematrix/*' => Http::response([
+                'status' => 'OK',
+                'rows' => [[
+                    'elements' => [[
+                        'status' => 'OK',
+                        'distance' => [
+                            'text' => '1.3 km',
+                            'value' => 1300,
+                        ],
+                        'duration' => [
+                            'text' => '7 mins',
+                            'value' => 420,
+                        ],
+                    ]],
+                ]],
+            ], 200),
         ]);
     }
 

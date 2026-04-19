@@ -261,6 +261,24 @@ class ChatbotCourierFlowTest extends TestCase
     public function test_chatbot_kurir_confirm_uses_fast_path_without_gemini_call(): void
     {
         Http::preventStrayRequests();
+        Http::fake([
+            'https://maps.googleapis.com/maps/api/distancematrix/*' => Http::response([
+                'status' => 'OK',
+                'rows' => [[
+                    'elements' => [[
+                        'status' => 'OK',
+                        'distance' => [
+                            'text' => '1.6 km',
+                            'value' => 1600,
+                        ],
+                        'duration' => [
+                            'text' => '8 mins',
+                            'value' => 480,
+                        ],
+                    ]],
+                ]],
+            ], 200),
+        ]);
 
         $user = User::factory()->create([
             'role' => 'customer',
@@ -390,6 +408,22 @@ class ChatbotCourierFlowTest extends TestCase
                     'results' => [],
                 ], 200);
             },
+            'https://maps.googleapis.com/maps/api/distancematrix/*' => Http::response([
+                'status' => 'OK',
+                'rows' => [[
+                    'elements' => [[
+                        'status' => 'OK',
+                        'distance' => [
+                            'text' => '1.6 km',
+                            'value' => 1600,
+                        ],
+                        'duration' => [
+                            'text' => '8 mins',
+                            'value' => 480,
+                        ],
+                    ]],
+                ]],
+            ], 200),
         ]);
     }
 
