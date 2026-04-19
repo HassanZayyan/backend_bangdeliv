@@ -147,6 +147,98 @@ class OrderController extends Controller
         }
     }
 
+    public function driverHistory(Request $request): JsonResponse
+    {
+        try {
+            $payload = $this->orderService->listDriverHistory($request->user());
+
+            return $this->success($payload, 'Riwayat order driver berhasil diambil.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
+    public function driverOrders(Request $request): JsonResponse
+    {
+        try {
+            $payload = $this->orderService->listDriverOrders($request->user());
+
+            return $this->success($payload, 'Daftar order driver berhasil diambil.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
+    public function driverOrderDetail(Request $request, int $orderId): JsonResponse
+    {
+        try {
+            $order = $this->orderService->driverOrderDetail($request->user(), $orderId);
+
+            return $this->success($order, 'Detail order driver berhasil diambil.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
+    public function acceptByDriver(Request $request, int $orderId): JsonResponse
+    {
+        try {
+            $order = $this->orderService->acceptByDriver($request->user(), $orderId);
+
+            return $this->success($order, 'Order berhasil diterima driver.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
+    public function rejectByDriver(Request $request, int $orderId): JsonResponse
+    {
+        $validated = $request->validate([
+            'reason' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        try {
+            $order = $this->orderService->rejectByDriver(
+                $request->user(),
+                $orderId,
+                isset($validated['reason']) ? (string) $validated['reason'] : null
+            );
+
+            return $this->success($order, 'Order berhasil ditolak driver.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
+    public function transitionStatusByDriver(Request $request, int $orderId): JsonResponse
+    {
+        $validated = $request->validate([
+            'action_code' => ['required', 'string', 'max:60'],
+            'target_status_code' => ['nullable', 'string', 'max:60'],
+            'note' => ['nullable', 'string', 'max:1000'],
+            'latitude' => ['nullable', 'numeric', 'between:-90,90'],
+            'longitude' => ['nullable', 'numeric', 'between:-180,180'],
+        ]);
+
+        try {
+            $order = $this->orderService->transitionStatusByDriver(
+                $request->user(),
+                $orderId,
+                (string) $validated['action_code'],
+                isset($validated['target_status_code'])
+                    ? (string) $validated['target_status_code']
+                    : null,
+                isset($validated['note']) ? (string) $validated['note'] : null,
+                isset($validated['latitude']) ? (float) $validated['latitude'] : null,
+                isset($validated['longitude']) ? (float) $validated['longitude'] : null,
+            );
+
+            return $this->success($order, 'Status order berhasil diperbarui.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
     public function recordFailedAttemptByDriver(RecordFailedAttemptRequest $request, int $orderId): JsonResponse
     {
         try {

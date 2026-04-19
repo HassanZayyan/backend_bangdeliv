@@ -57,6 +57,12 @@ Route::prefix('v1')->group(function () {
         Route::post('/driver/verification/documents', [DriverVerificationController::class, 'submitDocuments']);
 
         Route::middleware('driver.active')->group(function () {
+            Route::get('/driver/history', [OrderController::class, 'driverHistory']);
+            Route::get('/driver/orders', [OrderController::class, 'driverOrders']);
+            Route::get('/driver/orders/{orderId}', [OrderController::class, 'driverOrderDetail']);
+            Route::post('/driver/orders/{orderId}/accept', [OrderController::class, 'acceptByDriver']);
+            Route::post('/driver/orders/{orderId}/reject', [OrderController::class, 'rejectByDriver']);
+            Route::post('/driver/orders/{orderId}/status-transition', [OrderController::class, 'transitionStatusByDriver']);
             Route::post('/orders/{orderId}/attempt-failed', [OrderController::class, 'recordFailedAttemptByDriver']);
             Route::post('/orders/{orderId}/payment/collect-cod', [OrderController::class, 'recordCodCollectionByDriver']);
         });

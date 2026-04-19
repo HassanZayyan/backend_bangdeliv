@@ -334,6 +334,694 @@ class OrderService
     }
 
     /**
+     * @return array<string, mixed>
+     */
+    public function listDriverOrders(User $actor): array
+    {
+        $driver = $this->resolveActiveDriverProfile($actor);
+        $pendingStatusId = $this->resolveStatusId('PENDING');
+        $runningStatusIds = $this->resolveStatusIds([
+            'DRIVER_ASSIGNED',
+            'ARRIVED_MERCHANT',
+            'ARRIVED_PICKUP',
+            'PICKED_UP',
+            'ON_THE_WAY',
+            'ARRIVED_DROPOFF',
+            'DELIVERED',
+        ]);
+
+        $incoming = Order::query()
+            ->with($this->driverOrderRelations())
+            ->where('status_id', $pendingStatusId)
+            ->whereNull('driver_id')
+            ->latest('id')
+            ->limit(30)
+            ->get();
+
+        $running = Order::query()
+            ->with($this->driverOrderRelations())
+            ->where('driver_id', $driver->id)
+            ->whereIn('status_id', $runningStatusIds)
+            ->latest('id')
+            ->limit(30)
+            ->get();
+
+        return [
+            'incoming_orders' => $incoming
+                ->map(fn (Order $order): array => $this->serializeDriverOrder($order))
+                ->values()
+                ->all(),
+            'running_orders' => $running
+                ->map(fn (Order $order): array => $this->serializeDriverOrder($order))
+                ->values()
+                ->all(),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function listDriverHistory(User $actor): array
+    {
+        $driver = $this->resolveActiveDriverProfile($actor);
+        $historyStatusIds = $this->resolveStatusIds([
+            'COMPLETED',
+            'CANCELLED',
+            'CANCELLED_WITH_FEE',
+        ]);
+
+        $orders = Order::query()
+            ->with(['user:id,name', 'statusRef:id,code,display_name'])
+            ->where('driver_id', $driver->id)
+            ->whereIn('status_id', $historyStatusIds)
+            ->latest('id')
+            ->limit(100)
+            ->get();
+
+        $history = $orders
+            ->map(function (Order $order): array {
+                $statusCode = strtoupper((string) ($order->statusRef?->code ?? ''));
+                $date = $order->delivered_at ?? $order->updated_at ?? $order->created_at;
+
+                return [
+                    'id' => $order->order_number ?: (string) $order->id,
+                    'customer_name' => $order->user?->name ?? '-',
+                    'date' => $date?->toIso8601String(),
+                    'fee' => (int) round((float) $order->delivery_fee),
+                    'status' => $this->driverHistoryStatusLabel($statusCode, $order->statusRef?->display_name),
+                    'status_code' => $statusCode,
+                ];
+            })
+            ->values()
+            ->all();
+
+        return [
+            'history_orders' => $history,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function driverOrderDetail(User $actor, int $orderId): array
+    {
+        $driver = $this->resolveActiveDriverProfile($actor);
+
+        $order = Order::query()
+            ->with($this->driverOrderRelations())
+            ->find($orderId);
+
+        if (!$order) {
+            throw new ApiException('Order tidak ditemukan.', 404);
+        }
+
+        $statusCode = (string) ($order->statusRef?->code ?? '');
+        $isIncomingCandidate = $statusCode === 'PENDING' && $order->driver_id === null;
+        $isAssignedToCurrentDriver = (int) ($order->driver_id ?? 0) === (int) $driver->id;
+
+        if (!$isIncomingCandidate && !$isAssignedToCurrentDriver) {
+            throw new ApiException('Order tidak ditemukan.', 404);
+        }
+
+        return $this->serializeDriverOrder($order, includeTimeline: true);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function acceptByDriver(User $actor, int $orderId): array
+    {
+        $driver = $this->resolveActiveDriverProfile($actor);
+
+        $order = DB::transaction(function () use ($driver, $actor, $orderId): Order {
+            $order = Order::query()
+                ->with(['statusRef', 'serviceType'])
+                ->lockForUpdate()
+                ->find($orderId);
+
+            if (!$order) {
+                throw new ApiException('Order tidak ditemukan.', 404);
+            }
+
+            $statusCode = (string) ($order->statusRef?->code ?? '');
+            $isAssignedToCurrentDriver = (int) ($order->driver_id ?? 0) === (int) $driver->id;
+
+            if ($statusCode === 'DRIVER_ASSIGNED' && $isAssignedToCurrentDriver) {
+                return $order;
+            }
+
+            if ($statusCode !== 'PENDING') {
+                throw new ApiException('Order tidak dapat diterima pada status saat ini.', 409);
+            }
+
+            if ($order->driver_id !== null && !$isAssignedToCurrentDriver) {
+                throw new ApiException('Order sudah diambil driver lain.', 409);
+            }
+
+            $assignedStatusId = $this->resolveStatusId('DRIVER_ASSIGNED');
+            $order->update([
+                'driver_id' => $driver->id,
+                'status_id' => $assignedStatusId,
+            ]);
+
+            OrderStatusHistory::query()->create([
+                'order_id' => $order->id,
+                'status_id' => $assignedStatusId,
+                'event_type' => 'STATUS_CHANGE',
+                'changed_by_user_id' => $actor->id,
+                'note' => 'Order diterima oleh driver.',
+            ]);
+
+            return $order;
+        });
+
+        return $this->serializeDriverOrder(
+            $order->fresh($this->driverOrderRelations()),
+            includeTimeline: true,
+        );
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function rejectByDriver(User $actor, int $orderId, ?string $reason): array
+    {
+        $driver = $this->resolveActiveDriverProfile($actor);
+
+        $order = DB::transaction(function () use ($driver, $actor, $orderId, $reason): Order {
+            $order = Order::query()
+                ->with(['statusRef'])
+                ->lockForUpdate()
+                ->find($orderId);
+
+            if (!$order) {
+                throw new ApiException('Order tidak ditemukan.', 404);
+            }
+
+            $statusCode = (string) ($order->statusRef?->code ?? '');
+
+            if ($statusCode === 'PENDING' && $order->driver_id === null) {
+                OrderStatusHistory::query()->create([
+                    'order_id' => $order->id,
+                    'status_id' => $order->status_id,
+                    'event_type' => 'DRIVER_REJECT',
+                    'changed_by_user_id' => $actor->id,
+                    'note' => $reason ?: 'Order ditolak driver sebelum assignment.',
+                ]);
+
+                return $order;
+            }
+
+            $isAssignedToCurrentDriver = (int) ($order->driver_id ?? 0) === (int) $driver->id;
+            if ($statusCode === 'DRIVER_ASSIGNED' && $isAssignedToCurrentDriver) {
+                $pendingStatusId = $this->resolveStatusId('PENDING');
+
+                $order->update([
+                    'driver_id' => null,
+                    'status_id' => $pendingStatusId,
+                ]);
+
+                OrderStatusHistory::query()->create([
+                    'order_id' => $order->id,
+                    'status_id' => $pendingStatusId,
+                    'event_type' => 'STATUS_CHANGE',
+                    'changed_by_user_id' => $actor->id,
+                    'note' => $reason ?: 'Driver melepaskan order setelah assignment.',
+                ]);
+
+                return $order;
+            }
+
+            throw new ApiException('Order tidak dapat ditolak pada status saat ini.', 409);
+        });
+
+        return $this->serializeDriverOrder(
+            $order->fresh($this->driverOrderRelations()),
+            includeTimeline: true,
+        );
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function transitionStatusByDriver(
+        User $actor,
+        int $orderId,
+        string $actionCode,
+        ?string $targetStatusCode = null,
+        ?string $note = null,
+        ?float $latitude = null,
+        ?float $longitude = null,
+    ): array {
+        $driver = $this->resolveActiveDriverProfile($actor);
+
+        $order = DB::transaction(function () use (
+            $actor,
+            $driver,
+            $orderId,
+            $actionCode,
+            $targetStatusCode,
+            $note,
+            $latitude,
+            $longitude,
+        ): Order {
+            $order = Order::query()
+                ->with(['statusRef', 'serviceType', 'rideOrder'])
+                ->lockForUpdate()
+                ->find($orderId);
+
+            if (!$order) {
+                throw new ApiException('Order tidak ditemukan.', 404);
+            }
+
+            if ((int) ($order->driver_id ?? 0) !== (int) $driver->id) {
+                throw new ApiException('Order ini tidak ditugaskan kepada driver saat ini.', 403);
+            }
+
+            $serviceCode = (string) ($order->serviceType?->code ?? '');
+            $rules = $this->driverActionRules($serviceCode);
+
+            $normalizedActionCode = strtoupper(str_replace('-', '_', trim($actionCode)));
+            $rule = $rules[$normalizedActionCode] ?? null;
+            if ($rule === null) {
+                throw new ApiException('Aksi driver tidak valid.', 422);
+            }
+
+            $currentStatusCode = (string) ($order->statusRef?->code ?? '');
+            if (!in_array($currentStatusCode, $rule['from'], true)) {
+                throw new ApiException('Transisi status tidak valid untuk order ini.', 409);
+            }
+
+            $resolvedTargetStatusCode = strtoupper(
+                str_replace('-', '_', trim((string) ($targetStatusCode ?? $rule['to'])))
+            );
+
+            if ($resolvedTargetStatusCode !== $rule['to']) {
+                throw new ApiException('target_status_code tidak sesuai dengan action_code.', 422);
+            }
+
+            if (($rule['requires_paid'] ?? false) && (string) $order->payment_status !== 'paid') {
+                throw new ApiException('Order belum bisa diselesaikan sebelum pembayaran COD tercatat.', 409);
+            }
+
+            $targetStatusId = $this->resolveStatusId($resolvedTargetStatusCode);
+            $updates = [
+                'status_id' => $targetStatusId,
+            ];
+
+            if (in_array($resolvedTargetStatusCode, ['DELIVERED', 'COMPLETED'], true)) {
+                $updates['delivered_at'] = now();
+            }
+
+            $order->update($updates);
+            $this->syncDriverServiceTimestamp($order, $resolvedTargetStatusCode);
+
+            $eventNote = trim((string) $note);
+            if ($eventNote === '') {
+                $eventNote = 'Driver action '.$normalizedActionCode;
+            }
+
+            $snapshot = [
+                'action_code' => $normalizedActionCode,
+                'service_type' => $serviceCode,
+            ];
+
+            if ($latitude !== null && $longitude !== null) {
+                $snapshot['driver_location'] = [
+                    'latitude' => round($latitude, 8),
+                    'longitude' => round($longitude, 8),
+                ];
+            }
+
+            OrderStatusHistory::query()->create([
+                'order_id' => $order->id,
+                'status_id' => $targetStatusId,
+                'event_type' => 'STATUS_CHANGE',
+                'changed_by_user_id' => $actor->id,
+                'note' => $eventNote,
+                'price_snapshot' => $snapshot,
+            ]);
+
+            return $order;
+        });
+
+        return $this->serializeDriverOrder(
+            $order->fresh($this->driverOrderRelations()),
+            includeTimeline: true,
+        );
+    }
+
+    private function resolveActiveDriverProfile(User $actor): Driver
+    {
+        if ($actor->role !== 'driver') {
+            throw new ApiException('Akses hanya untuk driver.', 403);
+        }
+
+        $driver = Driver::query()->where('user_id', $actor->id)->first();
+        if (!$driver) {
+            throw new ApiException('Profil driver tidak ditemukan.', 403);
+        }
+
+        if ($driver->registration_status !== 'active') {
+            throw new ApiException('Akun driver belum aktif.', 403);
+        }
+
+        return $driver;
+    }
+
+    /**
+     * @param  array<int, string>  $codes
+     * @return array<int, int>
+     */
+    private function resolveStatusIds(array $codes): array
+    {
+        $map = OrderStatus::query()
+            ->whereIn('code', $codes)
+            ->pluck('id', 'code');
+
+        $resolved = [];
+        foreach ($codes as $code) {
+            $id = $map[$code] ?? null;
+            if (!$id) {
+                throw new ApiException('Konfigurasi status order belum lengkap.', 500, [
+                    'missing_status_code' => $code,
+                ]);
+            }
+
+            $resolved[] = (int) $id;
+        }
+
+        return $resolved;
+    }
+
+    /**
+     * @return array<string, array<string, mixed>>
+     */
+    private function driverActionRules(string $serviceCode): array
+    {
+        $upperServiceCode = strtoupper($serviceCode);
+
+        $pickupArrivalStatus = $upperServiceCode === 'SHOPPING'
+            ? 'ARRIVED_MERCHANT'
+            : 'ARRIVED_PICKUP';
+        $pickupArrivalLabel = $upperServiceCode === 'SHOPPING'
+            ? 'Tiba di Merchant'
+            : 'Tiba di Titik Jemput';
+
+        return [
+            'ARRIVE_PICKUP' => [
+                'label' => $pickupArrivalLabel,
+                'from' => ['DRIVER_ASSIGNED'],
+                'to' => $pickupArrivalStatus,
+            ],
+            'CONFIRM_PICKED_UP' => [
+                'label' => 'Konfirmasi Pickup',
+                'from' => [$pickupArrivalStatus],
+                'to' => 'PICKED_UP',
+            ],
+            'START_DELIVERY' => [
+                'label' => 'Mulai Antar',
+                'from' => ['PICKED_UP'],
+                'to' => 'ON_THE_WAY',
+            ],
+            'ARRIVE_DROPOFF' => [
+                'label' => 'Tiba di Tujuan',
+                'from' => ['ON_THE_WAY'],
+                'to' => 'ARRIVED_DROPOFF',
+            ],
+            'CONFIRM_DELIVERED' => [
+                'label' => 'Konfirmasi Terkirim',
+                'from' => ['ARRIVED_DROPOFF'],
+                'to' => 'DELIVERED',
+            ],
+            'COMPLETE_ORDER' => [
+                'label' => 'Selesaikan Order',
+                'from' => ['DELIVERED'],
+                'to' => 'COMPLETED',
+                'requires_paid' => true,
+            ],
+        ];
+    }
+
+    /**
+     * @return array<int, string|array<string, mixed>>
+     */
+    private function driverOrderRelations(): array
+    {
+        return [
+            'user:id,name,phone',
+            'serviceType:id,code,display_name',
+            'statusRef:id,code,display_name',
+            'address:id,full_address,detail,latitude,longitude',
+            'restaurant:id,name,address,latitude,longitude',
+            'rideOrder:id,order_id,picked_up_at,arrived_at',
+            'courierOrder:id,order_id,package_description,requires_photo_evidence',
+            'items:id,order_id,quantity',
+            'orderLocations:id,order_id,location_role,full_address,latitude,longitude,sequence_no',
+            'statusHistories' => function ($query): void {
+                $query
+                    ->with('statusRef:id,code,display_name')
+                    ->orderBy('created_at');
+            },
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function serializeDriverOrder(Order $order, bool $includeTimeline = false): array
+    {
+        $serviceCode = strtoupper((string) ($order->serviceType?->code ?? ''));
+        $statusCode = strtoupper((string) ($order->statusRef?->code ?? ''));
+        $paymentStatus = strtolower((string) ($order->payment_status ?? 'unpaid'));
+
+        $pickup = $this->resolvePickupPoint($order, $serviceCode);
+        $dropoff = $this->resolveDropoffPoint($order, $serviceCode);
+        $availableActions = $this->resolveAvailableDriverActions(
+            $serviceCode,
+            $statusCode,
+            $paymentStatus,
+        );
+
+        $acceptedAt = $order->statusHistories
+            ->first(fn (OrderStatusHistory $history): bool =>
+                strtoupper((string) ($history->statusRef?->code ?? '')) === 'DRIVER_ASSIGNED'
+            );
+
+        $itemCount = (int) $order->items->sum('quantity');
+        if ($itemCount < 1) {
+            $itemCount = 1;
+        }
+
+        $payload = [
+            'id' => (string) $order->id,
+            'order_number' => $order->order_number,
+            'service_type_code' => $serviceCode,
+            'service_type_name' => $order->serviceType?->display_name,
+            'customer_name' => $order->user?->name ?? '-',
+            'customer_phone' => $order->user?->phone,
+            'pickup_address' => $pickup['address'],
+            'pickup_latitude' => $pickup['latitude'],
+            'pickup_longitude' => $pickup['longitude'],
+            'dropoff_address' => $dropoff['address'],
+            'dropoff_latitude' => $dropoff['latitude'],
+            'dropoff_longitude' => $dropoff['longitude'],
+            'fee' => (int) round((float) $order->delivery_fee),
+            'item_count' => $itemCount,
+            'eta_minutes' => $this->estimateEtaMinutes($order),
+            'accepted_at' => $acceptedAt?->created_at?->format('H:i'),
+            'status_code' => $statusCode,
+            'status_display_name' => $order->statusRef?->display_name,
+            'payment_status' => $paymentStatus,
+            'payment_method' => $order->payment_method,
+            'notes' => $order->notes,
+            'available_actions' => $availableActions,
+        ];
+
+        if ($includeTimeline) {
+            $payload['status_timeline'] = $this->serializeStatusTimeline($order);
+        }
+
+        return $payload;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function serializeStatusTimeline(Order $order): array
+    {
+        return $order->statusHistories
+            ->sortBy('created_at')
+            ->map(function (OrderStatusHistory $history): array {
+                return [
+                    'status_code' => strtoupper((string) ($history->statusRef?->code ?? '')),
+                    'status_display_name' => $history->statusRef?->display_name,
+                    'event_type' => strtoupper((string) $history->event_type),
+                    'note' => $history->note,
+                    'created_at' => $history->created_at?->toIso8601String(),
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @return array<string, float|string|null>
+     */
+    private function resolvePickupPoint(Order $order, string $serviceCode): array
+    {
+        if ($serviceCode === 'SHOPPING') {
+            return [
+                'address' => $order->restaurant?->address ?? '-',
+                'latitude' => $this->toFloatOrNull($order->restaurant?->latitude),
+                'longitude' => $this->toFloatOrNull($order->restaurant?->longitude),
+            ];
+        }
+
+        if ($serviceCode === 'COURIER') {
+            $pickup = $order->orderLocations
+                ->first(fn ($location): bool => strtoupper((string) $location->location_role) === 'PICKUP');
+
+            return [
+                'address' => $pickup?->full_address ?? ($order->address?->full_address ?? '-'),
+                'latitude' => $this->toFloatOrNull($pickup?->latitude ?? $order->address?->latitude),
+                'longitude' => $this->toFloatOrNull($pickup?->longitude ?? $order->address?->longitude),
+            ];
+        }
+
+        return [
+            'address' => $order->address?->full_address ?? '-',
+            'latitude' => $this->toFloatOrNull($order->address?->latitude),
+            'longitude' => $this->toFloatOrNull($order->address?->longitude),
+        ];
+    }
+
+    /**
+     * @return array<string, float|string|null>
+     */
+    private function resolveDropoffPoint(Order $order, string $serviceCode): array
+    {
+        if ($serviceCode === 'COURIER') {
+            $dropoff = $order->orderLocations
+                ->first(fn ($location): bool => strtoupper((string) $location->location_role) === 'DROPOFF');
+
+            return [
+                'address' => $dropoff?->full_address ?? $order->delivery_address,
+                'latitude' => $this->toFloatOrNull($dropoff?->latitude ?? $order->delivery_latitude),
+                'longitude' => $this->toFloatOrNull($dropoff?->longitude ?? $order->delivery_longitude),
+            ];
+        }
+
+        return [
+            'address' => $order->delivery_address,
+            'latitude' => $this->toFloatOrNull($order->delivery_latitude),
+            'longitude' => $this->toFloatOrNull($order->delivery_longitude),
+        ];
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function resolveAvailableDriverActions(
+        string $serviceCode,
+        string $statusCode,
+        string $paymentStatus,
+    ): array {
+        $actions = [];
+        $rules = $this->driverActionRules($serviceCode);
+
+        foreach ($rules as $actionCode => $rule) {
+            if (!in_array($statusCode, $rule['from'], true)) {
+                continue;
+            }
+
+            $requiresPaid = (bool) ($rule['requires_paid'] ?? false);
+            $blocked = $requiresPaid && $paymentStatus !== 'paid';
+
+            $actions[] = [
+                'action_code' => $actionCode,
+                'label' => $rule['label'],
+                'target_status_code' => $rule['to'],
+                'blocked' => $blocked,
+                'blocked_reason' => $blocked
+                    ? 'Pembayaran COD belum dicatat.'
+                    : null,
+            ];
+        }
+
+        if ($statusCode === 'DELIVERED' && $paymentStatus !== 'paid') {
+            $actions[] = [
+                'action_code' => 'COLLECT_COD',
+                'label' => 'Catat Pembayaran COD',
+                'target_status_code' => null,
+                'blocked' => false,
+                'blocked_reason' => null,
+            ];
+        }
+
+        return $actions;
+    }
+
+    private function driverHistoryStatusLabel(string $statusCode, ?string $fallbackDisplayName): string
+    {
+        return match ($statusCode) {
+            'COMPLETED' => 'Selesai',
+            'CANCELLED', 'CANCELLED_WITH_FEE' => 'Dibatalkan',
+            default => $fallbackDisplayName ?: $statusCode,
+        };
+    }
+
+    private function estimateEtaMinutes(Order $order): int
+    {
+        if ($order->estimated_delivery === null) {
+            return 0;
+        }
+
+        $minutes = now()->diffInMinutes($order->estimated_delivery, false);
+        return $minutes > 0 ? $minutes : 0;
+    }
+
+    private function toFloatOrNull(mixed $value): ?float
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        if (is_numeric($value)) {
+            return (float) $value;
+        }
+
+        return null;
+    }
+
+    private function syncDriverServiceTimestamp(Order $order, string $targetStatusCode): void
+    {
+        $serviceCode = strtoupper((string) ($order->serviceType?->code ?? ''));
+        if ($serviceCode !== 'RIDE') {
+            return;
+        }
+
+        $rideOrder = $order->rideOrder;
+        if (!$rideOrder) {
+            $rideOrder = $order->rideOrder()->create([
+                'notes' => $order->notes,
+            ]);
+        }
+
+        if ($targetStatusCode === 'PICKED_UP' && $rideOrder->picked_up_at === null) {
+            $rideOrder->update([
+                'picked_up_at' => now(),
+            ]);
+        }
+
+        if (in_array($targetStatusCode, ['ARRIVED_DROPOFF', 'DELIVERED'], true) && $rideOrder->arrived_at === null) {
+            $rideOrder->update([
+                'arrived_at' => now(),
+            ]);
+        }
+    }
+
+    /**
      * @param  array<string, mixed>  $payload
      */
     public function addShoppingItem(User $user, int $orderId, array $payload): Order
