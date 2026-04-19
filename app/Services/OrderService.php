@@ -52,7 +52,7 @@ class OrderService
     public function customerOrderDetail(User $user, int $orderId): Order
     {
         $order = Order::query()
-            ->with(['restaurant', 'driver.user', 'address', 'items', 'statusRef', 'statusHistories.statusRef', 'serviceType'])
+            ->with(['restaurant', 'driver.user', 'address', 'items', 'orderLocations', 'statusRef', 'statusHistories.statusRef', 'serviceType'])
             ->find($orderId);
 
         if (!$order || $order->user_id !== $user->id) {

@@ -159,11 +159,22 @@ class ChatbotRideOrderService
             throw new ApiException('Draft antar jemput tidak valid. Alamat jemput tidak ditemukan.', 422);
         }
 
-        $order = $this->rideOrderService->create($user, [
+        $ridePayload = [
             'address_id' => $pickupAddressId,
             'destination_address' => (string) $pendingDraft['destination_address'],
             'notes' => 'Order Antar Jemput dibuat via chatbot.',
-        ]);
+        ];
+
+        if (
+            isset($pendingDraft['destination_latitude'], $pendingDraft['destination_longitude']) &&
+            is_numeric($pendingDraft['destination_latitude']) &&
+            is_numeric($pendingDraft['destination_longitude'])
+        ) {
+            $ridePayload['destination_latitude'] = (float) $pendingDraft['destination_latitude'];
+            $ridePayload['destination_longitude'] = (float) $pendingDraft['destination_longitude'];
+        }
+
+        $order = $this->rideOrderService->create($user, $ridePayload);
 
         return [
             'intent' => 'ride_order',
@@ -590,6 +601,12 @@ class ChatbotRideOrderService
         $pickupAddress = trim((string) ($ride['pickup_address'] ?? ''));
         $destinationAddress = trim((string) ($ride['destination_address'] ?? ''));
         $pickupAddressId = isset($ride['pickup_address_id']) ? (int) $ride['pickup_address_id'] : null;
+        $destinationLatitude = isset($ride['destination_latitude']) && is_numeric($ride['destination_latitude'])
+            ? (float) $ride['destination_latitude']
+            : null;
+        $destinationLongitude = isset($ride['destination_longitude']) && is_numeric($ride['destination_longitude'])
+            ? (float) $ride['destination_longitude']
+            : null;
 
         if ($pickupAddress === '' || $destinationAddress === '' || !$pickupAddressId) {
             return null;
@@ -599,6 +616,8 @@ class ChatbotRideOrderService
             'pickup_address' => $pickupAddress,
             'destination_address' => $destinationAddress,
             'pickup_address_id' => $pickupAddressId,
+            'destination_latitude' => $destinationLatitude,
+            'destination_longitude' => $destinationLongitude,
             'delivery_fee' => isset($order['delivery_fee']) ? (float) $order['delivery_fee'] : null,
         ];
     }

@@ -43,16 +43,9 @@ class RideOrderService
             throw new ApiException('Konfigurasi service type atau status order belum lengkap.', 500);
         }
 
-        $resolvedDestination = $this->validateDestination(
-            (string) $payload['destination_address']
-        );
-
-        $destinationLatitude = isset($payload['destination_latitude'])
-            ? (float) $payload['destination_latitude']
-            : $resolvedDestination['latitude'];
-        $destinationLongitude = isset($payload['destination_longitude'])
-            ? (float) $payload['destination_longitude']
-            : $resolvedDestination['longitude'];
+        $resolvedDestination = $this->resolveDestinationForCreate($payload);
+        $destinationLatitude = $resolvedDestination['latitude'];
+        $destinationLongitude = $resolvedDestination['longitude'];
         $normalizedDestinationAddress = trim((string) $resolvedDestination['formatted_address']);
 
         $pickupLatitude = isset($pickupAddress->latitude) ? (float) $pickupAddress->latitude : null;
@@ -173,6 +166,55 @@ class RideOrderService
         }
 
         return $resolvedDestination;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array{latitude: float, longitude: float, formatted_address: string}
+     */
+    private function resolveDestinationForCreate(array $payload): array
+    {
+        $destinationAddress = trim((string) ($payload['destination_address'] ?? ''));
+
+        if ($destinationAddress === '') {
+            throw new ApiException('Alamat tujuan wajib diisi.', 422, [
+                'destination_address' => ['Alamat tujuan wajib diisi.'],
+            ]);
+        }
+
+        $hasLatitude = array_key_exists('destination_latitude', $payload)
+            && $payload['destination_latitude'] !== null
+            && $payload['destination_latitude'] !== '';
+        $hasLongitude = array_key_exists('destination_longitude', $payload)
+            && $payload['destination_longitude'] !== null
+            && $payload['destination_longitude'] !== '';
+
+        if ($hasLatitude xor $hasLongitude) {
+            throw new ApiException('Koordinat tujuan tidak lengkap.', 422, [
+                'destination_latitude' => ['Latitude dan longitude tujuan wajib diisi berpasangan.'],
+                'destination_longitude' => ['Latitude dan longitude tujuan wajib diisi berpasangan.'],
+            ]);
+        }
+
+        if ($hasLatitude && $hasLongitude) {
+            $latitude = (float) $payload['destination_latitude'];
+            $longitude = (float) $payload['destination_longitude'];
+
+            if ($latitude < -90 || $latitude > 90 || $longitude < -180 || $longitude > 180) {
+                throw new ApiException('Koordinat tujuan tidak valid.', 422, [
+                    'destination_latitude' => ['Latitude atau longitude tujuan di luar rentang yang diizinkan.'],
+                    'destination_longitude' => ['Latitude atau longitude tujuan di luar rentang yang diizinkan.'],
+                ]);
+            }
+
+            return [
+                'latitude' => $latitude,
+                'longitude' => $longitude,
+                'formatted_address' => $destinationAddress,
+            ];
+        }
+
+        return $this->validateDestination($destinationAddress);
     }
 
     private function generateOrderNumber(): string

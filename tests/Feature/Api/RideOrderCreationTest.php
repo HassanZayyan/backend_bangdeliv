@@ -46,7 +46,21 @@ class RideOrderCreationTest extends TestCase
         Sanctum::actingAs($user);
 
         Http::fake([
-            'https://maps.googleapis.com/maps/api/geocode/*' => Http::response([
+            'https://maps.googleapis.com/maps/api/distancematrix/json*' => Http::response([
+                'status' => 'OK',
+                'rows' => [
+                    [
+                        'elements' => [
+                            [
+                                'status' => 'OK',
+                                'distance' => ['value' => 5000, 'text' => '5.0 km'],
+                                'duration' => ['value' => 600, 'text' => '10 mins']
+                            ]
+                        ]
+                    ]
+                ]
+            ], 200),
+            'https://maps.googleapis.com/maps/api/geocode/json*' => Http::response([
                 'status' => 'OK',
                 'results' => [
                     [
@@ -112,7 +126,105 @@ class RideOrderCreationTest extends TestCase
             'changed_by_user_id' => $user->id,
         ]);
 
-        Http::assertSentCount(1);
+        Http::assertSentCount(2);
+    }
+
+    public function test_customer_can_create_ride_order_with_payload_destination_coordinates_without_regeocoding(): void
+    {
+        $user = User::factory()->create([
+            'role' => 'customer',
+            'phone' => '081211110010',
+        ]);
+
+        $address = Address::query()->create([
+            'user_id' => $user->id,
+            'label' => 'Rumah',
+            'recipient_name' => 'Customer Ride GPS',
+            'phone' => '081211110010',
+            'full_address' => 'Jl. Mawar No. 1',
+            'detail' => 'Lobi depan',
+            'latitude' => -6.20000000,
+            'longitude' => 106.81666600,
+            'is_default' => true,
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $geocodingCalls = 0;
+
+        Http::fake([
+            'https://maps.googleapis.com/maps/api/distancematrix/json*' => Http::response([
+                'status' => 'OK',
+                'rows' => [
+                    [
+                        'elements' => [
+                            [
+                                'status' => 'OK',
+                                'distance' => ['value' => 5000, 'text' => '5.0 km'],
+                                'duration' => ['value' => 600, 'text' => '10 mins']
+                            ]
+                        ]
+                    ]
+                ]
+            ], 200),
+            'https://maps.googleapis.com/maps/api/geocode/json*' => function () use (&$geocodingCalls) {
+                $geocodingCalls++;
+
+                return Http::response([
+                    'status' => 'OK',
+                    'results' => [[
+                        'formatted_address' => 'Alamat Geocoded Berbeda',
+                        'geometry' => [
+                            'location' => [
+                                'lat' => -6.90000000,
+                                'lng' => 107.60000000,
+                            ],
+                        ],
+                    ]],
+                ], 200);
+            },
+            'https://maps.googleapis.com/maps/api/distancematrix/*' => Http::response([
+                'status' => 'OK',
+                'rows' => [[
+                    'elements' => [[
+                        'status' => 'OK',
+                        'distance' => [
+                            'text' => '2.0 km',
+                            'value' => 2000,
+                        ],
+                        'duration' => [
+                            'text' => '10 mins',
+                            'value' => 600,
+                        ],
+                    ]],
+                ]],
+            ], 200),
+        ]);
+
+        $response = $this->postJson('/api/v1/orders/ride', [
+            'address_id' => $address->id,
+            'destination_address' => 'Titik pin manual customer',
+            'destination_latitude' => -7.76371000,
+            'destination_longitude' => 110.40642000,
+            'notes' => 'Tujuan dari pin peta.',
+        ]);
+
+        $response->assertCreated()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.delivery_address', 'Titik pin manual customer')
+            ->assertJsonPath('data.delivery_latitude', '-7.76371000')
+            ->assertJsonPath('data.delivery_longitude', '110.40642000');
+
+        $orderId = (int) $response->json('data.id');
+
+        $this->assertDatabaseHas('orders', [
+            'id' => $orderId,
+            'delivery_address' => 'Titik pin manual customer',
+            'delivery_latitude' => -7.76371000,
+            'delivery_longitude' => 110.40642000,
+        ]);
+
+        $this->assertSame(0, $geocodingCalls, 'Destination geocoding should be skipped when explicit coordinates are provided.');
     }
 
     public function test_customer_cannot_create_ride_order_with_other_user_address(): void
@@ -205,7 +317,21 @@ class RideOrderCreationTest extends TestCase
         Sanctum::actingAs($user);
 
         Http::fake([
-            'https://maps.googleapis.com/maps/api/geocode/*' => Http::response([
+            'https://maps.googleapis.com/maps/api/distancematrix/json*' => Http::response([
+                'status' => 'OK',
+                'rows' => [
+                    [
+                        'elements' => [
+                            [
+                                'status' => 'OK',
+                                'distance' => ['value' => 5000, 'text' => '5.0 km'],
+                                'duration' => ['value' => 600, 'text' => '10 mins']
+                            ]
+                        ]
+                    ]
+                ]
+            ], 200),
+            'https://maps.googleapis.com/maps/api/geocode/json*' => Http::response([
                 'status' => 'ZERO_RESULTS',
                 'results' => [],
             ], 200),
@@ -236,7 +362,21 @@ class RideOrderCreationTest extends TestCase
         Sanctum::actingAs($user);
 
         Http::fake([
-            'https://maps.googleapis.com/maps/api/geocode/*' => Http::response([
+            'https://maps.googleapis.com/maps/api/distancematrix/json*' => Http::response([
+                'status' => 'OK',
+                'rows' => [
+                    [
+                        'elements' => [
+                            [
+                                'status' => 'OK',
+                                'distance' => ['value' => 5000, 'text' => '5.0 km'],
+                                'duration' => ['value' => 600, 'text' => '10 mins']
+                            ]
+                        ]
+                    ]
+                ]
+            ], 200),
+            'https://maps.googleapis.com/maps/api/geocode/json*' => Http::response([
                 'status' => 'OK',
                 'results' => [
                     [
@@ -274,7 +414,21 @@ class RideOrderCreationTest extends TestCase
         Sanctum::actingAs($user);
 
         Http::fake([
-            'https://maps.googleapis.com/maps/api/geocode/*' => Http::response([
+            'https://maps.googleapis.com/maps/api/distancematrix/json*' => Http::response([
+                'status' => 'OK',
+                'rows' => [
+                    [
+                        'elements' => [
+                            [
+                                'status' => 'OK',
+                                'distance' => ['value' => 5000, 'text' => '5.0 km'],
+                                'duration' => ['value' => 600, 'text' => '10 mins']
+                            ]
+                        ]
+                    ]
+                ]
+            ], 200),
+            'https://maps.googleapis.com/maps/api/geocode/json*' => Http::response([
                 'status' => 'ZERO_RESULTS',
                 'results' => [],
             ], 200),
@@ -291,3 +445,8 @@ class RideOrderCreationTest extends TestCase
         Http::assertSentCount(1);
     }
 }
+
+
+
+
+

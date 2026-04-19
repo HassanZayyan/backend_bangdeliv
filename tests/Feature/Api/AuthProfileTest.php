@@ -343,6 +343,120 @@ class AuthProfileTest extends TestCase
         Http::assertSentCount(1);
     }
 
+    public function test_authenticated_user_can_store_saved_address_with_payload_coordinates_when_geocoding_unavailable(): void
+    {
+        $user = User::query()->create([
+            'name' => 'Alamat GPS',
+            'email' => 'alamat.gps@example.com',
+            'phone' => '081211223344',
+            'password' => Hash::make('rahasia123'),
+            'role' => 'customer',
+        ]);
+
+        Sanctum::actingAs($user);
+
+        Http::fake([
+            'https://maps.googleapis.com/maps/api/geocode/*' => Http::response([], 503),
+        ]);
+
+        $response = $this->postJson('/api/user/addresses', [
+            'label' => 'Rumah GPS',
+            'recipient_name' => 'Alamat GPS',
+            'phone' => '0812-1122-3344',
+            'full_address' => 'Perumahan Bukit Sari Blok A2',
+            'detail' => 'Rumah cat putih',
+            'latitude' => -7.76371000,
+            'longitude' => 110.40642000,
+            'is_default' => true,
+        ]);
+
+        $response->assertCreated()
+            ->assertJsonPath('message', 'Alamat berhasil disimpan.')
+            ->assertJsonPath('data.full_address', 'Perumahan Bukit Sari Blok A2')
+            ->assertJsonPath('data.latitude', '-7.76371000')
+            ->assertJsonPath('data.longitude', '110.40642000');
+
+        $this->assertDatabaseHas('addresses', [
+            'user_id' => $user->id,
+            'label' => 'Rumah GPS',
+            'full_address' => 'Perumahan Bukit Sari Blok A2',
+            'latitude' => -7.76371000,
+            'longitude' => 110.40642000,
+            'is_default' => true,
+        ]);
+
+        Http::assertSentCount(1);
+    }
+
+    public function test_authenticated_user_update_keeps_payload_coordinates_even_if_geocode_differs(): void
+    {
+        $user = User::query()->create([
+            'name' => 'Update GPS',
+            'email' => 'update.gps@example.com',
+            'phone' => '081200011122',
+            'password' => Hash::make('rahasia123'),
+            'role' => 'customer',
+        ]);
+
+        $address = Address::query()->create([
+            'user_id' => $user->id,
+            'label' => 'Rumah',
+            'recipient_name' => 'Update GPS',
+            'phone' => '081200011122',
+            'full_address' => 'Alamat Lama',
+            'detail' => null,
+            'latitude' => -6.90000000,
+            'longitude' => 107.60000000,
+            'is_default' => true,
+        ]);
+
+        Sanctum::actingAs($user);
+
+        Http::fake([
+            'https://maps.googleapis.com/maps/api/geocode/*' => Http::response([
+                'status' => 'OK',
+                'results' => [
+                    [
+                        'formatted_address' => 'Alamat Baru Geocoded, Kota Bandung, Jawa Barat, Indonesia',
+                        'geometry' => [
+                            'location' => [
+                                'lat' => -6.91234567,
+                                'lng' => 107.61234567,
+                            ],
+                        ],
+                    ],
+                ],
+            ], 200),
+        ]);
+
+        $response = $this->putJson('/api/user/addresses/' . $address->id, [
+            'label' => 'Rumah Baru',
+            'recipient_name' => 'Update GPS',
+            'phone' => '0812-0001-1122',
+            'full_address' => 'Alamat Baru Input Pengguna',
+            'detail' => 'Dekat masjid',
+            'latitude' => -6.93456789,
+            'longitude' => 107.65432109,
+            'is_default' => true,
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('message', 'Alamat berhasil diperbarui.')
+            ->assertJsonPath('data.full_address', 'Alamat Baru Geocoded, Kota Bandung, Jawa Barat, Indonesia')
+            ->assertJsonPath('data.latitude', '-6.93456789')
+            ->assertJsonPath('data.longitude', '107.65432109');
+
+        $this->assertDatabaseHas('addresses', [
+            'id' => $address->id,
+            'label' => 'Rumah Baru',
+            'full_address' => 'Alamat Baru Geocoded, Kota Bandung, Jawa Barat, Indonesia',
+            'latitude' => -6.93456789,
+            'longitude' => 107.65432109,
+        ]);
+
+        Http::assertSentCount(1);
+    }
+
     public function test_authenticated_user_can_validate_saved_address(): void
     {
         $user = User::query()->create([

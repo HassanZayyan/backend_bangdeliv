@@ -80,6 +80,142 @@ class ChatbotRideFlowTest extends TestCase
         $this->assertDatabaseCount('orders', 1);
     }
 
+    public function test_chatbot_ride_confirmation_preserves_draft_coordinates_without_regeocoding_destination(): void
+    {
+        $user = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+            'phone' => '089900000004',
+        ]);
+
+        $this->createDefaultAddress($user);
+
+        $token = $user->createToken('test-chatbot-ride')->plainTextToken;
+
+        $polinesGeocodeCalls = 0;
+
+        Http::fake([
+            'https://generativelanguage.googleapis.com/*' => function ($request) {
+                $body = $request->data();
+                $rawMessage = (string) data_get($body, 'contents.0.parts.0.text', '');
+                $normalized = strtolower(trim($rawMessage));
+
+                if ($normalized === 'konfirmasi') {
+                    $json = '{"intent":"ride_order","command":"confirm","destination_address":null,"notes":null}';
+                } else {
+                    $json = '{"intent":"ride_order","command":"none","destination_address":"Polines Semarang","notes":null}';
+                }
+
+                return Http::response([
+                    'candidates' => [[
+                        'content' => [
+                            'parts' => [
+                                ['text' => $json],
+                            ],
+                        ],
+                    ]],
+                ], 200);
+            },
+            'https://maps.googleapis.com/maps/api/geocode/*' => function ($request) use (&$polinesGeocodeCalls) {
+                $queryString = parse_url($request->url(), PHP_URL_QUERY) ?? '';
+                parse_str($queryString, $query);
+
+                $address = strtolower(trim((string) ($query['address'] ?? '')));
+
+                if (str_contains($address, 'melati')) {
+                    return Http::response([
+                        'status' => 'OK',
+                        'results' => [[
+                            'formatted_address' => 'Jl. Melati No. 3, Banyumanik, Kota Semarang, Jawa Tengah, Indonesia',
+                            'geometry' => [
+                                'location' => [
+                                    'lat' => -7.050900,
+                                    'lng' => 110.431500,
+                                ],
+                            ],
+                        ]],
+                    ], 200);
+                }
+
+                if (str_contains($address, 'polines')) {
+                    $polinesGeocodeCalls++;
+
+                    return Http::response([
+                        'status' => 'OK',
+                        'results' => [[
+                            'formatted_address' => 'Jl. Prof. Soedarto, Tembalang, Kota Semarang, Jawa Tengah, Indonesia',
+                            'geometry' => [
+                                'location' => [
+                                    'lat' => $polinesGeocodeCalls === 1 ? -7.052301 : -6.900001,
+                                    'lng' => $polinesGeocodeCalls === 1 ? 110.435601 : 107.600001,
+                                ],
+                            ],
+                        ]],
+                    ], 200);
+                }
+
+                return Http::response([
+                    'status' => 'ZERO_RESULTS',
+                    'results' => [],
+                ], 200);
+            },
+            'https://maps.googleapis.com/maps/api/distancematrix/*' => Http::response([
+                'status' => 'OK',
+                'rows' => [[
+                    'elements' => [[
+                        'status' => 'OK',
+                        'distance' => [
+                            'text' => '1.3 km',
+                            'value' => 1300,
+                        ],
+                        'duration' => [
+                            'text' => '7 mins',
+                            'value' => 420,
+                        ],
+                    ]],
+                ]],
+            ], 200),
+        ]);
+
+        $draftResponse = $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/process', [
+                'message' => 'antar ke polines',
+                'service_type' => 'antar_jemput',
+                'session_id' => 'sess-ride-04',
+            ]);
+
+        $draftResponse
+            ->assertOk()
+            ->assertJsonPath('data.ride.ready_to_confirm', true)
+            ->assertJsonPath('data.ride.destination_latitude', -7.052301)
+            ->assertJsonPath('data.ride.destination_longitude', 110.435601);
+
+        $confirmResponse = $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/process', [
+                'message' => 'konfirmasi',
+                'service_type' => 'antar_jemput',
+                'session_id' => 'sess-ride-04',
+            ]);
+
+        $confirmResponse
+            ->assertOk()
+            ->assertJsonPath('status', 'success')
+            ->assertJsonPath('data.order.created', true);
+
+        $orderId = (int) $confirmResponse->json('data.order.id');
+
+        $this->assertDatabaseHas('orders', [
+            'id' => $orderId,
+            'delivery_latitude' => -7.05230100,
+            'delivery_longitude' => 110.43560100,
+        ]);
+
+        $this->assertSame(1, $polinesGeocodeCalls, 'Destination geocode should run once during draft only.');
+    }
+
     public function test_chatbot_ride_reset_destination_invalidates_draft(): void
     {
         $this->fakeGeminiAndGeocoding();
