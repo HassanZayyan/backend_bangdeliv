@@ -27,13 +27,17 @@ class RideOrderService
      */
     public function create(User $user, array $payload): Order
     {
-        $pickupAddress = Address::query()
-            ->where('id', $payload['address_id'])
-            ->where('user_id', $user->id)
-            ->first();
+        $pickupAddress = null;
+        $pickupAddressIdRaw = $payload['address_id'] ?? null;
+        if ($pickupAddressIdRaw !== null && $pickupAddressIdRaw !== '') {
+            $pickupAddress = Address::query()
+                ->where('id', (int) $pickupAddressIdRaw)
+                ->where('user_id', $user->id)
+                ->first();
 
-        if (!$pickupAddress) {
-            throw new ApiException('Alamat jemput tidak ditemukan.', 404);
+            if (!$pickupAddress) {
+                throw new ApiException('Alamat jemput tidak ditemukan.', 404);
+            }
         }
 
         $rideServiceTypeId = ServiceType::query()->where('code', 'RIDE')->value('id');
@@ -48,11 +52,51 @@ class RideOrderService
         $destinationLongitude = $resolvedDestination['longitude'];
         $normalizedDestinationAddress = trim((string) $resolvedDestination['formatted_address']);
 
-        $pickupLatitude = isset($pickupAddress->latitude) ? (float) $pickupAddress->latitude : null;
-        $pickupLongitude = isset($pickupAddress->longitude) ? (float) $pickupAddress->longitude : null;
+        $pickupLatitude = $pickupAddress !== null && isset($pickupAddress->latitude)
+            ? (float) $pickupAddress->latitude
+            : null;
+        $pickupLongitude = $pickupAddress !== null && isset($pickupAddress->longitude)
+            ? (float) $pickupAddress->longitude
+            : null;
+
+        if ($pickupLatitude === null || $pickupLongitude === null) {
+            $pickupLatitude = array_key_exists('pickup_latitude', $payload)
+                && $payload['pickup_latitude'] !== null
+                && $payload['pickup_latitude'] !== ''
+                ? (float) $payload['pickup_latitude']
+                : null;
+            $pickupLongitude = array_key_exists('pickup_longitude', $payload)
+                && $payload['pickup_longitude'] !== null
+                && $payload['pickup_longitude'] !== ''
+                ? (float) $payload['pickup_longitude']
+                : null;
+        }
+
+        if (($pickupLatitude === null) xor ($pickupLongitude === null)) {
+            throw new ApiException('Koordinat jemput tidak lengkap.', 422, [
+                'pickup_latitude' => ['Latitude dan longitude jemput wajib diisi berpasangan.'],
+                'pickup_longitude' => ['Latitude dan longitude jemput wajib diisi berpasangan.'],
+            ]);
+        }
+
+        if ($pickupLatitude !== null && $pickupLongitude !== null) {
+            if ($pickupLatitude < -90 || $pickupLatitude > 90 || $pickupLongitude < -180 || $pickupLongitude > 180) {
+                throw new ApiException('Koordinat jemput tidak valid.', 422, [
+                    'pickup_latitude' => ['Latitude atau longitude jemput di luar rentang yang diizinkan.'],
+                    'pickup_longitude' => ['Latitude atau longitude jemput di luar rentang yang diizinkan.'],
+                ]);
+            }
+        }
 
         if ($pickupLatitude === null || $pickupLongitude === null) {
             throw new ApiException('Koordinat alamat jemput belum tersedia. Perbarui Alamat Saya terlebih dahulu.', 422);
+        }
+
+        $pickupAddressText = $pickupAddress !== null
+            ? trim((string) $pickupAddress->full_address)
+            : trim((string) ($payload['pickup_address'] ?? ''));
+        if ($pickupAddressText === '') {
+            $pickupAddressText = sprintf('Pin %.6f, %.6f', $pickupLatitude, $pickupLongitude);
         }
 
         $route = $this->distanceMatrixService->resolveRoute(
@@ -96,14 +140,17 @@ class RideOrderService
             $serviceFee,
             $totalAmount,
             $estimatedMinutes,
-            $payload
+            $payload,
+            $pickupAddressText,
+            $pickupLatitude,
+            $pickupLongitude
         ): Order {
             $order = Order::query()->create([
                 'order_number' => $this->generateOrderNumber(),
                 'user_id' => $user->id,
                 'restaurant_id' => null,
                 'service_type_id' => $rideServiceTypeId,
-                'address_id' => $pickupAddress->id,
+                'address_id' => $pickupAddress?->id,
                 'delivery_address' => $normalizedDestinationAddress,
                 'delivery_latitude' => round($destinationLatitude, 8),
                 'delivery_longitude' => round($destinationLongitude, 8),
@@ -134,8 +181,34 @@ class RideOrderService
                 'notes' => $payload['notes'] ?? null,
             ]);
 
+            $order->orderLocations()->createMany([
+                [
+                    'location_role' => 'PICKUP',
+                    'label' => 'Pickup',
+                    'contact_name' => $pickupAddress?->recipient_name ?? $user->name,
+                    'contact_phone' => $pickupAddress?->phone ?? $user->phone,
+                    'full_address' => $pickupAddressText,
+                    'latitude' => round($pickupLatitude, 8),
+                    'longitude' => round($pickupLongitude, 8),
+                    'sequence_no' => 1,
+                    'notes' => 'Lokasi jemput order ride.',
+                ],
+                [
+                    'location_role' => 'DROPOFF',
+                    'label' => 'Dropoff',
+                    'contact_name' => null,
+                    'contact_phone' => null,
+                    'full_address' => $normalizedDestinationAddress,
+                    'latitude' => round($destinationLatitude, 8),
+                    'longitude' => round($destinationLongitude, 8),
+                    'sequence_no' => 2,
+                    'notes' => 'Lokasi tujuan order ride.',
+                ],
+            ]);
+
             return $order->fresh([
                 'address',
+                'orderLocations',
                 'statusRef',
                 'statusHistories.statusRef',
                 'rideOrder',
