@@ -17,6 +17,10 @@ Route::post('/auth/login', [AuthController::class, 'login']);
 // Protected Auth Routes
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/chatbot/process', [ChatbotController::class, 'processChat'])->middleware('throttle:chatbot');
+    Route::get('/chatbot/sessions', [ChatbotController::class, 'listSessions']);
+    Route::get('/chatbot/sessions/{sessionId}/history', [ChatbotController::class, 'sessionHistory']);
+    Route::post('/chatbot/sessions/{sessionId}/location', [ChatbotController::class, 'patchSessionLocation']);
+    Route::delete('/chatbot/sessions/{sessionId}', [ChatbotController::class, 'clearSession']);
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::get('/user', [AuthController::class, 'me']);
     Route::post('/user/upgrade-to-driver', [AuthController::class, 'upgradeToDriver'])->middleware('role:customer');

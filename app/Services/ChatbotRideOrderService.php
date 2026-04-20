@@ -30,7 +30,9 @@ class ChatbotRideOrderService
 
     public function __construct(
         private readonly RideOrderService $rideOrderService,
-        private readonly GoogleMapsGeocodingService $geocodingService
+        private readonly GoogleMapsGeocodingService $geocodingService,
+        private readonly GoogleMapsDistanceMatrixService $distanceMatrixService,
+        private readonly DeliveryPricingService $deliveryPricingService
     ) {
     }
 
@@ -125,43 +127,33 @@ class ChatbotRideOrderService
         $pendingDraft = $this->resolvePendingDraft($user, $sessionId);
 
         if ($pendingDraft === null) {
-            return [
-                'intent' => 'ride_order',
-                'service_type' => 'antar_jemput',
-                'ride' => [
-                    'pickup_address' => null,
-                    'destination_address' => null,
-                    'ready_to_confirm' => false,
-                    'used_default_pickup' => false,
-                ],
-                'validation' => [
-                    'is_valid_order' => false,
-                    'rejection_reasons' => [
-                        'Belum ada draft antar jemput yang siap dikonfirmasi. Kirim tujuan terlebih dahulu.',
-                    ],
-                    'missing_fields' => [],
-                    'next_actions' => [],
-                ],
-                'order' => [
-                    'created' => false,
-                    'id' => null,
-                    'order_number' => null,
-                    'delivery_fee' => null,
-                ],
-                'assistant_text' => 'Belum ada draft antar jemput yang siap dikonfirmasi. Kirim dulu tujuanmu, lalu ketik "Konfirmasi".',
-            ];
+            return $this->buildMissingDraftPayload($user);
         }
 
-        $pickupAddressId = $pendingDraft['pickup_address_id'] ?? null;
-        if (!is_int($pickupAddressId) || $pickupAddressId <= 0) {
-            throw new ApiException('Draft antar jemput tidak valid. Alamat jemput tidak ditemukan.', 422);
-        }
-
-        $order = $this->rideOrderService->create($user, [
-            'address_id' => $pickupAddressId,
+        $ridePayload = [
             'destination_address' => (string) $pendingDraft['destination_address'],
             'notes' => 'Order Antar Jemput dibuat via chatbot.',
-        ]);
+        ];
+
+        $pickupAddressId = $pendingDraft['pickup_address_id'] ?? null;
+        if (is_int($pickupAddressId) && $pickupAddressId > 0) {
+            $ridePayload['address_id'] = $pickupAddressId;
+        } else {
+            $ridePayload['pickup_address'] = (string) ($pendingDraft['pickup_address'] ?? '');
+            $ridePayload['pickup_latitude'] = $pendingDraft['pickup_latitude'] ?? null;
+            $ridePayload['pickup_longitude'] = $pendingDraft['pickup_longitude'] ?? null;
+        }
+
+        if (
+            isset($pendingDraft['destination_latitude'], $pendingDraft['destination_longitude']) &&
+            is_numeric($pendingDraft['destination_latitude']) &&
+            is_numeric($pendingDraft['destination_longitude'])
+        ) {
+            $ridePayload['destination_latitude'] = (float) $pendingDraft['destination_latitude'];
+            $ridePayload['destination_longitude'] = (float) $pendingDraft['destination_longitude'];
+        }
+
+        $order = $this->rideOrderService->create($user, $ridePayload);
 
         return [
             'intent' => 'ride_order',
@@ -170,7 +162,7 @@ class ChatbotRideOrderService
                 'pickup_address' => $pendingDraft['pickup_address'],
                 'destination_address' => $pendingDraft['destination_address'],
                 'ready_to_confirm' => false,
-                'used_default_pickup' => true,
+                'used_default_pickup' => (bool) ($pendingDraft['used_default_pickup'] ?? false),
             ],
             'validation' => [
                 'is_valid_order' => true,
@@ -244,11 +236,12 @@ class ChatbotRideOrderService
                 'destination_address' => $draft['destination_address'],
                 'pickup_address_id' => $draft['pickup_address_id'],
                 'ready_to_confirm' => true,
-                'used_default_pickup' => true,
+                'used_default_pickup' => (bool) ($draft['used_default_pickup'] ?? false),
                 'pickup_latitude' => $draft['pickup_latitude'],
                 'pickup_longitude' => $draft['pickup_longitude'],
                 'destination_latitude' => $draft['destination_latitude'],
                 'destination_longitude' => $draft['destination_longitude'],
+                'distance_km' => $draft['distance_km'],
             ],
             'validation' => [
                 'is_valid_order' => true,
@@ -283,6 +276,7 @@ class ChatbotRideOrderService
         $destinationAddress = null;
         $destinationLatitude = null;
         $destinationLongitude = null;
+        $distanceKm = null;
 
         $reasons = [];
         $missingFields = [];
@@ -325,7 +319,44 @@ class ChatbotRideOrderService
             }
         }
 
-        $deliveryFee = (float) config('bangdeliv.min_delivery_fee', 5000);
+        $deliveryFee = (float) $this->deliveryPricingService->calculateFromDistanceMeters(0)['total_fee'];
+
+        if (
+            $pickupLatitude !== null &&
+            $pickupLongitude !== null &&
+            $destinationLatitude !== null &&
+            $destinationLongitude !== null
+        ) {
+            try {
+                $route = $this->distanceMatrixService->resolveRoute(
+                    $pickupLatitude,
+                    $pickupLongitude,
+                    $destinationLatitude,
+                    $destinationLongitude,
+                );
+
+                $distanceMeters = (float) $route['distance_meters'];
+                $distanceKm = (float) $route['distance_km'];
+
+                if (!$this->deliveryPricingService->isWithinMaxDistance($distanceMeters)) {
+                    $reasons[] = sprintf(
+                        'Jarak %.2f km melebihi batas layanan %.2f km.',
+                        $distanceKm,
+                        $this->deliveryPricingService->getMaxDistanceKm()
+                    );
+                }
+
+                $deliveryFee = (float) $this->deliveryPricingService
+                    ->calculateFromDistanceMeters($distanceMeters)['total_fee'];
+            } catch (ApiException $exception) {
+                if ($exception->status() === 422) {
+                    $reasons[] = 'Rute jemput ke tujuan tidak ditemukan. Gunakan alamat yang lebih spesifik.';
+                    $missingFields[] = 'destination_address';
+                } else {
+                    throw $exception;
+                }
+            }
+        }
 
         return [
             'pickup_address' => $pickupAddress,
@@ -335,6 +366,7 @@ class ChatbotRideOrderService
             'pickup_longitude' => $pickupLongitude,
             'destination_latitude' => $destinationLatitude,
             'destination_longitude' => $destinationLongitude,
+            'distance_km' => $distanceKm,
             'delivery_fee' => $deliveryFee,
             'used_default_pickup' => $pickupAddressId !== null,
             'validation' => [
@@ -364,15 +396,6 @@ class ChatbotRideOrderService
 
     private function resolveCommand(string $normalizedMessage, ?array $nluPayload): ?string
     {
-        $nluCommand = strtolower(trim((string) ($nluPayload['command'] ?? '')));
-        if ($nluCommand === 'confirm') {
-            return 'confirm';
-        }
-
-        if ($nluCommand === 'reset_destination') {
-            return 'reset_destination';
-        }
-
         if ($this->isResetDestinationCommand($normalizedMessage)) {
             return 'reset_destination';
         }
@@ -381,21 +404,124 @@ class ChatbotRideOrderService
             return 'confirm';
         }
 
+        $nluCommand = strtolower(trim((string) ($nluPayload['command'] ?? '')));
+        if ($nluCommand === 'confirm' && $this->isSoftConfirmCommand($normalizedMessage)) {
+            return 'confirm';
+        }
+
+        if ($nluCommand === 'reset_destination' && $this->isSoftResetCommand($normalizedMessage)) {
+            return 'reset_destination';
+        }
+
         return null;
     }
 
     private function isConfirmCommand(string $message): bool
     {
-        $normalized = strtolower($this->normalizeWhitespace($message));
+        $normalized = $this->normalizeCommandToken($message);
 
         return in_array($normalized, $this->confirmCommands, true);
     }
 
     private function isResetDestinationCommand(string $message): bool
     {
-        $normalized = strtolower($this->normalizeWhitespace($message));
+        $normalized = $this->normalizeCommandToken($message);
 
         return in_array($normalized, $this->resetCommands, true);
+    }
+
+    private function isSoftConfirmCommand(string $message): bool
+    {
+        $normalized = $this->normalizeCommandToken($message);
+
+        return preg_match('/^(?:ok(?:e|ay)?\s+)?(?:konfirmasi|confirm|lanjut)(?:\s+(?:ya|aja|dong))?$/u', $normalized) === 1;
+    }
+
+    private function isSoftResetCommand(string $message): bool
+    {
+        $normalized = $this->normalizeCommandToken($message);
+
+        return preg_match('/^(?:tolong\s+)?(?:ubah|ganti|reset)\s+tujuan(?:\s+(?:ya|aja|dong))?$/u', $normalized) === 1;
+    }
+
+    private function normalizeCommandToken(string $message): string
+    {
+        $normalized = strtolower($this->normalizeWhitespace($message));
+
+        return trim((string) preg_replace('/[^\p{L}\p{N}\s]+/u', '', $normalized));
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildMissingDraftPayload(User $user): array
+    {
+        $defaultPickupAddress = $this->resolveDefaultPickupAddress($user);
+        $resolvedPickup = $defaultPickupAddress === null
+            ? null
+            : $this->resolveProfilePickupAddress($defaultPickupAddress);
+
+        if ($resolvedPickup === null) {
+            return [
+                'intent' => 'ride_order',
+                'service_type' => 'antar_jemput',
+                'ride' => [
+                    'pickup_address' => null,
+                    'destination_address' => null,
+                    'ready_to_confirm' => false,
+                    'used_default_pickup' => false,
+                    'pickup_latitude' => null,
+                    'pickup_longitude' => null,
+                    'destination_latitude' => null,
+                    'destination_longitude' => null,
+                ],
+                'validation' => [
+                    'is_valid_order' => false,
+                    'rejection_reasons' => [
+                        'Alamat jemput belum tersedia. Isi Alamat Saya terlebih dahulu atau pilih titik jemput lewat peta.',
+                    ],
+                    'missing_fields' => ['pickup_address', 'destination_address'],
+                    'next_actions' => ['OPEN_ADDRESSES'],
+                ],
+                'order' => [
+                    'created' => false,
+                    'id' => null,
+                    'order_number' => null,
+                    'delivery_fee' => null,
+                ],
+                'assistant_text' => 'Alamat jemput kamu belum tersedia. Isi Alamat Saya dulu, atau pilih titik jemput dan tujuan langsung di peta.',
+            ];
+        }
+
+        return [
+            'intent' => 'ride_order',
+            'service_type' => 'antar_jemput',
+            'ride' => [
+                'pickup_address' => $resolvedPickup['formatted_address'],
+                'destination_address' => null,
+                'ready_to_confirm' => false,
+                'used_default_pickup' => true,
+                'pickup_latitude' => $resolvedPickup['latitude'],
+                'pickup_longitude' => $resolvedPickup['longitude'],
+                'destination_latitude' => null,
+                'destination_longitude' => null,
+            ],
+            'validation' => [
+                'is_valid_order' => false,
+                'rejection_reasons' => [
+                    'Belum ada draft antar jemput yang siap dikonfirmasi. Kirim tujuan terlebih dahulu.',
+                ],
+                'missing_fields' => ['destination_address'],
+                'next_actions' => ['OPEN_MAP_PICKER_DESTINATION'],
+            ],
+            'order' => [
+                'created' => false,
+                'id' => null,
+                'order_number' => null,
+                'delivery_fee' => null,
+            ],
+            'assistant_text' => 'Belum ada draft antar jemput yang siap dikonfirmasi. Kirim dulu tujuanmu, ketik "Konfirmasi", atau pilih titik tujuan di peta.',
+        ];
     }
 
     private function extractDestinationFromMessage(string $message): ?string
@@ -548,8 +674,25 @@ class ChatbotRideOrderService
         $pickupAddress = trim((string) ($ride['pickup_address'] ?? ''));
         $destinationAddress = trim((string) ($ride['destination_address'] ?? ''));
         $pickupAddressId = isset($ride['pickup_address_id']) ? (int) $ride['pickup_address_id'] : null;
+        $pickupLatitude = isset($ride['pickup_latitude']) && is_numeric($ride['pickup_latitude'])
+            ? (float) $ride['pickup_latitude']
+            : null;
+        $pickupLongitude = isset($ride['pickup_longitude']) && is_numeric($ride['pickup_longitude'])
+            ? (float) $ride['pickup_longitude']
+            : null;
+        $destinationLatitude = isset($ride['destination_latitude']) && is_numeric($ride['destination_latitude'])
+            ? (float) $ride['destination_latitude']
+            : null;
+        $destinationLongitude = isset($ride['destination_longitude']) && is_numeric($ride['destination_longitude'])
+            ? (float) $ride['destination_longitude']
+            : null;
 
-        if ($pickupAddress === '' || $destinationAddress === '' || !$pickupAddressId) {
+        if (
+            $pickupAddress === '' ||
+            $destinationAddress === '' ||
+            $pickupLatitude === null ||
+            $pickupLongitude === null
+        ) {
             return null;
         }
 
@@ -557,7 +700,12 @@ class ChatbotRideOrderService
             'pickup_address' => $pickupAddress,
             'destination_address' => $destinationAddress,
             'pickup_address_id' => $pickupAddressId,
+            'pickup_latitude' => $pickupLatitude,
+            'pickup_longitude' => $pickupLongitude,
+            'destination_latitude' => $destinationLatitude,
+            'destination_longitude' => $destinationLongitude,
             'delivery_fee' => isset($order['delivery_fee']) ? (float) $order['delivery_fee'] : null,
+            'used_default_pickup' => (bool) ($ride['used_default_pickup'] ?? false),
         ];
     }
 }

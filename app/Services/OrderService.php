@@ -40,7 +40,7 @@ class OrderService
 
         $query = Order::query()
             ->where('user_id', $user->id)
-            ->with(['restaurant', 'items', 'statusRef'])
+            ->with(['restaurant', 'items', 'statusRef', 'serviceType'])
             ->latest('id');
 
         if (!empty($filters['status'])) {
@@ -53,7 +53,7 @@ class OrderService
     public function customerOrderDetail(User $user, int $orderId): Order
     {
         $order = Order::query()
-            ->with(['restaurant', 'driver.user', 'address', 'items', 'statusRef', 'statusHistories.statusRef'])
+            ->with(['restaurant', 'driver.user', 'address', 'items', 'orderLocations', 'statusRef', 'statusHistories.statusRef', 'serviceType'])
             ->find($orderId);
 
         if (!$order || $order->user_id !== $user->id) {

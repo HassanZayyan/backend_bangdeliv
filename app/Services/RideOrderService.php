@@ -16,7 +16,9 @@ use Illuminate\Support\Facades\DB;
 class RideOrderService
 {
     public function __construct(
-        private readonly GoogleMapsGeocodingService $geocodingService
+        private readonly GoogleMapsGeocodingService $geocodingService,
+        private readonly GoogleMapsDistanceMatrixService $distanceMatrixService,
+        private readonly DeliveryPricingService $deliveryPricingService
     ) {
     }
 
@@ -25,13 +27,17 @@ class RideOrderService
      */
     public function create(User $user, array $payload): Order
     {
-        $pickupAddress = Address::query()
-            ->where('id', $payload['address_id'])
-            ->where('user_id', $user->id)
-            ->first();
+        $pickupAddress = null;
+        $pickupAddressIdRaw = $payload['address_id'] ?? null;
+        if ($pickupAddressIdRaw !== null && $pickupAddressIdRaw !== '') {
+            $pickupAddress = Address::query()
+                ->where('id', (int) $pickupAddressIdRaw)
+                ->where('user_id', $user->id)
+                ->first();
 
-        if (!$pickupAddress) {
-            throw new ApiException('Alamat jemput tidak ditemukan.', 404);
+            if (!$pickupAddress) {
+                throw new ApiException('Alamat jemput tidak ditemukan.', 404);
+            }
         }
 
         $rideServiceTypeId = ServiceType::query()->where('code', 'RIDE')->value('id');
@@ -41,20 +47,81 @@ class RideOrderService
             throw new ApiException('Konfigurasi service type atau status order belum lengkap.', 500);
         }
 
-        $resolvedDestination = $this->validateDestination(
-            (string) $payload['destination_address']
-        );
-
-        $destinationLatitude = isset($payload['destination_latitude'])
-            ? (float) $payload['destination_latitude']
-            : $resolvedDestination['latitude'];
-        $destinationLongitude = isset($payload['destination_longitude'])
-            ? (float) $payload['destination_longitude']
-            : $resolvedDestination['longitude'];
+        $resolvedDestination = $this->resolveDestinationForCreate($payload);
+        $destinationLatitude = $resolvedDestination['latitude'];
+        $destinationLongitude = $resolvedDestination['longitude'];
         $normalizedDestinationAddress = trim((string) $resolvedDestination['formatted_address']);
 
+        $pickupLatitude = $pickupAddress !== null && isset($pickupAddress->latitude)
+            ? (float) $pickupAddress->latitude
+            : null;
+        $pickupLongitude = $pickupAddress !== null && isset($pickupAddress->longitude)
+            ? (float) $pickupAddress->longitude
+            : null;
+
+        if ($pickupLatitude === null || $pickupLongitude === null) {
+            $pickupLatitude = array_key_exists('pickup_latitude', $payload)
+                && $payload['pickup_latitude'] !== null
+                && $payload['pickup_latitude'] !== ''
+                ? (float) $payload['pickup_latitude']
+                : null;
+            $pickupLongitude = array_key_exists('pickup_longitude', $payload)
+                && $payload['pickup_longitude'] !== null
+                && $payload['pickup_longitude'] !== ''
+                ? (float) $payload['pickup_longitude']
+                : null;
+        }
+
+        if (($pickupLatitude === null) xor ($pickupLongitude === null)) {
+            throw new ApiException('Koordinat jemput tidak lengkap.', 422, [
+                'pickup_latitude' => ['Latitude dan longitude jemput wajib diisi berpasangan.'],
+                'pickup_longitude' => ['Latitude dan longitude jemput wajib diisi berpasangan.'],
+            ]);
+        }
+
+        if ($pickupLatitude !== null && $pickupLongitude !== null) {
+            if ($pickupLatitude < -90 || $pickupLatitude > 90 || $pickupLongitude < -180 || $pickupLongitude > 180) {
+                throw new ApiException('Koordinat jemput tidak valid.', 422, [
+                    'pickup_latitude' => ['Latitude atau longitude jemput di luar rentang yang diizinkan.'],
+                    'pickup_longitude' => ['Latitude atau longitude jemput di luar rentang yang diizinkan.'],
+                ]);
+            }
+        }
+
+        if ($pickupLatitude === null || $pickupLongitude === null) {
+            throw new ApiException('Koordinat alamat jemput belum tersedia. Perbarui Alamat Saya terlebih dahulu.', 422);
+        }
+
+        $pickupAddressText = $pickupAddress !== null
+            ? trim((string) $pickupAddress->full_address)
+            : trim((string) ($payload['pickup_address'] ?? ''));
+        if ($pickupAddressText === '') {
+            $pickupAddressText = sprintf('Pin %.6f, %.6f', $pickupLatitude, $pickupLongitude);
+        }
+
+        $route = $this->distanceMatrixService->resolveRoute(
+            $pickupLatitude,
+            $pickupLongitude,
+            $destinationLatitude,
+            $destinationLongitude,
+        );
+
+        $distanceMeters = (float) $route['distance_meters'];
+        $distanceKm = (float) $route['distance_km'];
+
+        if (!$this->deliveryPricingService->isWithinMaxDistance($distanceMeters)) {
+            throw new ApiException(sprintf(
+                'Jarak %.2f km melebihi batas layanan %.2f km.',
+                $distanceKm,
+                $this->deliveryPricingService->getMaxDistanceKm()
+            ), 422);
+        }
+
+        $pricing = $this->deliveryPricingService->calculateFromDistanceMeters($distanceMeters);
+        $estimatedMinutes = $this->estimateTravelMinutes((int) $route['duration_seconds']);
+
         $subtotal = 0.0;
-        $deliveryFee = $this->calculateRideFee();
+        $deliveryFee = (float) $pricing['total_fee'];
         $serviceFee = 0.0;
         $totalAmount = $subtotal + $deliveryFee + $serviceFee;
 
@@ -66,31 +133,39 @@ class RideOrderService
             $normalizedDestinationAddress,
             $destinationLatitude,
             $destinationLongitude,
+            $distanceKm,
+            $route,
             $subtotal,
             $deliveryFee,
             $serviceFee,
             $totalAmount,
-            $payload
+            $estimatedMinutes,
+            $payload,
+            $pickupAddressText,
+            $pickupLatitude,
+            $pickupLongitude
         ): Order {
             $order = Order::query()->create([
                 'order_number' => $this->generateOrderNumber(),
                 'user_id' => $user->id,
                 'restaurant_id' => null,
                 'service_type_id' => $rideServiceTypeId,
-                'address_id' => $pickupAddress->id,
+                'address_id' => $pickupAddress?->id,
                 'delivery_address' => $normalizedDestinationAddress,
                 'delivery_latitude' => round($destinationLatitude, 8),
                 'delivery_longitude' => round($destinationLongitude, 8),
                 'subtotal' => round($subtotal, 2),
                 'delivery_fee' => round($deliveryFee, 2),
                 'service_fee' => round($serviceFee, 2),
+                'delivery_distance_km' => round($distanceKm, 2),
+                'delivery_distance_text' => (string) ($route['distance_text'] ?? number_format($distanceKm, 2).' km'),
                 'total_amount' => round($totalAmount, 2),
                 'total_price' => round($totalAmount, 2),
                 'status_id' => $pendingStatusId,
                 'payment_status' => 'unpaid',
                 'payment_method' => 'COD',
                 'notes' => $payload['notes'] ?? null,
-                'estimated_delivery' => Carbon::now()->addMinutes(30),
+                'estimated_delivery' => Carbon::now()->addMinutes($estimatedMinutes),
             ]);
 
             OrderStatusHistory::query()->create([
@@ -106,8 +181,34 @@ class RideOrderService
                 'notes' => $payload['notes'] ?? null,
             ]);
 
+            $order->orderLocations()->createMany([
+                [
+                    'location_role' => 'PICKUP',
+                    'label' => 'Pickup',
+                    'contact_name' => $pickupAddress?->recipient_name ?? $user->name,
+                    'contact_phone' => $pickupAddress?->phone ?? $user->phone,
+                    'full_address' => $pickupAddressText,
+                    'latitude' => round($pickupLatitude, 8),
+                    'longitude' => round($pickupLongitude, 8),
+                    'sequence_no' => 1,
+                    'notes' => 'Lokasi jemput order ride.',
+                ],
+                [
+                    'location_role' => 'DROPOFF',
+                    'label' => 'Dropoff',
+                    'contact_name' => null,
+                    'contact_phone' => null,
+                    'full_address' => $normalizedDestinationAddress,
+                    'latitude' => round($destinationLatitude, 8),
+                    'longitude' => round($destinationLongitude, 8),
+                    'sequence_no' => 2,
+                    'notes' => 'Lokasi tujuan order ride.',
+                ],
+            ]);
+
             return $order->fresh([
                 'address',
+                'orderLocations',
                 'statusRef',
                 'statusHistories.statusRef',
                 'rideOrder',
@@ -140,6 +241,55 @@ class RideOrderService
         return $resolvedDestination;
     }
 
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array{latitude: float, longitude: float, formatted_address: string}
+     */
+    private function resolveDestinationForCreate(array $payload): array
+    {
+        $destinationAddress = trim((string) ($payload['destination_address'] ?? ''));
+
+        if ($destinationAddress === '') {
+            throw new ApiException('Alamat tujuan wajib diisi.', 422, [
+                'destination_address' => ['Alamat tujuan wajib diisi.'],
+            ]);
+        }
+
+        $hasLatitude = array_key_exists('destination_latitude', $payload)
+            && $payload['destination_latitude'] !== null
+            && $payload['destination_latitude'] !== '';
+        $hasLongitude = array_key_exists('destination_longitude', $payload)
+            && $payload['destination_longitude'] !== null
+            && $payload['destination_longitude'] !== '';
+
+        if ($hasLatitude xor $hasLongitude) {
+            throw new ApiException('Koordinat tujuan tidak lengkap.', 422, [
+                'destination_latitude' => ['Latitude dan longitude tujuan wajib diisi berpasangan.'],
+                'destination_longitude' => ['Latitude dan longitude tujuan wajib diisi berpasangan.'],
+            ]);
+        }
+
+        if ($hasLatitude && $hasLongitude) {
+            $latitude = (float) $payload['destination_latitude'];
+            $longitude = (float) $payload['destination_longitude'];
+
+            if ($latitude < -90 || $latitude > 90 || $longitude < -180 || $longitude > 180) {
+                throw new ApiException('Koordinat tujuan tidak valid.', 422, [
+                    'destination_latitude' => ['Latitude atau longitude tujuan di luar rentang yang diizinkan.'],
+                    'destination_longitude' => ['Latitude atau longitude tujuan di luar rentang yang diizinkan.'],
+                ]);
+            }
+
+            return [
+                'latitude' => $latitude,
+                'longitude' => $longitude,
+                'formatted_address' => $destinationAddress,
+            ];
+        }
+
+        return $this->validateDestination($destinationAddress);
+    }
+
     private function generateOrderNumber(): string
     {
         do {
@@ -149,8 +299,10 @@ class RideOrderService
         return $candidate;
     }
 
-    private function calculateRideFee(): float
+    private function estimateTravelMinutes(int $durationSeconds): int
     {
-        return (float) config('bangdeliv.min_delivery_fee', 5000);
+        $minutes = (int) ceil(max(0, $durationSeconds) / 60);
+
+        return max(20, min(180, $minutes + 10));
     }
 }

@@ -93,7 +93,9 @@ class ChatbotCourierOrderService
     ];
 
     public function __construct(
-        private readonly GoogleMapsGeocodingService $geocodingService
+        private readonly GoogleMapsGeocodingService $geocodingService,
+        private readonly GoogleMapsDistanceMatrixService $distanceMatrixService,
+        private readonly DeliveryPricingService $deliveryPricingService
     ) {
     }
 
@@ -419,25 +421,43 @@ class ChatbotCourierOrderService
         }
 
         $distanceKm = null;
+        $distanceMeters = 0.0;
         if (
             $pickupLatitude !== null &&
             $pickupLongitude !== null &&
             $dropoffLatitude !== null &&
             $dropoffLongitude !== null
         ) {
-            $distanceKm = $this->distanceKm($pickupLatitude, $pickupLongitude, $dropoffLatitude, $dropoffLongitude);
-
-            $maxDistance = (float) config('bangdeliv.max_delivery_distance', 15);
-            if ($distanceKm > $maxDistance) {
-                $reasons[] = sprintf(
-                    'Jarak %.2f km melebihi batas layanan %.2f km.',
-                    $distanceKm,
-                    $maxDistance
+            try {
+                $route = $this->distanceMatrixService->resolveRoute(
+                    $pickupLatitude,
+                    $pickupLongitude,
+                    $dropoffLatitude,
+                    $dropoffLongitude,
                 );
+
+                $distanceMeters = (float) $route['distance_meters'];
+                $distanceKm = (float) $route['distance_km'];
+
+                if (!$this->deliveryPricingService->isWithinMaxDistance($distanceMeters)) {
+                    $reasons[] = sprintf(
+                        'Jarak %.2f km melebihi batas layanan %.2f km.',
+                        $distanceKm,
+                        $this->deliveryPricingService->getMaxDistanceKm()
+                    );
+                }
+            } catch (ApiException $exception) {
+                if ($exception->status() === 422) {
+                    $reasons[] = 'Rute pickup ke tujuan tidak ditemukan. Gunakan alamat yang lebih spesifik.';
+                    $missingFields[] = 'dropoff_address';
+                } else {
+                    throw $exception;
+                }
             }
         }
 
-        $deliveryFee = $this->calculateDeliveryFee($distanceKm);
+        $deliveryFee = (float) $this->deliveryPricingService
+            ->calculateFromDistanceMeters($distanceMeters)['total_fee'];
 
         return [
             'pickup_address' => $pickupAddress,
@@ -576,11 +596,6 @@ class ChatbotCourierOrderService
             throw new ApiException('Konfigurasi service type atau status order belum lengkap.', 500);
         }
 
-        $distanceKm = isset($parsed['distance_km']) ? (float) $parsed['distance_km'] : null;
-        $deliveryFee = $this->calculateDeliveryFee($distanceKm);
-        $serviceFee = 0.0;
-        $totalAmount = $deliveryFee + $serviceFee;
-
         $pickupAddress = trim((string) ($parsed['pickup_address'] ?? ''));
         $dropoffAddress = trim((string) ($parsed['dropoff_address'] ?? ''));
         $packageDescription = trim((string) ($parsed['package_description'] ?? ''));
@@ -594,7 +609,30 @@ class ChatbotCourierOrderService
         $dropoffLatitude = (float) $parsed['dropoff_latitude'];
         $dropoffLongitude = (float) $parsed['dropoff_longitude'];
 
-        $estimatedMinutes = $this->estimateDeliveryMinutes($distanceKm);
+        $route = $this->distanceMatrixService->resolveRoute(
+            $pickupLatitude,
+            $pickupLongitude,
+            $dropoffLatitude,
+            $dropoffLongitude,
+        );
+
+        $distanceMeters = (float) $route['distance_meters'];
+        $distanceKm = (float) $route['distance_km'];
+
+        if (!$this->deliveryPricingService->isWithinMaxDistance($distanceMeters)) {
+            throw new ApiException(sprintf(
+                'Jarak %.2f km melebihi batas layanan %.2f km.',
+                $distanceKm,
+                $this->deliveryPricingService->getMaxDistanceKm()
+            ), 422);
+        }
+
+        $pricing = $this->deliveryPricingService->calculateFromDistanceMeters($distanceMeters);
+        $deliveryFee = (float) $pricing['total_fee'];
+        $serviceFee = 0.0;
+        $totalAmount = $deliveryFee + $serviceFee;
+
+        $estimatedMinutes = $this->estimateDeliveryMinutes((int) $route['duration_seconds']);
 
         return DB::transaction(function () use (
             $user,
@@ -611,6 +649,7 @@ class ChatbotCourierOrderService
             $dropoffAddress,
             $dropoffLatitude,
             $dropoffLongitude,
+            $route,
             $packageDescription,
             $estimatedMinutes
         ): Order {
@@ -627,7 +666,9 @@ class ChatbotCourierOrderService
                 'delivery_fee' => round($deliveryFee, 2),
                 'service_fee' => round($serviceFee, 2),
                 'delivery_distance_km' => $distanceKm !== null ? round($distanceKm, 2) : null,
-                'delivery_distance_text' => $distanceKm !== null ? number_format($distanceKm, 2).' km' : null,
+                'delivery_distance_text' => $distanceKm !== null
+                    ? (string) ($route['distance_text'] ?? number_format($distanceKm, 2).' km')
+                    : null,
                 'total_amount' => round($totalAmount, 2),
                 'total_price' => round($totalAmount, 2),
                 'status_id' => $pendingStatusId,
@@ -880,49 +921,11 @@ class ChatbotCourierOrderService
         ];
     }
 
-    private function distanceKm(float $fromLat, float $fromLng, float $toLat, float $toLng): float
+    private function estimateDeliveryMinutes(int $durationSeconds): int
     {
-        $earthRadiusKm = 6371;
-        $latFrom = deg2rad($fromLat);
-        $lonFrom = deg2rad($fromLng);
-        $latTo = deg2rad($toLat);
-        $lonTo = deg2rad($toLng);
+        $estimated = (int) ceil(max(0, $durationSeconds) / 60);
 
-        $latDelta = $latTo - $latFrom;
-        $lonDelta = $lonTo - $lonFrom;
-
-        $angle = 2 * asin(sqrt(
-            pow(sin($latDelta / 2), 2) +
-                cos($latFrom) * cos($latTo) * pow(sin($lonDelta / 2), 2)
-        ));
-
-        return round($earthRadiusKm * $angle, 2);
-    }
-
-    private function calculateDeliveryFee(?float $distanceKm): float
-    {
-        if ($distanceKm === null) {
-            return (float) config('bangdeliv.min_delivery_fee', 5000);
-        }
-
-        $rate = (float) config('bangdeliv.delivery_rate_per_km', 3000);
-        $minFee = (float) config('bangdeliv.min_delivery_fee', 5000);
-        $maxFee = (float) config('bangdeliv.max_delivery_fee', 25000);
-
-        $calculated = $distanceKm * $rate;
-
-        return max($minFee, min($maxFee, $calculated));
-    }
-
-    private function estimateDeliveryMinutes(?float $distanceKm): int
-    {
-        if ($distanceKm === null) {
-            return 30;
-        }
-
-        $estimated = (int) round(($distanceKm * 7) + 20);
-
-        return max(20, min(180, $estimated));
+        return max(20, min(180, $estimated + 10));
     }
 
     private function generateOrderNumber(): string

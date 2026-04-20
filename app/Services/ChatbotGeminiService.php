@@ -11,9 +11,9 @@ class ChatbotGeminiService
     /**
      * @return array{payload: array<string, mixed>, model_used: string|null}
      */
-    public function parseFoodOrder(string $message): array
+    public function parseFoodOrder(string $message, ?array $context = null): array
     {
-        $systemInstruction = 'Kamu adalah AI asisten BangDeliv. Ekstrak pesan menjadi JSON. Format wajib: {"intent": "pesan_makanan" atau "out_of_domain", "resto": "string/null", "items": [{"menu": "string", "qty": integer}]}. Pastikan mengekstrak setiap pesanan menu secara terpisah ke dalam array items. Dilarang merespon teks biasa.';
+        $systemInstruction = 'Kamu adalah AI asisten BangDeliv. Ekstrak pesan menjadi JSON. Format wajib: {"intent": "pesan_makanan" atau "out_of_domain", "resto": "string/null", "items": [{"menu": "string", "qty": integer}]}. Pastikan mengekstrak setiap pesanan menu secara terpisah ke dalam array items. Jika disediakan CONTEXT_JSON, gunakan untuk menjaga kesinambungan percakapan dan draft pesanan. Dilarang merespon teks biasa.';
 
         $schema = [
             'type' => 'OBJECT',
@@ -39,7 +39,7 @@ class ChatbotGeminiService
             'intent' => 'out_of_domain',
             'resto' => null,
             'items' => [],
-        ]);
+        ], $context);
 
         return [
             'payload' => $this->normalizeFoodPayload($parsed['payload']),
@@ -50,14 +50,14 @@ class ChatbotGeminiService
     /**
      * @return array{payload: array<string, mixed>, model_used: string|null}
      */
-    public function interpretTransportMessage(string $serviceType, string $message): array
+    public function interpretTransportMessage(string $serviceType, string $message, ?array $context = null): array
     {
         if ($serviceType !== 'kurir' && $serviceType !== 'antar_jemput') {
             throw new ApiException('Service type tidak didukung untuk interpretasi transport.', 422);
         }
 
         if ($serviceType === 'kurir') {
-            $systemInstruction = 'Kamu adalah NLU assistant BangDeliv untuk layanan Kurir. Keluarkan hanya JSON sesuai schema. command valid: "confirm", "reset_destination", atau "none". Jika user memberi pickup/tujuan/isi paket, isi field terkait. Jika tidak ada, null. intent harus "courier_order" atau "out_of_domain".';
+            $systemInstruction = 'Kamu adalah NLU assistant BangDeliv untuk layanan Kurir. Keluarkan hanya JSON sesuai schema. command valid: "confirm", "reset_destination", atau "none". Jika user memberi pickup/tujuan/isi paket, isi field terkait. Jika tidak ada, null. intent harus "courier_order" atau "out_of_domain". Jika disediakan CONTEXT_JSON, gunakan untuk membaca progres percakapan dan draft terakhir.';
             $schema = [
                 'type' => 'OBJECT',
                 'properties' => [
@@ -76,7 +76,7 @@ class ChatbotGeminiService
                 'pickup_address' => null,
                 'dropoff_address' => null,
                 'package_description' => null,
-            ]);
+            ], $context);
 
             return [
                 'payload' => $this->normalizeCourierPayload($parsed['payload']),
@@ -84,7 +84,7 @@ class ChatbotGeminiService
             ];
         }
 
-        $systemInstruction = 'Kamu adalah NLU assistant BangDeliv untuk layanan Antar Jemput. Keluarkan hanya JSON sesuai schema. command valid: "confirm", "reset_destination", atau "none". Jika user memberi tujuan, isi destination_address. intent harus "ride_order" atau "out_of_domain".';
+        $systemInstruction = 'Kamu adalah NLU assistant BangDeliv untuk layanan Antar Jemput. Keluarkan hanya JSON sesuai schema. command valid: "confirm", "reset_destination", atau "none". Jika user memberi tujuan, isi destination_address. intent harus "ride_order" atau "out_of_domain". Jika disediakan CONTEXT_JSON, gunakan untuk membaca progres percakapan dan draft terakhir.';
         $schema = [
             'type' => 'OBJECT',
             'properties' => [
@@ -101,7 +101,7 @@ class ChatbotGeminiService
             'command' => 'none',
             'destination_address' => null,
             'notes' => null,
-        ]);
+        ], $context);
 
         return [
             'payload' => $this->normalizeRidePayload($parsed['payload']),
@@ -114,7 +114,7 @@ class ChatbotGeminiService
      * @param  array<string, mixed>  $fallback
      * @return array{payload: array<string, mixed>, model_used: string|null}
      */
-    private function generateJson(string $message, string $systemInstruction, array $schema, array $fallback): array
+    private function generateJson(string $message, string $systemInstruction, array $schema, array $fallback, ?array $context = null): array
     {
         $apiKey = (string) config('bangdeliv.chatbot.gemini.api_key', env('GEMINI_API_KEY', ''));
         $timeout = (int) config('bangdeliv.chatbot.gemini.timeout_seconds', 12);
@@ -129,6 +129,17 @@ class ChatbotGeminiService
             $models = ['gemini-2.5-flash'];
         }
 
+        $userParts = [
+            ['text' => $message],
+        ];
+
+        if (is_array($context) && $context !== []) {
+            $encodedContext = json_encode($context, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            if (is_string($encodedContext) && $encodedContext !== '') {
+                $userParts[] = ['text' => 'CONTEXT_JSON: '.$encodedContext];
+            }
+        }
+
         $payload = [
             'systemInstruction' => [
                 'parts' => [
@@ -138,9 +149,7 @@ class ChatbotGeminiService
             'contents' => [
                 [
                     'role' => 'user',
-                    'parts' => [
-                        ['text' => $message],
-                    ],
+                    'parts' => $userParts,
                 ],
             ],
             'generationConfig' => [

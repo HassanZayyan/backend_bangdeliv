@@ -16,7 +16,11 @@ use Illuminate\Support\Facades\DB;
 
 class CheckoutService
 {
-    public function __construct(private readonly CartService $cartService)
+    public function __construct(
+        private readonly CartService $cartService,
+        private readonly GoogleMapsDistanceMatrixService $distanceMatrixService,
+        private readonly DeliveryPricingService $deliveryPricingService
+    )
     {
     }
 
@@ -51,9 +55,44 @@ class CheckoutService
             }
         }
 
+        $restaurantLatitude = isset($restaurant->latitude) ? (float) $restaurant->latitude : null;
+        $restaurantLongitude = isset($restaurant->longitude) ? (float) $restaurant->longitude : null;
+        $deliveryLatitude = isset($address->latitude) ? (float) $address->latitude : null;
+        $deliveryLongitude = isset($address->longitude) ? (float) $address->longitude : null;
+
+        if (
+            $restaurantLatitude === null ||
+            $restaurantLongitude === null ||
+            $deliveryLatitude === null ||
+            $deliveryLongitude === null
+        ) {
+            throw new ApiException('Koordinat restoran atau alamat pengantaran belum lengkap.', 422);
+        }
+
+        $route = $this->distanceMatrixService->resolveRoute(
+            $restaurantLatitude,
+            $restaurantLongitude,
+            $deliveryLatitude,
+            $deliveryLongitude,
+        );
+
+        $distanceMeters = (float) $route['distance_meters'];
+        $distanceKm = (float) $route['distance_km'];
+
+        if (!$this->deliveryPricingService->isWithinMaxDistance($distanceMeters)) {
+            throw new ApiException(sprintf(
+                'Jarak %.2f km melebihi batas layanan %.2f km.',
+                $distanceKm,
+                $this->deliveryPricingService->getMaxDistanceKm()
+            ), 422);
+        }
+
+        $pricing = $this->deliveryPricingService->calculateFromDistanceMeters($distanceMeters);
+        $routeMinutes = $this->estimateTravelMinutes((int) $route['duration_seconds']);
+
         $subtotal = $cart->items->sum(fn ($item) => (float) $item->menu->price * $item->quantity);
 
-        $deliveryFee = $this->calculateDeliveryFee();
+        $deliveryFee = (float) $pricing['total_fee'];
         $serviceFee = 0.0;
         $totalAmount = $subtotal + $deliveryFee + $serviceFee;
         $shoppingServiceTypeId = ServiceType::query()->where('code', 'SHOPPING')->value('id');
@@ -63,7 +102,22 @@ class CheckoutService
             throw new ApiException('Konfigurasi service type atau status order belum lengkap.', 500);
         }
 
-        return DB::transaction(function () use ($user, $payload, $cart, $address, $restaurant, $subtotal, $deliveryFee, $serviceFee, $totalAmount, $shoppingServiceTypeId, $pendingStatusId): Order {
+        return DB::transaction(function () use (
+            $user,
+            $payload,
+            $cart,
+            $address,
+            $restaurant,
+            $subtotal,
+            $deliveryFee,
+            $serviceFee,
+            $totalAmount,
+            $shoppingServiceTypeId,
+            $pendingStatusId,
+            $distanceKm,
+            $route,
+            $routeMinutes,
+        ): Order {
             $order = Order::query()->create([
                 'order_number' => $this->generateOrderNumber(),
                 'user_id' => $user->id,
@@ -76,13 +130,15 @@ class CheckoutService
                 'subtotal' => round($subtotal, 2),
                 'delivery_fee' => round($deliveryFee, 2),
                 'service_fee' => round($serviceFee, 2),
+                'delivery_distance_km' => round($distanceKm, 2),
+                'delivery_distance_text' => (string) ($route['distance_text'] ?? number_format($distanceKm, 2).' km'),
                 'total_amount' => round($totalAmount, 2),
                 'total_price' => round($totalAmount, 2),
                 'status_id' => $pendingStatusId,
                 'payment_status' => 'unpaid',
                 'payment_method' => 'COD',
                 'notes' => $payload['notes'] ?? null,
-                'estimated_delivery' => Carbon::now()->addMinutes((int) $restaurant->estimated_prep_time + 25),
+                'estimated_delivery' => Carbon::now()->addMinutes((int) $restaurant->estimated_prep_time + $routeMinutes),
             ]);
 
             foreach ($cart->items as $item) {
@@ -138,9 +194,10 @@ class CheckoutService
         return $candidate;
     }
 
-    private function calculateDeliveryFee(): float
+    private function estimateTravelMinutes(int $durationSeconds): int
     {
-        // Fase 1: gunakan minimum fee sebagai baseline. Distance matrix dapat ditambahkan di fase berikutnya.
-        return (float) config('bangdeliv.min_delivery_fee', 5000);
+        $minutes = (int) ceil(max(0, $durationSeconds) / 60);
+
+        return max(10, min(120, $minutes));
     }
 }
