@@ -19,6 +19,7 @@ class DatabaseSeeder extends Seeder
             UserSeeder::class,
             CustomerSeeder::class,
             DriverSeeder::class,
+            AccessAccountSeeder::class,
             RestaurantMenuSeeder::class,
             OrderSeeder::class,
         ]);
