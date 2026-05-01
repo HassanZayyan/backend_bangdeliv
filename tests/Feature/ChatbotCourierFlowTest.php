@@ -352,6 +352,13 @@ class ChatbotCourierFlowTest extends TestCase
     private function fakeGeocoding(): void
     {
         Http::fake([
+            'https://generativelanguage.googleapis.com/*' => Http::response([
+                'error' => [
+                    'code' => 503,
+                    'message' => 'Gemini disabled in courier flow tests',
+                    'status' => 'UNAVAILABLE',
+                ],
+            ], 503),
             'https://maps.googleapis.com/maps/api/geocode/*' => function ($request) {
                 $queryString = parse_url($request->url(), PHP_URL_QUERY) ?? '';
                 parse_str($queryString, $query);

@@ -141,11 +141,17 @@ class ChatbotCourierOrderService
     {
         $defaultPickupAddress = $this->resolveDefaultPickupAddress($user);
         $pickupText = null;
+        $pickupLat  = null;
+        $pickupLng  = null;
+        $pickupAddressId = null;
 
         if ($defaultPickupAddress !== null) {
             $resolved = $this->resolveProfilePickupAddress($defaultPickupAddress);
             if ($resolved !== null) {
-                $pickupText = $resolved['formatted_address'];
+                $pickupText      = $resolved['formatted_address'];
+                $pickupLat       = $resolved['latitude'];
+                $pickupLng       = $resolved['longitude'];
+                $pickupAddressId = $defaultPickupAddress->id;
             }
         }
 
@@ -153,21 +159,26 @@ class ChatbotCourierOrderService
 
         if ($pickupText === null) {
             $text =
-                'Baik '.$name.', tujuan sebelumnya saya reset. Alamat jemput dari profil belum tersedia. Isi Alamat Saya dulu, lalu kirim tujuan baru.';
+                'Baik '.$name.', tujuan sebelumnya saya reset. Alamat ambil dari profil belum tersedia. Isi Alamat Saya dulu, lalu kirim tujuan baru.';
         } else {
             $text =
-                'Baik '.$name.', tujuan sebelumnya saya reset. Alamat jemput kamu di '.$pickupText.'. Sekarang kirim tujuan baru, misalnya: "Kirim ke Jalan XXX".';
+                'Baik '.$name.', tujuan sebelumnya saya reset. Alamat ambil kamu di '.$pickupText.'. Sekarang kirim tujuan baru, misalnya: "Kirim ke Jalan XXX".';
         }
 
         return [
             'intent' => 'courier_order',
             'service_type' => 'kurir',
             'courier' => [
-                'pickup_address' => $pickupText,
-                'dropoff_address' => null,
-                'package_description' => null,
-                'ready_to_confirm' => false,
+                'pickup_address'      => $pickupText,
+                'pickup_latitude'     => $pickupLat,
+                'pickup_longitude'    => $pickupLng,
+                'pickup_address_id'   => $pickupAddressId,
                 'used_default_pickup' => $pickupText !== null,
+                'dropoff_address'     => null,
+                'dropoff_latitude'    => null,
+                'dropoff_longitude'   => null,
+                'package_description' => null,
+                'ready_to_confirm'    => false,
             ],
             'validation' => [
                 'is_valid_order' => false,
@@ -567,12 +578,11 @@ class ChatbotCourierOrderService
 
     private function resolveProfilePickupAddress(Address $address): ?array
     {
-        $resolved = $this->resolveAddressViaGeocoding((string) $address->full_address);
-        if ($resolved === null) {
-            return null;
-        }
-
-        return $resolved;
+        return [
+            'formatted_address' => trim((string) $address->full_address),
+            'latitude' => (float) $address->latitude,
+            'longitude' => (float) $address->longitude,
+        ];
     }
 
     private function resolveDefaultPickupAddress(User $user): ?Address
@@ -967,9 +977,9 @@ class ChatbotCourierOrderService
         $deliveryFee = number_format((float) ($parsed['delivery_fee'] ?? 0), 0, ',', '.');
 
         $buffer = "Baik {$name}, saya sudah siapkan draft pengiriman Kurir.\n";
-        $buffer .= 'Pickup: '.(string) $parsed['pickup_address']."\n";
+        $buffer .= 'Ambil: '.(string) $parsed['pickup_address']."\n";
         $buffer .= 'Tujuan: '.(string) $parsed['dropoff_address']."\n";
-        $buffer .= 'Isi paket: '.(string) $parsed['package_description']."\n";
+        $buffer .= 'Barang: '.(string) $parsed['package_description']."\n";
         $buffer .= "Estimasi ongkir sementara: Rp {$deliveryFee} (kalkulasi detail menyusul).\n";
         $buffer .= 'Ketik "Konfirmasi" untuk lanjut atau "Ubah Tujuan" untuk ganti tujuan.';
 
@@ -985,9 +995,9 @@ class ChatbotCourierOrderService
 
         $buffer = "Siap, order kurir berhasil dibuat.\n";
         $buffer .= "Nomor order: {$order->order_number}\n";
-        $buffer .= 'Pickup: '.(string) $parsed['pickup_address']."\n";
+        $buffer .= 'Ambil: '.(string) $parsed['pickup_address']."\n";
         $buffer .= 'Tujuan: '.(string) $parsed['dropoff_address']."\n";
-        $buffer .= 'Isi paket: '.(string) $parsed['package_description']."\n";
+        $buffer .= 'Barang: '.(string) $parsed['package_description']."\n";
         $buffer .= "Ongkir: Rp {$deliveryFee}.";
 
         return $buffer;
