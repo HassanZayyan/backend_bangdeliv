@@ -5,6 +5,22 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * @property int $id
+ * @property int $order_id
+ * @property string $payment_method
+ * @property string $payment_status
+ * @property string $amount
+ * @property int|null $recorded_by_user_id
+ * @property int|null $driver_id
+ * @property \Carbon\Carbon|null $paid_at
+ * @property string|null $note
+ * @property array<string, mixed>|null $metadata
+ *
+ * @property-read \App\Models\Order $order
+ * @property-read \App\Models\User|null $recordedBy
+ * @property-read \App\Models\Driver|null $driver
+ */
 class OrderPayment extends Model
 {
     protected $fillable = [

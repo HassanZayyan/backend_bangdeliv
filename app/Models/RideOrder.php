@@ -5,6 +5,15 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * @property int $id
+ * @property int $order_id
+ * @property \Carbon\Carbon|null $picked_up_at
+ * @property \Carbon\Carbon|null $arrived_at
+ * @property string|null $notes
+ *
+ * @property-read \App\Models\Order $order
+ */
 class RideOrder extends Model
 {
     protected $fillable = [

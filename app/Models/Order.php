@@ -8,6 +8,58 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 
+/**
+ * @property int $id
+ * @property string $order_number
+ * @property int $user_id
+ * @property int|null $restaurant_id
+ * @property int $service_type_id
+ * @property int|null $driver_id
+ * @property int|null $address_id
+ * @property string|null $delivery_address
+ * @property string|null $delivery_latitude
+ * @property string|null $delivery_longitude
+ * @property string|null $subtotal
+ * @property string $delivery_fee
+ * @property string|null $service_fee
+ * @property float|null $delivery_distance_km
+ * @property string|null $delivery_distance_text
+ * @property string $total_amount
+ * @property string|null $total_price
+ * @property int $status_id
+ * @property string $payment_status
+ * @property string|null $payment_method
+ * @property string|null $paid_amount
+ * @property int|null $paid_by_user_id
+ * @property \Carbon\Carbon|null $paid_at
+ * @property string|null $cancellation_reason
+ * @property string|null $cancelled_by
+ * @property string|null $notes
+ * @property \Carbon\Carbon|null $estimated_delivery
+ * @property \Carbon\Carbon|null $delivered_at
+ * @property \Carbon\Carbon|null $created_at
+ * @property \Carbon\Carbon|null $updated_at
+ * @property \Carbon\Carbon|null $deleted_at
+ *
+ * @property-read \App\Models\User|null $user
+ * @property-read \App\Models\Restaurant|null $restaurant
+ * @property-read \App\Models\ServiceType|null $serviceType
+ * @property-read \App\Models\Driver|null $driver
+ * @property-read \App\Models\Address|null $address
+ * @property-read \App\Models\OrderStatus|null $statusRef
+ * @property-read \App\Models\User|null $paidBy
+ * @property-read \Illuminate\Database\Eloquent\Collection<int, \App\Models\OrderItem> $items
+ * @property-read \Illuminate\Database\Eloquent\Collection<int, \App\Models\OrderStatusHistory> $statusHistories
+ * @property-read \Illuminate\Database\Eloquent\Collection<int, \App\Models\OrderLocation> $orderLocations
+ * @property-read \Illuminate\Database\Eloquent\Collection<int, \App\Models\OrderLocation> $locations
+ * @property-read \Illuminate\Database\Eloquent\Collection<int, \App\Models\OrderEvidence> $evidences
+ * @property-read \Illuminate\Database\Eloquent\Collection<int, \App\Models\OrderLog> $logs
+ * @property-read \Illuminate\Database\Eloquent\Collection<int, \App\Models\OrderPayment> $payments
+ * @property-read \App\Models\RideOrder|null $rideOrder
+ * @property-read \App\Models\CourierOrder|null $courierOrder
+ * @property-read \App\Models\ShoppingOrder|null $shoppingOrder
+ * @property-read \App\Models\Review|null $review
+ */
 class Order extends Model
 {
     use SoftDeletes;

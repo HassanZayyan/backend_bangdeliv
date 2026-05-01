@@ -5,6 +5,25 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * @property int $id
+ * @property int $order_id
+ * @property int|null $menu_id
+ * @property string $item_source
+ * @property string $menu_name
+ * @property int $quantity
+ * @property string $unit_price
+ * @property string $subtotal
+ * @property string $line_service_fee
+ * @property string $line_total
+ * @property string|null $notes
+ * @property array<string, mixed>|null $metadata
+ * @property bool $is_available
+ * @property bool $is_heavy
+ *
+ * @property-read \App\Models\Order $order
+ * @property-read \App\Models\Menu|null $menu
+ */
 class OrderItem extends Model
 {
     protected $fillable = [

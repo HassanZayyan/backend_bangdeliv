@@ -5,6 +5,13 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
+/**
+ * @property int $id
+ * @property string $code
+ * @property string $display_name
+ * @property string|null $description
+ * @property int $sort_order
+ */
 class ServiceType extends Model
 {
     protected $fillable = [

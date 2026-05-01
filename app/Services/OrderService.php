@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Events\OrderStatusChanged;
 use App\Exceptions\ApiException;
 use App\Models\Driver;
 use App\Models\Menu;
@@ -80,7 +81,7 @@ class OrderService
                 throw new ApiException('Order tidak bisa dibatalkan pada status saat ini.', 409);
             }
 
-            $isShopping = ($order->serviceType?->code ?? null) === 'SHOPPING';
+            $isShopping = ($order->serviceType->code ?? null) === 'SHOPPING';
             $cancellationPenalty = 0.0;
             $cancelledStatusCode = 'CANCELLED';
 
@@ -133,14 +134,14 @@ class OrderService
 
             if ($isShopping) {
                 $order = $this->recalculateShoppingOrder(
-                    $order->fresh(['items', 'shoppingOrder', 'statusRef', 'serviceType']),
+                    $order->refresh()->load(['items', 'shoppingOrder', 'statusRef', 'serviceType']),
                     $user->id,
                     $cancellationPenalty > 0 ? 'CUSTOMER_CANCEL_WITH_FEE' : 'CUSTOMER_CANCEL',
                     false
                 );
             }
 
-            return $order->fresh(['restaurant', 'items', 'statusRef', 'statusHistories.statusRef', 'shoppingOrder']);
+            return $order->refresh()->load(['restaurant', 'items', 'statusRef', 'statusHistories.statusRef', 'shoppingOrder']);
         });
     }
 
@@ -167,7 +168,7 @@ class OrderService
                 throw new ApiException('Order tidak ditemukan.', 404);
             }
 
-            if (($order->serviceType?->code ?? null) !== 'SHOPPING') {
+            if (($order->serviceType->code ?? null) !== 'SHOPPING') {
                 throw new ApiException('Failed attempt hanya berlaku untuk order SHOPPING.', 409);
             }
 
@@ -239,7 +240,7 @@ class OrderService
                 ],
             ]);
 
-            return $order->fresh(['restaurant', 'address', 'items', 'statusRef', 'statusHistories.statusRef', 'shoppingOrder']);
+            return $order->refresh()->load(['restaurant', 'address', 'items', 'statusRef', 'statusHistories.statusRef', 'shoppingOrder']);
         });
     }
 
@@ -302,7 +303,7 @@ class OrderService
                 $first = $rows->first();
 
                 return [
-                    'driver_id' => $driverId !== null ? (int) $driverId : null,
+                    'driver_id' => $driverId ? (int) $driverId : null,
                     'driver_name' => $first?->driver?->user?->name,
                     'payment_count' => $rows->count(),
                     'total_collected' => round((float) $rows->sum('amount'), 2),
@@ -321,13 +322,13 @@ class OrderService
                 return [
                     'id' => $payment->id,
                     'order_id' => $payment->order_id,
-                    'order_number' => $payment->order?->order_number,
+                    'order_number' => $payment->order->order_number,
                     'driver_id' => $payment->driver_id,
-                    'driver_name' => $payment->driver?->user?->name,
+                    'driver_name' => $payment->driver->user->name,
                     'amount' => (float) $payment->amount,
                     'paid_at' => $payment->paid_at,
                     'recorded_by_user_id' => $payment->recorded_by_user_id,
-                    'recorded_by_name' => $payment->recordedBy?->name,
+                    'recorded_by_name' => $payment->recordedBy->name,
                     'note' => $payment->note,
                 ];
             })->values()->all(),
@@ -439,12 +440,12 @@ class OrderService
 
         $history = $orders
             ->map(function (Order $order): array {
-                $statusCode = strtoupper((string) ($order->statusRef?->code ?? ''));
+                $statusCode = strtoupper((string) ($order->statusRef->code ?? ''));
                 $date = $order->delivered_at ?? $order->updated_at ?? $order->created_at;
 
                 return [
                     'id' => $order->order_number ?: (string) $order->id,
-                    'customer_name' => $order->user?->name ?? '-',
+                    'customer_name' => $order->user->name ?? '-',
                     'date' => $date?->toIso8601String(),
                     'fee' => (int) round((float) $order->delivery_fee),
                     'status' => $this->driverHistoryStatusLabel($statusCode, $order->statusRef?->display_name),
@@ -474,7 +475,7 @@ class OrderService
             throw new ApiException('Order tidak ditemukan.', 404);
         }
 
-        $statusCode = (string) ($order->statusRef?->code ?? '');
+        $statusCode = (string) ($order->statusRef->code ?? '');
         $isIncomingCandidate = $statusCode === 'PENDING' && $order->driver_id === null;
         $isAssignedToCurrentDriver = (int) ($order->driver_id ?? 0) === (int) $driver->id;
 
@@ -491,8 +492,9 @@ class OrderService
     public function acceptByDriver(User $actor, int $orderId): array
     {
         $driver = $this->resolveActiveDriverProfile($actor);
+        $statusChangeEventPayload = null;
 
-        $order = DB::transaction(function () use ($driver, $actor, $orderId): Order {
+        $order = DB::transaction(function () use ($driver, $actor, $orderId, &$statusChangeEventPayload): Order {
             $order = Order::query()
                 ->with(['statusRef', 'serviceType'])
                 ->lockForUpdate()
@@ -502,7 +504,7 @@ class OrderService
                 throw new ApiException('Order tidak ditemukan.', 404);
             }
 
-            $statusCode = (string) ($order->statusRef?->code ?? '');
+            $statusCode = (string) ($order->statusRef->code ?? '');
             $isAssignedToCurrentDriver = (int) ($order->driver_id ?? 0) === (int) $driver->id;
 
             if ($statusCode === 'DRIVER_ASSIGNED' && $isAssignedToCurrentDriver) {
@@ -517,13 +519,15 @@ class OrderService
                 throw new ApiException('Order sudah diambil driver lain.', 409);
             }
 
+            $previousStatusCode = strtoupper((string) ($order->statusRef->code ?? 'PENDING'));
+
             $assignedStatusId = $this->resolveStatusId('DRIVER_ASSIGNED');
             $order->update([
                 'driver_id' => $driver->id,
                 'status_id' => $assignedStatusId,
             ]);
 
-            OrderStatusHistory::query()->create([
+            $statusHistory = OrderStatusHistory::query()->create([
                 'order_id' => $order->id,
                 'status_id' => $assignedStatusId,
                 'event_type' => 'STATUS_CHANGE',
@@ -531,8 +535,17 @@ class OrderService
                 'note' => 'Order diterima oleh driver.',
             ]);
 
+            $statusChangeEventPayload = $this->buildOrderStatusBroadcastPayload(
+                $order->id,
+                'DRIVER_ASSIGNED',
+                $previousStatusCode,
+                $statusHistory,
+            );
+
             return $order;
         });
+
+        $this->broadcastOrderStatusChanged($statusChangeEventPayload);
 
         return $this->serializeDriverOrder(
             $order->fresh($this->driverOrderRelations()),
@@ -546,8 +559,9 @@ class OrderService
     public function rejectByDriver(User $actor, int $orderId, ?string $reason): array
     {
         $driver = $this->resolveActiveDriverProfile($actor);
+        $statusChangeEventPayload = null;
 
-        $order = DB::transaction(function () use ($driver, $actor, $orderId, $reason): Order {
+        $order = DB::transaction(function () use ($driver, $actor, $orderId, $reason, &$statusChangeEventPayload): Order {
             $order = Order::query()
                 ->with(['statusRef'])
                 ->lockForUpdate()
@@ -557,7 +571,7 @@ class OrderService
                 throw new ApiException('Order tidak ditemukan.', 404);
             }
 
-            $statusCode = (string) ($order->statusRef?->code ?? '');
+            $statusCode = (string) ($order->statusRef->code ?? '');
 
             if ($statusCode === 'PENDING' && $order->driver_id === null) {
                 OrderStatusHistory::query()->create([
@@ -580,7 +594,7 @@ class OrderService
                     'status_id' => $pendingStatusId,
                 ]);
 
-                OrderStatusHistory::query()->create([
+                $statusHistory = OrderStatusHistory::query()->create([
                     'order_id' => $order->id,
                     'status_id' => $pendingStatusId,
                     'event_type' => 'STATUS_CHANGE',
@@ -588,11 +602,20 @@ class OrderService
                     'note' => $reason ?: 'Driver melepaskan order setelah assignment.',
                 ]);
 
+                $statusChangeEventPayload = $this->buildOrderStatusBroadcastPayload(
+                    $order->id,
+                    'PENDING',
+                    'DRIVER_ASSIGNED',
+                    $statusHistory,
+                );
+
                 return $order;
             }
 
             throw new ApiException('Order tidak dapat ditolak pada status saat ini.', 409);
         });
+
+        $this->broadcastOrderStatusChanged($statusChangeEventPayload);
 
         return $this->serializeDriverOrder(
             $order->fresh($this->driverOrderRelations()),
@@ -613,6 +636,7 @@ class OrderService
         ?float $longitude = null,
     ): array {
         $driver = $this->resolveActiveDriverProfile($actor);
+        $statusChangeEventPayload = null;
 
         $order = DB::transaction(function () use (
             $actor,
@@ -623,6 +647,7 @@ class OrderService
             $note,
             $latitude,
             $longitude,
+            &$statusChangeEventPayload,
         ): Order {
             $order = Order::query()
                 ->with(['statusRef', 'serviceType', 'rideOrder'])
@@ -637,7 +662,7 @@ class OrderService
                 throw new ApiException('Order ini tidak ditugaskan kepada driver saat ini.', 403);
             }
 
-            $serviceCode = (string) ($order->serviceType?->code ?? '');
+            $serviceCode = (string) ($order->serviceType->code ?? '');
             $rules = $this->driverActionRules($serviceCode);
 
             $normalizedActionCode = strtoupper(str_replace('-', '_', trim($actionCode)));
@@ -646,7 +671,7 @@ class OrderService
                 throw new ApiException('Aksi driver tidak valid.', 422);
             }
 
-            $currentStatusCode = (string) ($order->statusRef?->code ?? '');
+            $currentStatusCode = (string) ($order->statusRef->code ?? '');
             if (!in_array($currentStatusCode, $rule['from'], true)) {
                 throw new ApiException('Transisi status tidak valid untuk order ini.', 409);
             }
@@ -692,7 +717,7 @@ class OrderService
                 ];
             }
 
-            OrderStatusHistory::query()->create([
+            $statusHistory = OrderStatusHistory::query()->create([
                 'order_id' => $order->id,
                 'status_id' => $targetStatusId,
                 'event_type' => 'STATUS_CHANGE',
@@ -701,13 +726,70 @@ class OrderService
                 'price_snapshot' => $snapshot,
             ]);
 
+            $statusChangeEventPayload = $this->buildOrderStatusBroadcastPayload(
+                $order->id,
+                $resolvedTargetStatusCode,
+                strtoupper($currentStatusCode),
+                $statusHistory,
+            );
+
             return $order;
         });
+
+        $this->broadcastOrderStatusChanged($statusChangeEventPayload);
 
         return $this->serializeDriverOrder(
             $order->fresh($this->driverOrderRelations()),
             includeTimeline: true,
         );
+    }
+
+    /**
+     * @return array<string, int|string|null>
+     */
+    private function buildOrderStatusBroadcastPayload(
+        int $orderId,
+        string $statusCode,
+        ?string $previousStatusCode,
+        OrderStatusHistory $history,
+    ): array {
+        $changedAt = $history->created_at ?? now();
+
+        return [
+            'order_id' => $orderId,
+            'status_code' => strtoupper($statusCode),
+            'previous_status_code' => $previousStatusCode !== null ? strtoupper($previousStatusCode) : null,
+            'history_id' => (int) $history->id,
+            'changed_at' => $changedAt->toIso8601String(),
+            'changed_at_ms' => ((int) $changedAt->getTimestamp()) * 1000,
+        ];
+    }
+
+    /**
+     * @param  array<string, int|string|null>|null  $payload
+     */
+    private function broadcastOrderStatusChanged(?array $payload): void
+    {
+        if ($payload === null) {
+            return;
+        }
+
+        try {
+            broadcast(new OrderStatusChanged(
+                (int) $payload['order_id'],
+                (string) $payload['status_code'],
+                isset($payload['previous_status_code']) ? (string) $payload['previous_status_code'] : null,
+                isset($payload['history_id']) ? (int) $payload['history_id'] : null,
+                (string) $payload['changed_at'],
+                isset($payload['changed_at_ms']) ? (int) $payload['changed_at_ms'] : null,
+            ));
+        } catch (\Throwable $exception) {
+            Log::warning('Broadcast OrderStatusChanged gagal.', [
+                'order_id' => $payload['order_id'] ?? null,
+                'status_code' => $payload['status_code'] ?? null,
+                'error' => $exception->getMessage(),
+            ]);
+        }
     }
 
     private function resolveActiveDriverProfile(User $actor): Driver
@@ -838,52 +920,132 @@ class OrderService
      */
     private function driverActionRules(string $serviceCode): array
     {
-        $upperServiceCode = strtoupper($serviceCode);
+        return match (strtoupper($serviceCode)) {
+            'RIDE'     => $this->rideActionRules(),
+            'SHOPPING' => $this->shoppingActionRules(),
+            default    => $this->courierActionRules(), // COURIER + fallback
+        };
+    }
 
-        $pickupArrivalStatus = $upperServiceCode === 'SHOPPING'
-            ? 'ARRIVED_MERCHANT'
-            : 'ARRIVED_PICKUP';
-        $pickupArrivalLabel = $upperServiceCode === 'SHOPPING'
-            ? 'Tiba di Merchant'
-            : 'Tiba di Titik Jemput';
-
+    /**
+     * RIDE — Antar Jemput Orang (4 active steps).
+     * PICKED_UP is skipped: boarding a passenger means immediately on the way.
+     */
+    private function rideActionRules(): array
+    {
         return [
             'ARRIVE_PICKUP' => [
-                'label' => $pickupArrivalLabel,
-                'from' => ['DRIVER_ASSIGNED'],
-                'to' => $pickupArrivalStatus,
+                'label' => 'Tiba di Titik Jemput',
+                'from'  => ['DRIVER_ASSIGNED'],
+                'to'    => 'ARRIVED_PICKUP',
             ],
-            'CONFIRM_PICKED_UP' => [
-                'label' => 'Konfirmasi Pickup',
-                'from' => [$pickupArrivalStatus],
-                'to' => 'PICKED_UP',
-            ],
-            'START_DELIVERY' => [
-                'label' => 'Mulai Antar',
-                'from' => ['PICKED_UP'],
-                'to' => 'ON_THE_WAY',
+            'BOARD_PASSENGER' => [
+                'label' => 'Penumpang Sudah Naik',
+                'from'  => ['ARRIVED_PICKUP'],
+                'to'    => 'ON_THE_WAY',   // skips PICKED_UP intentionally
             ],
             'ARRIVE_DROPOFF' => [
                 'label' => 'Tiba di Tujuan',
-                'from' => ['ON_THE_WAY'],
-                'to' => 'ARRIVED_DROPOFF',
+                'from'  => ['ON_THE_WAY'],
+                'to'    => 'ARRIVED_DROPOFF',
             ],
             'CONFIRM_DELIVERED' => [
-                'label' => 'Konfirmasi Terkirim',
-                'from' => ['ARRIVED_DROPOFF'],
-                'to' => 'DELIVERED',
+                'label' => 'Penumpang Turun',
+                'from'  => ['ARRIVED_DROPOFF'],
+                'to'    => 'DELIVERED',
             ],
             'COMPLETE_ORDER' => [
-                'label' => 'Selesaikan Order',
-                'from' => ['DELIVERED'],
-                'to' => 'COMPLETED',
+                'label'         => 'Selesaikan Order',
+                'from'          => ['DELIVERED'],
+                'to'            => 'COMPLETED',
                 'requires_paid' => true,
             ],
         ];
     }
 
     /**
-     * @return array<int, string|array<string, mixed>>
+     * COURIER — Antar Barang / Kurir (5 active steps).
+     */
+    private function courierActionRules(): array
+    {
+        return [
+            'ARRIVE_PICKUP' => [
+                'label' => 'Tiba di Titik Pickup',
+                'from'  => ['DRIVER_ASSIGNED'],
+                'to'    => 'ARRIVED_PICKUP',
+            ],
+            'CONFIRM_PICKED_UP' => [
+                'label' => 'Paket Diambil',
+                'from'  => ['ARRIVED_PICKUP'],
+                'to'    => 'PICKED_UP',
+            ],
+            'START_DELIVERY' => [
+                'label' => 'Mulai Antar',
+                'from'  => ['PICKED_UP'],
+                'to'    => 'ON_THE_WAY',
+            ],
+            'ARRIVE_DROPOFF' => [
+                'label' => 'Tiba di Tujuan',
+                'from'  => ['ON_THE_WAY'],
+                'to'    => 'ARRIVED_DROPOFF',
+            ],
+            'CONFIRM_DELIVERED' => [
+                'label' => 'Paket Diserahkan',
+                'from'  => ['ARRIVED_DROPOFF'],
+                'to'    => 'DELIVERED',
+            ],
+            'COMPLETE_ORDER' => [
+                'label'         => 'Selesaikan Order',
+                'from'          => ['DELIVERED'],
+                'to'            => 'COMPLETED',
+                'requires_paid' => true,
+            ],
+        ];
+    }
+
+    /**
+     * SHOPPING — Titip Belanja (5 active steps).
+     * Uses ARRIVED_MERCHANT instead of ARRIVED_PICKUP for the first arrival.
+     */
+    private function shoppingActionRules(): array
+    {
+        return [
+            'ARRIVE_PICKUP' => [
+                'label' => 'Tiba di Toko / Merchant',
+                'from'  => ['DRIVER_ASSIGNED'],
+                'to'    => 'ARRIVED_MERCHANT',
+            ],
+            'CONFIRM_PICKED_UP' => [
+                'label' => 'Belanja Selesai',
+                'from'  => ['ARRIVED_MERCHANT'],
+                'to'    => 'PICKED_UP',
+            ],
+            'START_DELIVERY' => [
+                'label' => 'Menuju Customer',
+                'from'  => ['PICKED_UP'],
+                'to'    => 'ON_THE_WAY',
+            ],
+            'ARRIVE_DROPOFF' => [
+                'label' => 'Tiba di Lokasi Customer',
+                'from'  => ['ON_THE_WAY'],
+                'to'    => 'ARRIVED_DROPOFF',
+            ],
+            'CONFIRM_DELIVERED' => [
+                'label' => 'Barang Diserahkan',
+                'from'  => ['ARRIVED_DROPOFF'],
+                'to'    => 'DELIVERED',
+            ],
+            'COMPLETE_ORDER' => [
+                'label'         => 'Selesaikan Order',
+                'from'          => ['DELIVERED'],
+                'to'            => 'COMPLETED',
+                'requires_paid' => true,
+            ],
+        ];
+    }
+
+    /**
+     * @return array<int|string, mixed>
      */
     private function driverOrderRelations(): array
     {
@@ -897,7 +1059,7 @@ class OrderService
             'courierOrder:id,order_id,package_description,requires_photo_evidence',
             'items:id,order_id,quantity',
             'orderLocations:id,order_id,location_role,full_address,latitude,longitude,sequence_no',
-            'statusHistories' => function ($query): void {
+            'statusHistories' => function (\Illuminate\Database\Eloquent\Relations\Relation $query): void {
                 $query
                     ->with('statusRef:id,code,display_name')
                     ->orderBy('created_at');
@@ -910,8 +1072,8 @@ class OrderService
      */
     private function serializeDriverOrder(Order $order, bool $includeTimeline = false): array
     {
-        $serviceCode = strtoupper((string) ($order->serviceType?->code ?? ''));
-        $statusCode = strtoupper((string) ($order->statusRef?->code ?? ''));
+        $serviceCode = strtoupper((string) ($order->serviceType->code ?? ''));
+        $statusCode = strtoupper((string) ($order->statusRef->code ?? ''));
         $paymentStatus = strtolower((string) ($order->payment_status ?? 'unpaid'));
 
         $pickup = $this->resolvePickupPoint($order, $serviceCode);
@@ -924,7 +1086,7 @@ class OrderService
 
         $acceptedAt = $order->statusHistories
             ->first(fn (OrderStatusHistory $history): bool =>
-                strtoupper((string) ($history->statusRef?->code ?? '')) === 'DRIVER_ASSIGNED'
+                strtoupper((string) ($history->statusRef->code ?? '')) === 'DRIVER_ASSIGNED'
             );
 
         $itemCount = (int) $order->items->sum('quantity');
@@ -937,7 +1099,7 @@ class OrderService
             'order_number' => $order->order_number,
             'service_type_code' => $serviceCode,
             'service_type_name' => $order->serviceType?->display_name,
-            'customer_name' => $order->user?->name ?? '-',
+            'customer_name' => $order->user->name ?? '-',
             'customer_phone' => $order->user?->phone,
             'pickup_address' => $pickup['address'],
             'pickup_latitude' => $pickup['latitude'],
@@ -973,7 +1135,7 @@ class OrderService
             ->sortBy('created_at')
             ->map(function (OrderStatusHistory $history): array {
                 return [
-                    'status_code' => strtoupper((string) ($history->statusRef?->code ?? '')),
+                    'status_code' => strtoupper((string) ($history->statusRef->code ?? '')),
                     'status_display_name' => $history->statusRef?->display_name,
                     'event_type' => strtoupper((string) $history->event_type),
                     'note' => $history->note,
@@ -991,7 +1153,7 @@ class OrderService
     {
         if ($serviceCode === 'SHOPPING') {
             return [
-                'address' => $order->restaurant?->address ?? '-',
+                'address' => $order->restaurant->address ?? '-',
                 'latitude' => $this->toFloatOrNull($order->restaurant?->latitude),
                 'longitude' => $this->toFloatOrNull($order->restaurant?->longitude),
             ];
@@ -1025,9 +1187,9 @@ class OrderService
                 ->first(fn ($location): bool => strtoupper((string) $location->location_role) === 'DROPOFF');
 
             return [
-                'address' => $dropoff?->full_address ?? $order->delivery_address,
-                'latitude' => $this->toFloatOrNull($dropoff?->latitude ?? $order->delivery_latitude),
-                'longitude' => $this->toFloatOrNull($dropoff?->longitude ?? $order->delivery_longitude),
+                'address' => $dropoff->full_address ?? $order->delivery_address,
+                'latitude' => $this->toFloatOrNull($dropoff->latitude ?? $order->delivery_latitude),
+                'longitude' => $this->toFloatOrNull($dropoff->longitude ?? $order->delivery_longitude),
             ];
         }
 
@@ -1050,7 +1212,7 @@ class OrderService
         $rules = $this->driverActionRules($serviceCode);
 
         foreach ($rules as $actionCode => $rule) {
-            if (!in_array($statusCode, $rule['from'], true)) {
+            if (!in_array($statusCode, (array) $rule['from'], true)) {
                 continue;
             }
 
@@ -1115,13 +1277,14 @@ class OrderService
 
     private function syncDriverServiceTimestamp(Order $order, string $targetStatusCode): void
     {
-        $serviceCode = strtoupper((string) ($order->serviceType?->code ?? ''));
+        $serviceCode = strtoupper((string) ($order->serviceType->code ?? ''));
         if ($serviceCode !== 'RIDE') {
             return;
         }
 
         $rideOrder = $order->rideOrder;
         if (!$rideOrder) {
+            /** @var \App\Models\RideOrder $rideOrder */
             $rideOrder = $order->rideOrder()->create([
                 'notes' => $order->notes,
             ]);
@@ -1188,7 +1351,7 @@ class OrderService
             ]);
 
             return $this->recalculateShoppingOrder(
-                $order->fresh(['items', 'shoppingOrder', 'statusRef', 'serviceType']),
+                $order->refresh()->load(['items', 'shoppingOrder', 'statusRef', 'serviceType']),
                 $user->id,
                 'CUSTOMER_ADD_ITEM'
             );
@@ -1202,6 +1365,7 @@ class OrderService
     {
         return DB::transaction(function () use ($user, $orderId, $itemId, $payload): Order {
             $order = $this->getEditableShoppingOrder($user, $orderId);
+            /** @var \App\Models\OrderItem|null $item */
             $item = $order->items()->where('id', $itemId)->first();
 
             if (!$item) {
@@ -1236,7 +1400,7 @@ class OrderService
             ]);
 
             return $this->recalculateShoppingOrder(
-                $order->fresh(['items', 'shoppingOrder', 'statusRef', 'serviceType']),
+                $order->refresh()->load(['items', 'shoppingOrder', 'statusRef', 'serviceType']),
                 $user->id,
                 'CUSTOMER_UPDATE_ITEM'
             );
@@ -1260,7 +1424,7 @@ class OrderService
             $item->delete();
 
             return $this->recalculateShoppingOrder(
-                $order->fresh(['items', 'shoppingOrder', 'statusRef', 'serviceType']),
+                $order->refresh()->load(['items', 'shoppingOrder', 'statusRef', 'serviceType']),
                 $user->id,
                 'CUSTOMER_REMOVE_ITEM'
             );
@@ -1302,7 +1466,7 @@ class OrderService
             throw new ApiException('Order tidak ditemukan.', 404);
         }
 
-        if (($order->serviceType?->code ?? null) !== 'SHOPPING') {
+        if (($order->serviceType->code ?? null) !== 'SHOPPING') {
             throw new ApiException('Perubahan item hanya diizinkan untuk order SHOPPING.', 409);
         }
 
@@ -1417,7 +1581,7 @@ class OrderService
             ]);
         }
 
-        return $order->fresh(['restaurant', 'address', 'items', 'statusRef', 'statusHistories.statusRef', 'shoppingOrder']);
+        return $order->refresh()->load(['restaurant', 'address', 'items', 'statusRef', 'statusHistories.statusRef', 'shoppingOrder']);
     }
 
     /**
@@ -1457,7 +1621,7 @@ class OrderService
         $billableItems = $itemCount - $freeUntil;
         $blockCount = (int) ceil($billableItems / $blockSize);
 
-        return round($blockCount * $surchargePerBlock, 2);
+        return (int) round($blockCount * $surchargePerBlock, 2);
     }
 
     private function calculateCancellationPenalty(Order $order, ShoppingOrder $shoppingOrder): float
@@ -1473,7 +1637,7 @@ class OrderService
 
         $deliveryFee = (float) $order->delivery_fee;
 
-        return round($deliveryFee * ($percent / 100), 2);
+        return (int) round($deliveryFee * ($percent / 100), 2);
     }
 
     /**
@@ -1499,7 +1663,7 @@ class OrderService
                 throw new ApiException('Pembayaran order ini sudah tercatat.', 409);
             }
 
-            if (($order->statusRef?->code ?? null) !== 'DELIVERED') {
+            if (($order->statusRef->code ?? null) !== 'DELIVERED') {
                 throw new ApiException('Pembayaran COD hanya bisa dicatat setelah order berstatus DELIVERED.', 409);
             }
 
@@ -1577,7 +1741,7 @@ class OrderService
                 ],
             ]);
 
-            return $order->fresh([
+            return $order->refresh()->load([
                 'restaurant',
                 'address',
                 'items',

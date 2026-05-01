@@ -5,6 +5,20 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * @property int $id
+ * @property int $order_id
+ * @property int $failed_attempt_count
+ * @property string $item_surcharge
+ * @property string $overweight_surcharge
+ * @property string $cancellation_penalty
+ * @property bool $has_overweight_item
+ * @property int $recalculation_version
+ * @property \Carbon\Carbon|null $last_recalculated_at
+ * @property array<string, mixed>|null $pricing_snapshot
+ *
+ * @property-read \App\Models\Order $order
+ */
 class ShoppingOrder extends Model
 {
     protected $fillable = [

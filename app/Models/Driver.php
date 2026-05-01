@@ -7,6 +7,25 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
+/**
+ * @property int $id
+ * @property int $user_id
+ * @property string|null $vehicle_plate
+ * @property string|null $license_number
+ * @property string $registration_status
+ * @property string $status
+ * @property string|null $current_latitude
+ * @property string|null $current_longitude
+ * @property string|null $avg_rating
+ * @property int $total_deliveries
+ * @property \Carbon\Carbon|null $created_at
+ * @property \Carbon\Carbon|null $updated_at
+ * @property \Carbon\Carbon|null $deleted_at
+ *
+ * @property-read \App\Models\User $user
+ * @property-read \Illuminate\Database\Eloquent\Collection<int, \App\Models\DriverDocument> $driverDocuments
+ * @property-read \Illuminate\Database\Eloquent\Collection<int, \App\Models\Order> $orders
+ */
 class Driver extends Model
 {
     use SoftDeletes;

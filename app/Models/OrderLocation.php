@@ -5,6 +5,21 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * @property int $id
+ * @property int $order_id
+ * @property string $location_role
+ * @property string|null $label
+ * @property string|null $contact_name
+ * @property string|null $contact_phone
+ * @property string $full_address
+ * @property string $latitude
+ * @property string $longitude
+ * @property int $sequence_no
+ * @property string|null $notes
+ *
+ * @property-read \App\Models\Order $order
+ */
 class OrderLocation extends Model
 {
     protected $table = 'order_locations';
