@@ -10,6 +10,7 @@ use App\Services\ChatbotCourierOrderService;
 use App\Services\ChatbotGeminiService;
 use App\Services\ChatbotOrderValidationService;
 use App\Services\ChatbotRideOrderService;
+use App\Services\GoogleMapsGeocodingService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -59,7 +60,8 @@ class ChatbotController extends Controller
         private readonly ChatbotOrderValidationService $validator,
         private readonly ChatbotCourierOrderService $courierOrderService,
         private readonly ChatbotRideOrderService $rideOrderService,
-        private readonly ChatbotGeminiService $geminiService
+        private readonly ChatbotGeminiService $geminiService,
+        private readonly GoogleMapsGeocodingService $geocodingService,
     ) {
     }
 
@@ -284,15 +286,13 @@ class ChatbotController extends Controller
         $target = (string) $validated['target'];
         $latitude = (float) $validated['latitude'];
         $longitude = (float) $validated['longitude'];
-        $address = isset($validated['address']) ? trim((string) $validated['address']) : '';
-        if ($address === '') {
-            $address = sprintf('Pin %.6f, %.6f', $latitude, $longitude);
-        }
+        $rawAddress = isset($validated['address']) ? trim((string) $validated['address']) : '';
+        $address = $this->resolveMapPinAddress($latitude, $longitude, $rawAddress);
 
         try {
             $patchedPayload = match ($serviceType) {
-                'antar_jemput' => $this->patchRideDraftPayload($existingPayload, $target, $latitude, $longitude, $address),
-                'kurir' => $this->patchCourierDraftPayload($existingPayload, $target, $latitude, $longitude, $address),
+                'antar_jemput' => $this->patchRideDraftPayload($user, $existingPayload, $target, $latitude, $longitude, $address),
+                'kurir' => $this->patchCourierDraftPayload($user, $existingPayload, $target, $latitude, $longitude, $address),
                 'nitip' => $this->patchShoppingDraftPayload($existingPayload, $target, $latitude, $longitude, $address),
                 default => throw new ApiException('Service type tidak didukung untuk patch lokasi.', 422),
             };
@@ -342,6 +342,53 @@ class ChatbotController extends Controller
             'data' => $patchedPayload,
             'model_used' => 'map-pin-action',
         ], 200);
+    }
+
+    private function resolveMapPinAddress(float $latitude, float $longitude, string $providedAddress): string
+    {
+        $normalizedAddress = trim($providedAddress);
+
+        if ($normalizedAddress !== '' && !$this->isPinPlaceholderAddress($normalizedAddress)) {
+            // Even when a raw address is provided from the client, still enrich it
+            // with a nearby place name so the format is "[Place Name], [Address]"
+            try {
+                $resolved = $this->geocodingService->reverseGeocodeWithPlaceName($latitude, $longitude);
+                $enriched = trim((string) ($resolved['formatted_address'] ?? ''));
+                if ($enriched !== '') {
+                    return $enriched;
+                }
+            } catch (ApiException $exception) {
+                Log::warning('Enrichment of provided map pin address failed; using raw address.', [
+                    'latitude'  => $latitude,
+                    'longitude' => $longitude,
+                    'message'   => $exception->getMessage(),
+                ]);
+            }
+
+            return $normalizedAddress;
+        }
+
+        try {
+            $resolved = $this->geocodingService->reverseGeocodeWithPlaceName($latitude, $longitude);
+            $formattedAddress = trim((string) ($resolved['formatted_address'] ?? ''));
+            if ($formattedAddress !== '') {
+                return $formattedAddress;
+            }
+        } catch (ApiException $exception) {
+            Log::warning('Reverse geocoding map pin failed.', [
+                'latitude'  => $latitude,
+                'longitude' => $longitude,
+                'message'   => $exception->getMessage(),
+                'status'    => $exception->status(),
+            ]);
+        }
+
+        return sprintf('Pin %.6f, %.6f', $latitude, $longitude);
+    }
+
+    private function isPinPlaceholderAddress(string $address): bool
+    {
+        return preg_match('/^pin\s+-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?$/iu', $address) === 1;
     }
 
     public function clearSession(Request $request, string $sessionId): JsonResponse
@@ -903,6 +950,41 @@ class ChatbotController extends Controller
             }
         }
 
+        if (in_array('CONFIRM_DRAFT', $nextActions, true)) {
+            $actionPayloads['CONFIRM_DRAFT'] = [
+                'label' => 'Konfirmasi',
+                'message' => 'Konfirmasi',
+            ];
+        }
+
+        if (in_array('RESET_DESTINATION', $nextActions, true)) {
+            $actionPayloads['RESET_DESTINATION'] = [
+                'label'   => 'Ubah Tujuan',
+                'message' => 'Ubah Tujuan',
+            ];
+        }
+
+        // Optional pickup-change button (shown only on complete draft, not mandatory)
+        if (in_array('CHANGE_PICKUP', $nextActions, true)) {
+            if ($serviceType === 'antar_jemput') {
+                $ride = is_array($payload['ride'] ?? null) ? $payload['ride'] : [];
+                $actionPayloads['CHANGE_PICKUP'] = [
+                    'target'            => 'pickup',
+                    'label'             => 'Ubah Titik Jemput',
+                    'initial_latitude'  => $ride['pickup_latitude'] ?? null,
+                    'initial_longitude' => $ride['pickup_longitude'] ?? null,
+                ];
+            } elseif ($serviceType === 'kurir') {
+                $courier = is_array($payload['courier'] ?? null) ? $payload['courier'] : [];
+                $actionPayloads['CHANGE_PICKUP'] = [
+                    'target'            => 'pickup',
+                    'label'             => 'Ubah Titik Ambil',
+                    'initial_latitude'  => $courier['pickup_latitude'] ?? null,
+                    'initial_longitude' => $courier['pickup_longitude'] ?? null,
+                ];
+            }
+        }
+
         $payload['action_payloads'] = $actionPayloads;
 
         return $payload;
@@ -919,11 +1001,17 @@ class ChatbotController extends Controller
                 'OPEN_ADDRESSES',
                 'OPEN_MAP_PICKER_PICKUP',
                 'OPEN_MAP_PICKER_DESTINATION',
+                'CONFIRM_DRAFT',
+                'RESET_DESTINATION',
+                'CHANGE_PICKUP',
             ],
             'kurir' => [
                 'OPEN_ADDRESSES',
                 'OPEN_MAP_PICKER_PICKUP',
                 'OPEN_MAP_PICKER_DROPOFF',
+                'CONFIRM_DRAFT',
+                'RESET_DESTINATION',
+                'CHANGE_PICKUP',
             ],
             default => [],
         };
@@ -1001,6 +1089,7 @@ class ChatbotController extends Controller
      * @return array<string, mixed>
      */
     private function patchRideDraftPayload(
+        User $user,
         array $payload,
         string $target,
         float $latitude,
@@ -1033,6 +1122,27 @@ class ChatbotController extends Controller
             $ride['destination_longitude'] = $longitude;
         }
 
+        // ── If pickup coords are missing but pickup_address is known, resolve them ─────
+        if (
+            $target === 'destination'
+            && trim((string) ($ride['pickup_address'] ?? '')) !== ''
+            && !is_numeric($ride['pickup_latitude'] ?? null)
+        ) {
+            try {
+                $resolvedPickup = $this->geocodingService->resolveAddress((string) $ride['pickup_address']);
+                if ($resolvedPickup !== null) {
+                    $ride['pickup_latitude']  = $resolvedPickup['latitude'];
+                    $ride['pickup_longitude'] = $resolvedPickup['longitude'];
+                }
+            } catch (\Throwable $e) {
+                // non-fatal – coords remain null; pickupReady will be false below
+                Log::warning('Could not geocode existing pickup address in patchRideDraftPayload.', [
+                    'pickup_address' => $ride['pickup_address'],
+                    'error'          => $e->getMessage(),
+                ]);
+            }
+        }
+
         $pickupReady = trim((string) ($ride['pickup_address'] ?? '')) !== ''
             && is_numeric($ride['pickup_latitude'] ?? null)
             && is_numeric($ride['pickup_longitude'] ?? null);
@@ -1061,21 +1171,74 @@ class ChatbotController extends Controller
 
         $nextActions = [];
         if (in_array('pickup_address', $missingFields, true)) {
+            // pickup truly missing — mandatory action
             $nextActions[] = 'OPEN_MAP_PICKER_PICKUP';
         }
         if (in_array('destination_address', $missingFields, true)) {
             $nextActions[] = 'OPEN_MAP_PICKER_DESTINATION';
         }
+        if ($isValid) {
+            $nextActions[] = 'CONFIRM_DRAFT';
+            $nextActions[] = 'RESET_DESTINATION';
+            // Optional: let user change pickup without being forced to
+            $nextActions[] = 'CHANGE_PICKUP';
+        }
         $validation['next_actions'] = $nextActions;
+
+        if ($isValid) {
+            try {
+                $route = app(\App\Services\GoogleMapsDistanceMatrixService::class)->resolveRoute(
+                    $ride['pickup_latitude'],
+                    $ride['pickup_longitude'],
+                    $ride['destination_latitude'],
+                    $ride['destination_longitude'],
+                );
+
+                $distanceMeters = (float) $route['distance_meters'];
+                $distanceKm = (float) $route['distance_km'];
+
+                if (!app(\App\Services\DeliveryPricingService::class)->isWithinMaxDistance($distanceMeters)) {
+                    $isValid = false;
+                    $validation['is_valid_order'] = false;
+                    $missingFields[] = 'destination_address';
+                    $validation['missing_fields'] = $missingFields;
+                    $validation['rejection_reasons'] = [sprintf('Jarak %.2f km melebihi batas layanan %.2f km.', $distanceKm, app(\App\Services\DeliveryPricingService::class)->getMaxDistanceKm())];
+                    $validation['next_actions'] = ['OPEN_MAP_PICKER_DESTINATION'];
+                } else {
+                    $ride['distance_km'] = $distanceKm;
+                    $ride['delivery_fee'] = (float) app(\App\Services\DeliveryPricingService::class)->calculateFromDistanceMeters($distanceMeters)['total_fee'];
+                }
+            } catch (\Exception $e) {
+                $isValid = false;
+                $validation['is_valid_order'] = false;
+                $missingFields[] = 'destination_address';
+                $validation['missing_fields'] = $missingFields;
+                $validation['rejection_reasons'] = ['Rute jemput ke tujuan tidak ditemukan.'];
+                $validation['next_actions'] = ['OPEN_MAP_PICKER_DESTINATION'];
+            }
+        }
 
         $ride['ready_to_confirm'] = $isValid;
         $payload['intent'] = 'ride_order';
         $payload['service_type'] = 'antar_jemput';
         $payload['ride'] = $ride;
         $payload['validation'] = $validation;
-        $payload['assistant_text'] = $isValid
-            ? 'Titik '.$target.' berhasil diperbarui. Draft antar jemput siap dikonfirmasi.'
-            : 'Titik '.$target.' berhasil diperbarui. Lengkapi titik lain agar draft siap dikonfirmasi.';
+
+        if ($isValid) {
+            $name = trim((string) $user->name) === '' ? 'Kak' : trim((string) $user->name);
+            $deliveryFee = number_format((float) ($ride['delivery_fee'] ?? 0), 0, ',', '.');
+            $buffer = "Baik {$name}, saya sudah siapkan draft Antar Jemput.\n";
+            $buffer .= 'Jemput: '.(string) $ride['pickup_address']."\n";
+            $buffer .= 'Tujuan: '.(string) $ride['destination_address']."\n";
+            $buffer .= "Estimasi ongkir sementara: Rp {$deliveryFee} (kalkulasi detail menyusul).\n";
+            $buffer .= 'Ketik "Konfirmasi" untuk lanjut atau "Ubah Tujuan" untuk ganti tujuan.';
+            $payload['assistant_text'] = $buffer;
+        } else {
+            $payload['assistant_text'] = 'Titik '.$target.' berhasil diperbarui. Lengkapi titik lain agar draft siap dikonfirmasi.';
+            if (isset($validation['rejection_reasons'][0])) {
+                $payload['assistant_text'] .= "\n" . $validation['rejection_reasons'][0];
+            }
+        }
 
         if (!is_array($payload['order'] ?? null)) {
             $payload['order'] = [
@@ -1094,6 +1257,7 @@ class ChatbotController extends Controller
      * @return array<string, mixed>
      */
     private function patchCourierDraftPayload(
+        User $user,
         array $payload,
         string $target,
         float $latitude,
@@ -1124,6 +1288,23 @@ class ChatbotController extends Controller
             $courier['dropoff_address'] = $address;
             $courier['dropoff_latitude'] = $latitude;
             $courier['dropoff_longitude'] = $longitude;
+        }
+
+        // ── If pickup coords are missing but pickup_address is known, resolve them ─────
+        if (
+            $target === 'dropoff'
+            && trim((string) ($courier['pickup_address'] ?? '')) !== ''
+            && !is_numeric($courier['pickup_latitude'] ?? null)
+        ) {
+            try {
+                $resolvedPickup = $this->geocodingService->resolveAddress((string) $courier['pickup_address']);
+                if ($resolvedPickup !== null) {
+                    $courier['pickup_latitude']  = $resolvedPickup['latitude'];
+                    $courier['pickup_longitude'] = $resolvedPickup['longitude'];
+                }
+            } catch (\Throwable $e) {
+                // non-fatal
+            }
         }
 
         $pickupReady = trim((string) ($courier['pickup_address'] ?? '')) !== ''
@@ -1163,16 +1344,68 @@ class ChatbotController extends Controller
         if (in_array('dropoff_address', $missingFields, true)) {
             $nextActions[] = 'OPEN_MAP_PICKER_DROPOFF';
         }
+        if ($isValid) {
+            $nextActions[] = 'CONFIRM_DRAFT';
+            $nextActions[] = 'RESET_DESTINATION';
+            $nextActions[] = 'CHANGE_PICKUP';
+        }
         $validation['next_actions'] = $nextActions;
+
+        if ($isValid) {
+            try {
+                $route = app(\App\Services\GoogleMapsDistanceMatrixService::class)->resolveRoute(
+                    $courier['pickup_latitude'],
+                    $courier['pickup_longitude'],
+                    $courier['dropoff_latitude'],
+                    $courier['dropoff_longitude'],
+                );
+
+                $distanceMeters = (float) $route['distance_meters'];
+                $distanceKm = (float) $route['distance_km'];
+
+                if (!app(\App\Services\DeliveryPricingService::class)->isWithinMaxDistance($distanceMeters)) {
+                    $isValid = false;
+                    $validation['is_valid_order'] = false;
+                    $missingFields[] = 'dropoff_address';
+                    $validation['missing_fields'] = $missingFields;
+                    $validation['rejection_reasons'] = [sprintf('Jarak %.2f km melebihi batas layanan %.2f km.', $distanceKm, app(\App\Services\DeliveryPricingService::class)->getMaxDistanceKm())];
+                    $validation['next_actions'] = ['OPEN_MAP_PICKER_DROPOFF'];
+                } else {
+                    $courier['distance_km'] = $distanceKm;
+                    $courier['delivery_fee'] = (float) app(\App\Services\DeliveryPricingService::class)->calculateFromDistanceMeters($distanceMeters)['total_fee'];
+                }
+            } catch (\Exception $e) {
+                $isValid = false;
+                $validation['is_valid_order'] = false;
+                $missingFields[] = 'dropoff_address';
+                $validation['missing_fields'] = $missingFields;
+                $validation['rejection_reasons'] = ['Rute jemput ke tujuan tidak ditemukan.'];
+                $validation['next_actions'] = ['OPEN_MAP_PICKER_DROPOFF'];
+            }
+        }
 
         $courier['ready_to_confirm'] = $isValid;
         $payload['intent'] = 'courier_order';
         $payload['service_type'] = 'kurir';
         $payload['courier'] = $courier;
         $payload['validation'] = $validation;
-        $payload['assistant_text'] = $isValid
-            ? 'Titik '.$target.' berhasil diperbarui. Draft kurir siap dikonfirmasi.'
-            : 'Titik '.$target.' berhasil diperbarui. Lengkapi data lain agar draft siap dikonfirmasi.';
+
+        if ($isValid) {
+            $name = trim((string) $user->name) === '' ? 'Kak' : trim((string) $user->name);
+            $deliveryFee = number_format((float) ($courier['delivery_fee'] ?? 0), 0, ',', '.');
+            $buffer = "Baik {$name}, saya sudah siapkan draft pengiriman Kurir.\n";
+            $buffer .= 'Ambil: '.(string) $courier['pickup_address']."\n";
+            $buffer .= 'Tujuan: '.(string) $courier['dropoff_address']."\n";
+            $buffer .= 'Barang: '.(string) $courier['package_description']."\n";
+            $buffer .= "Estimasi ongkir sementara: Rp {$deliveryFee} (kalkulasi detail menyusul).\n";
+            $buffer .= 'Ketik "Konfirmasi" untuk lanjut atau "Ubah Tujuan" untuk ganti tujuan.';
+            $payload['assistant_text'] = $buffer;
+        } else {
+            $payload['assistant_text'] = 'Titik '.$target.' berhasil diperbarui. Lengkapi data lain agar draft siap dikonfirmasi.';
+            if (isset($validation['rejection_reasons'][0])) {
+                $payload['assistant_text'] .= "\n" . $validation['rejection_reasons'][0];
+            }
+        }
 
         if (!is_array($payload['order'] ?? null)) {
             $payload['order'] = [

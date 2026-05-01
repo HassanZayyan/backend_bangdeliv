@@ -230,7 +230,7 @@ class RideOrderService
             ]);
         }
 
-        $resolvedDestination = $this->geocodingService->resolveAddress($normalizedAddress);
+        $resolvedDestination = $this->geocodingService->resolvePlace($normalizedAddress);
 
         if ($resolvedDestination === null) {
             throw new ApiException('Alamat tujuan tidak valid atau tidak ditemukan di peta.', 422, [

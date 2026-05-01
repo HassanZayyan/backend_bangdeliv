@@ -78,11 +78,17 @@ class ChatbotRideOrderService
     {
         $defaultPickupAddress = $this->resolveDefaultPickupAddress($user);
         $pickupText = null;
+        $pickupLat  = null;
+        $pickupLng  = null;
+        $pickupAddressId = null;
 
         if ($defaultPickupAddress !== null) {
             $resolved = $this->resolveProfilePickupAddress($defaultPickupAddress);
             if ($resolved !== null) {
-                $pickupText = $resolved['formatted_address'];
+                $pickupText      = $resolved['formatted_address'];
+                $pickupLat       = $resolved['latitude'];
+                $pickupLng       = $resolved['longitude'];
+                $pickupAddressId = $defaultPickupAddress->id;
             }
         }
 
@@ -95,23 +101,28 @@ class ChatbotRideOrderService
         }
 
         return [
-            'intent' => 'ride_order',
+            'intent'       => 'ride_order',
             'service_type' => 'antar_jemput',
-            'ride' => [
-                'pickup_address' => $pickupText,
-                'destination_address' => null,
-                'ready_to_confirm' => false,
+            'ride'         => [
+                'pickup_address'      => $pickupText,
+                'pickup_latitude'     => $pickupLat,
+                'pickup_longitude'    => $pickupLng,
+                'pickup_address_id'   => $pickupAddressId,
                 'used_default_pickup' => $pickupText !== null,
+                'destination_address'    => null,
+                'destination_latitude'   => null,
+                'destination_longitude'  => null,
+                'ready_to_confirm'       => false,
             ],
             'validation' => [
-                'is_valid_order' => false,
+                'is_valid_order'   => false,
                 'rejection_reasons' => [],
-                'missing_fields' => ['destination_address'],
-                'next_actions' => $pickupText === null ? ['OPEN_ADDRESSES'] : [],
+                'missing_fields'   => ['destination_address'],
+                'next_actions'     => $pickupText === null ? ['OPEN_ADDRESSES'] : [],
             ],
             'order' => [
-                'created' => false,
-                'id' => null,
+                'created'      => false,
+                'id'           => null,
                 'order_number' => null,
                 'delivery_fee' => null,
             ],
@@ -247,7 +258,17 @@ class ChatbotRideOrderService
                 'is_valid_order' => true,
                 'rejection_reasons' => [],
                 'missing_fields' => [],
-                'next_actions' => [],
+                'next_actions' => ['CONFIRM_DRAFT', 'RESET_DESTINATION'],
+            ],
+            'action_payloads' => [
+                'CONFIRM_DRAFT' => [
+                    'label' => 'Konfirmasi',
+                    'message' => 'Konfirmasi',
+                ],
+                'RESET_DESTINATION' => [
+                    'label' => 'Ubah Tujuan',
+                    'message' => 'Ubah Tujuan',
+                ],
             ],
             'order' => [
                 'created' => false,
@@ -552,15 +573,10 @@ class ChatbotRideOrderService
      */
     private function resolveProfilePickupAddress(Address $address): ?array
     {
-        $resolved = $this->geocodingService->resolveAddress((string) $address->full_address);
-        if ($resolved === null) {
-            return null;
-        }
-
         return [
-            'formatted_address' => trim((string) $resolved['formatted_address']),
-            'latitude' => (float) $resolved['latitude'],
-            'longitude' => (float) $resolved['longitude'],
+            'formatted_address' => trim((string) $address->full_address),
+            'latitude' => (float) $address->latitude,
+            'longitude' => (float) $address->longitude,
         ];
     }
 
@@ -579,9 +595,14 @@ class ChatbotRideOrderService
     private function buildValidationMessage(array $draft): string
     {
         $reasons = $draft['validation']['rejection_reasons'] ?? [];
+        $missingFields = $draft['validation']['missing_fields'] ?? [];
 
         if (!is_array($reasons) || $reasons === []) {
             return 'Data antar jemput belum lengkap. Mohon isi lokasi tujuan.';
+        }
+
+        if (!is_array($missingFields)) {
+            $missingFields = [];
         }
 
         $buffer = "Order antar jemput belum bisa dibuat karena:\n";
@@ -589,7 +610,9 @@ class ChatbotRideOrderService
             $buffer .= '- '.trim((string) $reason)."\n";
         }
 
-        $buffer .= "\nContoh: Antar ke Jalan Sudirman No 10.";
+        if (in_array('destination_address', $missingFields, true)) {
+            $buffer .= "\nContoh: Antar ke Jalan Sudirman No 10.";
+        }
 
         return trim($buffer);
     }
