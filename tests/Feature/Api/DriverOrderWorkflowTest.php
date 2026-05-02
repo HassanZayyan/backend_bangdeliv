@@ -5,6 +5,7 @@ namespace Tests\Feature\Api;
 use App\Events\OrderStatusChanged;
 use App\Models\Driver;
 use App\Models\Order;
+use App\Models\OrderPayment;
 use App\Models\OrderStatus;
 use App\Models\ServiceType;
 use App\Models\User;
@@ -236,6 +237,101 @@ class DriverOrderWorkflowTest extends TestCase
         $this->assertSame(-7.123456, $cached['latitude']);
         $this->assertSame(110.654321, $cached['longitude']);
         $this->assertSame(45.5, $cached['heading']);
+    }
+
+    public function test_driver_cod_collection_enables_complete_order(): void
+    {
+        $driverUser = User::query()->create([
+            'name' => 'Driver COD',
+            'email' => 'driver.cod@example.com',
+            'phone' => '081211119997',
+            'password' => Hash::make('password123'),
+            'role' => 'driver',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        $driver = Driver::query()->create([
+            'user_id' => $driverUser->id,
+            'vehicle_plate' => 'B 5555 COD',
+            'license_number' => 'SIMC-COD-2026',
+            'registration_status' => 'active',
+            'status' => 'busy',
+        ]);
+
+        $customer = User::factory()->create(['role' => 'customer']);
+        $rideTypeId = (int) ServiceType::query()->where('code', 'RIDE')->value('id');
+        $deliveredStatusId = (int) OrderStatus::query()->where('code', 'DELIVERED')->value('id');
+
+        $order = Order::query()->create([
+            'order_number' => 'BD-DRV-COD-0001',
+            'user_id' => $customer->id,
+            'restaurant_id' => null,
+            'service_type_id' => $rideTypeId,
+            'driver_id' => $driver->id,
+            'address_id' => null,
+            'subtotal' => 0,
+            'delivery_fee' => 25000,
+            'service_fee' => 0,
+            'total_amount' => 25000,
+            'total_price' => 25000,
+            'status_id' => $deliveredStatusId,
+        ]);
+
+        OrderPayment::query()->create([
+            'order_id' => $order->id,
+            'payment_method' => 'COD',
+            'payment_status' => 'PENDING',
+            'amount' => 25000,
+        ]);
+
+        Sanctum::actingAs($driverUser);
+
+        $detailResponse = $this->getJson('/api/v1/driver/orders/'.$order->id);
+
+        $detailResponse->assertOk()
+            ->assertJsonPath('data.total_price', 25000)
+            ->assertJsonPath('data.payment_status', 'unpaid')
+            ->assertJsonPath('data.available_actions.0.action_code', 'COMPLETE_ORDER')
+            ->assertJsonPath('data.available_actions.0.blocked', true)
+            ->assertJsonPath('data.available_actions.0.blocked_reason', 'Pembayaran COD belum dicatat.')
+            ->assertJsonPath('data.available_actions.1.action_code', 'COLLECT_COD');
+
+        $this->postJson('/api/v1/driver/orders/'.$order->id.'/status-transition', [
+            'action_code' => 'COMPLETE_ORDER',
+            'target_status_code' => 'COMPLETED',
+        ])->assertStatus(409)
+            ->assertJsonPath('message', 'Pembayaran COD belum dicatat.');
+
+        $this->postJson('/api/v1/orders/'.$order->id.'/payment/collect-cod', [
+            'amount' => 25000,
+            'note' => 'Tunai diterima driver.',
+        ])->assertOk()
+            ->assertJsonPath('data.payment_status', 'paid');
+
+        $this->assertDatabaseHas('order_payments', [
+            'order_id' => $order->id,
+            'payment_method' => 'COD',
+            'payment_status' => 'PAID',
+            'amount' => 25000,
+            'recorded_by_user_id' => $driverUser->id,
+            'driver_id' => $driver->id,
+        ]);
+
+        $paidDetailResponse = $this->getJson('/api/v1/driver/orders/'.$order->id);
+
+        $paidDetailResponse->assertOk()
+            ->assertJsonPath('data.payment_status', 'paid')
+            ->assertJsonPath('data.available_actions.0.action_code', 'COMPLETE_ORDER')
+            ->assertJsonPath('data.available_actions.0.blocked', false);
+
+        $this->assertCount(1, $paidDetailResponse->json('data.available_actions'));
+
+        $this->postJson('/api/v1/driver/orders/'.$order->id.'/status-transition', [
+            'action_code' => 'COMPLETE_ORDER',
+            'target_status_code' => 'COMPLETED',
+        ])->assertOk()
+            ->assertJsonPath('data.status_code', 'COMPLETED');
     }
 
     public function test_driver_history_returns_completed_order(): void

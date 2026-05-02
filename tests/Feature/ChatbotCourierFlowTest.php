@@ -96,6 +96,11 @@ class ChatbotCourierFlowTest extends TestCase
             'order_id' => $orderId,
             'package_description' => 'ijazah',
         ]);
+        $this->assertDatabaseHas('order_payments', [
+            'order_id' => $orderId,
+            'payment_method' => 'COD',
+            'payment_status' => 'PENDING',
+        ]);
 
         $finalMessage = (string) $confirmResponse->json('data.assistant_text');
         $this->assertStringContainsString('Nomor order:', $finalMessage);

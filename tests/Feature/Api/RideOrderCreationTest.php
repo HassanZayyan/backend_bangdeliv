@@ -137,6 +137,12 @@ class RideOrderCreationTest extends TestCase
             'order_id' => $orderId,
         ]);
 
+        $this->assertDatabaseHas('order_payments', [
+            'order_id' => $orderId,
+            'payment_method' => 'COD',
+            'payment_status' => 'PENDING',
+        ]);
+
         $this->assertDatabaseHas('order_status_histories', [
             'order_id' => $orderId,
             'status_id' => $pendingStatusId,

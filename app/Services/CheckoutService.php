@@ -19,7 +19,8 @@ class CheckoutService
     public function __construct(
         private readonly CartService $cartService,
         private readonly GoogleMapsDistanceMatrixService $distanceMatrixService,
-        private readonly DeliveryPricingService $deliveryPricingService
+        private readonly DeliveryPricingService $deliveryPricingService,
+        private readonly OrderPaymentService $orderPaymentService
     ) {}
 
     /**
@@ -130,6 +131,8 @@ class CheckoutService
                 'estimated_delivery' => Carbon::now()->addMinutes((int) $restaurant->estimated_prep_time + $routeMinutes),
             ]);
 
+            $this->orderPaymentService->ensurePendingCodPayment($order);
+
             foreach ($cart->items as $item) {
                 $unitPrice = (float) $item->menu->price;
                 $qty = (int) $item->quantity;
@@ -193,7 +196,7 @@ class CheckoutService
             $cart->items()->delete();
             $cart->touch();
 
-            return $order->fresh(['restaurant', 'orderLocations', 'items', 'statusRef', 'statusHistories', 'shoppingOrder']);
+            return $order->fresh(['restaurant', 'orderLocations', 'items', 'payments', 'statusRef', 'statusHistories', 'shoppingOrder']);
         });
     }
 

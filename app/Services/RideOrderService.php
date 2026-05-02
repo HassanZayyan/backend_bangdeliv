@@ -18,7 +18,8 @@ class RideOrderService
     public function __construct(
         private readonly GoogleMapsGeocodingService $geocodingService,
         private readonly GoogleMapsDistanceMatrixService $distanceMatrixService,
-        private readonly DeliveryPricingService $deliveryPricingService
+        private readonly DeliveryPricingService $deliveryPricingService,
+        private readonly OrderPaymentService $orderPaymentService
     ) {}
 
     /**
@@ -158,6 +159,8 @@ class RideOrderService
                 'estimated_delivery' => Carbon::now()->addMinutes($estimatedMinutes),
             ]);
 
+            $this->orderPaymentService->ensurePendingCodPayment($order);
+
             OrderStatusHistory::query()->create([
                 'order_id' => $order->id,
                 'status_id' => $pendingStatusId,
@@ -199,6 +202,7 @@ class RideOrderService
                 'statusHistories.statusRef',
                 'rideOrder',
                 'serviceType',
+                'payments',
             ]);
         });
     }

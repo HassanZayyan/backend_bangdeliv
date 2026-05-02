@@ -95,7 +95,8 @@ class ChatbotCourierOrderService
     public function __construct(
         private readonly GoogleMapsGeocodingService $geocodingService,
         private readonly GoogleMapsDistanceMatrixService $distanceMatrixService,
-        private readonly DeliveryPricingService $deliveryPricingService
+        private readonly DeliveryPricingService $deliveryPricingService,
+        private readonly OrderPaymentService $orderPaymentService
     ) {}
 
     /**
@@ -678,6 +679,8 @@ class ChatbotCourierOrderService
                 'estimated_delivery' => Carbon::now()->addMinutes($estimatedMinutes),
             ]);
 
+            $this->orderPaymentService->ensurePendingCodPayment($order);
+
             CourierOrder::query()->create([
                 'order_id' => $order->id,
                 'package_description' => $packageDescription,
@@ -716,7 +719,7 @@ class ChatbotCourierOrderService
                 'note' => 'Order kurir dibuat oleh customer melalui chatbot.',
             ]);
 
-            return $order->fresh(['statusRef', 'courierOrder', 'orderLocations']);
+            return $order->fresh(['statusRef', 'courierOrder', 'orderLocations', 'payments']);
         });
     }
 

@@ -21,7 +21,10 @@ use Illuminate\Support\Facades\Log;
 
 class OrderService
 {
-    public function __construct(private readonly OrderRealtimeBroadcaster $realtimeBroadcaster) {}
+    public function __construct(
+        private readonly OrderRealtimeBroadcaster $realtimeBroadcaster,
+        private readonly OrderPaymentService $orderPaymentService
+    ) {}
 
     /**
      * @var array<int, string>
@@ -42,7 +45,7 @@ class OrderService
 
         $query = Order::query()
             ->where('user_id', $user->id)
-            ->with(['restaurant', 'items', 'statusRef', 'serviceType'])
+            ->with(['restaurant', 'items', 'payments', 'statusRef', 'serviceType'])
             ->latest('id');
 
         if (! empty($filters['status'])) {
@@ -325,11 +328,11 @@ class OrderService
                     'order_id' => $payment->order_id,
                     'order_number' => $payment->order->order_number,
                     'driver_id' => $payment->driver_id,
-                    'driver_name' => $payment->driver->user->name,
+                    'driver_name' => $payment->driver?->user?->name,
                     'amount' => (float) $payment->amount,
                     'paid_at' => $payment->paid_at,
                     'recorded_by_user_id' => $payment->recorded_by_user_id,
-                    'recorded_by_name' => $payment->recordedBy->name,
+                    'recorded_by_name' => $payment->recordedBy?->name,
                     'note' => $payment->note,
                 ];
             })->values()->all(),
@@ -686,7 +689,7 @@ class OrderService
             }
 
             if (($rule['requires_paid'] ?? false) && ! $this->orderHasPaidCodPayment($order)) {
-                throw new ApiException('Order belum bisa diselesaikan sebelum pembayaran COD tercatat.', 409);
+                throw new ApiException('Pembayaran COD belum dicatat.', 409);
             }
 
             $targetStatusId = $this->resolveStatusId($resolvedTargetStatusCode);
@@ -1059,7 +1062,7 @@ class OrderService
             'courierOrder:id,order_id,package_description,requires_photo_evidence',
             'items:id,order_id,quantity',
             'orderLocations:id,order_id,location_role,full_address,latitude,longitude,sequence_no',
-            'payments:id,order_id,payment_method,payment_status,amount,recorded_by_user_id,paid_at',
+            'payments:id,order_id,payment_method,payment_status,amount,recorded_by_user_id,driver_id,paid_at',
             'statusHistories' => function (\Illuminate\Database\Eloquent\Relations\Relation $query): void {
                 $query
                     ->with('statusRef:id,code,display_name')
@@ -1108,6 +1111,7 @@ class OrderService
             'dropoff_latitude' => $dropoff['latitude'],
             'dropoff_longitude' => $dropoff['longitude'],
             'fee' => (int) round((float) $order->delivery_fee),
+            'total_price' => round((float) $order->total_price, 2),
             'item_count' => $itemCount,
             'eta_minutes' => $this->estimateEtaMinutes($order),
             'accepted_at' => $acceptedAt?->created_at?->format('H:i'),
@@ -1535,6 +1539,8 @@ class OrderService
             'service_fee' => $newServiceFee,
             'total_price' => $newTotalPrice,
         ]);
+
+        $this->orderPaymentService->syncPendingCodAmount($order->refresh());
 
         OrderLog::query()->create([
             'order_id' => $order->id,

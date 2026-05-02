@@ -32,6 +32,10 @@
     $locations = $order->orderLocations->sortBy('sequence_no')->values();
     $statusHistories = $order->statusHistories->sortByDesc('created_at')->values();
     $logs = $order->logs->sortByDesc('created_at')->take(10)->values();
+    $payments = $order->payments
+        ->sortByDesc(fn ($payment) => $payment->paid_at?->getTimestamp() ?? $payment->created_at?->getTimestamp() ?? 0)
+        ->values();
+    $latestPayment = $payments->first();
 
     if ($statusCode === 'PENDING') {
         $actionHints = [
@@ -228,6 +232,38 @@
         </div>
     </div>
 @endif
+
+<div class="panel" style="margin-bottom:16px;">
+    <div class="panel-header">
+        <div class="panel-title">Pembayaran COD</div>
+    </div>
+    <div style="padding:18px 20px; display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap:12px 16px;">
+        <div>
+            <div class="td-sub">Metode</div>
+            <div class="td-strong">{{ strtoupper((string) ($latestPayment?->payment_method ?? $order->payment_method ?? 'COD')) }}</div>
+        </div>
+        <div>
+            <div class="td-sub">Status</div>
+            <div class="td-strong">{{ strtoupper((string) ($latestPayment?->payment_status ?? $order->payment_status ?? 'UNPAID')) }}</div>
+        </div>
+        <div>
+            <div class="td-sub">Nominal</div>
+            <div class="td-strong">Rp {{ number_format((float) ($latestPayment?->amount ?? $order->total_price), 0, ',', '.') }}</div>
+        </div>
+        <div>
+            <div class="td-sub">Waktu Bayar</div>
+            <div class="td-strong">{{ $latestPayment?->paid_at?->format('d M Y, H:i') ?? '-' }}</div>
+        </div>
+        <div>
+            <div class="td-sub">Dicatat Oleh</div>
+            <div class="td-strong">{{ $latestPayment?->recordedBy?->name ?? '-' }}</div>
+        </div>
+        <div>
+            <div class="td-sub">Driver</div>
+            <div class="td-strong">{{ $latestPayment?->driver?->user?->name ?? $order->driver?->user?->name ?? '-' }}</div>
+        </div>
+    </div>
+</div>
 
 <div style="display:grid; grid-template-columns: 1fr 1fr; gap:16px;">
     <div class="panel">
