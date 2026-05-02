@@ -54,11 +54,11 @@ class RideOrderCreationTest extends TestCase
                             [
                                 'status' => 'OK',
                                 'distance' => ['value' => 5000, 'text' => '5.0 km'],
-                                'duration' => ['value' => 600, 'text' => '10 mins']
-                            ]
-                        ]
-                    ]
-                ]
+                                'duration' => ['value' => 600, 'text' => '10 mins'],
+                            ],
+                        ],
+                    ],
+                ],
             ], 200),
             'https://maps.googleapis.com/maps/api/place/textsearch/json*' => Http::response([
                 'status' => 'OK',
@@ -93,7 +93,6 @@ class RideOrderCreationTest extends TestCase
         $response = $this->postJson('/api/v1/orders/ride', [
             'address_id' => $address->id,
             'destination_address' => 'Jl. Sudirman No. 10, Jakarta',
-            'notes' => 'Tolong jemput di lobi utama.',
         ]);
 
         $rideServiceTypeId = ServiceType::query()->where('code', 'RIDE')->value('id');
@@ -136,7 +135,6 @@ class RideOrderCreationTest extends TestCase
 
         $this->assertDatabaseHas('ride_orders', [
             'order_id' => $orderId,
-            'notes' => 'Tolong jemput di lobi utama.',
         ]);
 
         $this->assertDatabaseHas('order_status_histories', [
@@ -181,11 +179,11 @@ class RideOrderCreationTest extends TestCase
                             [
                                 'status' => 'OK',
                                 'distance' => ['value' => 5000, 'text' => '5.0 km'],
-                                'duration' => ['value' => 600, 'text' => '10 mins']
-                            ]
-                        ]
-                    ]
-                ]
+                                'duration' => ['value' => 600, 'text' => '10 mins'],
+                            ],
+                        ],
+                    ],
+                ],
             ], 200),
             'https://maps.googleapis.com/maps/api/geocode/json*' => function () use (&$geocodingCalls) {
                 $geocodingCalls++;
@@ -226,7 +224,6 @@ class RideOrderCreationTest extends TestCase
             'destination_address' => 'Titik pin manual customer',
             'destination_latitude' => -7.76371000,
             'destination_longitude' => 110.40642000,
-            'notes' => 'Tujuan dari pin peta.',
         ]);
 
         $response->assertCreated()
@@ -346,11 +343,11 @@ class RideOrderCreationTest extends TestCase
                             [
                                 'status' => 'OK',
                                 'distance' => ['value' => 5000, 'text' => '5.0 km'],
-                                'duration' => ['value' => 600, 'text' => '10 mins']
-                            ]
-                        ]
-                    ]
-                ]
+                                'duration' => ['value' => 600, 'text' => '10 mins'],
+                            ],
+                        ],
+                    ],
+                ],
             ], 200),
             'https://maps.googleapis.com/maps/api/place/textsearch/json*' => Http::response([
                 'status' => 'ZERO_RESULTS',
@@ -395,11 +392,11 @@ class RideOrderCreationTest extends TestCase
                             [
                                 'status' => 'OK',
                                 'distance' => ['value' => 5000, 'text' => '5.0 km'],
-                                'duration' => ['value' => 600, 'text' => '10 mins']
-                            ]
-                        ]
-                    ]
-                ]
+                                'duration' => ['value' => 600, 'text' => '10 mins'],
+                            ],
+                        ],
+                    ],
+                ],
             ], 200),
             'https://maps.googleapis.com/maps/api/place/textsearch/json*' => Http::response([
                 'status' => 'OK',
@@ -461,11 +458,11 @@ class RideOrderCreationTest extends TestCase
                             [
                                 'status' => 'OK',
                                 'distance' => ['value' => 5000, 'text' => '5.0 km'],
-                                'duration' => ['value' => 600, 'text' => '10 mins']
-                            ]
-                        ]
-                    ]
-                ]
+                                'duration' => ['value' => 600, 'text' => '10 mins'],
+                            ],
+                        ],
+                    ],
+                ],
             ], 200),
             'https://maps.googleapis.com/maps/api/place/textsearch/json*' => Http::response([
                 'status' => 'ZERO_RESULTS',
@@ -488,8 +485,3 @@ class RideOrderCreationTest extends TestCase
         Http::assertSentCount(2);
     }
 }
-
-
-
-
-

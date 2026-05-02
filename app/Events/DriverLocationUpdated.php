@@ -2,9 +2,7 @@
 
 namespace App\Events;
 
-use Illuminate\Broadcasting\Channel;
 use Illuminate\Broadcasting\InteractsWithSockets;
-use Illuminate\Broadcasting\PresenceChannel;
 use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
@@ -15,19 +13,25 @@ class DriverLocationUpdated implements ShouldBroadcastNow
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
     public $orderId;
+
     public $latitude;
+
     public $longitude;
+
     public $heading;
+
+    public $updatedAt;
 
     /**
      * Create a new event instance.
      */
-    public function __construct($orderId, $latitude, $longitude, $heading)
+    public function __construct($orderId, $latitude, $longitude, $heading, $updatedAt = null)
     {
         $this->orderId = $orderId;
         $this->latitude = $latitude;
         $this->longitude = $longitude;
         $this->heading = $heading;
+        $this->updatedAt = $updatedAt;
     }
 
     /**
@@ -38,7 +42,7 @@ class DriverLocationUpdated implements ShouldBroadcastNow
     public function broadcastOn(): array
     {
         return [
-            new PrivateChannel('order.tracking.' . $this->orderId),
+            new PrivateChannel('order.tracking.'.$this->orderId),
         ];
     }
 
@@ -54,7 +58,7 @@ class DriverLocationUpdated implements ShouldBroadcastNow
             'latitude' => $this->latitude,
             'longitude' => $this->longitude,
             'heading' => $this->heading,
-            'updated_at' => now()->toIso8601String(),
+            'updated_at' => $this->updatedAt ?? now()->toIso8601String(),
         ];
     }
 }

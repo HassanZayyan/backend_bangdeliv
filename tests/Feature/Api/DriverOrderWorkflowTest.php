@@ -8,7 +8,12 @@ use App\Models\Order;
 use App\Models\OrderStatus;
 use App\Models\ServiceType;
 use App\Models\User;
+use Illuminate\Broadcasting\BroadcastException;
+use Illuminate\Contracts\Broadcasting\Broadcaster as BroadcasterContract;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Broadcast;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Hash;
 use Laravel\Sanctum\Sanctum;
@@ -162,6 +167,75 @@ class DriverOrderWorkflowTest extends TestCase
                 && $event->isTerminal === false
                 && $event->historyId !== null;
         });
+    }
+
+    public function test_driver_location_update_still_saves_when_realtime_broadcast_fails(): void
+    {
+        $this->useFailingBroadcaster();
+
+        $driverUser = User::query()->create([
+            'name' => 'Driver Location',
+            'email' => 'driver.location@example.com',
+            'phone' => '081211119996',
+            'password' => Hash::make('password123'),
+            'role' => 'driver',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        $driver = Driver::query()->create([
+            'user_id' => $driverUser->id,
+            'vehicle_plate' => 'B 4444 LOC',
+            'license_number' => 'SIMC-LOC-2026',
+            'registration_status' => 'active',
+            'status' => 'busy',
+        ]);
+
+        $customer = User::factory()->create(['role' => 'customer']);
+        $rideTypeId = (int) ServiceType::query()->where('code', 'RIDE')->value('id');
+        $assignedStatusId = (int) OrderStatus::query()->where('code', 'DRIVER_ASSIGNED')->value('id');
+
+        $order = Order::query()->create([
+            'order_number' => 'BD-DRV-LOC-0001',
+            'user_id' => $customer->id,
+            'restaurant_id' => null,
+            'service_type_id' => $rideTypeId,
+            'driver_id' => $driver->id,
+            'address_id' => null,
+            'delivery_address' => 'Jl. Lokasi Driver No. 1',
+            'delivery_latitude' => -7.001200,
+            'delivery_longitude' => 110.401200,
+            'subtotal' => 0,
+            'delivery_fee' => 15000,
+            'service_fee' => 0,
+            'total_amount' => 15000,
+            'total_price' => 15000,
+            'status_id' => $assignedStatusId,
+            'payment_status' => 'unpaid',
+            'payment_method' => 'COD',
+        ]);
+
+        Sanctum::actingAs($driverUser);
+
+        $this->postJson('/api/v1/driver/orders/'.$order->id.'/location', [
+            'latitude' => -7.123456,
+            'longitude' => 110.654321,
+            'heading' => 45.5,
+        ])->assertOk()
+            ->assertJsonPath('data.location_saved', true)
+            ->assertJsonPath('data.broadcasted', false)
+            ->assertJsonPath('data.order_id', $order->id);
+
+        $driver->refresh();
+        $this->assertEqualsWithDelta(-7.123456, (float) $driver->current_latitude, 0.000001);
+        $this->assertEqualsWithDelta(110.654321, (float) $driver->current_longitude, 0.000001);
+
+        $cached = Cache::get('driver_location:'.$driver->id);
+        $this->assertIsArray($cached);
+        $this->assertSame($order->id, $cached['order_id']);
+        $this->assertSame(-7.123456, $cached['latitude']);
+        $this->assertSame(110.654321, $cached['longitude']);
+        $this->assertSame(45.5, $cached['heading']);
     }
 
     public function test_driver_history_returns_completed_order(): void
@@ -335,5 +409,38 @@ class DriverOrderWorkflowTest extends TestCase
             'id' => $driver->id,
             'status' => 'available',
         ]);
+    }
+
+    private function useFailingBroadcaster(): void
+    {
+        $previousDefault = Config::get('broadcasting.default');
+
+        Broadcast::extend('failing-test', function (): BroadcasterContract {
+            return new class implements BroadcasterContract
+            {
+                public function auth($request)
+                {
+                    return null;
+                }
+
+                public function validAuthenticationResponse($request, $result)
+                {
+                    return $result;
+                }
+
+                public function broadcast(array $channels, $event, array $payload = []): void
+                {
+                    throw new BroadcastException('Forced broadcast failure.');
+                }
+            };
+        });
+
+        Config::set('broadcasting.default', 'failing-test');
+        Broadcast::forgetDrivers();
+
+        $this->beforeApplicationDestroyed(function () use ($previousDefault): void {
+            Config::set('broadcasting.default', $previousDefault);
+            Broadcast::forgetDrivers();
+        });
     }
 }

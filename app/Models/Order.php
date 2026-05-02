@@ -3,10 +3,10 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
  * @property int $id
@@ -32,13 +32,11 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * @property \Carbon\Carbon|null $paid_at
  * @property string|null $cancellation_reason
  * @property string|null $cancelled_by
- * @property string|null $notes
  * @property \Carbon\Carbon|null $estimated_delivery
  * @property \Carbon\Carbon|null $delivered_at
  * @property \Carbon\Carbon|null $created_at
  * @property \Carbon\Carbon|null $updated_at
  * @property \Carbon\Carbon|null $deleted_at
- *
  * @property-read \App\Models\User|null $user
  * @property-read \App\Models\Restaurant|null $restaurant
  * @property-read \App\Models\ServiceType|null $serviceType
@@ -53,6 +51,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * @property-read \Illuminate\Database\Eloquent\Collection<int, \App\Models\OrderEvidence> $evidences
  * @property-read \Illuminate\Database\Eloquent\Collection<int, \App\Models\OrderLog> $logs
  * @property-read \Illuminate\Database\Eloquent\Collection<int, \App\Models\OrderPayment> $payments
+ * @property-read \Illuminate\Database\Eloquent\Collection<int, \App\Models\OrderChatMessage> $chatMessages
  * @property-read \App\Models\RideOrder|null $rideOrder
  * @property-read \App\Models\CourierOrder|null $courierOrder
  * @property-read \App\Models\ShoppingOrder|null $shoppingOrder
@@ -77,7 +76,6 @@ class Order extends Model
         'status_id',
         'cancellation_reason',
         'cancelled_by',
-        'notes',
         'estimated_delivery',
         'delivered_at',
     ];
@@ -176,6 +174,11 @@ class Order extends Model
         return $this->hasMany(OrderPayment::class);
     }
 
+    public function chatMessages(): HasMany
+    {
+        return $this->hasMany(OrderChatMessage::class);
+    }
+
     public function rideOrder(): HasOne
     {
         return $this->hasOne(RideOrder::class);
@@ -245,7 +248,7 @@ class Order extends Model
 
     private function resolvedDropoffLocation(): ?OrderLocation
     {
-        if (!$this->relationLoaded('orderLocations')) {
+        if (! $this->relationLoaded('orderLocations')) {
             $this->setRelation('orderLocations', $this->orderLocations()->get());
         }
 
@@ -256,7 +259,7 @@ class Order extends Model
 
     private function resolvedLatestPayment(): ?OrderPayment
     {
-        if (!$this->relationLoaded('payments')) {
+        if (! $this->relationLoaded('payments')) {
             $this->setRelation('payments', $this->payments()->get());
         }
 
@@ -267,7 +270,7 @@ class Order extends Model
 
     private function resolvedPaidPayment(): ?OrderPayment
     {
-        if (!$this->relationLoaded('payments')) {
+        if (! $this->relationLoaded('payments')) {
             $this->setRelation('payments', $this->payments()->get());
         }
 

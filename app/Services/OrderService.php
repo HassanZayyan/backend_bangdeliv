@@ -2,13 +2,12 @@
 
 namespace App\Services;
 
-use App\Events\OrderStatusChanged;
 use App\Exceptions\ApiException;
 use App\Models\Driver;
 use App\Models\Menu;
 use App\Models\Order;
-use App\Models\OrderLog;
 use App\Models\OrderItem;
+use App\Models\OrderLog;
 use App\Models\OrderPayment;
 use App\Models\OrderStatus;
 use App\Models\OrderStatusHistory;
@@ -22,6 +21,8 @@ use Illuminate\Support\Facades\Log;
 
 class OrderService
 {
+    public function __construct(private readonly OrderRealtimeBroadcaster $realtimeBroadcaster) {}
+
     /**
      * @var array<int, string>
      */
@@ -44,7 +45,7 @@ class OrderService
             ->with(['restaurant', 'items', 'statusRef', 'serviceType'])
             ->latest('id');
 
-        if (!empty($filters['status'])) {
+        if (! empty($filters['status'])) {
             $query->where('status_id', $this->resolveStatusId((string) $filters['status']));
         }
 
@@ -57,7 +58,7 @@ class OrderService
             ->with(['restaurant', 'driver.user', 'items', 'orderLocations', 'payments', 'statusRef', 'statusHistories.statusRef', 'serviceType'])
             ->find($orderId);
 
-        if (!$order || $order->user_id !== $user->id) {
+        if (! $order || $order->user_id !== $user->id) {
             throw new ApiException('Order tidak ditemukan.', 404);
         }
 
@@ -72,12 +73,12 @@ class OrderService
                 ->lockForUpdate()
                 ->find($orderId);
 
-            if (!$order || $order->user_id !== $user->id) {
+            if (! $order || $order->user_id !== $user->id) {
                 throw new ApiException('Order tidak ditemukan.', 404);
             }
 
             $activeStatusCode = $order->statusRef?->code;
-            if (!in_array($activeStatusCode, ['PENDING', 'DRIVER_ASSIGNED'], true)) {
+            if (! in_array($activeStatusCode, ['PENDING', 'DRIVER_ASSIGNED'], true)) {
                 throw new ApiException('Order tidak bisa dibatalkan pada status saat ini.', 409);
             }
 
@@ -91,7 +92,7 @@ class OrderService
                     ->lockForUpdate()
                     ->first();
 
-                if (!$shoppingOrder) {
+                if (! $shoppingOrder) {
                     $shoppingOrder = ShoppingOrder::query()->create([
                         'order_id' => $order->id,
                         'failed_attempt_count' => 0,
@@ -150,11 +151,11 @@ class OrderService
         $normalizedFailureType = strtoupper(trim($failureType));
         $allowedFailureTypes = ['DRIVER_ASSIGNMENT', 'PICKUP', 'DELIVERY'];
 
-        if (!in_array($normalizedFailureType, $allowedFailureTypes, true)) {
+        if (! in_array($normalizedFailureType, $allowedFailureTypes, true)) {
             throw new ApiException('Tipe kegagalan tidak valid.', 422);
         }
 
-        if (!in_array($actor->role, ['driver', 'admin'], true)) {
+        if (! in_array($actor->role, ['driver', 'admin'], true)) {
             throw new ApiException('Hanya driver atau admin yang dapat mencatat failed attempt.', 403);
         }
 
@@ -164,7 +165,7 @@ class OrderService
                 ->lockForUpdate()
                 ->find($orderId);
 
-            if (!$order) {
+            if (! $order) {
                 throw new ApiException('Order tidak ditemukan.', 404);
             }
 
@@ -173,7 +174,7 @@ class OrderService
             }
 
             $activeStatusCode = $order->statusRef?->code;
-            if (!in_array($activeStatusCode, $this->failedAttemptRecordableStatuses, true)) {
+            if (! in_array($activeStatusCode, $this->failedAttemptRecordableStatuses, true)) {
                 throw new ApiException('Failed attempt tidak bisa dicatat pada status order saat ini.', 409);
             }
 
@@ -183,7 +184,7 @@ class OrderService
                 }
 
                 $driver = Driver::query()->where('user_id', $actor->id)->first();
-                if (!$driver) {
+                if (! $driver) {
                     throw new ApiException('Profil driver tidak ditemukan.', 403);
                 }
 
@@ -197,7 +198,7 @@ class OrderService
                 ->lockForUpdate()
                 ->first();
 
-            if (!$shoppingOrder) {
+            if (! $shoppingOrder) {
                 $shoppingOrder = ShoppingOrder::query()->create([
                     'order_id' => $order->id,
                     'failed_attempt_count' => 0,
@@ -283,15 +284,15 @@ class OrderService
             ->where('payment_method', 'COD')
             ->where('payment_status', 'PAID');
 
-        if (!empty($filters['driver_id'])) {
+        if (! empty($filters['driver_id'])) {
             $query->where('driver_id', (int) $filters['driver_id']);
         }
 
-        if (!empty($filters['date_from'])) {
+        if (! empty($filters['date_from'])) {
             $query->whereDate('paid_at', '>=', (string) $filters['date_from']);
         }
 
-        if (!empty($filters['date_to'])) {
+        if (! empty($filters['date_to'])) {
             $query->whereDate('paid_at', '<=', (string) $filters['date_to']);
         }
 
@@ -355,13 +356,13 @@ class OrderService
 
         return DB::transaction(function () use ($driver, $isOnline): array {
             $lockedDriver = Driver::query()->lockForUpdate()->find($driver->id);
-            if (!$lockedDriver) {
+            if (! $lockedDriver) {
                 throw new ApiException('Profil driver tidak ditemukan.', 404);
             }
 
             $hasRunningOrder = $this->hasRunningDriverOrder($lockedDriver->id);
 
-            if (!$isOnline && $hasRunningOrder) {
+            if (! $isOnline && $hasRunningOrder) {
                 throw new ApiException('Tidak bisa offline saat masih ada order berjalan.', 409);
             }
 
@@ -471,7 +472,7 @@ class OrderService
             ->with($this->driverOrderRelations())
             ->find($orderId);
 
-        if (!$order) {
+        if (! $order) {
             throw new ApiException('Order tidak ditemukan.', 404);
         }
 
@@ -479,7 +480,7 @@ class OrderService
         $isIncomingCandidate = $statusCode === 'PENDING' && $order->driver_id === null;
         $isAssignedToCurrentDriver = (int) ($order->driver_id ?? 0) === (int) $driver->id;
 
-        if (!$isIncomingCandidate && !$isAssignedToCurrentDriver) {
+        if (! $isIncomingCandidate && ! $isAssignedToCurrentDriver) {
             throw new ApiException('Order tidak ditemukan.', 404);
         }
 
@@ -500,7 +501,7 @@ class OrderService
                 ->lockForUpdate()
                 ->find($orderId);
 
-            if (!$order) {
+            if (! $order) {
                 throw new ApiException('Order tidak ditemukan.', 404);
             }
 
@@ -515,7 +516,7 @@ class OrderService
                 throw new ApiException('Order tidak dapat diterima pada status saat ini.', 409);
             }
 
-            if ($order->driver_id !== null && !$isAssignedToCurrentDriver) {
+            if ($order->driver_id !== null && ! $isAssignedToCurrentDriver) {
                 throw new ApiException('Order sudah diambil driver lain.', 409);
             }
 
@@ -567,7 +568,7 @@ class OrderService
                 ->lockForUpdate()
                 ->find($orderId);
 
-            if (!$order) {
+            if (! $order) {
                 throw new ApiException('Order tidak ditemukan.', 404);
             }
 
@@ -654,7 +655,7 @@ class OrderService
                 ->lockForUpdate()
                 ->find($orderId);
 
-            if (!$order) {
+            if (! $order) {
                 throw new ApiException('Order tidak ditemukan.', 404);
             }
 
@@ -672,7 +673,7 @@ class OrderService
             }
 
             $currentStatusCode = (string) ($order->statusRef->code ?? '');
-            if (!in_array($currentStatusCode, $rule['from'], true)) {
+            if (! in_array($currentStatusCode, $rule['from'], true)) {
                 throw new ApiException('Transisi status tidak valid untuk order ini.', 409);
             }
 
@@ -684,7 +685,7 @@ class OrderService
                 throw new ApiException('target_status_code tidak sesuai dengan action_code.', 422);
             }
 
-            if (($rule['requires_paid'] ?? false) && !$this->orderHasPaidCodPayment($order)) {
+            if (($rule['requires_paid'] ?? false) && ! $this->orderHasPaidCodPayment($order)) {
                 throw new ApiException('Order belum bisa diselesaikan sebelum pembayaran COD tercatat.', 409);
             }
 
@@ -779,24 +780,16 @@ class OrderService
             return;
         }
 
-        try {
-            broadcast(new OrderStatusChanged(
-                (int) $payload['order_id'],
-                (string) $payload['status_code'],
-                isset($payload['previous_status_code']) ? (string) $payload['previous_status_code'] : null,
-                isset($payload['history_id']) ? (int) $payload['history_id'] : null,
-                (string) $payload['changed_at'],
-                isset($payload['changed_at_ms']) ? (int) $payload['changed_at_ms'] : null,
-                isset($payload['status_label']) ? (string) $payload['status_label'] : null,
-                isset($payload['is_terminal']) ? (bool) $payload['is_terminal'] : null,
-            ));
-        } catch (\Throwable $exception) {
-            Log::warning('Broadcast OrderStatusChanged gagal.', [
-                'order_id' => $payload['order_id'] ?? null,
-                'status_code' => $payload['status_code'] ?? null,
-                'error' => $exception->getMessage(),
-            ]);
-        }
+        $this->realtimeBroadcaster->orderStatusChanged(
+            (int) $payload['order_id'],
+            (string) $payload['status_code'],
+            isset($payload['previous_status_code']) ? (string) $payload['previous_status_code'] : null,
+            isset($payload['history_id']) ? (int) $payload['history_id'] : null,
+            (string) $payload['changed_at'],
+            isset($payload['changed_at_ms']) ? (int) $payload['changed_at_ms'] : null,
+            isset($payload['status_label']) ? (string) $payload['status_label'] : null,
+            isset($payload['is_terminal']) ? (bool) $payload['is_terminal'] : null,
+        );
     }
 
     private function resolveActiveDriverProfile(User $actor): Driver
@@ -806,7 +799,7 @@ class OrderService
         }
 
         $driver = Driver::query()->where('user_id', $actor->id)->first();
-        if (!$driver) {
+        if (! $driver) {
             throw new ApiException('Profil driver tidak ditemukan.', 403);
         }
 
@@ -852,7 +845,7 @@ class OrderService
     private function serializeDriverAvailability(Driver $driver, bool $hasRunningOrder): array
     {
         $status = strtolower(trim((string) ($driver->status ?? 'offline')));
-        if (!in_array($status, ['available', 'offline', 'busy'], true)) {
+        if (! in_array($status, ['available', 'offline', 'busy'], true)) {
             $status = $hasRunningOrder ? 'busy' : 'offline';
         }
 
@@ -877,7 +870,7 @@ class OrderService
         $resolved = [];
         foreach ($codes as $code) {
             $id = $map[$code] ?? null;
-            if (!$id) {
+            if (! $id) {
                 throw new ApiException('Konfigurasi status order belum lengkap.', 500, [
                     'missing_status_code' => $code,
                 ]);
@@ -904,8 +897,9 @@ class OrderService
 
         foreach ($codes as $code) {
             $id = $map[$code] ?? null;
-            if (!$id) {
+            if (! $id) {
                 $missingCodes[] = $code;
+
                 continue;
             }
 
@@ -928,9 +922,9 @@ class OrderService
     private function driverActionRules(string $serviceCode): array
     {
         return match (strtoupper($serviceCode)) {
-            'RIDE'     => $this->rideActionRules(),
+            'RIDE' => $this->rideActionRules(),
             'SHOPPING' => $this->shoppingActionRules(),
-            default    => $this->courierActionRules(), // COURIER + fallback
+            default => $this->courierActionRules(), // COURIER + fallback
         };
     }
 
@@ -943,28 +937,28 @@ class OrderService
         return [
             'ARRIVE_PICKUP' => [
                 'label' => 'Tiba di Titik Jemput',
-                'from'  => ['DRIVER_ASSIGNED'],
-                'to'    => 'ARRIVED_PICKUP',
+                'from' => ['DRIVER_ASSIGNED'],
+                'to' => 'ARRIVED_PICKUP',
             ],
             'BOARD_PASSENGER' => [
                 'label' => 'Penumpang Sudah Naik',
-                'from'  => ['ARRIVED_PICKUP'],
-                'to'    => 'ON_THE_WAY',   // skips PICKED_UP intentionally
+                'from' => ['ARRIVED_PICKUP'],
+                'to' => 'ON_THE_WAY',   // skips PICKED_UP intentionally
             ],
             'ARRIVE_DROPOFF' => [
                 'label' => 'Tiba di Tujuan',
-                'from'  => ['ON_THE_WAY'],
-                'to'    => 'ARRIVED_DROPOFF',
+                'from' => ['ON_THE_WAY'],
+                'to' => 'ARRIVED_DROPOFF',
             ],
             'CONFIRM_DELIVERED' => [
                 'label' => 'Penumpang Turun',
-                'from'  => ['ARRIVED_DROPOFF'],
-                'to'    => 'DELIVERED',
+                'from' => ['ARRIVED_DROPOFF'],
+                'to' => 'DELIVERED',
             ],
             'COMPLETE_ORDER' => [
-                'label'         => 'Selesaikan Order',
-                'from'          => ['DELIVERED'],
-                'to'            => 'COMPLETED',
+                'label' => 'Selesaikan Order',
+                'from' => ['DELIVERED'],
+                'to' => 'COMPLETED',
                 'requires_paid' => true,
             ],
         ];
@@ -978,33 +972,33 @@ class OrderService
         return [
             'ARRIVE_PICKUP' => [
                 'label' => 'Tiba di Titik Pickup',
-                'from'  => ['DRIVER_ASSIGNED'],
-                'to'    => 'ARRIVED_PICKUP',
+                'from' => ['DRIVER_ASSIGNED'],
+                'to' => 'ARRIVED_PICKUP',
             ],
             'CONFIRM_PICKED_UP' => [
                 'label' => 'Paket Diambil',
-                'from'  => ['ARRIVED_PICKUP'],
-                'to'    => 'PICKED_UP',
+                'from' => ['ARRIVED_PICKUP'],
+                'to' => 'PICKED_UP',
             ],
             'START_DELIVERY' => [
                 'label' => 'Mulai Antar',
-                'from'  => ['PICKED_UP'],
-                'to'    => 'ON_THE_WAY',
+                'from' => ['PICKED_UP'],
+                'to' => 'ON_THE_WAY',
             ],
             'ARRIVE_DROPOFF' => [
                 'label' => 'Tiba di Tujuan',
-                'from'  => ['ON_THE_WAY'],
-                'to'    => 'ARRIVED_DROPOFF',
+                'from' => ['ON_THE_WAY'],
+                'to' => 'ARRIVED_DROPOFF',
             ],
             'CONFIRM_DELIVERED' => [
                 'label' => 'Paket Diserahkan',
-                'from'  => ['ARRIVED_DROPOFF'],
-                'to'    => 'DELIVERED',
+                'from' => ['ARRIVED_DROPOFF'],
+                'to' => 'DELIVERED',
             ],
             'COMPLETE_ORDER' => [
-                'label'         => 'Selesaikan Order',
-                'from'          => ['DELIVERED'],
-                'to'            => 'COMPLETED',
+                'label' => 'Selesaikan Order',
+                'from' => ['DELIVERED'],
+                'to' => 'COMPLETED',
                 'requires_paid' => true,
             ],
         ];
@@ -1019,33 +1013,33 @@ class OrderService
         return [
             'ARRIVE_PICKUP' => [
                 'label' => 'Tiba di Toko / Merchant',
-                'from'  => ['DRIVER_ASSIGNED'],
-                'to'    => 'ARRIVED_MERCHANT',
+                'from' => ['DRIVER_ASSIGNED'],
+                'to' => 'ARRIVED_MERCHANT',
             ],
             'CONFIRM_PICKED_UP' => [
                 'label' => 'Belanja Selesai',
-                'from'  => ['ARRIVED_MERCHANT'],
-                'to'    => 'PICKED_UP',
+                'from' => ['ARRIVED_MERCHANT'],
+                'to' => 'PICKED_UP',
             ],
             'START_DELIVERY' => [
                 'label' => 'Menuju Customer',
-                'from'  => ['PICKED_UP'],
-                'to'    => 'ON_THE_WAY',
+                'from' => ['PICKED_UP'],
+                'to' => 'ON_THE_WAY',
             ],
             'ARRIVE_DROPOFF' => [
                 'label' => 'Tiba di Lokasi Customer',
-                'from'  => ['ON_THE_WAY'],
-                'to'    => 'ARRIVED_DROPOFF',
+                'from' => ['ON_THE_WAY'],
+                'to' => 'ARRIVED_DROPOFF',
             ],
             'CONFIRM_DELIVERED' => [
                 'label' => 'Barang Diserahkan',
-                'from'  => ['ARRIVED_DROPOFF'],
-                'to'    => 'DELIVERED',
+                'from' => ['ARRIVED_DROPOFF'],
+                'to' => 'DELIVERED',
             ],
             'COMPLETE_ORDER' => [
-                'label'         => 'Selesaikan Order',
-                'from'          => ['DELIVERED'],
-                'to'            => 'COMPLETED',
+                'label' => 'Selesaikan Order',
+                'from' => ['DELIVERED'],
+                'to' => 'COMPLETED',
                 'requires_paid' => true,
             ],
         ];
@@ -1092,8 +1086,7 @@ class OrderService
         );
 
         $acceptedAt = $order->statusHistories
-            ->first(fn (OrderStatusHistory $history): bool =>
-                strtoupper((string) ($history->statusRef->code ?? '')) === 'DRIVER_ASSIGNED'
+            ->first(fn (OrderStatusHistory $history): bool => strtoupper((string) ($history->statusRef->code ?? '')) === 'DRIVER_ASSIGNED'
             );
 
         $itemCount = (int) $order->items->sum('quantity');
@@ -1122,7 +1115,6 @@ class OrderService
             'status_display_name' => $order->statusRef?->display_name,
             'payment_status' => $paymentStatus,
             'payment_method' => $order->payment_method,
-            'notes' => $order->notes,
             'available_actions' => $availableActions,
         ];
 
@@ -1214,7 +1206,7 @@ class OrderService
         $rules = $this->driverActionRules($serviceCode);
 
         foreach ($rules as $actionCode => $rule) {
-            if (!in_array($statusCode, (array) $rule['from'], true)) {
+            if (! in_array($statusCode, (array) $rule['from'], true)) {
                 continue;
             }
 
@@ -1261,6 +1253,7 @@ class OrderService
         }
 
         $minutes = now()->diffInMinutes($order->estimated_delivery, false);
+
         return $minutes > 0 ? $minutes : 0;
     }
 
@@ -1285,11 +1278,9 @@ class OrderService
         }
 
         $rideOrder = $order->rideOrder;
-        if (!$rideOrder) {
+        if (! $rideOrder) {
             /** @var \App\Models\RideOrder $rideOrder */
-            $rideOrder = $order->rideOrder()->create([
-                'notes' => $order->notes,
-            ]);
+            $rideOrder = $order->rideOrder()->create();
         }
 
         if ($targetStatusCode === 'PICKED_UP' && $rideOrder->picked_up_at === null) {
@@ -1322,7 +1313,7 @@ class OrderService
             if ($itemSource === 'MENU_DB') {
                 $menu = Menu::query()->where('id', (int) $payload['menu_id'])->first();
 
-                if (!$menu || !$menu->is_available) {
+                if (! $menu || ! $menu->is_available) {
                     throw new ApiException('Menu tidak ditemukan atau tidak tersedia.', 404);
                 }
 
@@ -1370,7 +1361,7 @@ class OrderService
             /** @var \App\Models\OrderItem|null $item */
             $item = $order->items()->where('id', $itemId)->first();
 
-            if (!$item) {
+            if (! $item) {
                 throw new ApiException('Item order tidak ditemukan.', 404);
             }
 
@@ -1415,7 +1406,7 @@ class OrderService
             $order = $this->getEditableShoppingOrder($user, $orderId);
             $item = $order->items()->where('id', $itemId)->first();
 
-            if (!$item) {
+            if (! $item) {
                 throw new ApiException('Item order tidak ditemukan.', 404);
             }
 
@@ -1451,7 +1442,7 @@ class OrderService
         $statusCode = $legacyMap[$normalized] ?? $normalized;
         $statusId = OrderStatus::query()->where('code', $statusCode)->value('id');
 
-        if (!$statusId) {
+        if (! $statusId) {
             throw new ApiException('Status order tidak valid.', 422);
         }
 
@@ -1464,7 +1455,7 @@ class OrderService
             ->with(['items', 'shoppingOrder', 'statusRef', 'serviceType'])
             ->find($orderId);
 
-        if (!$order || $order->user_id !== $user->id) {
+        if (! $order || $order->user_id !== $user->id) {
             throw new ApiException('Order tidak ditemukan.', 404);
         }
 
@@ -1473,11 +1464,11 @@ class OrderService
         }
 
         $statusCode = $order->statusRef?->code;
-        if (!in_array($statusCode, $this->editableShoppingStatuses, true)) {
+        if (! in_array($statusCode, $this->editableShoppingStatuses, true)) {
             throw new ApiException('Item tidak bisa diubah pada status order saat ini.', 409);
         }
 
-        if (!$order->shoppingOrder) {
+        if (! $order->shoppingOrder) {
             $order->shoppingOrder()->create([
                 'failed_attempt_count' => 0,
                 'item_surcharge' => 0,
@@ -1496,7 +1487,7 @@ class OrderService
     private function recalculateShoppingOrder(Order $order, int $changedByUserId, string $triggerType, bool $writeHistory = true): Order
     {
         $shoppingOrder = $order->shoppingOrder;
-        if (!$shoppingOrder instanceof ShoppingOrder) {
+        if (! $shoppingOrder instanceof ShoppingOrder) {
             throw new ApiException('Data shopping order tidak ditemukan.', 500);
         }
 
@@ -1652,7 +1643,7 @@ class OrderService
                 ->lockForUpdate()
                 ->find($orderId);
 
-            if (!$order) {
+            if (! $order) {
                 throw new ApiException('Order tidak ditemukan.', 404);
             }
 
@@ -1667,7 +1658,7 @@ class OrderService
             $orderDriverId = (int) ($order->driver_id ?? 0);
             if ($enforceAssignedDriver) {
                 $driver = Driver::query()->where('user_id', $actor->id)->first();
-                if (!$driver) {
+                if (! $driver) {
                     throw new ApiException('Profil driver tidak ditemukan.', 403);
                 }
 
@@ -1749,8 +1740,7 @@ class OrderService
     {
         if ($order->relationLoaded('payments')) {
             return $order->payments->contains(
-                fn (OrderPayment $payment): bool =>
-                    strtoupper((string) $payment->payment_method) === 'COD'
+                fn (OrderPayment $payment): bool => strtoupper((string) $payment->payment_method) === 'COD'
                     && strtoupper((string) $payment->payment_status) === 'PAID'
             );
         }

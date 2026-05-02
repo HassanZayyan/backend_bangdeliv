@@ -1,15 +1,15 @@
 <?php
 
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CartController;
 use App\Http\Controllers\Api\ChatbotController;
-use App\Http\Controllers\Api\AuthController;
-use App\Http\Controllers\Api\OrderController;
-use App\Http\Controllers\Api\DriverVerificationController;
-use App\Http\Controllers\Api\RestaurantController;
-use App\Http\Controllers\Api\HomeController;
 use App\Http\Controllers\Api\Driver\OrderExecutionController;
+use App\Http\Controllers\Api\DriverVerificationController;
+use App\Http\Controllers\Api\HomeController;
+use App\Http\Controllers\Api\OrderChatController;
+use App\Http\Controllers\Api\OrderController;
+use App\Http\Controllers\Api\RestaurantController;
+use Illuminate\Support\Facades\Route;
 
 // Public Auth Routes
 Route::post('/auth/register/customer', [AuthController::class, 'registerCustomer']);
@@ -38,6 +38,11 @@ Route::prefix('v1')->group(function () {
     Route::get('/restaurants', [RestaurantController::class, 'index']);
     Route::get('/restaurants/{restaurantIdOrSlug}', [RestaurantController::class, 'show']);
     Route::get('/restaurants/{restaurantIdOrSlug}/menus', [RestaurantController::class, 'menus']);
+
+    Route::middleware('auth:sanctum')->group(function () {
+        Route::get('/orders/{orderId}/chat/messages', [OrderChatController::class, 'index']);
+        Route::post('/orders/{orderId}/chat/messages', [OrderChatController::class, 'store']);
+    });
 
     Route::middleware(['auth:sanctum', 'role:customer'])->group(function () {
         Route::get('/cart', [CartController::class, 'show']);

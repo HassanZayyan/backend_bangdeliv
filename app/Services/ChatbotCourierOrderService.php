@@ -3,8 +3,8 @@
 namespace App\Services;
 
 use App\Exceptions\ApiException;
-use App\Models\AiChatLog;
 use App\Models\Address;
+use App\Models\AiChatLog;
 use App\Models\CourierOrder;
 use App\Models\Order;
 use App\Models\OrderStatus;
@@ -96,8 +96,7 @@ class ChatbotCourierOrderService
         private readonly GoogleMapsGeocodingService $geocodingService,
         private readonly GoogleMapsDistanceMatrixService $distanceMatrixService,
         private readonly DeliveryPricingService $deliveryPricingService
-    ) {
-    }
+    ) {}
 
     /**
      * @return array<string, mixed>
@@ -108,7 +107,7 @@ class ChatbotCourierOrderService
             throw new ApiException('Hanya customer yang dapat membuat order kurir dari chatbot.', 403);
         }
 
-        if (!$user->is_active || $user->is_blacklisted) {
+        if (! $user->is_active || $user->is_blacklisted) {
             throw new ApiException('Akun tidak memenuhi syarat untuk membuat order kurir.', 403);
         }
 
@@ -141,16 +140,16 @@ class ChatbotCourierOrderService
     {
         $defaultPickupAddress = $this->resolveDefaultPickupAddress($user);
         $pickupText = null;
-        $pickupLat  = null;
-        $pickupLng  = null;
+        $pickupLat = null;
+        $pickupLng = null;
         $pickupAddressId = null;
 
         if ($defaultPickupAddress !== null) {
             $resolved = $this->resolveProfilePickupAddress($defaultPickupAddress);
             if ($resolved !== null) {
-                $pickupText      = $resolved['formatted_address'];
-                $pickupLat       = $resolved['latitude'];
-                $pickupLng       = $resolved['longitude'];
+                $pickupText = $resolved['formatted_address'];
+                $pickupLat = $resolved['latitude'];
+                $pickupLng = $resolved['longitude'];
                 $pickupAddressId = $defaultPickupAddress->id;
             }
         }
@@ -169,16 +168,16 @@ class ChatbotCourierOrderService
             'intent' => 'courier_order',
             'service_type' => 'kurir',
             'courier' => [
-                'pickup_address'      => $pickupText,
-                'pickup_latitude'     => $pickupLat,
-                'pickup_longitude'    => $pickupLng,
-                'pickup_address_id'   => $pickupAddressId,
+                'pickup_address' => $pickupText,
+                'pickup_latitude' => $pickupLat,
+                'pickup_longitude' => $pickupLng,
+                'pickup_address_id' => $pickupAddressId,
                 'used_default_pickup' => $pickupText !== null,
-                'dropoff_address'     => null,
-                'dropoff_latitude'    => null,
-                'dropoff_longitude'   => null,
+                'dropoff_address' => null,
+                'dropoff_latitude' => null,
+                'dropoff_longitude' => null,
                 'package_description' => null,
-                'ready_to_confirm'    => false,
+                'ready_to_confirm' => false,
             ],
             'validation' => [
                 'is_valid_order' => false,
@@ -228,8 +227,7 @@ class ChatbotCourierOrderService
                     'order_number' => null,
                     'delivery_fee' => null,
                 ],
-                'assistant_text' =>
-                    'Belum ada draft pengiriman yang siap dikonfirmasi. Kirim dulu detail pickup, tujuan, dan isi paket, lalu ketik "Konfirmasi".',
+                'assistant_text' => 'Belum ada draft pengiriman yang siap dikonfirmasi. Kirim dulu detail pickup, tujuan, dan isi paket, lalu ketik "Konfirmasi".',
             ];
         }
 
@@ -450,7 +448,7 @@ class ChatbotCourierOrderService
                 $distanceMeters = (float) $route['distance_meters'];
                 $distanceKm = (float) $route['distance_km'];
 
-                if (!$this->deliveryPricingService->isWithinMaxDistance($distanceMeters)) {
+                if (! $this->deliveryPricingService->isWithinMaxDistance($distanceMeters)) {
                     $reasons[] = sprintf(
                         'Jarak %.2f km melebihi batas layanan %.2f km.',
                         $distanceKm,
@@ -602,7 +600,7 @@ class ChatbotCourierOrderService
         $serviceTypeId = ServiceType::query()->where('code', 'COURIER')->value('id');
         $pendingStatusId = OrderStatus::query()->where('code', 'PENDING')->value('id');
 
-        if (!$serviceTypeId || !$pendingStatusId) {
+        if (! $serviceTypeId || ! $pendingStatusId) {
             throw new ApiException('Konfigurasi service type atau status order belum lengkap.', 500);
         }
 
@@ -629,7 +627,7 @@ class ChatbotCourierOrderService
         $distanceMeters = (float) $route['distance_meters'];
         $distanceKm = (float) $route['distance_km'];
 
-        if (!$this->deliveryPricingService->isWithinMaxDistance($distanceMeters)) {
+        if (! $this->deliveryPricingService->isWithinMaxDistance($distanceMeters)) {
             throw new ApiException(sprintf(
                 'Jarak %.2f km melebihi batas layanan %.2f km.',
                 $distanceKm,
@@ -677,7 +675,6 @@ class ChatbotCourierOrderService
                     : null,
                 'total_price' => round($totalAmount, 2),
                 'status_id' => $pendingStatusId,
-                'notes' => "Order kurir dibuat via chatbot.\nPickup: {$pickupAddress}\nDropoff: {$dropoffAddress}\nPaket: {$packageDescription}",
                 'estimated_delivery' => Carbon::now()->addMinutes($estimatedMinutes),
             ]);
 
@@ -698,7 +695,6 @@ class ChatbotCourierOrderService
                     'latitude' => round($pickupLatitude, 8),
                     'longitude' => round($pickupLongitude, 8),
                     'sequence_no' => 1,
-                    'notes' => 'Lokasi ambil dari chatbot.',
                 ],
                 [
                     'location_role' => 'DROPOFF',
@@ -709,7 +705,6 @@ class ChatbotCourierOrderService
                     'latitude' => round($dropoffLatitude, 8),
                     'longitude' => round($dropoffLongitude, 8),
                     'sequence_no' => 2,
-                    'notes' => 'Lokasi tujuan dari chatbot.',
                 ],
             ]);
 
@@ -764,7 +759,7 @@ class ChatbotCourierOrderService
                 continue;
             }
 
-            if (!$this->isLikelyAddressFragment($value)) {
+            if (! $this->isLikelyAddressFragment($value)) {
                 continue;
             }
 
@@ -806,7 +801,7 @@ class ChatbotCourierOrderService
 
     private function sanitizeAddressFragment(?string $value): ?string
     {
-        if (!is_string($value)) {
+        if (! is_string($value)) {
             return null;
         }
 
@@ -848,7 +843,7 @@ class ChatbotCourierOrderService
         }
 
         $parts = preg_split('/\s+/', $normalized);
-        if (!is_array($parts)) {
+        if (! is_array($parts)) {
             return false;
         }
 
@@ -905,7 +900,7 @@ class ChatbotCourierOrderService
      */
     private function buildDraftSeedFromNlu(?array $nluPayload): ?array
     {
-        if (!is_array($nluPayload)) {
+        if (! is_array($nluPayload)) {
             return null;
         }
 
@@ -947,7 +942,7 @@ class ChatbotCourierOrderService
     {
         $reasons = $parsed['validation']['rejection_reasons'] ?? [];
 
-        if (!is_array($reasons) || $reasons === []) {
+        if (! is_array($reasons) || $reasons === []) {
             return 'Data kurir belum lengkap. Mohon isi lokasi ambil, tujuan kirim, dan isi paket.';
         }
 
@@ -1013,7 +1008,7 @@ class ChatbotCourierOrderService
         }
 
         $payload = $latestAssistantLog->ai_response;
-        if (!is_array($payload)) {
+        if (! is_array($payload)) {
             return null;
         }
 
@@ -1022,13 +1017,13 @@ class ChatbotCourierOrderService
         }
 
         $order = $payload['order'] ?? null;
-        if (!is_array($order) || ($order['created'] ?? false) === true) {
+        if (! is_array($order) || ($order['created'] ?? false) === true) {
             return null;
         }
 
         $validation = $payload['validation'] ?? null;
         $courier = $payload['courier'] ?? null;
-        if (!is_array($validation) || !is_array($courier)) {
+        if (! is_array($validation) || ! is_array($courier)) {
             return null;
         }
 

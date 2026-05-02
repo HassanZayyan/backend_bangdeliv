@@ -10,8 +10,6 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $order_id
  * @property \Carbon\Carbon|null $picked_up_at
  * @property \Carbon\Carbon|null $arrived_at
- * @property string|null $notes
- *
  * @property-read \App\Models\Order $order
  */
 class RideOrder extends Model
@@ -20,7 +18,6 @@ class RideOrder extends Model
         'order_id',
         'picked_up_at',
         'arrived_at',
-        'notes',
     ];
 
     protected function casts(): array

@@ -19,8 +19,7 @@ class RideOrderService
         private readonly GoogleMapsGeocodingService $geocodingService,
         private readonly GoogleMapsDistanceMatrixService $distanceMatrixService,
         private readonly DeliveryPricingService $deliveryPricingService
-    ) {
-    }
+    ) {}
 
     /**
      * @param  array<string, mixed>  $payload
@@ -35,7 +34,7 @@ class RideOrderService
                 ->where('user_id', $user->id)
                 ->first();
 
-            if (!$pickupAddress) {
+            if (! $pickupAddress) {
                 throw new ApiException('Alamat jemput tidak ditemukan.', 404);
             }
         }
@@ -43,7 +42,7 @@ class RideOrderService
         $rideServiceTypeId = ServiceType::query()->where('code', 'RIDE')->value('id');
         $pendingStatusId = OrderStatus::query()->where('code', 'PENDING')->value('id');
 
-        if (!$rideServiceTypeId || !$pendingStatusId) {
+        if (! $rideServiceTypeId || ! $pendingStatusId) {
             throw new ApiException('Konfigurasi service type atau status order belum lengkap.', 500);
         }
 
@@ -109,7 +108,7 @@ class RideOrderService
         $distanceMeters = (float) $route['distance_meters'];
         $distanceKm = (float) $route['distance_km'];
 
-        if (!$this->deliveryPricingService->isWithinMaxDistance($distanceMeters)) {
+        if (! $this->deliveryPricingService->isWithinMaxDistance($distanceMeters)) {
             throw new ApiException(sprintf(
                 'Jarak %.2f km melebihi batas layanan %.2f km.',
                 $distanceKm,
@@ -140,7 +139,6 @@ class RideOrderService
             $serviceFee,
             $totalAmount,
             $estimatedMinutes,
-            $payload,
             $pickupAddressText,
             $pickupLatitude,
             $pickupLongitude
@@ -157,7 +155,6 @@ class RideOrderService
                 'delivery_distance_text' => (string) ($route['distance_text'] ?? number_format($distanceKm, 2).' km'),
                 'total_price' => round($totalAmount, 2),
                 'status_id' => $pendingStatusId,
-                'notes' => $payload['notes'] ?? null,
                 'estimated_delivery' => Carbon::now()->addMinutes($estimatedMinutes),
             ]);
 
@@ -171,7 +168,6 @@ class RideOrderService
 
             RideOrder::query()->create([
                 'order_id' => $order->id,
-                'notes' => $payload['notes'] ?? null,
             ]);
 
             $order->orderLocations()->createMany([
@@ -184,7 +180,6 @@ class RideOrderService
                     'latitude' => round($pickupLatitude, 8),
                     'longitude' => round($pickupLongitude, 8),
                     'sequence_no' => 1,
-                    'notes' => 'Lokasi jemput order ride.',
                 ],
                 [
                     'location_role' => 'DROPOFF',
@@ -195,7 +190,6 @@ class RideOrderService
                     'latitude' => round($destinationLatitude, 8),
                     'longitude' => round($destinationLongitude, 8),
                     'sequence_no' => 2,
-                    'notes' => 'Lokasi tujuan order ride.',
                 ],
             ]);
 

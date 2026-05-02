@@ -100,7 +100,6 @@ class AuthProfileTest extends TestCase
             'status_id' => $completedStatus->id,
             'cancellation_reason' => null,
             'cancelled_by' => null,
-            'notes' => null,
             'estimated_delivery' => null,
             'delivered_at' => now(),
         ]);
@@ -575,7 +574,7 @@ class AuthProfileTest extends TestCase
             ], 200),
         ]);
 
-        $response = $this->putJson('/api/user/addresses/' . $address->id, [
+        $response = $this->putJson('/api/user/addresses/'.$address->id, [
             'label' => 'Kantor',
             'recipient_name' => 'Edit Alamat Baru',
             'phone' => '0812-0009-9901',
@@ -694,7 +693,7 @@ class AuthProfileTest extends TestCase
             ], 200),
         ]);
 
-        $response = $this->putJson('/api/user/addresses/' . $address->id, [
+        $response = $this->putJson('/api/user/addresses/'.$address->id, [
             'label' => 'Rumah Baru',
             'recipient_name' => 'Update GPS',
             'phone' => '0812-0001-1122',
@@ -829,7 +828,7 @@ class AuthProfileTest extends TestCase
 
         Sanctum::actingAs($user);
 
-        $response = $this->deleteJson('/api/user/addresses/' . $defaultAddress->id);
+        $response = $this->deleteJson('/api/user/addresses/'.$defaultAddress->id);
 
         $response->assertOk()
             ->assertJsonPath('message', 'Alamat berhasil dihapus.');

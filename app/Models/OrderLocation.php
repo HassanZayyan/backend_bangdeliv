@@ -16,8 +16,6 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string $latitude
  * @property string $longitude
  * @property int $sequence_no
- * @property string|null $notes
- *
  * @property-read \App\Models\Order $order
  */
 class OrderLocation extends Model
@@ -34,7 +32,6 @@ class OrderLocation extends Model
         'latitude',
         'longitude',
         'sequence_no',
-        'notes',
     ];
 
     protected function casts(): array

@@ -3,8 +3,8 @@
 namespace App\Services;
 
 use App\Exceptions\ApiException;
-use App\Models\AiChatLog;
 use App\Models\Address;
+use App\Models\AiChatLog;
 use App\Models\Order;
 use App\Models\User;
 
@@ -33,8 +33,7 @@ class ChatbotRideOrderService
         private readonly GoogleMapsGeocodingService $geocodingService,
         private readonly GoogleMapsDistanceMatrixService $distanceMatrixService,
         private readonly DeliveryPricingService $deliveryPricingService
-    ) {
-    }
+    ) {}
 
     /**
      * @param  array<string, mixed>|null  $nluPayload
@@ -46,7 +45,7 @@ class ChatbotRideOrderService
             throw new ApiException('Hanya customer yang dapat membuat order antar jemput dari chatbot.', 403);
         }
 
-        if (!$user->is_active || $user->is_blacklisted) {
+        if (! $user->is_active || $user->is_blacklisted) {
             throw new ApiException('Akun tidak memenuhi syarat untuk membuat order antar jemput.', 403);
         }
 
@@ -78,16 +77,16 @@ class ChatbotRideOrderService
     {
         $defaultPickupAddress = $this->resolveDefaultPickupAddress($user);
         $pickupText = null;
-        $pickupLat  = null;
-        $pickupLng  = null;
+        $pickupLat = null;
+        $pickupLng = null;
         $pickupAddressId = null;
 
         if ($defaultPickupAddress !== null) {
             $resolved = $this->resolveProfilePickupAddress($defaultPickupAddress);
             if ($resolved !== null) {
-                $pickupText      = $resolved['formatted_address'];
-                $pickupLat       = $resolved['latitude'];
-                $pickupLng       = $resolved['longitude'];
+                $pickupText = $resolved['formatted_address'];
+                $pickupLat = $resolved['latitude'];
+                $pickupLng = $resolved['longitude'];
                 $pickupAddressId = $defaultPickupAddress->id;
             }
         }
@@ -101,28 +100,28 @@ class ChatbotRideOrderService
         }
 
         return [
-            'intent'       => 'ride_order',
+            'intent' => 'ride_order',
             'service_type' => 'antar_jemput',
-            'ride'         => [
-                'pickup_address'      => $pickupText,
-                'pickup_latitude'     => $pickupLat,
-                'pickup_longitude'    => $pickupLng,
-                'pickup_address_id'   => $pickupAddressId,
+            'ride' => [
+                'pickup_address' => $pickupText,
+                'pickup_latitude' => $pickupLat,
+                'pickup_longitude' => $pickupLng,
+                'pickup_address_id' => $pickupAddressId,
                 'used_default_pickup' => $pickupText !== null,
-                'destination_address'    => null,
-                'destination_latitude'   => null,
-                'destination_longitude'  => null,
-                'ready_to_confirm'       => false,
+                'destination_address' => null,
+                'destination_latitude' => null,
+                'destination_longitude' => null,
+                'ready_to_confirm' => false,
             ],
             'validation' => [
-                'is_valid_order'   => false,
+                'is_valid_order' => false,
                 'rejection_reasons' => [],
-                'missing_fields'   => ['destination_address'],
-                'next_actions'     => $pickupText === null ? ['OPEN_ADDRESSES'] : [],
+                'missing_fields' => ['destination_address'],
+                'next_actions' => $pickupText === null ? ['OPEN_ADDRESSES'] : [],
             ],
             'order' => [
-                'created'      => false,
-                'id'           => null,
+                'created' => false,
+                'id' => null,
                 'order_number' => null,
                 'delivery_fee' => null,
             ],
@@ -143,7 +142,6 @@ class ChatbotRideOrderService
 
         $ridePayload = [
             'destination_address' => (string) $pendingDraft['destination_address'],
-            'notes' => 'Order Antar Jemput dibuat via chatbot.',
         ];
 
         $pickupAddressId = $pendingDraft['pickup_address_id'] ?? null;
@@ -359,7 +357,7 @@ class ChatbotRideOrderService
                 $distanceMeters = (float) $route['distance_meters'];
                 $distanceKm = (float) $route['distance_km'];
 
-                if (!$this->deliveryPricingService->isWithinMaxDistance($distanceMeters)) {
+                if (! $this->deliveryPricingService->isWithinMaxDistance($distanceMeters)) {
                     $reasons[] = sprintf(
                         'Jarak %.2f km melebihi batas layanan %.2f km.',
                         $distanceKm,
@@ -406,7 +404,7 @@ class ChatbotRideOrderService
 
     private function normalizeOptionalString(mixed $value): ?string
     {
-        if (!is_string($value)) {
+        if (! is_string($value)) {
             return null;
         }
 
@@ -597,11 +595,11 @@ class ChatbotRideOrderService
         $reasons = $draft['validation']['rejection_reasons'] ?? [];
         $missingFields = $draft['validation']['missing_fields'] ?? [];
 
-        if (!is_array($reasons) || $reasons === []) {
+        if (! is_array($reasons) || $reasons === []) {
             return 'Data antar jemput belum lengkap. Mohon isi lokasi tujuan.';
         }
 
-        if (!is_array($missingFields)) {
+        if (! is_array($missingFields)) {
             $missingFields = [];
         }
 
@@ -667,7 +665,7 @@ class ChatbotRideOrderService
         }
 
         $payload = $latestAssistantLog->ai_response;
-        if (!is_array($payload)) {
+        if (! is_array($payload)) {
             return null;
         }
 
@@ -676,13 +674,13 @@ class ChatbotRideOrderService
         }
 
         $order = $payload['order'] ?? null;
-        if (!is_array($order) || ($order['created'] ?? false) === true) {
+        if (! is_array($order) || ($order['created'] ?? false) === true) {
             return null;
         }
 
         $validation = $payload['validation'] ?? null;
         $ride = $payload['ride'] ?? null;
-        if (!is_array($validation) || !is_array($ride)) {
+        if (! is_array($validation) || ! is_array($ride)) {
             return null;
         }
 

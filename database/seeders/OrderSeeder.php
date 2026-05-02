@@ -9,8 +9,8 @@ use App\Models\Order;
 use App\Models\OrderStatus;
 use App\Models\OrderStatusHistory;
 use App\Models\Restaurant;
-use App\Models\ShoppingOrder;
 use App\Models\ServiceType;
+use App\Models\ShoppingOrder;
 use App\Models\User;
 use Illuminate\Database\Seeder;
 
@@ -23,7 +23,7 @@ class OrderSeeder extends Seeder
         $driver = Driver::query()->where('registration_status', 'active')->first();
         $restaurant = Restaurant::query()->where('slug', 'ayam-geprek-juara')->first();
 
-        if (!$customer || !$customerTwo || !$driver || !$restaurant) {
+        if (! $customer || ! $customerTwo || ! $driver || ! $restaurant) {
             return;
         }
 
@@ -62,12 +62,12 @@ class OrderSeeder extends Seeder
         $menuA = Menu::query()->where('restaurant_id', $restaurant->id)->where('name', 'Paket Geprek Original')->first();
         $menuB = Menu::query()->where('restaurant_id', $restaurant->id)->where('name', 'Es Teh Manis')->first();
 
-        if (!$menuA || !$menuB) {
+        if (! $menuA || ! $menuB) {
             return;
         }
 
         $shoppingServiceTypeId = ServiceType::query()->where('code', 'SHOPPING')->value('id');
-        if (!$shoppingServiceTypeId) {
+        if (! $shoppingServiceTypeId) {
             return;
         }
 
@@ -125,7 +125,7 @@ class OrderSeeder extends Seeder
         int $shoppingServiceTypeId,
         array $statusMap
     ): void {
-        if (!isset($statusMap[$statusCode])) {
+        if (! isset($statusMap[$statusCode])) {
             return;
         }
 
@@ -149,7 +149,6 @@ class OrderSeeder extends Seeder
                 'delivery_distance_text' => '3.2 km',
                 'total_price' => $subtotal + $deliveryFee,
                 'status_id' => $statusMap[$statusCode],
-                'notes' => 'Order seeded for development.',
                 'estimated_delivery' => now()->addMinutes(35),
                 'delivered_at' => $statusCode === 'COMPLETED' ? now()->subMinutes(15) : null,
             ]
@@ -166,7 +165,6 @@ class OrderSeeder extends Seeder
                 'latitude' => $restaurant->latitude,
                 'longitude' => $restaurant->longitude,
                 'sequence_no' => 1,
-                'notes' => 'Seeded restaurant pickup.',
             ],
             [
                 'location_role' => 'DROPOFF',
@@ -177,7 +175,6 @@ class OrderSeeder extends Seeder
                 'latitude' => $address->latitude,
                 'longitude' => $address->longitude,
                 'sequence_no' => 2,
-                'notes' => 'Seeded customer dropoff.',
             ],
         ]);
 
@@ -232,7 +229,7 @@ class OrderSeeder extends Seeder
 
         OrderStatusHistory::query()->where('order_id', $order->id)->delete();
         foreach ($historyStatuses as $historyStatus) {
-            if (!isset($statusMap[$historyStatus])) {
+            if (! isset($statusMap[$historyStatus])) {
                 continue;
             }
 

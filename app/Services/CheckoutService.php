@@ -8,8 +8,8 @@ use App\Models\Order;
 use App\Models\OrderStatus;
 use App\Models\OrderStatusHistory;
 use App\Models\Restaurant;
-use App\Models\ShoppingOrder;
 use App\Models\ServiceType;
+use App\Models\ShoppingOrder;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -20,9 +20,7 @@ class CheckoutService
         private readonly CartService $cartService,
         private readonly GoogleMapsDistanceMatrixService $distanceMatrixService,
         private readonly DeliveryPricingService $deliveryPricingService
-    )
-    {
-    }
+    ) {}
 
     /**
      * @param  array<string, mixed>  $payload
@@ -31,7 +29,7 @@ class CheckoutService
     {
         $cart = $this->cartService->getActiveCart($user);
 
-        if (!$cart || $cart->items->isEmpty()) {
+        if (! $cart || $cart->items->isEmpty()) {
             throw new ApiException('Cart kosong. Tambahkan menu terlebih dahulu.', 409);
         }
 
@@ -40,17 +38,17 @@ class CheckoutService
             ->where('user_id', $user->id)
             ->first();
 
-        if (!$address) {
+        if (! $address) {
             throw new ApiException('Alamat tidak ditemukan.', 404);
         }
 
         $restaurant = Restaurant::query()->find($cart->restaurant_id);
-        if (!$restaurant || $restaurant->status !== 'active') {
+        if (! $restaurant || $restaurant->status !== 'active') {
             throw new ApiException('Restoran tidak aktif.', 409);
         }
 
         foreach ($cart->items as $item) {
-            if (!$item->menu || !$item->menu->is_available) {
+            if (! $item->menu || ! $item->menu->is_available) {
                 throw new ApiException('Ada menu yang tidak tersedia. Perbarui cart dan coba lagi.', 409);
             }
         }
@@ -79,7 +77,7 @@ class CheckoutService
         $distanceMeters = (float) $route['distance_meters'];
         $distanceKm = (float) $route['distance_km'];
 
-        if (!$this->deliveryPricingService->isWithinMaxDistance($distanceMeters)) {
+        if (! $this->deliveryPricingService->isWithinMaxDistance($distanceMeters)) {
             throw new ApiException(sprintf(
                 'Jarak %.2f km melebihi batas layanan %.2f km.',
                 $distanceKm,
@@ -98,13 +96,12 @@ class CheckoutService
         $shoppingServiceTypeId = ServiceType::query()->where('code', 'SHOPPING')->value('id');
         $pendingStatusId = OrderStatus::query()->where('code', 'PENDING')->value('id');
 
-        if (!$shoppingServiceTypeId || !$pendingStatusId) {
+        if (! $shoppingServiceTypeId || ! $pendingStatusId) {
             throw new ApiException('Konfigurasi service type atau status order belum lengkap.', 500);
         }
 
         return DB::transaction(function () use (
             $user,
-            $payload,
             $cart,
             $address,
             $restaurant,
@@ -130,7 +127,6 @@ class CheckoutService
                 'delivery_distance_text' => (string) ($route['distance_text'] ?? number_format($distanceKm, 2).' km'),
                 'total_price' => round($totalAmount, 2),
                 'status_id' => $pendingStatusId,
-                'notes' => $payload['notes'] ?? null,
                 'estimated_delivery' => Carbon::now()->addMinutes((int) $restaurant->estimated_prep_time + $routeMinutes),
             ]);
 
@@ -181,7 +177,6 @@ class CheckoutService
                     'latitude' => $restaurant->latitude,
                     'longitude' => $restaurant->longitude,
                     'sequence_no' => 1,
-                    'notes' => 'Lokasi restoran saat checkout.',
                 ],
                 [
                     'location_role' => 'DROPOFF',
@@ -192,7 +187,6 @@ class CheckoutService
                     'latitude' => $address->latitude,
                     'longitude' => $address->longitude,
                     'sequence_no' => 2,
-                    'notes' => 'Snapshot alamat customer saat checkout.',
                 ],
             ]);
 

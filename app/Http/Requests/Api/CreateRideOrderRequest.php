@@ -31,7 +31,6 @@ class CreateRideOrderRequest extends FormRequest
                 'between:-180,180',
                 'required_with:destination_latitude',
             ],
-            'notes' => ['nullable', 'string', 'max:1000'],
         ];
     }
 }

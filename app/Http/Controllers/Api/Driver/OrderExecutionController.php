@@ -2,10 +2,10 @@
 
 namespace App\Http\Controllers\Api\Driver;
 
+use App\Exceptions\ApiException;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
-use App\Events\DriverLocationUpdated;
-use App\Exceptions\ApiException;
+use App\Services\OrderRealtimeBroadcaster;
 use App\Services\OrderService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -19,7 +19,7 @@ class OrderExecutionController extends Controller
     public function updateStatus(Request $request, OrderService $orderService, $orderId)
     {
         $request->validate([
-            'status_code' => 'required|string|exists:order_statuses,code'
+            'status_code' => 'required|string|exists:order_statuses,code',
         ]);
 
         $order = Order::where('id', $orderId)
@@ -29,24 +29,24 @@ class OrderExecutionController extends Controller
             ->firstOrFail();
 
         $statusCode = strtoupper($request->status_code);
-        
-        // Legacy status_code → action_code mapping (backward-compat adapter).
+
+        // Legacy status_code -> action_code mapping (backward-compat adapter).
         // Note: ON_THE_WAY maps to BOARD_PASSENGER for RIDE (resolved by service below),
         // or START_DELIVERY for COURIER/SHOPPING. The action engine will reject invalid combos.
         $actionCode = match ($statusCode) {
-            'ARRIVED_MERCHANT'              => 'ARRIVE_PICKUP',   // SHOPPING
-            'ARRIVED_PICKUP'               => 'ARRIVE_PICKUP',   // RIDE / COURIER
-            'PICKED_UP'                    => 'CONFIRM_PICKED_UP',
-            'ON_THE_WAY'                   => 'START_DELIVERY',  // COURIER / SHOPPING
-            'ARRIVED_DROPOFF'              => 'ARRIVE_DROPOFF',
-            'DELIVERED'                    => 'CONFIRM_DELIVERED',
-            'COMPLETED'                    => 'COMPLETE_ORDER',
-            default                        => null,
+            'ARRIVED_MERCHANT' => 'ARRIVE_PICKUP',   // SHOPPING
+            'ARRIVED_PICKUP' => 'ARRIVE_PICKUP',   // RIDE / COURIER
+            'PICKED_UP' => 'CONFIRM_PICKED_UP',
+            'ON_THE_WAY' => 'START_DELIVERY',  // COURIER / SHOPPING
+            'ARRIVED_DROPOFF' => 'ARRIVE_DROPOFF',
+            'DELIVERED' => 'CONFIRM_DELIVERED',
+            'COMPLETED' => 'COMPLETE_ORDER',
+            default => null,
         };
 
-        if (!$actionCode) {
+        if (! $actionCode) {
             return response()->json([
-                'message' => 'Transisi status tidak didukung melalui endpoint legacy.'
+                'message' => 'Transisi status tidak didukung melalui endpoint legacy.',
             ], 422);
         }
 
@@ -62,12 +62,12 @@ class OrderExecutionController extends Controller
                 'message' => 'Status updated successfully.',
                 'data' => [
                     'status_code' => $updatedOrder['status_code'] ?? $statusCode,
-                    'display_name' => $updatedOrder['status_display_name'] ?? $statusCode
-                ]
+                    'display_name' => $updatedOrder['status_display_name'] ?? $statusCode,
+                ],
             ]);
         } catch (ApiException $e) {
             return response()->json([
-                'message' => $e->getMessage()
+                'message' => $e->getMessage(),
             ], $e->status());
         }
     }
@@ -75,12 +75,12 @@ class OrderExecutionController extends Controller
     /**
      * Broadcast driver location via websocket (Fire-and-forget & Cache).
      */
-    public function updateLocation(Request $request, $orderId)
+    public function updateLocation(Request $request, OrderRealtimeBroadcaster $realtimeBroadcaster, $orderId)
     {
         $request->validate([
             'latitude' => 'required|numeric',
             'longitude' => 'required|numeric',
-            'heading' => 'nullable|numeric'
+            'heading' => 'nullable|numeric',
         ]);
 
         $order = Order::where('id', $orderId)
@@ -96,15 +96,17 @@ class OrderExecutionController extends Controller
             ? ['DRIVER_ASSIGNED', 'ARRIVED_PICKUP', 'ON_THE_WAY']
             : ['ON_THE_WAY'];
 
-        if (!in_array($currentStatusCode, $allowedStatusCodes, true)) {
+        if (! in_array($currentStatusCode, $allowedStatusCodes, true)) {
             return response()->json([
-                'message' => 'Location tracking belum tersedia pada status order saat ini.'
+                'message' => 'Location tracking belum tersedia pada status order saat ini.',
             ], 403);
         }
 
-        $lat = $request->input('latitude');
-        $lng = $request->input('longitude');
-        $heading = $request->input('heading', 0);
+        $lat = (float) $request->input('latitude');
+        $lng = (float) $request->input('longitude');
+        $heading = (float) $request->input('heading', 0);
+        $updatedAt = now();
+        $updatedAtIso = $updatedAt->toIso8601String();
 
         if ($order->driver) {
             $order->driver->update([
@@ -114,20 +116,37 @@ class OrderExecutionController extends Controller
         }
 
         // 1. Cache latest location for redundancy (in case websocket disconnects)
-        $cacheKey = 'driver_location:' . $order->driver_id;
+        $cacheKey = 'driver_location:'.$order->driver_id;
         Cache::put($cacheKey, [
             'order_id' => $order->id,
             'latitude' => $lat,
             'longitude' => $lng,
             'heading' => $heading,
-            'updated_at' => now()->toIso8601String()
+            'updated_at' => $updatedAtIso,
         ], now()->addHours(2));
 
         // 2. Broadcast to connected Customer
-        broadcast(new DriverLocationUpdated($order->id, $lat, $lng, $heading));
+        $broadcasted = $realtimeBroadcaster->driverLocationUpdated(
+            (int) $order->id,
+            $lat,
+            $lng,
+            $heading,
+            $updatedAtIso,
+        );
 
         return response()->json([
-            'message' => 'Location broadcasted successfully.'
+            'message' => $broadcasted
+                ? 'Location broadcasted successfully.'
+                : 'Location saved; realtime broadcast unavailable.',
+            'data' => [
+                'order_id' => (int) $order->id,
+                'location_saved' => true,
+                'broadcasted' => $broadcasted,
+                'latitude' => $lat,
+                'longitude' => $lng,
+                'heading' => $heading,
+                'updated_at' => $updatedAtIso,
+            ],
         ]);
     }
 }

@@ -18,7 +18,6 @@ class CheckoutOrderRequest extends FormRequest
     {
         return [
             'address_id' => ['required', 'integer', 'exists:addresses,id'],
-            'notes' => ['nullable', 'string', 'max:1000'],
         ];
     }
 }
