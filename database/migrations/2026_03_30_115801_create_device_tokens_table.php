@@ -19,6 +19,7 @@ return new class extends Migration
             $table->boolean('is_active')->default(true);
             $table->timestamps();
 
+            $table->unique('token');
             $table->index(['user_id', 'is_active']);
         });
     }

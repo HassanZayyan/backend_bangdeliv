@@ -25,7 +25,7 @@ return new class extends Migration
             $table->text('notes')->nullable();
             $table->timestamps();
 
-            $table->unique(['order_id', 'location_role'], 'order_locations_order_role_unique');
+            $table->unique(['order_id', 'location_role', 'sequence_no'], 'order_locations_order_role_sequence_unique');
             $table->index(['order_id', 'sequence_no'], 'order_locations_order_sequence_idx');
         });
     }

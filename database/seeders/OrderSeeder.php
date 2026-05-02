@@ -142,25 +142,44 @@ class OrderSeeder extends Seeder
                 'restaurant_id' => $restaurant->id,
                 'service_type_id' => $shoppingServiceTypeId,
                 'driver_id' => $driverId,
-                'address_id' => $address->id,
-                'delivery_address' => trim($address->full_address.' '.$address->detail),
-                'delivery_latitude' => $address->latitude,
-                'delivery_longitude' => $address->longitude,
                 'subtotal' => $subtotal,
                 'delivery_fee' => $deliveryFee,
                 'service_fee' => 0,
                 'delivery_distance_km' => 3.2,
                 'delivery_distance_text' => '3.2 km',
-                'total_amount' => $subtotal + $deliveryFee,
                 'total_price' => $subtotal + $deliveryFee,
                 'status_id' => $statusMap[$statusCode],
-                'payment_status' => $paymentStatus,
-                'payment_method' => 'COD',
                 'notes' => 'Order seeded for development.',
                 'estimated_delivery' => now()->addMinutes(35),
                 'delivered_at' => $statusCode === 'COMPLETED' ? now()->subMinutes(15) : null,
             ]
         );
+
+        $order->orderLocations()->delete();
+        $order->orderLocations()->createMany([
+            [
+                'location_role' => 'PICKUP',
+                'label' => 'Restaurant',
+                'contact_name' => $restaurant->name,
+                'contact_phone' => $restaurant->phone,
+                'full_address' => $restaurant->address,
+                'latitude' => $restaurant->latitude,
+                'longitude' => $restaurant->longitude,
+                'sequence_no' => 1,
+                'notes' => 'Seeded restaurant pickup.',
+            ],
+            [
+                'location_role' => 'DROPOFF',
+                'label' => $address->label,
+                'contact_name' => $address->recipient_name,
+                'contact_phone' => $address->phone,
+                'full_address' => trim($address->full_address.' '.$address->detail),
+                'latitude' => $address->latitude,
+                'longitude' => $address->longitude,
+                'sequence_no' => 2,
+                'notes' => 'Seeded customer dropoff.',
+            ],
+        ]);
 
         $order->items()->delete();
         foreach ($itemRows as $row) {
@@ -193,6 +212,23 @@ class OrderSeeder extends Seeder
                 'recalculation_version' => 0,
             ]
         );
+
+        if ($paymentStatus === 'paid') {
+            $order->payments()->updateOrCreate(
+                ['order_id' => $order->id],
+                [
+                    'payment_method' => 'COD',
+                    'payment_status' => 'PAID',
+                    'amount' => $subtotal + $deliveryFee,
+                    'recorded_by_user_id' => $customer->id,
+                    'driver_id' => $driverId,
+                    'paid_at' => now()->subMinutes(10),
+                    'note' => 'Seeded paid COD payment.',
+                ]
+            );
+        } else {
+            $order->payments()->delete();
+        }
 
         OrderStatusHistory::query()->where('order_id', $order->id)->delete();
         foreach ($historyStatuses as $historyStatus) {

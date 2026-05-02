@@ -150,20 +150,13 @@ class RideOrderService
                 'user_id' => $user->id,
                 'restaurant_id' => null,
                 'service_type_id' => $rideServiceTypeId,
-                'address_id' => $pickupAddress?->id,
-                'delivery_address' => $normalizedDestinationAddress,
-                'delivery_latitude' => round($destinationLatitude, 8),
-                'delivery_longitude' => round($destinationLongitude, 8),
                 'subtotal' => round($subtotal, 2),
                 'delivery_fee' => round($deliveryFee, 2),
                 'service_fee' => round($serviceFee, 2),
                 'delivery_distance_km' => round($distanceKm, 2),
                 'delivery_distance_text' => (string) ($route['distance_text'] ?? number_format($distanceKm, 2).' km'),
-                'total_amount' => round($totalAmount, 2),
                 'total_price' => round($totalAmount, 2),
                 'status_id' => $pendingStatusId,
-                'payment_status' => 'unpaid',
-                'payment_method' => 'COD',
                 'notes' => $payload['notes'] ?? null,
                 'estimated_delivery' => Carbon::now()->addMinutes($estimatedMinutes),
             ]);
@@ -207,7 +200,6 @@ class RideOrderService
             ]);
 
             return $order->fresh([
-                'address',
                 'orderLocations',
                 'statusRef',
                 'statusHistories.statusRef',

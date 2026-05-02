@@ -123,20 +123,13 @@ class CheckoutService
                 'user_id' => $user->id,
                 'restaurant_id' => $restaurant->id,
                 'service_type_id' => $shoppingServiceTypeId,
-                'address_id' => $address->id,
-                'delivery_address' => trim($address->full_address.' '.($address->detail ?? '')),
-                'delivery_latitude' => $address->latitude,
-                'delivery_longitude' => $address->longitude,
                 'subtotal' => round($subtotal, 2),
                 'delivery_fee' => round($deliveryFee, 2),
                 'service_fee' => round($serviceFee, 2),
                 'delivery_distance_km' => round($distanceKm, 2),
                 'delivery_distance_text' => (string) ($route['distance_text'] ?? number_format($distanceKm, 2).' km'),
-                'total_amount' => round($totalAmount, 2),
                 'total_price' => round($totalAmount, 2),
                 'status_id' => $pendingStatusId,
-                'payment_status' => 'unpaid',
-                'payment_method' => 'COD',
                 'notes' => $payload['notes'] ?? null,
                 'estimated_delivery' => Carbon::now()->addMinutes((int) $restaurant->estimated_prep_time + $routeMinutes),
             ]);
@@ -178,10 +171,35 @@ class CheckoutService
                 'recalculation_version' => 0,
             ]);
 
+            $order->orderLocations()->createMany([
+                [
+                    'location_role' => 'PICKUP',
+                    'label' => 'Restaurant',
+                    'contact_name' => $restaurant->name,
+                    'contact_phone' => $restaurant->phone,
+                    'full_address' => $restaurant->address,
+                    'latitude' => $restaurant->latitude,
+                    'longitude' => $restaurant->longitude,
+                    'sequence_no' => 1,
+                    'notes' => 'Lokasi restoran saat checkout.',
+                ],
+                [
+                    'location_role' => 'DROPOFF',
+                    'label' => $address->label,
+                    'contact_name' => $address->recipient_name,
+                    'contact_phone' => $address->phone,
+                    'full_address' => trim($address->full_address.' '.($address->detail ?? '')),
+                    'latitude' => $address->latitude,
+                    'longitude' => $address->longitude,
+                    'sequence_no' => 2,
+                    'notes' => 'Snapshot alamat customer saat checkout.',
+                ],
+            ]);
+
             $cart->items()->delete();
             $cart->touch();
 
-            return $order->fresh(['restaurant', 'address', 'items', 'statusRef', 'statusHistories', 'shoppingOrder']);
+            return $order->fresh(['restaurant', 'orderLocations', 'items', 'statusRef', 'statusHistories', 'shoppingOrder']);
         });
     }
 

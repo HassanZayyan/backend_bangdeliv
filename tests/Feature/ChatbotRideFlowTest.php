@@ -207,12 +207,6 @@ class ChatbotRideFlowTest extends TestCase
 
         $orderId = (int) $confirmResponse->json('data.order.id');
 
-        $this->assertDatabaseHas('orders', [
-            'id' => $orderId,
-            'delivery_latitude' => -7.05230100,
-            'delivery_longitude' => 110.43560100,
-        ]);
-
         $this->assertDatabaseHas('order_locations', [
             'order_id' => $orderId,
             'location_role' => 'PICKUP',

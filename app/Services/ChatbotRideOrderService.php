@@ -186,7 +186,7 @@ class ChatbotRideOrderService
                 'id' => $order->id,
                 'order_number' => $order->order_number,
                 'status' => $order->statusRef?->code,
-                'total_amount' => (float) $order->total_amount,
+                'total_price' => (float) $order->total_price,
                 'delivery_fee' => (float) $order->delivery_fee,
                 'estimated_delivery' => $order->estimated_delivery,
             ],

@@ -96,7 +96,7 @@
     $search = trim((string) request()->query('q', ''));
 
     $ordersQuery = \App\Models\Order::query()
-        ->with(['user', 'restaurant', 'driver.user', 'statusRef', 'serviceType', 'courierOrder', 'rideOrder']);
+        ->with(['user', 'restaurant', 'driver.user', 'statusRef', 'serviceType', 'courierOrder', 'rideOrder', 'orderLocations', 'payments']);
 
     if ($selectedService !== 'all') {
         if ($selectedServiceTypeId) {
@@ -118,7 +118,9 @@
     if ($search !== '') {
         $ordersQuery->where(function ($query) use ($search) {
             $query->where('order_number', 'like', "%{$search}%")
-                ->orWhere('delivery_address', 'like', "%{$search}%")
+                ->orWhereHas('orderLocations', function ($locationQuery) use ($search) {
+                    $locationQuery->where('full_address', 'like', "%{$search}%");
+                })
                 ->orWhereHas('user', function ($userQuery) use ($search) {
                     $userQuery->where('name', 'like', "%{$search}%")
                         ->orWhere('phone', 'like', "%{$search}%");
@@ -360,7 +362,7 @@
                                     <span class="td-sub">{{ $slaSub }}</span>
                                 </div>
                             </td>
-                            <td class="td-price">Rp {{ number_format((float) $order->total_amount, 0, ',', '.') }}</td>
+                            <td class="td-price">Rp {{ number_format((float) $order->total_price, 0, ',', '.') }}</td>
                             <td>
                                 <span class="badge {{ $statusConfig['class'] }}">
                                     {{ $statusConfig['label'] }}
@@ -385,7 +387,7 @@
                             <td class="td-sub">{{ $rideOrder?->picked_up_at?->format('d M Y, H:i') ?? '-' }}</td>
                             <td class="td-sub">{{ $rideOrder?->arrived_at?->format('d M Y, H:i') ?? '-' }}</td>
                             <td class="td-sub">{{ \Illuminate\Support\Str::limit($rideOrder?->notes ?? '-', 55) }}</td>
-                            <td class="td-price">Rp {{ number_format((float) $order->total_amount, 0, ',', '.') }}</td>
+                            <td class="td-price">Rp {{ number_format((float) $order->total_price, 0, ',', '.') }}</td>
                             <td>
                                 <span class="badge {{ $statusConfig['class'] }}">
                                     {{ $statusConfig['label'] }}
@@ -416,7 +418,7 @@
                                     <span class="td-sub">{{ $detailSub }}</span>
                                 </div>
                             </td>
-                            <td class="td-price">Rp {{ number_format((float) $order->total_amount, 0, ',', '.') }}</td>
+                            <td class="td-price">Rp {{ number_format((float) $order->total_price, 0, ',', '.') }}</td>
                             <td>
                                 <span class="badge {{ $statusConfig['class'] }}">
                                     {{ $statusConfig['label'] }}

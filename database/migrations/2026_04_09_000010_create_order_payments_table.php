@@ -24,7 +24,8 @@ return new class extends Migration
             $table->json('metadata')->nullable();
             $table->timestamps();
 
-            $table->index(['order_id', 'payment_status'], 'order_payments_order_status_idx');
+            $table->unique('order_id');
+            $table->index(['payment_status', 'paid_at'], 'order_payments_status_paid_at_idx');
             $table->index(['paid_at'], 'order_payments_paid_at_idx');
         });
     }

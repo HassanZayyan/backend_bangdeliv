@@ -92,23 +92,25 @@ class AuthProfileTest extends TestCase
             'restaurant_id' => $restaurant->id,
             'service_type_id' => $serviceType->id,
             'driver_id' => null,
-            'address_id' => $address->id,
-            'delivery_address' => 'Jl. Sudirman No. 1',
-            'delivery_latitude' => -6.20000000,
-            'delivery_longitude' => 106.81666600,
             'subtotal' => 30000,
             'delivery_fee' => 5000,
             'delivery_distance_km' => 2.5,
             'delivery_distance_text' => '2.5 km',
-            'total_amount' => 35000,
             'total_price' => 35000,
             'status_id' => $completedStatus->id,
-            'payment_status' => 'paid',
             'cancellation_reason' => null,
             'cancelled_by' => null,
             'notes' => null,
             'estimated_delivery' => null,
             'delivered_at' => now(),
+        ]);
+
+        $order->payments()->create([
+            'payment_method' => 'COD',
+            'payment_status' => 'PAID',
+            'amount' => 35000,
+            'recorded_by_user_id' => $user->id,
+            'paid_at' => now(),
         ]);
 
         Review::query()->create([

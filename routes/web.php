@@ -38,6 +38,7 @@ Route::prefix('admin')->middleware(['auth', 'role:admin'])->group(function () {
             'courierOrder',
             'rideOrder',
             'orderLocations',
+            'payments',
             'statusHistories.statusRef',
             'statusHistories.changedBy',
             'logs.changedBy',

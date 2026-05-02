@@ -54,7 +54,7 @@ class OrderService
     public function customerOrderDetail(User $user, int $orderId): Order
     {
         $order = Order::query()
-            ->with(['restaurant', 'driver.user', 'address', 'items', 'orderLocations', 'statusRef', 'statusHistories.statusRef', 'serviceType'])
+            ->with(['restaurant', 'driver.user', 'items', 'orderLocations', 'payments', 'statusRef', 'statusHistories.statusRef', 'serviceType'])
             ->find($orderId);
 
         if (!$order || $order->user_id !== $user->id) {
@@ -240,7 +240,7 @@ class OrderService
                 ],
             ]);
 
-            return $order->refresh()->load(['restaurant', 'address', 'items', 'statusRef', 'statusHistories.statusRef', 'shoppingOrder']);
+            return $order->refresh()->load(['restaurant', 'orderLocations', 'items', 'statusRef', 'statusHistories.statusRef', 'shoppingOrder']);
         });
     }
 
@@ -684,7 +684,7 @@ class OrderService
                 throw new ApiException('target_status_code tidak sesuai dengan action_code.', 422);
             }
 
-            if (($rule['requires_paid'] ?? false) && (string) $order->payment_status !== 'paid') {
+            if (($rule['requires_paid'] ?? false) && !$this->orderHasPaidCodPayment($order)) {
                 throw new ApiException('Order belum bisa diselesaikan sebelum pembayaran COD tercatat.', 409);
             }
 
@@ -1060,12 +1060,12 @@ class OrderService
             'user:id,name,phone',
             'serviceType:id,code,display_name',
             'statusRef:id,code,display_name',
-            'address:id,full_address,detail,latitude,longitude',
             'restaurant:id,name,address,latitude,longitude',
             'rideOrder:id,order_id,picked_up_at,arrived_at',
             'courierOrder:id,order_id,package_description,requires_photo_evidence',
             'items:id,order_id,quantity',
             'orderLocations:id,order_id,location_role,full_address,latitude,longitude,sequence_no',
+            'payments:id,order_id,payment_method,payment_status,amount,recorded_by_user_id,paid_at',
             'statusHistories' => function (\Illuminate\Database\Eloquent\Relations\Relation $query): void {
                 $query
                     ->with('statusRef:id,code,display_name')
@@ -1171,16 +1171,19 @@ class OrderService
                 ->first(fn ($location): bool => strtoupper((string) $location->location_role) === 'PICKUP');
 
             return [
-                'address' => $pickup?->full_address ?? ($order->address?->full_address ?? '-'),
-                'latitude' => $this->toFloatOrNull($pickup?->latitude ?? $order->address?->latitude),
-                'longitude' => $this->toFloatOrNull($pickup?->longitude ?? $order->address?->longitude),
+                'address' => $pickup?->full_address ?? '-',
+                'latitude' => $this->toFloatOrNull($pickup?->latitude),
+                'longitude' => $this->toFloatOrNull($pickup?->longitude),
             ];
         }
 
+        $pickup = $order->orderLocations
+            ->first(fn ($location): bool => strtoupper((string) $location->location_role) === 'PICKUP');
+
         return [
-            'address' => $order->address?->full_address ?? '-',
-            'latitude' => $this->toFloatOrNull($order->address?->latitude),
-            'longitude' => $this->toFloatOrNull($order->address?->longitude),
+            'address' => $pickup?->full_address ?? '-',
+            'latitude' => $this->toFloatOrNull($pickup?->latitude),
+            'longitude' => $this->toFloatOrNull($pickup?->longitude),
         ];
     }
 
@@ -1189,21 +1192,13 @@ class OrderService
      */
     private function resolveDropoffPoint(Order $order, string $serviceCode): array
     {
-        if ($serviceCode === 'COURIER') {
-            $dropoff = $order->orderLocations
-                ->first(fn ($location): bool => strtoupper((string) $location->location_role) === 'DROPOFF');
-
-            return [
-                'address' => $dropoff->full_address ?? $order->delivery_address,
-                'latitude' => $this->toFloatOrNull($dropoff->latitude ?? $order->delivery_latitude),
-                'longitude' => $this->toFloatOrNull($dropoff->longitude ?? $order->delivery_longitude),
-            ];
-        }
+        $dropoff = $order->orderLocations
+            ->first(fn ($location): bool => strtoupper((string) $location->location_role) === 'DROPOFF');
 
         return [
-            'address' => $order->delivery_address,
-            'latitude' => $this->toFloatOrNull($order->delivery_latitude),
-            'longitude' => $this->toFloatOrNull($order->delivery_longitude),
+            'address' => $dropoff?->full_address,
+            'latitude' => $this->toFloatOrNull($dropoff?->latitude),
+            'longitude' => $this->toFloatOrNull($dropoff?->longitude),
         ];
     }
 
@@ -1547,7 +1542,6 @@ class OrderService
         $order->update([
             'subtotal' => $newSubtotal,
             'service_fee' => $newServiceFee,
-            'total_amount' => $newTotalPrice,
             'total_price' => $newTotalPrice,
         ]);
 
@@ -1588,7 +1582,7 @@ class OrderService
             ]);
         }
 
-        return $order->refresh()->load(['restaurant', 'address', 'items', 'statusRef', 'statusHistories.statusRef', 'shoppingOrder']);
+        return $order->refresh()->load(['restaurant', 'orderLocations', 'items', 'statusRef', 'statusHistories.statusRef', 'shoppingOrder']);
     }
 
     /**
@@ -1662,11 +1656,7 @@ class OrderService
                 throw new ApiException('Order tidak ditemukan.', 404);
             }
 
-            if (($order->payment_method ?? 'COD') !== 'COD') {
-                throw new ApiException('Order ini bukan metode pembayaran COD.', 409);
-            }
-
-            if ((string) $order->payment_status === 'paid') {
+            if ($this->orderHasPaidCodPayment($order)) {
                 throw new ApiException('Pembayaran order ini sudah tercatat.', 409);
             }
 
@@ -1700,28 +1690,23 @@ class OrderService
                 ? Carbon::parse((string) $payload['paid_at'])
                 : now();
 
-            OrderPayment::query()->create([
-                'order_id' => $order->id,
-                'payment_method' => 'COD',
-                'payment_status' => 'PAID',
-                'amount' => $amount,
-                'recorded_by_user_id' => $actor->id,
-                'driver_id' => $orderDriverId > 0 ? $orderDriverId : null,
-                'paid_at' => $paidAt,
-                'note' => $payload['note'] ?? null,
-                'metadata' => [
-                    'recorded_by_role' => $actor->role,
-                    'source' => $enforceAssignedDriver ? 'DRIVER_COLLECTION' : 'ADMIN_MANUAL_RECORD',
-                    'extra' => $payload['metadata'] ?? null,
+            OrderPayment::query()->updateOrCreate(
+                ['order_id' => $order->id],
+                [
+                    'payment_method' => 'COD',
+                    'payment_status' => 'PAID',
+                    'amount' => $amount,
+                    'recorded_by_user_id' => $actor->id,
+                    'driver_id' => $orderDriverId > 0 ? $orderDriverId : null,
+                    'paid_at' => $paidAt,
+                    'note' => $payload['note'] ?? null,
+                    'metadata' => [
+                        'recorded_by_role' => $actor->role,
+                        'source' => $enforceAssignedDriver ? 'DRIVER_COLLECTION' : 'ADMIN_MANUAL_RECORD',
+                        'extra' => $payload['metadata'] ?? null,
+                    ],
                 ],
-            ]);
-
-            $order->update([
-                'payment_status' => 'paid',
-                'paid_amount' => $amount,
-                'paid_by_user_id' => $actor->id,
-                'paid_at' => $paidAt,
-            ]);
+            );
 
             OrderLog::query()->create([
                 'order_id' => $order->id,
@@ -1750,7 +1735,7 @@ class OrderService
 
             return $order->refresh()->load([
                 'restaurant',
-                'address',
+                'orderLocations',
                 'items',
                 'statusRef',
                 'statusHistories.statusRef',
@@ -1758,5 +1743,21 @@ class OrderService
                 'payments',
             ]);
         });
+    }
+
+    private function orderHasPaidCodPayment(Order $order): bool
+    {
+        if ($order->relationLoaded('payments')) {
+            return $order->payments->contains(
+                fn (OrderPayment $payment): bool =>
+                    strtoupper((string) $payment->payment_method) === 'COD'
+                    && strtoupper((string) $payment->payment_status) === 'PAID'
+            );
+        }
+
+        return $order->payments()
+            ->where('payment_method', 'COD')
+            ->where('payment_status', 'PAID')
+            ->exists();
     }
 }

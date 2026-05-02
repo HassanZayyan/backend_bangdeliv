@@ -265,7 +265,7 @@ class ChatbotCourierOrderService
                 'id' => $order->id,
                 'order_number' => $order->order_number,
                 'status' => $order->statusRef?->code,
-                'total_amount' => (float) $order->total_amount,
+                'total_price' => (float) $order->total_price,
                 'delivery_fee' => (float) $order->delivery_fee,
                 'estimated_delivery' => $order->estimated_delivery,
             ],
@@ -668,10 +668,6 @@ class ChatbotCourierOrderService
                 'user_id' => $user->id,
                 'restaurant_id' => null,
                 'service_type_id' => $serviceTypeId,
-                'address_id' => $profilePickupAddress?->id,
-                'delivery_address' => $dropoffAddress,
-                'delivery_latitude' => round($dropoffLatitude, 8),
-                'delivery_longitude' => round($dropoffLongitude, 8),
                 'subtotal' => 0,
                 'delivery_fee' => round($deliveryFee, 2),
                 'service_fee' => round($serviceFee, 2),
@@ -679,11 +675,8 @@ class ChatbotCourierOrderService
                 'delivery_distance_text' => $distanceKm !== null
                     ? (string) ($route['distance_text'] ?? number_format($distanceKm, 2).' km')
                     : null,
-                'total_amount' => round($totalAmount, 2),
                 'total_price' => round($totalAmount, 2),
                 'status_id' => $pendingStatusId,
-                'payment_status' => 'unpaid',
-                'payment_method' => 'COD',
                 'notes' => "Order kurir dibuat via chatbot.\nPickup: {$pickupAddress}\nDropoff: {$dropoffAddress}\nPaket: {$packageDescription}",
                 'estimated_delivery' => Carbon::now()->addMinutes($estimatedMinutes),
             ]);
@@ -728,7 +721,7 @@ class ChatbotCourierOrderService
                 'note' => 'Order kurir dibuat oleh customer melalui chatbot.',
             ]);
 
-            return $order->fresh(['statusRef', 'courierOrder']);
+            return $order->fresh(['statusRef', 'courierOrder', 'orderLocations']);
         });
     }
 

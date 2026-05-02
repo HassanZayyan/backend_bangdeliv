@@ -84,7 +84,7 @@
             </div>
             <div>
                 <div class="td-sub">Total</div>
-                <div class="td-strong" style="color:var(--color-primary);">Rp {{ number_format((float) $order->total_amount, 0, ',', '.') }}</div>
+                <div class="td-strong" style="color:var(--color-primary);">Rp {{ number_format((float) $order->total_price, 0, ',', '.') }}</div>
             </div>
             <div>
                 <div class="td-sub">Status Pembayaran</div>

@@ -15,7 +15,6 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * @property int|null $restaurant_id
  * @property int $service_type_id
  * @property int|null $driver_id
- * @property int|null $address_id
  * @property string|null $delivery_address
  * @property string|null $delivery_latitude
  * @property string|null $delivery_longitude
@@ -24,7 +23,6 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * @property string|null $service_fee
  * @property float|null $delivery_distance_km
  * @property string|null $delivery_distance_text
- * @property string $total_amount
  * @property string|null $total_price
  * @property int $status_id
  * @property string $payment_status
@@ -70,23 +68,13 @@ class Order extends Model
         'restaurant_id',
         'service_type_id',
         'driver_id',
-        'address_id',
-        'delivery_address',
-        'delivery_latitude',
-        'delivery_longitude',
         'subtotal',
         'delivery_fee',
         'service_fee',
         'delivery_distance_km',
         'delivery_distance_text',
-        'total_amount',
         'total_price',
         'status_id',
-        'payment_status',
-        'payment_method',
-        'paid_amount',
-        'paid_by_user_id',
-        'paid_at',
         'cancellation_reason',
         'cancelled_by',
         'notes',
@@ -94,19 +82,25 @@ class Order extends Model
         'delivered_at',
     ];
 
+    protected $appends = [
+        'delivery_address',
+        'delivery_latitude',
+        'delivery_longitude',
+        'payment_status',
+        'payment_method',
+        'paid_amount',
+        'paid_by_user_id',
+        'paid_at',
+    ];
+
     protected function casts(): array
     {
         return [
-            'delivery_latitude' => 'decimal:8',
-            'delivery_longitude' => 'decimal:8',
             'subtotal' => 'decimal:2',
             'delivery_fee' => 'decimal:2',
             'service_fee' => 'decimal:2',
             'delivery_distance_km' => 'float',
-            'total_amount' => 'decimal:2',
             'total_price' => 'decimal:2',
-            'paid_amount' => 'decimal:2',
-            'paid_at' => 'datetime',
             'estimated_delivery' => 'datetime',
             'delivered_at' => 'datetime',
         ];
@@ -200,5 +194,86 @@ class Order extends Model
     public function review(): HasOne
     {
         return $this->hasOne(Review::class);
+    }
+
+    public function getTotalAmountAttribute(): ?string
+    {
+        return $this->attributes['total_price'] ?? null;
+    }
+
+    public function getDeliveryAddressAttribute(): ?string
+    {
+        return $this->resolvedDropoffLocation()?->full_address;
+    }
+
+    public function getDeliveryLatitudeAttribute(): ?string
+    {
+        return $this->resolvedDropoffLocation()?->latitude;
+    }
+
+    public function getDeliveryLongitudeAttribute(): ?string
+    {
+        return $this->resolvedDropoffLocation()?->longitude;
+    }
+
+    public function getPaymentStatusAttribute(): string
+    {
+        return $this->resolvedPaidPayment() !== null ? 'paid' : 'unpaid';
+    }
+
+    public function getPaymentMethodAttribute(): string
+    {
+        return (string) ($this->resolvedLatestPayment()?->payment_method ?? 'COD');
+    }
+
+    public function getPaidAmountAttribute(): string
+    {
+        return (string) ($this->resolvedPaidPayment()?->amount ?? '0.00');
+    }
+
+    public function getPaidByUserIdAttribute(): ?int
+    {
+        $recordedBy = $this->resolvedPaidPayment()?->recorded_by_user_id;
+
+        return $recordedBy !== null ? (int) $recordedBy : null;
+    }
+
+    public function getPaidAtAttribute(): mixed
+    {
+        return $this->resolvedPaidPayment()?->paid_at;
+    }
+
+    private function resolvedDropoffLocation(): ?OrderLocation
+    {
+        if (!$this->relationLoaded('orderLocations')) {
+            $this->setRelation('orderLocations', $this->orderLocations()->get());
+        }
+
+        return $this->orderLocations
+            ->sortBy('sequence_no')
+            ->first(fn (OrderLocation $location): bool => strtoupper((string) $location->location_role) === 'DROPOFF');
+    }
+
+    private function resolvedLatestPayment(): ?OrderPayment
+    {
+        if (!$this->relationLoaded('payments')) {
+            $this->setRelation('payments', $this->payments()->get());
+        }
+
+        return $this->payments
+            ->sortByDesc(fn (OrderPayment $payment): int => $payment->paid_at?->getTimestamp() ?? 0)
+            ->first();
+    }
+
+    private function resolvedPaidPayment(): ?OrderPayment
+    {
+        if (!$this->relationLoaded('payments')) {
+            $this->setRelation('payments', $this->payments()->get());
+        }
+
+        return $this->payments
+            ->where('payment_status', 'PAID')
+            ->sortByDesc(fn (OrderPayment $payment): int => $payment->paid_at?->getTimestamp() ?? 0)
+            ->first();
     }
 }

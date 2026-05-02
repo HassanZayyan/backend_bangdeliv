@@ -60,6 +60,20 @@ class RideOrderCreationTest extends TestCase
                     ]
                 ]
             ], 200),
+            'https://maps.googleapis.com/maps/api/place/textsearch/json*' => Http::response([
+                'status' => 'OK',
+                'results' => [
+                    [
+                        'formatted_address' => 'Jl. Sudirman No. 10, Jakarta',
+                        'geometry' => [
+                            'location' => [
+                                'lat' => -6.21462000,
+                                'lng' => 106.84513000,
+                            ],
+                        ],
+                    ],
+                ],
+            ], 200),
             'https://maps.googleapis.com/maps/api/geocode/json*' => Http::response([
                 'status' => 'OK',
                 'results' => [
@@ -88,7 +102,6 @@ class RideOrderCreationTest extends TestCase
         $response->assertCreated()
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.user_id', $user->id)
-            ->assertJsonPath('data.address_id', $address->id)
             ->assertJsonPath('data.service_type_id', $rideServiceTypeId)
             ->assertJsonPath('data.status_id', $pendingStatusId)
             ->assertJsonPath('data.delivery_address', 'Jl. Sudirman No. 10, Jakarta')
@@ -100,18 +113,25 @@ class RideOrderCreationTest extends TestCase
         $this->assertDatabaseHas('orders', [
             'id' => $orderId,
             'user_id' => $user->id,
-            'address_id' => $address->id,
             'service_type_id' => $rideServiceTypeId,
             'status_id' => $pendingStatusId,
-            'delivery_address' => 'Jl. Sudirman No. 10, Jakarta',
             'restaurant_id' => null,
-            'payment_status' => 'unpaid',
         ]);
 
-        $this->assertDatabaseHas('orders', [
-            'id' => $orderId,
-            'delivery_latitude' => -6.21462000,
-            'delivery_longitude' => 106.84513000,
+        $this->assertDatabaseHas('order_locations', [
+            'order_id' => $orderId,
+            'location_role' => 'PICKUP',
+            'full_address' => 'Jl. Mawar No. 1',
+            'latitude' => -6.20000000,
+            'longitude' => 106.81666600,
+        ]);
+
+        $this->assertDatabaseHas('order_locations', [
+            'order_id' => $orderId,
+            'location_role' => 'DROPOFF',
+            'full_address' => 'Jl. Sudirman No. 10, Jakarta',
+            'latitude' => -6.21462000,
+            'longitude' => 106.84513000,
         ]);
 
         $this->assertDatabaseHas('ride_orders', [
@@ -217,11 +237,12 @@ class RideOrderCreationTest extends TestCase
 
         $orderId = (int) $response->json('data.id');
 
-        $this->assertDatabaseHas('orders', [
-            'id' => $orderId,
-            'delivery_address' => 'Titik pin manual customer',
-            'delivery_latitude' => -7.76371000,
-            'delivery_longitude' => 110.40642000,
+        $this->assertDatabaseHas('order_locations', [
+            'order_id' => $orderId,
+            'location_role' => 'DROPOFF',
+            'full_address' => 'Titik pin manual customer',
+            'latitude' => -7.76371000,
+            'longitude' => 110.40642000,
         ]);
 
         $this->assertSame(0, $geocodingCalls, 'Destination geocoding should be skipped when explicit coordinates are provided.');
@@ -331,6 +352,10 @@ class RideOrderCreationTest extends TestCase
                     ]
                 ]
             ], 200),
+            'https://maps.googleapis.com/maps/api/place/textsearch/json*' => Http::response([
+                'status' => 'ZERO_RESULTS',
+                'results' => [],
+            ], 200),
             'https://maps.googleapis.com/maps/api/geocode/json*' => Http::response([
                 'status' => 'ZERO_RESULTS',
                 'results' => [],
@@ -349,7 +374,7 @@ class RideOrderCreationTest extends TestCase
         $this->assertDatabaseCount('orders', 0);
         $this->assertDatabaseCount('ride_orders', 0);
 
-        Http::assertSentCount(1);
+        Http::assertSentCount(2);
     }
 
     public function test_customer_can_validate_ride_destination_before_confirmation(): void
@@ -375,6 +400,20 @@ class RideOrderCreationTest extends TestCase
                         ]
                     ]
                 ]
+            ], 200),
+            'https://maps.googleapis.com/maps/api/place/textsearch/json*' => Http::response([
+                'status' => 'OK',
+                'results' => [
+                    [
+                        'formatted_address' => 'Politeknik Negeri Semarang, Tembalang, Kota Semarang, Jawa Tengah, Indonesia',
+                        'geometry' => [
+                            'location' => [
+                                'lat' => -7.05244100,
+                                'lng' => 110.43515500,
+                            ],
+                        ],
+                    ],
+                ],
             ], 200),
             'https://maps.googleapis.com/maps/api/geocode/json*' => Http::response([
                 'status' => 'OK',
@@ -428,6 +467,10 @@ class RideOrderCreationTest extends TestCase
                     ]
                 ]
             ], 200),
+            'https://maps.googleapis.com/maps/api/place/textsearch/json*' => Http::response([
+                'status' => 'ZERO_RESULTS',
+                'results' => [],
+            ], 200),
             'https://maps.googleapis.com/maps/api/geocode/json*' => Http::response([
                 'status' => 'ZERO_RESULTS',
                 'results' => [],
@@ -442,7 +485,7 @@ class RideOrderCreationTest extends TestCase
             ->assertJsonPath('success', false)
             ->assertJsonPath('message', 'Alamat tujuan tidak valid atau tidak ditemukan di peta.');
 
-        Http::assertSentCount(1);
+        Http::assertSentCount(2);
     }
 }
 

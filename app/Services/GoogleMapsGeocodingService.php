@@ -327,7 +327,7 @@ class GoogleMapsGeocodingService
             ]);
 
         if (!$response->successful()) {
-            throw new ApiException('Layanan pencarian tempat sedang tidak tersedia.', 503);
+            return $this->resolveAddress($query);
         }
 
         $payload = $response->json();
@@ -338,7 +338,7 @@ class GoogleMapsGeocodingService
         }
 
         if ($status !== 'OK') {
-            throw new ApiException('Gagal mencari tempat tujuan. Coba beberapa saat lagi.', 503);
+            return $this->resolveAddress($query);
         }
 
         $results = $payload['results'] ?? [];

@@ -8,8 +8,9 @@ use App\Http\Requests\Api\StoreAddressRequest;
 use App\Http\Requests\Api\UpdateAddressRequest;
 use App\Http\Requests\Api\UpgradeToDriverRequest;
 use App\Http\Requests\Api\ValidateAddressRequest;
-use App\Models\User;
+use App\Models\OrderPayment;
 use App\Models\Review;
+use App\Models\User;
 use App\Services\AddressService;
 use App\Services\DriverOnboardingService;
 use Illuminate\Http\Request;
@@ -359,11 +360,6 @@ class AuthController extends Controller
         DB::transaction(function () use ($address, $user) {
             $wasDefault = (bool) $address->is_default;
 
-            // Keep order history intact while allowing address deletion.
-            DB::table('orders')
-                ->where('address_id', $address->id)
-                ->update(['address_id' => null]);
-
             $address->delete();
 
             if ($wasDefault) {
@@ -409,7 +405,10 @@ class AuthController extends Controller
 
         $driver = null;
         $totalOrders = $user->orders()->count();
-        $totalPaid = (float) $user->orders()->where('payment_status', 'paid')->sum('total_amount');
+        $totalPaid = (float) OrderPayment::query()
+            ->whereHas('order', fn ($query) => $query->where('user_id', $user->id))
+            ->where('payment_status', 'PAID')
+            ->sum('amount');
         $rating = (float) (Review::query()->where('user_id', $user->id)->avg('rating') ?? 0);
 
         if ($user->role === 'driver') {

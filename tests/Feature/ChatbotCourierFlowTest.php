@@ -99,9 +99,9 @@ class ChatbotCourierFlowTest extends TestCase
 
         $finalMessage = (string) $confirmResponse->json('data.assistant_text');
         $this->assertStringContainsString('Nomor order:', $finalMessage);
-        $this->assertStringContainsString('Pickup:', $finalMessage);
+        $this->assertStringContainsString('Ambil:', $finalMessage);
         $this->assertStringContainsString('Tujuan:', $finalMessage);
-        $this->assertStringContainsString('Isi paket:', $finalMessage);
+        $this->assertStringContainsString('Barang:', $finalMessage);
         $this->assertStringContainsString('Ongkir:', $finalMessage);
     }
 
