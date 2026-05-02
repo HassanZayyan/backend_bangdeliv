@@ -745,7 +745,7 @@ class OrderService
     }
 
     /**
-     * @return array<string, int|string|null>
+     * @return array<string, bool|int|string|null>
      */
     private function buildOrderStatusBroadcastPayload(
         int $orderId,
@@ -753,7 +753,10 @@ class OrderService
         ?string $previousStatusCode,
         OrderStatusHistory $history,
     ): array {
+        $history->loadMissing('statusRef');
+
         $changedAt = $history->created_at ?? now();
+        $status = $history->statusRef;
 
         return [
             'order_id' => $orderId,
@@ -762,11 +765,13 @@ class OrderService
             'history_id' => (int) $history->id,
             'changed_at' => $changedAt->toIso8601String(),
             'changed_at_ms' => ((int) $changedAt->getTimestamp()) * 1000,
+            'status_label' => $status?->display_name,
+            'is_terminal' => $status?->is_terminal !== null ? (bool) $status->is_terminal : null,
         ];
     }
 
     /**
-     * @param  array<string, int|string|null>|null  $payload
+     * @param  array<string, bool|int|string|null>|null  $payload
      */
     private function broadcastOrderStatusChanged(?array $payload): void
     {
@@ -782,6 +787,8 @@ class OrderService
                 isset($payload['history_id']) ? (int) $payload['history_id'] : null,
                 (string) $payload['changed_at'],
                 isset($payload['changed_at_ms']) ? (int) $payload['changed_at_ms'] : null,
+                isset($payload['status_label']) ? (string) $payload['status_label'] : null,
+                isset($payload['is_terminal']) ? (bool) $payload['is_terminal'] : null,
             ));
         } catch (\Throwable $exception) {
             Log::warning('Broadcast OrderStatusChanged gagal.', [

@@ -19,6 +19,8 @@ class OrderStatusChanged implements ShouldBroadcastNow
         public ?int $historyId,
         public string $changedAt,
         public ?int $changedAtMs,
+        public ?string $statusLabel = null,
+        public ?bool $isTerminal = null,
     ) {
     }
 
@@ -44,6 +46,8 @@ class OrderStatusChanged implements ShouldBroadcastNow
             'history_id' => $this->historyId,
             'changed_at' => $this->changedAt,
             'changed_at_ms' => $this->changedAtMs,
+            'status_label' => $this->statusLabel,
+            'is_terminal' => $this->isTerminal,
         ];
     }
 }
