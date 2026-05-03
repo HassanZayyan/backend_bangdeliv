@@ -354,6 +354,208 @@ class ChatbotCourierFlowTest extends TestCase
         $this->assertDatabaseCount('courier_orders', 1);
     }
 
+    public function test_chatbot_kurir_rejects_prohibited_package(): void
+    {
+        $this->fakeGeocoding();
+
+        $user = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+            'phone' => '086666666666',
+        ]);
+
+        $this->createDefaultAddress($user);
+
+        $token = $user->createToken('test-chatbot')->plainTextToken;
+
+        $response = $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/process', [
+                'message' => 'kirim ke polines, isi paket: bensin 1 liter',
+                'service_type' => 'kurir',
+                'session_id' => 'sess-kurir-prohibited',
+            ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('data.intent', 'courier_order')
+            ->assertJsonPath('data.validation.is_valid_order', false)
+            ->assertJsonPath('data.courier.safety_status', 'PROHIBITED')
+            ->assertJsonPath('data.order.created', false);
+
+        $this->assertStringContainsString(
+            'kategori terlarang',
+            (string) $response->json('data.assistant_text')
+        );
+        $this->assertDatabaseCount('orders', 0);
+        $this->assertDatabaseCount('courier_orders', 0);
+    }
+
+    public function test_chatbot_kurir_rejects_oversize_package(): void
+    {
+        $this->fakeGeocoding();
+
+        $user = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+            'phone' => '087777777777',
+        ]);
+
+        $this->createDefaultAddress($user);
+
+        $token = $user->createToken('test-chatbot')->plainTextToken;
+
+        $response = $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/process', [
+                'message' => 'kirim ke polines, isi paket: kasur lipat',
+                'service_type' => 'kurir',
+                'session_id' => 'sess-kurir-oversize',
+            ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('data.validation.is_valid_order', false)
+            ->assertJsonPath('data.courier.safety_status', 'OVERSIZE')
+            ->assertJsonPath('data.order.created', false);
+
+        $this->assertStringContainsString(
+            'terlalu besar',
+            (string) $response->json('data.assistant_text')
+        );
+        $this->assertDatabaseCount('orders', 0);
+        $this->assertDatabaseCount('courier_orders', 0);
+    }
+
+    public function test_chatbot_kurir_requires_clarification_for_ambiguous_package(): void
+    {
+        $this->fakeGeocoding();
+
+        $user = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+            'phone' => '088888888888',
+        ]);
+
+        $this->createDefaultAddress($user);
+
+        $token = $user->createToken('test-chatbot')->plainTextToken;
+
+        $response = $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/process', [
+                'message' => 'kirim ke polines, isi paket: paket',
+                'service_type' => 'kurir',
+                'session_id' => 'sess-kurir-ambiguous',
+            ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('data.validation.is_valid_order', false)
+            ->assertJsonPath('data.courier.safety_status', 'NEEDS_CLARIFICATION')
+            ->assertJsonPath('data.order.created', false);
+
+        $this->assertStringContainsString(
+            'Isi paket belum spesifik',
+            (string) $response->json('data.assistant_text')
+        );
+        $this->assertDatabaseCount('orders', 0);
+        $this->assertDatabaseCount('courier_orders', 0);
+    }
+
+    public function test_chatbot_kurir_allows_small_common_item_without_weight_or_size(): void
+    {
+        $this->fakeGeocoding();
+
+        $user = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+            'phone' => '089111111111',
+        ]);
+
+        $this->createDefaultAddress($user);
+
+        $token = $user->createToken('test-chatbot')->plainTextToken;
+
+        $response = $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/process', [
+                'message' => 'aku mau antar kacamata papaku yang ketinggalan ke erha setiabudi tembalang',
+                'service_type' => 'kurir',
+                'session_id' => 'sess-kurir-small-item',
+            ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('data.intent', 'courier_order')
+            ->assertJsonPath('data.validation.is_valid_order', true)
+            ->assertJsonPath('data.courier.safety_status', 'ALLOWED')
+            ->assertJsonPath('data.courier.size_class', 'SMALL')
+            ->assertJsonPath('data.courier.estimated_weight_kg', null)
+            ->assertJsonPath('data.courier.package_length_cm', null)
+            ->assertJsonPath('data.courier.ready_to_confirm', true);
+
+        $this->assertContains('SIZE_INFERRED_SMALL', $response->json('data.courier.safety_flags'));
+        $this->assertStringContainsString('kacamata', strtolower((string) $response->json('data.courier.package_description')));
+        $this->assertStringContainsString('Erha Setiabudi', (string) $response->json('data.courier.dropoff_address'));
+    }
+
+    public function test_chatbot_kurir_asks_map_pin_when_text_geocode_resolves_too_far(): void
+    {
+        $this->fakeGeocodingWithAmbiguousFarDropoff();
+
+        $user = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+            'phone' => '089222222222',
+        ]);
+
+        $this->createDefaultAddress($user);
+
+        $token = $user->createToken('test-chatbot')->plainTextToken;
+        $sessionId = 'sess-kurir-map-required';
+
+        $response = $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/process', [
+                'message' => 'kirim ke erha setiabudi tembalang, isi paket: kacamata',
+                'service_type' => 'kurir',
+                'session_id' => $sessionId,
+            ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('data.validation.is_valid_order', false)
+            ->assertJsonPath('data.courier.ready_to_confirm', false)
+            ->assertJsonPath('data.validation.missing_fields.0', 'dropoff_address')
+            ->assertJsonPath('data.validation.next_actions.0', 'OPEN_MAP_PICKER_DROPOFF')
+            ->assertJsonPath('data.action_payloads.OPEN_MAP_PICKER_DROPOFF.label', 'Pilih Titik Tujuan di Map');
+
+        $this->assertStringContainsString('belum pas di peta', (string) $response->json('data.assistant_text'));
+        $this->assertStringNotContainsString('Format cepat', (string) $response->json('data.assistant_text'));
+
+        $pinResponse = $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/sessions/'.$sessionId.'/location', [
+                'service_type' => 'kurir',
+                'target' => 'dropoff',
+                'latitude' => -7.052301,
+                'longitude' => 110.435601,
+                'address' => 'Erha Setiabudi Tembalang',
+            ]);
+
+        $pinResponse
+            ->assertOk()
+            ->assertJsonPath('data.validation.is_valid_order', true)
+            ->assertJsonPath('data.courier.ready_to_confirm', true)
+            ->assertJsonPath('data.validation.next_actions.0', 'CONFIRM_DRAFT');
+    }
+
     private function fakeGeocoding(): void
     {
         Http::fake([
@@ -415,6 +617,21 @@ class ChatbotCourierFlowTest extends TestCase
                     ], 200);
                 }
 
+                if (str_contains($address, 'erha setiabudi')) {
+                    return Http::response([
+                        'status' => 'OK',
+                        'results' => [[
+                            'formatted_address' => 'Erha Setiabudi Tembalang, Jl. Setiabudi, Kota Semarang, Jawa Tengah 50263, Indonesia',
+                            'geometry' => [
+                                'location' => [
+                                    'lat' => -7.052301,
+                                    'lng' => 110.435601,
+                                ],
+                            ],
+                        ]],
+                    ], 200);
+                }
+
                 return Http::response([
                     'status' => 'ZERO_RESULTS',
                     'results' => [],
@@ -436,6 +653,86 @@ class ChatbotCourierFlowTest extends TestCase
                     ]],
                 ]],
             ], 200),
+        ]);
+    }
+
+    private function fakeGeocodingWithAmbiguousFarDropoff(): void
+    {
+        Http::fake([
+            'https://generativelanguage.googleapis.com/*' => Http::response([
+                'error' => [
+                    'code' => 503,
+                    'message' => 'Gemini disabled in courier flow tests',
+                    'status' => 'UNAVAILABLE',
+                ],
+            ], 503),
+            'https://maps.googleapis.com/maps/api/geocode/*' => function ($request) {
+                $queryString = parse_url($request->url(), PHP_URL_QUERY) ?? '';
+                parse_str($queryString, $query);
+
+                if (isset($query['latlng'])) {
+                    return Http::response([
+                        'status' => 'OK',
+                        'results' => [[
+                            'formatted_address' => 'Erha Setiabudi Tembalang, Jl. Setiabudi, Kota Semarang, Jawa Tengah 50263, Indonesia',
+                            'geometry' => [
+                                'location' => [
+                                    'lat' => -7.052301,
+                                    'lng' => 110.435601,
+                                ],
+                            ],
+                        ]],
+                    ], 200);
+                }
+
+                $address = strtolower(trim((string) ($query['address'] ?? '')));
+                if (str_contains($address, 'erha setiabudi')) {
+                    return Http::response([
+                        'status' => 'OK',
+                        'results' => [[
+                            'formatted_address' => 'ERHA Setiabudi, Jakarta Selatan, DKI Jakarta, Indonesia',
+                            'geometry' => [
+                                'location' => [
+                                    'lat' => -6.221000,
+                                    'lng' => 106.832000,
+                                ],
+                            ],
+                        ]],
+                    ], 200);
+                }
+
+                return Http::response([
+                    'status' => 'ZERO_RESULTS',
+                    'results' => [],
+                ], 200);
+            },
+            'https://maps.googleapis.com/maps/api/place/nearbysearch/*' => Http::response([
+                'status' => 'ZERO_RESULTS',
+                'results' => [],
+            ], 200),
+            'https://maps.googleapis.com/maps/api/distancematrix/*' => function ($request) {
+                $queryString = parse_url($request->url(), PHP_URL_QUERY) ?? '';
+                parse_str($queryString, $query);
+                $destinations = (string) ($query['destinations'] ?? '');
+                $isSemarangPin = str_contains($destinations, '-7.05230100,110.43560100');
+
+                return Http::response([
+                    'status' => 'OK',
+                    'rows' => [[
+                        'elements' => [[
+                            'status' => 'OK',
+                            'distance' => [
+                                'text' => $isSemarangPin ? '1.6 km' : '450.8 km',
+                                'value' => $isSemarangPin ? 1600 : 450810,
+                            ],
+                            'duration' => [
+                                'text' => $isSemarangPin ? '8 mins' : '8 hours',
+                                'value' => $isSemarangPin ? 480 : 28800,
+                            ],
+                        ]],
+                    ]],
+                ], 200);
+            },
         ]);
     }
 

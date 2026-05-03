@@ -17,8 +17,11 @@
     $statusMap = [
         'PENDING' => ['label' => 'Menunggu Driver', 'class' => 'badge-warning'],
         'DRIVER_ASSIGNED' => ['label' => 'Driver Ditugaskan', 'class' => 'badge-info'],
+        'ARRIVED_PICKUP' => ['label' => 'Tiba Pickup', 'class' => 'badge-info'],
+        'ARRIVED_MERCHANT' => ['label' => 'Tiba Merchant', 'class' => 'badge-info'],
         'PICKED_UP' => ['label' => 'Pickup', 'class' => 'badge-info'],
         'ON_THE_WAY' => ['label' => 'Diantar', 'class' => 'badge-info'],
+        'ARRIVED_DROPOFF' => ['label' => 'Tiba Tujuan', 'class' => 'badge-info'],
         'DELIVERED' => ['label' => 'Terkirim', 'class' => 'badge-success'],
         'COMPLETED' => ['label' => 'Selesai', 'class' => 'badge-success'],
         'CANCELLED' => ['label' => 'Dibatalkan', 'class' => 'badge-danger'],
@@ -182,6 +185,16 @@
 @endif
 
 @if($serviceCode === 'COURIER')
+    @php
+        $courierOrder = $order->courierOrder;
+        $packageWeight = $courierOrder?->estimated_weight_kg !== null
+            ? rtrim(rtrim(number_format((float) $courierOrder->estimated_weight_kg, 2, ',', '.'), '0'), ',').' kg'
+            : '-';
+        $packageDimensions = ($courierOrder?->package_length_cm && $courierOrder?->package_width_cm && $courierOrder?->package_height_cm)
+            ? "{$courierOrder->package_length_cm}x{$courierOrder->package_width_cm}x{$courierOrder->package_height_cm} cm"
+            : '-';
+        $packageSafetyFlags = collect($courierOrder?->package_safety_flags ?? [])->implode(', ');
+    @endphp
     <div class="panel" style="margin-bottom:16px;">
         <div class="panel-header">
             <div class="panel-title">Detail Kurir</div>
@@ -189,23 +202,50 @@
         <div style="padding:18px 20px; display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:12px 16px;">
             <div>
                 <div class="td-sub">Deskripsi Paket</div>
-                <div class="td-strong">{{ $order->courierOrder?->package_description ?? '-' }}</div>
+                <div class="td-strong">{{ $courierOrder?->package_description ?? '-' }}</div>
+            </div>
+            <div>
+                <div class="td-sub">Status Safety</div>
+                <div class="td-strong">{{ strtoupper((string) ($courierOrder?->package_safety_status ?? '-')) }}</div>
+            </div>
+            <div>
+                <div class="td-sub">Estimasi Berat</div>
+                <div class="td-strong">{{ $packageWeight }}</div>
+            </div>
+            <div>
+                <div class="td-sub">Estimasi Ukuran</div>
+                <div class="td-strong">{{ $packageDimensions }}</div>
+            </div>
+            <div>
+                <div class="td-sub">Kelas Ukuran</div>
+                <div class="td-strong">{{ strtoupper((string) ($courierOrder?->package_size_class ?? '-')) }}</div>
+            </div>
+            <div>
+                <div class="td-sub">Packing</div>
+                <div class="td-strong">{{ $courierOrder?->package_packing_note ?? '-' }}</div>
             </div>
             <div>
                 <div class="td-sub">Wajib Bukti Foto</div>
-                <div class="td-strong">{{ $order->courierOrder?->requires_photo_evidence === null ? '-' : ($order->courierOrder->requires_photo_evidence ? 'Ya' : 'Tidak') }}</div>
+                <div class="td-strong">{{ $courierOrder?->requires_photo_evidence === null ? '-' : ($courierOrder->requires_photo_evidence ? 'Ya' : 'Tidak') }}</div>
             </div>
             <div>
                 <div class="td-sub">Deadline Konfirmasi</div>
-                <div class="td-strong">{{ $order->courierOrder?->confirmation_deadline_at?->format('d M Y, H:i') ?? '-' }}</div>
+                <div class="td-strong">{{ $courierOrder?->confirmation_deadline_at?->format('d M Y, H:i') ?? '-' }}</div>
             </div>
             <div>
                 <div class="td-sub">Auto Konfirmasi</div>
-                <div class="td-strong">{{ $order->courierOrder?->auto_confirmed_at?->format('d M Y, H:i') ?? '-' }}</div>
+                <div class="td-strong">{{ $courierOrder?->auto_confirmed_at?->format('d M Y, H:i') ?? '-' }}</div>
+            </div>
+            <div style="grid-column: 1 / -1;">
+                <div class="td-sub">Alasan / Catatan Safety</div>
+                <div class="td-strong">{{ $courierOrder?->package_safety_reason ?? '-' }}</div>
+                @if($packageSafetyFlags)
+                    <div class="td-sub" style="margin-top:4px;">Flags: {{ $packageSafetyFlags }}</div>
+                @endif
             </div>
             <div style="grid-column: 1 / -1;">
                 <div class="td-sub">Alasan Komplain</div>
-                <div class="td-strong">{{ $order->courierOrder?->complaint_reason ?? '-' }}</div>
+                <div class="td-strong">{{ $courierOrder?->complaint_reason ?? '-' }}</div>
             </div>
         </div>
     </div>
@@ -261,6 +301,10 @@
         <div>
             <div class="td-sub">Driver</div>
             <div class="td-strong">{{ $latestPayment?->driver?->user?->name ?? $order->driver?->user?->name ?? '-' }}</div>
+        </div>
+        <div>
+            <div class="td-sub">Sumber Pencatatan</div>
+            <div class="td-strong">{{ data_get($latestPayment?->metadata, 'source', '-') }}</div>
         </div>
     </div>
 </div>

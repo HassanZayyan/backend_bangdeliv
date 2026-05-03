@@ -17,7 +17,6 @@ return new class extends Migration
             $table->foreignId('order_id')->unique()->constrained()->cascadeOnDelete();
             $table->timestamp('picked_up_at')->nullable();
             $table->timestamp('arrived_at')->nullable();
-            $table->text('notes')->nullable();
             $table->timestamps();
         });
 

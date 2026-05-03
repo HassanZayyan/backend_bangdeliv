@@ -92,9 +92,11 @@ class OrderExecutionController extends Controller
 
         $serviceCode = strtoupper((string) ($order->serviceType?->code ?? ''));
         $currentStatusCode = strtoupper((string) ($order->statusRef?->code ?? ''));
-        $allowedStatusCodes = $serviceCode === 'RIDE'
-            ? ['DRIVER_ASSIGNED', 'ARRIVED_PICKUP', 'ON_THE_WAY']
-            : ['ON_THE_WAY'];
+        $allowedStatusCodes = match ($serviceCode) {
+            'RIDE' => ['DRIVER_ASSIGNED', 'ARRIVED_PICKUP', 'ON_THE_WAY'],
+            'COURIER' => ['DRIVER_ASSIGNED', 'ARRIVED_PICKUP', 'PICKED_UP', 'ON_THE_WAY'],
+            default => ['ON_THE_WAY'],
+        };
 
         if (! in_array($currentStatusCode, $allowedStatusCodes, true)) {
             return response()->json([

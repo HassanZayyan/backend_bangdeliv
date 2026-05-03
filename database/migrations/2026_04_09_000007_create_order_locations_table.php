@@ -22,7 +22,6 @@ return new class extends Migration
             $table->decimal('latitude', 10, 8);
             $table->decimal('longitude', 11, 8);
             $table->unsignedTinyInteger('sequence_no')->default(1);
-            $table->text('notes')->nullable();
             $table->timestamps();
 
             $table->unique(['order_id', 'location_role', 'sequence_no'], 'order_locations_order_role_sequence_unique');

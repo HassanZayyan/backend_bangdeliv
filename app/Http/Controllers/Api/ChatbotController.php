@@ -778,6 +778,13 @@ class ChatbotController extends Controller
                 'pickup_address' => $this->normalizeOptionalContextString($courier['pickup_address'] ?? null),
                 'dropoff_address' => $this->normalizeOptionalContextString($courier['dropoff_address'] ?? null),
                 'package_description' => $this->normalizeOptionalContextString($courier['package_description'] ?? null),
+                'estimated_weight_kg' => $courier['estimated_weight_kg'] ?? null,
+                'package_length_cm' => $courier['package_length_cm'] ?? null,
+                'package_width_cm' => $courier['package_width_cm'] ?? null,
+                'package_height_cm' => $courier['package_height_cm'] ?? null,
+                'packing_note' => $this->normalizeOptionalContextString($courier['packing_note'] ?? null),
+                'safety_status' => $courier['safety_status'] ?? null,
+                'safety_reason' => $this->normalizeOptionalContextString($courier['safety_reason'] ?? null),
             ];
         }
 
@@ -820,6 +827,29 @@ class ChatbotController extends Controller
         $normalized = trim($value);
 
         return $normalized === '' ? null : $this->truncateContextText($normalized, 240);
+    }
+
+    /**
+     * @param  array<string, mixed>  $courier
+     */
+    private function formatCourierPackageSizeLine(array $courier): string
+    {
+        $parts = [];
+        if (is_numeric($courier['estimated_weight_kg'] ?? null)) {
+            $parts[] = rtrim(rtrim(number_format((float) $courier['estimated_weight_kg'], 2, ',', '.'), '0'), ',').' kg';
+        }
+
+        $dimensions = array_filter([
+            $courier['package_length_cm'] ?? null,
+            $courier['package_width_cm'] ?? null,
+            $courier['package_height_cm'] ?? null,
+        ], fn ($value): bool => is_numeric($value) && (int) $value > 0);
+
+        if ($dimensions !== []) {
+            $parts[] = implode('x', array_map(fn ($value): string => (string) (int) $value, $dimensions)).' cm';
+        }
+
+        return $parts === [] ? 'kecil/ringan untuk motor' : implode(' - ', $parts);
     }
 
     private function truncateContextText(string $text, int $maxLength): string
@@ -910,21 +940,27 @@ class ChatbotController extends Controller
             $ride = is_array($payload['ride'] ?? null) ? $payload['ride'] : [];
 
             if (in_array('OPEN_MAP_PICKER_PICKUP', $nextActions, true)) {
-                $actionPayloads['OPEN_MAP_PICKER_PICKUP'] = [
+                $existing = is_array($actionPayloads['OPEN_MAP_PICKER_PICKUP'] ?? null)
+                    ? $actionPayloads['OPEN_MAP_PICKER_PICKUP']
+                    : [];
+                $actionPayloads['OPEN_MAP_PICKER_PICKUP'] = array_merge([
                     'target' => 'pickup',
                     'label' => 'Pilih Titik Jemput',
                     'initial_latitude' => $ride['pickup_latitude'] ?? null,
                     'initial_longitude' => $ride['pickup_longitude'] ?? null,
-                ];
+                ], $existing);
             }
 
             if (in_array('OPEN_MAP_PICKER_DESTINATION', $nextActions, true)) {
-                $actionPayloads['OPEN_MAP_PICKER_DESTINATION'] = [
+                $existing = is_array($actionPayloads['OPEN_MAP_PICKER_DESTINATION'] ?? null)
+                    ? $actionPayloads['OPEN_MAP_PICKER_DESTINATION']
+                    : [];
+                $actionPayloads['OPEN_MAP_PICKER_DESTINATION'] = array_merge([
                     'target' => 'destination',
                     'label' => 'Pilih Titik Tujuan',
                     'initial_latitude' => $ride['destination_latitude'] ?? null,
                     'initial_longitude' => $ride['destination_longitude'] ?? null,
-                ];
+                ], $existing);
             }
         }
 
@@ -932,21 +968,27 @@ class ChatbotController extends Controller
             $courier = is_array($payload['courier'] ?? null) ? $payload['courier'] : [];
 
             if (in_array('OPEN_MAP_PICKER_PICKUP', $nextActions, true)) {
-                $actionPayloads['OPEN_MAP_PICKER_PICKUP'] = [
+                $existing = is_array($actionPayloads['OPEN_MAP_PICKER_PICKUP'] ?? null)
+                    ? $actionPayloads['OPEN_MAP_PICKER_PICKUP']
+                    : [];
+                $actionPayloads['OPEN_MAP_PICKER_PICKUP'] = array_merge([
                     'target' => 'pickup',
                     'label' => 'Pilih Titik Ambil',
                     'initial_latitude' => $courier['pickup_latitude'] ?? null,
                     'initial_longitude' => $courier['pickup_longitude'] ?? null,
-                ];
+                ], $existing);
             }
 
             if (in_array('OPEN_MAP_PICKER_DROPOFF', $nextActions, true)) {
-                $actionPayloads['OPEN_MAP_PICKER_DROPOFF'] = [
+                $existing = is_array($actionPayloads['OPEN_MAP_PICKER_DROPOFF'] ?? null)
+                    ? $actionPayloads['OPEN_MAP_PICKER_DROPOFF']
+                    : [];
+                $actionPayloads['OPEN_MAP_PICKER_DROPOFF'] = array_merge([
                     'target' => 'dropoff',
                     'label' => 'Pilih Titik Tujuan',
                     'initial_latitude' => $courier['dropoff_latitude'] ?? null,
                     'initial_longitude' => $courier['dropoff_longitude'] ?? null,
-                ];
+                ], $existing);
             }
         }
 
@@ -1326,7 +1368,27 @@ class ChatbotController extends Controller
             $missingFields[] = 'package_description';
         }
 
-        $isValid = $pickupReady && $dropoffReady && $packageReady;
+        $packagePolicy = app(\App\Services\CourierPackagePolicyService::class)->evaluate([
+            'package_description' => $courier['package_description'] ?? null,
+            'estimated_weight_kg' => $courier['estimated_weight_kg'] ?? null,
+            'package_length_cm' => $courier['package_length_cm'] ?? null,
+            'package_width_cm' => $courier['package_width_cm'] ?? null,
+            'package_height_cm' => $courier['package_height_cm'] ?? null,
+            'packing_note' => $courier['packing_note'] ?? null,
+        ]);
+
+        $courier['safety_status'] = $packagePolicy['safety_status'] ?? null;
+        $courier['safety_flags'] = $packagePolicy['safety_flags'] ?? [];
+        $courier['safety_reason'] = $packagePolicy['safety_reason'] ?? null;
+        $courier['size_class'] = $packagePolicy['size_class'] ?? null;
+        $courier['estimated_weight_kg'] = $packagePolicy['estimated_weight_kg'] ?? null;
+        $courier['package_length_cm'] = $packagePolicy['package_length_cm'] ?? null;
+        $courier['package_width_cm'] = $packagePolicy['package_width_cm'] ?? null;
+        $courier['package_height_cm'] = $packagePolicy['package_height_cm'] ?? null;
+        $courier['packing_note'] = $packagePolicy['packing_note'] ?? null;
+
+        $isPackageAllowed = ($packagePolicy['safety_status'] ?? null) === \App\Services\CourierPackagePolicyService::STATUS_ALLOWED;
+        $isValid = $pickupReady && $dropoffReady && $packageReady && $isPackageAllowed;
 
         $validation = is_array($payload['validation'] ?? null)
             ? $payload['validation']
@@ -1344,6 +1406,13 @@ class ChatbotController extends Controller
         if (in_array('dropoff_address', $missingFields, true)) {
             $nextActions[] = 'OPEN_MAP_PICKER_DROPOFF';
         }
+        if ($packageReady && !$isPackageAllowed) {
+            $validation['is_valid_order'] = false;
+            $validation['missing_fields'] = array_values(array_unique([...$missingFields, 'package_description']));
+            $validation['rejection_reasons'] = [$packagePolicy['safety_reason'] ?? 'Barang belum memenuhi kebijakan layanan kurir motor.'];
+            $validation['next_actions'] = [];
+        }
+
         if ($isValid) {
             $nextActions[] = 'CONFIRM_DRAFT';
             $nextActions[] = 'RESET_DESTINATION';
@@ -1397,8 +1466,10 @@ class ChatbotController extends Controller
             $buffer .= 'Ambil: '.(string) $courier['pickup_address']."\n";
             $buffer .= 'Tujuan: '.(string) $courier['dropoff_address']."\n";
             $buffer .= 'Barang: '.(string) $courier['package_description']."\n";
+            $buffer .= 'Ukuran/Berat: '.$this->formatCourierPackageSizeLine($courier)."\n";
+            $buffer .= 'Status barang: '.(string) ($courier['safety_reason'] ?? 'Paket aman untuk layanan kurir motor.')."\n";
             $buffer .= "Estimasi ongkir sementara: Rp {$deliveryFee} (kalkulasi detail menyusul).\n";
-            $buffer .= 'Ketik "Konfirmasi" untuk lanjut atau "Ubah Tujuan" untuk ganti tujuan.';
+            $buffer .= 'Ketik "Konfirmasi" untuk lanjut. Pembayaran dilakukan tunai saat driver tiba dan mengecek barang di titik ambil.';
             $payload['assistant_text'] = $buffer;
         } else {
             $payload['assistant_text'] = 'Titik '.$target.' berhasil diperbarui. Lengkapi data lain agar draft siap dikonfirmasi.';

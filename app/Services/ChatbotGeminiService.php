@@ -57,7 +57,7 @@ class ChatbotGeminiService
         }
 
         if ($serviceType === 'kurir') {
-            $systemInstruction = 'Kamu adalah NLU assistant BangDeliv untuk layanan Kurir. Keluarkan hanya JSON sesuai schema. command valid: "confirm", "reset_destination", atau "none". Jika user memberi pickup/tujuan/isi paket, isi field terkait. Jika tidak ada, null. intent harus "courier_order" atau "out_of_domain". Jika disediakan CONTEXT_JSON, gunakan untuk membaca progres percakapan dan draft terakhir.';
+            $systemInstruction = 'Kamu adalah NLU assistant BangDeliv untuk layanan Kurir motor. Keluarkan hanya JSON sesuai schema. command valid: "confirm", "reset_destination", atau "none". Ekstrak pickup, tujuan, isi paket, berat, ukuran, dan packing hanya jika user menyebutnya. Jangan mengarang berat/ukuran; untuk barang kecil umum seperti kacamata, dokumen, kunci, buku kecil, baju, charger, atau earphone cukup isi package_description. Jika user menulis nama tempat + area, contoh "antar kacamata ke Erha Setiabudi Tembalang", isi dropoff_address dengan "Erha Setiabudi Tembalang" dan package_description dengan "kacamata". Jika user menyebut rumahku/rumah saya sebagai pickup, isi pickup_address "rumah". Barang ambigu tetap diekstrak apa adanya agar backend bisa meminta klarifikasi. intent harus "courier_order" atau "out_of_domain". Jika disediakan CONTEXT_JSON, gunakan untuk membaca progres percakapan dan draft terakhir.';
             $schema = [
                 'type' => 'OBJECT',
                 'properties' => [
@@ -66,6 +66,11 @@ class ChatbotGeminiService
                     'pickup_address' => ['type' => 'STRING', 'nullable' => true],
                     'dropoff_address' => ['type' => 'STRING', 'nullable' => true],
                     'package_description' => ['type' => 'STRING', 'nullable' => true],
+                    'estimated_weight_kg' => ['type' => 'NUMBER', 'nullable' => true],
+                    'package_length_cm' => ['type' => 'INTEGER', 'nullable' => true],
+                    'package_width_cm' => ['type' => 'INTEGER', 'nullable' => true],
+                    'package_height_cm' => ['type' => 'INTEGER', 'nullable' => true],
+                    'packing_note' => ['type' => 'STRING', 'nullable' => true],
                 ],
                 'required' => ['intent', 'command'],
             ];
@@ -76,6 +81,11 @@ class ChatbotGeminiService
                 'pickup_address' => null,
                 'dropoff_address' => null,
                 'package_description' => null,
+                'estimated_weight_kg' => null,
+                'package_length_cm' => null,
+                'package_width_cm' => null,
+                'package_height_cm' => null,
+                'packing_note' => null,
             ], $context);
 
             return [
@@ -272,6 +282,11 @@ class ChatbotGeminiService
             'pickup_address' => $this->normalizeOptionalString($payload['pickup_address'] ?? null),
             'dropoff_address' => $this->normalizeOptionalString($payload['dropoff_address'] ?? null),
             'package_description' => $this->normalizeOptionalString($payload['package_description'] ?? null),
+            'estimated_weight_kg' => $this->normalizeOptionalFloat($payload['estimated_weight_kg'] ?? null),
+            'package_length_cm' => $this->normalizeOptionalInt($payload['package_length_cm'] ?? null),
+            'package_width_cm' => $this->normalizeOptionalInt($payload['package_width_cm'] ?? null),
+            'package_height_cm' => $this->normalizeOptionalInt($payload['package_height_cm'] ?? null),
+            'packing_note' => $this->normalizeOptionalString($payload['packing_note'] ?? null),
         ];
     }
 
@@ -303,6 +318,28 @@ class ChatbotGeminiService
         $normalized = trim($value);
 
         return $normalized === '' ? null : $normalized;
+    }
+
+    private function normalizeOptionalFloat(mixed $value): ?float
+    {
+        if (!is_numeric($value)) {
+            return null;
+        }
+
+        $parsed = round((float) $value, 2);
+
+        return $parsed > 0 ? $parsed : null;
+    }
+
+    private function normalizeOptionalInt(mixed $value): ?int
+    {
+        if (!is_numeric($value)) {
+            return null;
+        }
+
+        $parsed = (int) round((float) $value);
+
+        return $parsed > 0 ? $parsed : null;
     }
 
     private function normalizeCommand(mixed $value): string

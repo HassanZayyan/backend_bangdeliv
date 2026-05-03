@@ -45,7 +45,7 @@ class OrderService
 
         $query = Order::query()
             ->where('user_id', $user->id)
-            ->with(['restaurant', 'items', 'payments', 'statusRef', 'serviceType'])
+            ->with(['restaurant', 'items', 'payments', 'statusRef', 'serviceType', 'courierOrder'])
             ->latest('id');
 
         if (! empty($filters['status'])) {
@@ -58,7 +58,7 @@ class OrderService
     public function customerOrderDetail(User $user, int $orderId): Order
     {
         $order = Order::query()
-            ->with(['restaurant', 'driver.user', 'items', 'orderLocations', 'payments', 'statusRef', 'statusHistories.statusRef', 'serviceType'])
+            ->with(['restaurant', 'driver.user', 'items', 'orderLocations', 'payments', 'statusRef', 'statusHistories.statusRef', 'serviceType', 'courierOrder'])
             ->find($orderId);
 
         if (! $order || $order->user_id !== $user->id) {
@@ -692,6 +692,17 @@ class OrderService
                 throw new ApiException('Pembayaran COD belum dicatat.', 409);
             }
 
+            if (($rule['requires_unpaid'] ?? false) && $this->orderHasPaidCodPayment($order)) {
+                throw new ApiException('Aksi ini hanya tersedia sebelum pembayaran COD dicatat.', 409);
+            }
+
+            $eventNote = trim((string) $note);
+            if ($eventNote === '') {
+                $eventNote = $normalizedActionCode === 'REPORT_PACKAGE_INVALID'
+                    ? 'Barang tidak sesuai untuk layanan kurir motor.'
+                    : 'Driver action '.$normalizedActionCode;
+            }
+
             $targetStatusId = $this->resolveStatusId($resolvedTargetStatusCode);
             $updates = [
                 'status_id' => $targetStatusId,
@@ -701,13 +712,13 @@ class OrderService
                 $updates['delivered_at'] = now();
             }
 
+            if ($resolvedTargetStatusCode === 'CANCELLED') {
+                $updates['cancelled_by'] = 'driver';
+                $updates['cancellation_reason'] = $eventNote;
+            }
+
             $order->update($updates);
             $this->syncDriverServiceTimestamp($order, $resolvedTargetStatusCode);
-
-            $eventNote = trim((string) $note);
-            if ($eventNote === '') {
-                $eventNote = 'Driver action '.$normalizedActionCode;
-            }
 
             $snapshot = [
                 'action_code' => $normalizedActionCode,
@@ -982,6 +993,13 @@ class OrderService
                 'label' => 'Paket Diambil',
                 'from' => ['ARRIVED_PICKUP'],
                 'to' => 'PICKED_UP',
+                'requires_paid' => true,
+            ],
+            'REPORT_PACKAGE_INVALID' => [
+                'label' => 'Barang Tidak Sesuai',
+                'from' => ['ARRIVED_PICKUP'],
+                'to' => 'CANCELLED',
+                'requires_unpaid' => true,
             ],
             'START_DELIVERY' => [
                 'label' => 'Mulai Antar',
@@ -1059,7 +1077,7 @@ class OrderService
             'statusRef:id,code,display_name',
             'restaurant:id,name,address,latitude,longitude',
             'rideOrder:id,order_id,picked_up_at,arrived_at',
-            'courierOrder:id,order_id,package_description,requires_photo_evidence',
+            'courierOrder:id,order_id,package_description,estimated_weight_kg,package_length_cm,package_width_cm,package_height_cm,package_size_class,package_safety_status,package_safety_flags,package_safety_reason,package_packing_note,requires_photo_evidence',
             'items:id,order_id,quantity',
             'orderLocations:id,order_id,location_role,full_address,latitude,longitude,sequence_no',
             'payments:id,order_id,payment_method,payment_status,amount,recorded_by_user_id,driver_id,paid_at',
@@ -1121,6 +1139,20 @@ class OrderService
             'payment_method' => $order->payment_method,
             'available_actions' => $availableActions,
         ];
+
+        if ($serviceCode === 'COURIER' && $order->courierOrder !== null) {
+            $payload['package_description'] = $order->courierOrder->package_description;
+            $payload['package_estimated_weight_kg'] = $order->courierOrder->estimated_weight_kg !== null
+                ? (float) $order->courierOrder->estimated_weight_kg
+                : null;
+            $payload['package_length_cm'] = $order->courierOrder->package_length_cm;
+            $payload['package_width_cm'] = $order->courierOrder->package_width_cm;
+            $payload['package_height_cm'] = $order->courierOrder->package_height_cm;
+            $payload['package_size_class'] = $order->courierOrder->package_size_class;
+            $payload['package_safety_status'] = $order->courierOrder->package_safety_status;
+            $payload['package_safety_reason'] = $order->courierOrder->package_safety_reason;
+            $payload['package_packing_note'] = $order->courierOrder->package_packing_note;
+        }
 
         if ($includeTimeline) {
             $payload['status_timeline'] = $this->serializeStatusTimeline($order);
@@ -1215,6 +1247,11 @@ class OrderService
             }
 
             $requiresPaid = (bool) ($rule['requires_paid'] ?? false);
+            $requiresUnpaid = (bool) ($rule['requires_unpaid'] ?? false);
+            if ($requiresUnpaid && $paymentStatus === 'paid') {
+                continue;
+            }
+
             $blocked = $requiresPaid && $paymentStatus !== 'paid';
 
             $actions[] = [
@@ -1228,10 +1265,19 @@ class OrderService
             ];
         }
 
-        if ($statusCode === 'DELIVERED' && $paymentStatus !== 'paid') {
+        $shouldCollectCourierAtPickup = $serviceCode === 'COURIER' &&
+            $statusCode === 'ARRIVED_PICKUP' &&
+            $paymentStatus !== 'paid';
+        $shouldCollectAtDelivered = $serviceCode !== 'COURIER' &&
+            $statusCode === 'DELIVERED' &&
+            $paymentStatus !== 'paid';
+
+        if ($shouldCollectCourierAtPickup || $shouldCollectAtDelivered) {
             $actions[] = [
                 'action_code' => 'COLLECT_COD',
-                'label' => 'Catat Pembayaran COD',
+                'label' => $shouldCollectCourierAtPickup
+                    ? 'Catat Pembayaran Pickup'
+                    : 'Catat Pembayaran COD',
                 'target_status_code' => null,
                 'blocked' => false,
                 'blocked_reason' => null,
@@ -1645,7 +1691,7 @@ class OrderService
     {
         return DB::transaction(function () use ($actor, $orderId, $payload, $enforceAssignedDriver): Order {
             $order = Order::query()
-                ->with(['statusRef', 'driver.user'])
+                ->with(['statusRef', 'driver.user', 'serviceType'])
                 ->lockForUpdate()
                 ->find($orderId);
 
@@ -1657,8 +1703,17 @@ class OrderService
                 throw new ApiException('Pembayaran order ini sudah tercatat.', 409);
             }
 
-            if (($order->statusRef->code ?? null) !== 'DELIVERED') {
-                throw new ApiException('Pembayaran COD hanya bisa dicatat setelah order berstatus DELIVERED.', 409);
+            $serviceCode = strtoupper((string) ($order->serviceType->code ?? ''));
+            $statusCode = strtoupper((string) ($order->statusRef->code ?? ''));
+            $isCourierPickupCollection = $serviceCode === 'COURIER' && $statusCode === 'ARRIVED_PICKUP';
+            $isDeliveredCollection = $serviceCode !== 'COURIER' && $statusCode === 'DELIVERED';
+
+            if (! $isCourierPickupCollection && ! $isDeliveredCollection) {
+                $message = $serviceCode === 'COURIER'
+                    ? 'Pembayaran COD courier hanya bisa dicatat saat driver tiba di pickup.'
+                    : 'Pembayaran COD hanya bisa dicatat setelah order berstatus DELIVERED.';
+
+                throw new ApiException($message, 409);
             }
 
             $orderDriverId = (int) ($order->driver_id ?? 0);
@@ -1699,7 +1754,9 @@ class OrderService
                     'note' => $payload['note'] ?? null,
                     'metadata' => [
                         'recorded_by_role' => $actor->role,
-                        'source' => $enforceAssignedDriver ? 'DRIVER_COLLECTION' : 'ADMIN_MANUAL_RECORD',
+                        'source' => $isCourierPickupCollection
+                            ? 'COURIER_PICKUP_COLLECTION'
+                            : ($enforceAssignedDriver ? 'DRIVER_COLLECTION' : 'ADMIN_MANUAL_RECORD'),
                         'extra' => $payload['metadata'] ?? null,
                     ],
                 ],

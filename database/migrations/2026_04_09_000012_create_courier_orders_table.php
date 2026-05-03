@@ -16,6 +16,15 @@ return new class extends Migration
             $table->id();
             $table->foreignId('order_id')->unique()->constrained()->cascadeOnDelete();
             $table->text('package_description')->nullable();
+            $table->decimal('estimated_weight_kg', 8, 2)->nullable();
+            $table->unsignedSmallInteger('package_length_cm')->nullable();
+            $table->unsignedSmallInteger('package_width_cm')->nullable();
+            $table->unsignedSmallInteger('package_height_cm')->nullable();
+            $table->string('package_size_class', 30)->nullable();
+            $table->string('package_safety_status', 40)->nullable();
+            $table->json('package_safety_flags')->nullable();
+            $table->text('package_safety_reason')->nullable();
+            $table->text('package_packing_note')->nullable();
             $table->boolean('requires_photo_evidence')->default(true);
             $table->timestamp('confirmation_deadline_at')->nullable();
             $table->timestamp('auto_confirmed_at')->nullable();

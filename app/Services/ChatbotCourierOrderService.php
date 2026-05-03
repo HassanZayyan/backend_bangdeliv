@@ -53,6 +53,12 @@ class ChatbotCourierOrderService
         'berkas',
         'paket',
         'barang',
+        'kacamata',
+        'kunci',
+        'charger',
+        'earphone',
+        'baju',
+        'buku',
         'makanan',
         'obat',
         'surat',
@@ -63,6 +69,12 @@ class ChatbotCourierOrderService
      */
     private array $pickupProfileAliases = [
         'rumah',
+        'rumahku',
+        'rumah saya',
+        'di rumahku',
+        'di rumah saya',
+        'ambil di rumahku',
+        'ambil di rumah saya',
         'di rumah',
         'ambil di rumah',
         'jemput di rumah',
@@ -96,7 +108,8 @@ class ChatbotCourierOrderService
         private readonly GoogleMapsGeocodingService $geocodingService,
         private readonly GoogleMapsDistanceMatrixService $distanceMatrixService,
         private readonly DeliveryPricingService $deliveryPricingService,
-        private readonly OrderPaymentService $orderPaymentService
+        private readonly OrderPaymentService $orderPaymentService,
+        private readonly CourierPackagePolicyService $packagePolicyService
     ) {}
 
     /**
@@ -300,6 +313,7 @@ class ChatbotCourierOrderService
                 'pickup_longitude' => $draft['pickup_longitude'] ?? null,
                 'dropoff_latitude' => $draft['dropoff_latitude'] ?? null,
                 'dropoff_longitude' => $draft['dropoff_longitude'] ?? null,
+                ...$this->packagePolicyPayload($draft),
             ],
             'validation' => $validation,
             'order' => [
@@ -308,6 +322,9 @@ class ChatbotCourierOrderService
                 'order_number' => null,
                 'delivery_fee' => $draft['delivery_fee'] ?? null,
             ],
+            'action_payloads' => is_array($draft['action_payloads'] ?? null)
+                ? $draft['action_payloads']
+                : [],
             'assistant_text' => $this->buildValidationMessage($draft),
         ];
     }
@@ -333,12 +350,23 @@ class ChatbotCourierOrderService
                 'dropoff_latitude' => $draft['dropoff_latitude'],
                 'dropoff_longitude' => $draft['dropoff_longitude'],
                 'distance_km' => $draft['distance_km'],
+                ...$this->packagePolicyPayload($draft),
             ],
             'validation' => [
                 'is_valid_order' => true,
                 'rejection_reasons' => [],
                 'missing_fields' => [],
-                'next_actions' => [],
+                'next_actions' => ['CONFIRM_DRAFT', 'RESET_DESTINATION', 'CHANGE_PICKUP'],
+            ],
+            'action_payloads' => [
+                'CONFIRM_DRAFT' => [
+                    'label' => 'Konfirmasi',
+                    'message' => 'Konfirmasi',
+                ],
+                'RESET_DESTINATION' => [
+                    'label' => 'Ubah Tujuan',
+                    'message' => 'Ubah Tujuan',
+                ],
             ],
             'order' => [
                 'created' => false,
@@ -374,6 +402,7 @@ class ChatbotCourierOrderService
         $reasons = [];
         $missingFields = [];
         $nextActions = [];
+        $actionPayloads = [];
 
         $shouldUseProfilePickup =
             $pickupRawAddress === null ||
@@ -404,11 +433,11 @@ class ChatbotCourierOrderService
                 $reasons[] = 'Lokasi ambil tidak ditemukan di peta. Gunakan alamat yang lebih spesifik.';
                 $missingFields[] = 'pickup_address';
             } else {
-                $pickupAddress = $resolvedPickup['formatted_address'];
-                $pickupLatitude = $resolvedPickup['latitude'];
-                $pickupLongitude = $resolvedPickup['longitude'];
+                    $pickupAddress = $resolvedPickup['formatted_address'];
+                    $pickupLatitude = $resolvedPickup['latitude'];
+                    $pickupLongitude = $resolvedPickup['longitude'];
+                }
             }
-        }
 
         if ($dropoffRawAddress === null) {
             $reasons[] = 'Lokasi tujuan belum terbaca. Tulis contoh: "kirim ke Jalan Sudirman No 10".';
@@ -428,6 +457,24 @@ class ChatbotCourierOrderService
         if ($packageDescription === null) {
             $reasons[] = 'Isi paket belum jelas. Tulis contoh: "isi paket: dokumen kontrak".';
             $missingFields[] = 'package_description';
+        }
+
+        $packagePolicy = $this->packagePolicyService->evaluate([
+            'package_description' => $packageDescription,
+            'message' => $message,
+            'estimated_weight_kg' => $extracted['estimated_weight_kg'] ?? null,
+            'package_length_cm' => $extracted['package_length_cm'] ?? null,
+            'package_width_cm' => $extracted['package_width_cm'] ?? null,
+            'package_height_cm' => $extracted['package_height_cm'] ?? null,
+            'packing_note' => $extracted['packing_note'] ?? null,
+        ]);
+
+        if ($packageDescription !== null) {
+            $packageSafetyStatus = (string) ($packagePolicy['safety_status'] ?? CourierPackagePolicyService::STATUS_ALLOWED);
+            if ($packageSafetyStatus !== CourierPackagePolicyService::STATUS_ALLOWED) {
+                $reasons[] = (string) ($packagePolicy['safety_reason'] ?? 'Barang belum memenuhi kebijakan layanan kurir motor.');
+                $missingFields[] = 'package_description';
+            }
         }
 
         $distanceKm = null;
@@ -450,11 +497,47 @@ class ChatbotCourierOrderService
                 $distanceKm = (float) $route['distance_km'];
 
                 if (! $this->deliveryPricingService->isWithinMaxDistance($distanceMeters)) {
-                    $reasons[] = sprintf(
-                        'Jarak %.2f km melebihi batas layanan %.2f km.',
-                        $distanceKm,
-                        $this->deliveryPricingService->getMaxDistanceKm()
-                    );
+                    $mapField = $dropoffRawAddress !== null
+                        ? 'dropoff_address'
+                        : (! $usedDefaultPickup && $pickupRawAddress !== null ? 'pickup_address' : null);
+
+                    if ($mapField === 'dropoff_address') {
+                        $reasons[] = $this->buildMapSelectionReason('tujuan', $dropoffRawAddress);
+                        $missingFields[] = 'dropoff_address';
+                        $nextActions[] = 'OPEN_MAP_PICKER_DROPOFF';
+                        $actionPayloads['OPEN_MAP_PICKER_DROPOFF'] = [
+                            'target' => 'dropoff',
+                            'label' => 'Pilih Titik Tujuan di Map',
+                            'initial_latitude' => null,
+                            'initial_longitude' => null,
+                        ];
+                        $dropoffAddress = is_string($dropoffRawAddress) ? $dropoffRawAddress : $dropoffAddress;
+                        $dropoffLatitude = null;
+                        $dropoffLongitude = null;
+                        $distanceMeters = 0.0;
+                        $distanceKm = null;
+                    } elseif ($mapField === 'pickup_address') {
+                        $reasons[] = $this->buildMapSelectionReason('ambil', $pickupRawAddress);
+                        $missingFields[] = 'pickup_address';
+                        $nextActions[] = 'OPEN_MAP_PICKER_PICKUP';
+                        $actionPayloads['OPEN_MAP_PICKER_PICKUP'] = [
+                            'target' => 'pickup',
+                            'label' => 'Pilih Titik Ambil di Map',
+                            'initial_latitude' => null,
+                            'initial_longitude' => null,
+                        ];
+                        $pickupAddress = is_string($pickupRawAddress) ? $pickupRawAddress : $pickupAddress;
+                        $pickupLatitude = null;
+                        $pickupLongitude = null;
+                        $distanceMeters = 0.0;
+                        $distanceKm = null;
+                    } else {
+                        $reasons[] = sprintf(
+                            'Jarak %.2f km melebihi batas layanan %.2f km.',
+                            $distanceKm,
+                            $this->deliveryPricingService->getMaxDistanceKm()
+                        );
+                    }
                 }
             } catch (ApiException $exception) {
                 if ($exception->status() === 422) {
@@ -481,15 +564,18 @@ class ChatbotCourierOrderService
             'distance_km' => $distanceKm,
             'delivery_fee' => $deliveryFee,
             'used_default_pickup' => $usedDefaultPickup,
+            ...$this->packagePolicyPayload($packagePolicy),
             'validation' => [
                 'is_valid_order' => $reasons === [] &&
                     $pickupAddress !== null &&
                     $dropoffAddress !== null &&
-                    $packageDescription !== null,
+                    $packageDescription !== null &&
+                    ($packagePolicy['safety_status'] ?? CourierPackagePolicyService::STATUS_ALLOWED) === CourierPackagePolicyService::STATUS_ALLOWED,
                 'rejection_reasons' => $reasons,
                 'missing_fields' => array_values(array_unique($missingFields)),
                 'next_actions' => array_values(array_unique($nextActions)),
             ],
+            'action_payloads' => $actionPayloads,
         ];
     }
 
@@ -575,6 +661,18 @@ class ChatbotCourierOrderService
         ];
     }
 
+    private function buildMapSelectionReason(string $target, mixed $rawAddress): string
+    {
+        $label = $target === 'ambil' ? 'lokasi ambil' : 'alamat tujuan';
+        $raw = $this->normalizeWhitespace(is_string($rawAddress) ? $rawAddress : '');
+
+        if ($raw === '') {
+            return ucfirst($label).' belum pas di peta. Pilih titiknya langsung di map.';
+        }
+
+        return ucfirst($label).' "'.$raw.'" belum pas di peta. Pilih titiknya langsung di map.';
+    }
+
     private function resolveProfilePickupAddress(Address $address): ?array
     {
         return [
@@ -611,6 +709,19 @@ class ChatbotCourierOrderService
 
         if ($pickupAddress === '' || $dropoffAddress === '' || $packageDescription === '') {
             throw new ApiException('Draft kurir tidak valid untuk dikonfirmasi. Kirim ulang detail pengiriman.', 422);
+        }
+
+        $packagePolicy = $this->packagePolicyService->evaluate([
+            'package_description' => $packageDescription,
+            'estimated_weight_kg' => $parsed['estimated_weight_kg'] ?? null,
+            'package_length_cm' => $parsed['package_length_cm'] ?? null,
+            'package_width_cm' => $parsed['package_width_cm'] ?? null,
+            'package_height_cm' => $parsed['package_height_cm'] ?? null,
+            'packing_note' => $parsed['packing_note'] ?? null,
+        ]);
+
+        if (($packagePolicy['safety_status'] ?? null) !== CourierPackagePolicyService::STATUS_ALLOWED) {
+            throw new ApiException((string) ($packagePolicy['safety_reason'] ?? 'Barang belum memenuhi kebijakan layanan kurir motor.'), 422);
         }
 
         $pickupLatitude = (float) $parsed['pickup_latitude'];
@@ -660,6 +771,7 @@ class ChatbotCourierOrderService
             $dropoffLongitude,
             $route,
             $packageDescription,
+            $packagePolicy,
             $estimatedMinutes
         ): Order {
             $order = Order::query()->create([
@@ -684,6 +796,15 @@ class ChatbotCourierOrderService
             CourierOrder::query()->create([
                 'order_id' => $order->id,
                 'package_description' => $packageDescription,
+                'estimated_weight_kg' => $packagePolicy['estimated_weight_kg'] ?? null,
+                'package_length_cm' => $packagePolicy['package_length_cm'] ?? null,
+                'package_width_cm' => $packagePolicy['package_width_cm'] ?? null,
+                'package_height_cm' => $packagePolicy['package_height_cm'] ?? null,
+                'package_size_class' => $packagePolicy['size_class'] ?? null,
+                'package_safety_status' => $packagePolicy['safety_status'] ?? null,
+                'package_safety_flags' => $packagePolicy['safety_flags'] ?? [],
+                'package_safety_reason' => $packagePolicy['safety_reason'] ?? null,
+                'package_packing_note' => $packagePolicy['packing_note'] ?? null,
                 'requires_photo_evidence' => true,
                 'confirmation_deadline_at' => Carbon::now()->addHours(24),
             ]);
@@ -899,7 +1020,7 @@ class ChatbotCourierOrderService
 
     /**
      * @param  array<string, mixed>|null  $nluPayload
-     * @return array{pickup_address: string|null, dropoff_address: string|null, package_description: string|null}|null
+     * @return array<string, mixed>|null
      */
     private function buildDraftSeedFromNlu(?array $nluPayload): ?array
     {
@@ -910,8 +1031,22 @@ class ChatbotCourierOrderService
         $pickupAddress = $this->sanitizeAddressFragment(isset($nluPayload['pickup_address']) ? (string) $nluPayload['pickup_address'] : null);
         $dropoffAddress = $this->sanitizeAddressFragment(isset($nluPayload['dropoff_address']) ? (string) $nluPayload['dropoff_address'] : null);
         $packageDescription = $this->sanitizeAddressFragment(isset($nluPayload['package_description']) ? (string) $nluPayload['package_description'] : null);
+        $estimatedWeightKg = $this->nullablePositiveFloat($nluPayload['estimated_weight_kg'] ?? null);
+        $packageLengthCm = $this->nullablePositiveInt($nluPayload['package_length_cm'] ?? null);
+        $packageWidthCm = $this->nullablePositiveInt($nluPayload['package_width_cm'] ?? null);
+        $packageHeightCm = $this->nullablePositiveInt($nluPayload['package_height_cm'] ?? null);
+        $packingNote = $this->sanitizeAddressFragment(isset($nluPayload['packing_note']) ? (string) $nluPayload['packing_note'] : null);
 
-        if ($pickupAddress === null && $dropoffAddress === null && $packageDescription === null) {
+        if (
+            $pickupAddress === null &&
+            $dropoffAddress === null &&
+            $packageDescription === null &&
+            $estimatedWeightKg === null &&
+            $packageLengthCm === null &&
+            $packageWidthCm === null &&
+            $packageHeightCm === null &&
+            $packingNote === null
+        ) {
             return null;
         }
 
@@ -919,6 +1054,11 @@ class ChatbotCourierOrderService
             'pickup_address' => $pickupAddress,
             'dropoff_address' => $dropoffAddress,
             'package_description' => $packageDescription,
+            'estimated_weight_kg' => $estimatedWeightKg,
+            'package_length_cm' => $packageLengthCm,
+            'package_width_cm' => $packageWidthCm,
+            'package_height_cm' => $packageHeightCm,
+            'packing_note' => $packingNote,
         ];
     }
 
@@ -927,6 +1067,74 @@ class ChatbotCourierOrderService
         $estimated = (int) ceil(max(0, $durationSeconds) / 60);
 
         return max(20, min(180, $estimated + 10));
+    }
+
+    /**
+     * @param  array<string, mixed>  $source
+     * @return array<string, mixed>
+     */
+    private function packagePolicyPayload(array $source): array
+    {
+        return [
+            'safety_status' => $source['safety_status'] ?? null,
+            'safety_flags' => $source['safety_flags'] ?? [],
+            'safety_reason' => $source['safety_reason'] ?? null,
+            'size_class' => $source['size_class'] ?? null,
+            'estimated_weight_kg' => $source['estimated_weight_kg'] ?? null,
+            'package_length_cm' => $source['package_length_cm'] ?? null,
+            'package_width_cm' => $source['package_width_cm'] ?? null,
+            'package_height_cm' => $source['package_height_cm'] ?? null,
+            'packing_note' => $source['packing_note'] ?? null,
+        ];
+    }
+
+    private function nullablePositiveFloat(mixed $value): ?float
+    {
+        if (! is_numeric($value)) {
+            return null;
+        }
+
+        $parsed = round((float) $value, 2);
+
+        return $parsed > 0 ? $parsed : null;
+    }
+
+    private function nullablePositiveInt(mixed $value): ?int
+    {
+        if (! is_numeric($value)) {
+            return null;
+        }
+
+        $parsed = (int) round((float) $value);
+
+        return $parsed > 0 ? $parsed : null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function formatPackageSizeLine(array $payload): string
+    {
+        $parts = [];
+        if (is_numeric($payload['estimated_weight_kg'] ?? null)) {
+            $parts[] = rtrim(rtrim(number_format((float) $payload['estimated_weight_kg'], 2, ',', '.'), '0'), ',').' kg';
+        }
+
+        $dimensions = array_filter([
+            $payload['package_length_cm'] ?? null,
+            $payload['package_width_cm'] ?? null,
+            $payload['package_height_cm'] ?? null,
+        ], fn ($value): bool => is_numeric($value) && (int) $value > 0);
+
+        if ($dimensions !== []) {
+            $parts[] = implode('x', array_map(fn ($value): string => (string) (int) $value, $dimensions)).' cm';
+        }
+
+        if ($parts === []) {
+            return 'kecil/ringan untuk motor';
+        }
+
+        return implode(' - ', $parts);
     }
 
     private function generateOrderNumber(): string
@@ -944,9 +1152,33 @@ class ChatbotCourierOrderService
     private function buildValidationMessage(array $parsed): string
     {
         $reasons = $parsed['validation']['rejection_reasons'] ?? [];
+        $nextActions = $parsed['validation']['next_actions'] ?? [];
 
         if (! is_array($reasons) || $reasons === []) {
             return 'Data kurir belum lengkap. Mohon isi lokasi ambil, tujuan kirim, dan isi paket.';
+        }
+
+        if (
+            is_array($nextActions) &&
+            (in_array('OPEN_MAP_PICKER_DROPOFF', $nextActions, true) ||
+                in_array('OPEN_MAP_PICKER_PICKUP', $nextActions, true))
+        ) {
+            $message = trim((string) $reasons[0]);
+
+            return $message === ''
+                ? 'Alamat belum pas di peta. Pilih titiknya langsung di map.'
+                : $message;
+        }
+
+        if (count($reasons) === 1) {
+            $reason = trim((string) $reasons[0]);
+            if (str_contains($reason, 'Isi paket belum spesifik')) {
+                return $reason.' Contoh: kacamata, dokumen, kunci, atau charger.';
+            }
+
+            if ($reason === 'Estimasi berat atau ukuran paket belum jelas.') {
+                return 'Barang ini perlu sedikit klarifikasi. Sebutkan jenis barangnya atau perkiraan ukurannya supaya driver tidak salah ambil.';
+            }
         }
 
         $buffer = "Order kurir belum bisa dibuat karena:\n";
@@ -954,7 +1186,7 @@ class ChatbotCourierOrderService
             $buffer .= '- '.trim((string) $reason)."\n";
         }
 
-        $buffer .= "\nFormat cepat: Kirim dokumen dari [lokasi ambil] ke [tujuan], isi paket: [deskripsi].";
+        $buffer .= "\nLengkapi bagian yang diminta saja, atau pilih titik di map jika alamatnya belum pas.";
 
         return trim($buffer);
     }
@@ -971,8 +1203,10 @@ class ChatbotCourierOrderService
         $buffer .= 'Ambil: '.(string) $parsed['pickup_address']."\n";
         $buffer .= 'Tujuan: '.(string) $parsed['dropoff_address']."\n";
         $buffer .= 'Barang: '.(string) $parsed['package_description']."\n";
+        $buffer .= 'Ukuran/Berat: '.$this->formatPackageSizeLine($parsed)."\n";
+        $buffer .= 'Status barang: '.(string) ($parsed['safety_reason'] ?? 'Paket aman untuk layanan kurir motor.')."\n";
         $buffer .= "Estimasi ongkir sementara: Rp {$deliveryFee} (kalkulasi detail menyusul).\n";
-        $buffer .= 'Ketik "Konfirmasi" untuk lanjut atau "Ubah Tujuan" untuk ganti tujuan.';
+        $buffer .= 'Ketik "Konfirmasi" untuk lanjut. Pembayaran dilakukan tunai saat driver tiba dan mengecek barang di titik ambil.';
 
         return $buffer;
     }
@@ -989,7 +1223,9 @@ class ChatbotCourierOrderService
         $buffer .= 'Ambil: '.(string) $parsed['pickup_address']."\n";
         $buffer .= 'Tujuan: '.(string) $parsed['dropoff_address']."\n";
         $buffer .= 'Barang: '.(string) $parsed['package_description']."\n";
-        $buffer .= "Ongkir: Rp {$deliveryFee}.";
+        $buffer .= 'Ukuran/Berat: '.$this->formatPackageSizeLine($parsed)."\n";
+        $buffer .= "Ongkir: Rp {$deliveryFee}.\n";
+        $buffer .= 'Bayar tunai ke driver saat menyerahkan barang di titik ambil.';
 
         return $buffer;
     }
@@ -1072,6 +1308,15 @@ class ChatbotCourierOrderService
             'delivery_fee' => isset($order['delivery_fee']) ? (float) $order['delivery_fee'] : null,
             'used_default_pickup' => (bool) ($courier['used_default_pickup'] ?? false),
             'pickup_address_id' => isset($courier['pickup_address_id']) ? (int) $courier['pickup_address_id'] : null,
+            'safety_status' => $courier['safety_status'] ?? null,
+            'safety_flags' => is_array($courier['safety_flags'] ?? null) ? $courier['safety_flags'] : [],
+            'safety_reason' => $courier['safety_reason'] ?? null,
+            'size_class' => $courier['size_class'] ?? null,
+            'estimated_weight_kg' => isset($courier['estimated_weight_kg']) && is_numeric($courier['estimated_weight_kg']) ? (float) $courier['estimated_weight_kg'] : null,
+            'package_length_cm' => isset($courier['package_length_cm']) && is_numeric($courier['package_length_cm']) ? (int) $courier['package_length_cm'] : null,
+            'package_width_cm' => isset($courier['package_width_cm']) && is_numeric($courier['package_width_cm']) ? (int) $courier['package_width_cm'] : null,
+            'package_height_cm' => isset($courier['package_height_cm']) && is_numeric($courier['package_height_cm']) ? (int) $courier['package_height_cm'] : null,
+            'packing_note' => $courier['packing_note'] ?? null,
         ];
     }
 }

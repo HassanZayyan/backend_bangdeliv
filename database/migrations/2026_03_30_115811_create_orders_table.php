@@ -34,8 +34,6 @@ return new class extends Migration
             $table->text('cancellation_reason')->nullable();
             $table->enum('cancelled_by', ['customer', 'driver', 'system'])->nullable();
 
-            // Additional
-            $table->text('notes')->nullable();
             $table->timestamp('estimated_delivery')->nullable();
             $table->timestamp('delivered_at')->nullable();
             $table->timestamps();

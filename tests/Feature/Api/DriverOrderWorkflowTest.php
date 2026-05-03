@@ -3,6 +3,7 @@
 namespace Tests\Feature\Api;
 
 use App\Events\OrderStatusChanged;
+use App\Models\CourierOrder;
 use App\Models\Driver;
 use App\Models\Order;
 use App\Models\OrderPayment;
@@ -334,6 +335,101 @@ class DriverOrderWorkflowTest extends TestCase
             ->assertJsonPath('data.status_code', 'COMPLETED');
     }
 
+    public function test_driver_cannot_pickup_courier_before_pickup_payment_is_paid(): void
+    {
+        [$driverUser, $driver] = $this->createActiveDriver('courier-gate');
+        $order = $this->createCourierOrderForDriver($driver, 'ARRIVED_PICKUP', 18000);
+
+        Sanctum::actingAs($driverUser);
+
+        $detailResponse = $this->getJson('/api/v1/driver/orders/'.$order->id);
+
+        $detailResponse->assertOk()
+            ->assertJsonPath('data.payment_status', 'unpaid')
+            ->assertJsonPath('data.package_description', 'dokumen kontrak')
+            ->assertJsonPath('data.available_actions.0.action_code', 'CONFIRM_PICKED_UP')
+            ->assertJsonPath('data.available_actions.0.blocked', true)
+            ->assertJsonPath('data.available_actions.1.action_code', 'REPORT_PACKAGE_INVALID')
+            ->assertJsonPath('data.available_actions.2.action_code', 'COLLECT_COD');
+
+        $this->postJson('/api/v1/driver/orders/'.$order->id.'/status-transition', [
+            'action_code' => 'CONFIRM_PICKED_UP',
+            'target_status_code' => 'PICKED_UP',
+        ])->assertStatus(409)
+            ->assertJsonPath('message', 'Pembayaran COD belum dicatat.');
+    }
+
+    public function test_driver_can_collect_courier_cod_at_pickup_then_pickup_package(): void
+    {
+        [$driverUser, $driver] = $this->createActiveDriver('courier-paid');
+        $order = $this->createCourierOrderForDriver($driver, 'ARRIVED_PICKUP', 19000);
+
+        Sanctum::actingAs($driverUser);
+
+        $this->postJson('/api/v1/orders/'.$order->id.'/payment/collect-cod', [
+            'amount' => 19000,
+            'note' => 'Tunai diterima saat pickup.',
+        ])->assertOk()
+            ->assertJsonPath('data.payment_status', 'paid');
+
+        $payment = OrderPayment::query()->where('order_id', $order->id)->firstOrFail();
+        $this->assertSame('COURIER_PICKUP_COLLECTION', $payment->metadata['source'] ?? null);
+
+        $paidDetailResponse = $this->getJson('/api/v1/driver/orders/'.$order->id);
+
+        $paidDetailResponse->assertOk()
+            ->assertJsonPath('data.payment_status', 'paid')
+            ->assertJsonPath('data.available_actions.0.action_code', 'CONFIRM_PICKED_UP')
+            ->assertJsonPath('data.available_actions.0.blocked', false);
+
+        $actionCodes = collect($paidDetailResponse->json('data.available_actions'))
+            ->pluck('action_code')
+            ->all();
+        $this->assertNotContains('COLLECT_COD', $actionCodes);
+        $this->assertNotContains('REPORT_PACKAGE_INVALID', $actionCodes);
+
+        $this->postJson('/api/v1/driver/orders/'.$order->id.'/status-transition', [
+            'action_code' => 'CONFIRM_PICKED_UP',
+            'target_status_code' => 'PICKED_UP',
+        ])->assertOk()
+            ->assertJsonPath('data.status_code', 'PICKED_UP');
+    }
+
+    public function test_driver_cannot_collect_courier_cod_before_arrived_pickup(): void
+    {
+        [$driverUser, $driver] = $this->createActiveDriver('courier-early');
+        $order = $this->createCourierOrderForDriver($driver, 'DRIVER_ASSIGNED', 20000);
+
+        Sanctum::actingAs($driverUser);
+
+        $this->postJson('/api/v1/orders/'.$order->id.'/payment/collect-cod', [
+            'amount' => 20000,
+            'note' => 'Terlalu awal.',
+        ])->assertStatus(409)
+            ->assertJsonPath('message', 'Pembayaran COD courier hanya bisa dicatat saat driver tiba di pickup.');
+    }
+
+    public function test_driver_can_cancel_courier_at_pickup_when_package_invalid(): void
+    {
+        [$driverUser, $driver] = $this->createActiveDriver('courier-invalid');
+        $order = $this->createCourierOrderForDriver($driver, 'ARRIVED_PICKUP', 21000);
+
+        Sanctum::actingAs($driverUser);
+
+        $this->postJson('/api/v1/driver/orders/'.$order->id.'/status-transition', [
+            'action_code' => 'REPORT_PACKAGE_INVALID',
+            'target_status_code' => 'CANCELLED',
+            'note' => 'Barang lebih besar dari deskripsi dan tidak muat motor.',
+        ])->assertOk()
+            ->assertJsonPath('data.status_code', 'CANCELLED');
+
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
+            'cancelled_by' => 'driver',
+            'cancellation_reason' => 'Barang lebih besar dari deskripsi dan tidak muat motor.',
+        ]);
+    }
+
     public function test_driver_history_returns_completed_order(): void
     {
         $driverUser = User::query()->create([
@@ -505,6 +601,76 @@ class DriverOrderWorkflowTest extends TestCase
             'id' => $driver->id,
             'status' => 'available',
         ]);
+    }
+
+    /**
+     * @return array{0: User, 1: Driver}
+     */
+    private function createActiveDriver(string $suffix): array
+    {
+        $driverUser = User::factory()->create([
+            'name' => 'Driver '.ucwords(str_replace('-', ' ', $suffix)),
+            'email' => $suffix.'@driver.test',
+            'phone' => '0899'.str_pad((string) random_int(1, 99999999), 8, '0', STR_PAD_LEFT),
+            'role' => 'driver',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        $driver = Driver::query()->create([
+            'user_id' => $driverUser->id,
+            'vehicle_plate' => 'H '.random_int(1000, 9999).' TST',
+            'license_number' => 'SIMC-'.strtoupper($suffix),
+            'registration_status' => 'active',
+            'status' => 'busy',
+        ]);
+
+        return [$driverUser, $driver];
+    }
+
+    private function createCourierOrderForDriver(Driver $driver, string $statusCode, int $amount): Order
+    {
+        $customer = User::factory()->create(['role' => 'customer']);
+        $courierTypeId = (int) ServiceType::query()->where('code', 'COURIER')->value('id');
+        $statusId = (int) OrderStatus::query()->where('code', $statusCode)->value('id');
+
+        $order = Order::query()->create([
+            'order_number' => 'BD-COU-'.strtoupper(substr(md5($statusCode.$amount.random_int(1, 9999)), 0, 8)),
+            'user_id' => $customer->id,
+            'restaurant_id' => null,
+            'service_type_id' => $courierTypeId,
+            'driver_id' => $driver->id,
+            'address_id' => null,
+            'subtotal' => 0,
+            'delivery_fee' => $amount,
+            'service_fee' => 0,
+            'total_amount' => $amount,
+            'total_price' => $amount,
+            'status_id' => $statusId,
+        ]);
+
+        CourierOrder::query()->create([
+            'order_id' => $order->id,
+            'package_description' => 'dokumen kontrak',
+            'estimated_weight_kg' => 1.5,
+            'package_length_cm' => 30,
+            'package_width_cm' => 20,
+            'package_height_cm' => 5,
+            'package_size_class' => 'SMALL',
+            'package_safety_status' => 'ALLOWED',
+            'package_safety_flags' => [],
+            'package_safety_reason' => 'Paket aman untuk layanan kurir motor.',
+            'requires_photo_evidence' => true,
+        ]);
+
+        OrderPayment::query()->create([
+            'order_id' => $order->id,
+            'payment_method' => 'COD',
+            'payment_status' => 'PENDING',
+            'amount' => $amount,
+        ]);
+
+        return $order;
     }
 
     private function useFailingBroadcaster(): void
