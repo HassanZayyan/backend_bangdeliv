@@ -26,6 +26,15 @@ class DriverOnboardingService
         DB::transaction(function () use ($actor, $payload): void {
             Driver::query()->create([
                 'user_id' => $actor->id,
+                'vehicle_type' => isset($payload['vehicle_type'])
+                    ? trim((string) $payload['vehicle_type'])
+                    : null,
+                'vehicle_brand' => isset($payload['vehicle_brand'])
+                    ? trim((string) $payload['vehicle_brand'])
+                    : null,
+                'vehicle_model' => isset($payload['vehicle_model'])
+                    ? trim((string) $payload['vehicle_model'])
+                    : null,
                 'vehicle_plate' => trim((string) $payload['vehicle_plate']),
                 'license_number' => trim((string) $payload['license_number']),
                 'registration_status' => 'pending',

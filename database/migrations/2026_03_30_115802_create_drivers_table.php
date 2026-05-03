@@ -15,6 +15,9 @@ return new class extends Migration
             $table->id();
             $table->foreignId('user_id')->unique()->constrained()->cascadeOnDelete();
             $table->string('vehicle_plate', 20);
+            $table->string('vehicle_type', 50)->nullable();
+            $table->string('vehicle_brand', 50)->nullable();
+            $table->string('vehicle_model', 100)->nullable();
             $table->string('license_number', 50);
             $table->enum('registration_status', ['pending', 'active', 'rejected', 'suspended'])->default('pending');
             $table->enum('status', ['available', 'busy', 'offline'])->default('offline');

@@ -18,6 +18,21 @@ class UpgradeToDriverRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'vehicle_type' => [
+                'nullable',
+                'string',
+                'max:50',
+            ],
+            'vehicle_brand' => [
+                'nullable',
+                'string',
+                'max:50',
+            ],
+            'vehicle_model' => [
+                'nullable',
+                'string',
+                'max:100',
+            ],
             'vehicle_plate' => [
                 'required',
                 'string',
