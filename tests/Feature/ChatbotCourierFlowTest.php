@@ -642,7 +642,7 @@ class ChatbotCourierFlowTest extends TestCase
         ]);
     }
 
-    public function test_chatbot_kurir_bulk_route_patch_then_isi_paket_kunci_is_ready(): void
+    public function test_chatbot_kurir_bulk_route_patch_then_isi_paket_sabun_is_ready_and_confirmable(): void
     {
         $this->fakeGeocoding();
 
@@ -682,10 +682,15 @@ class ChatbotCourierFlowTest extends TestCase
             ->assertJsonPath('data.courier.ready_to_confirm', false)
             ->assertJsonPath('data.validation.missing_fields.0', 'package_description');
 
+        $this->assertStringContainsString(
+            'Barang apa yang mau dikirim',
+            (string) $routeResponse->json('data.assistant_text')
+        );
+
         $draftResponse = $this
             ->withHeader('Authorization', 'Bearer '.$token)
             ->postJson('/api/chatbot/process', [
-                'message' => 'isi paket kunci',
+                'message' => 'isi paket sabun',
                 'service_type' => 'kurir',
                 'session_id' => $sessionId,
             ]);
@@ -694,19 +699,82 @@ class ChatbotCourierFlowTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.validation.is_valid_order', true)
             ->assertJsonPath('data.courier.ready_to_confirm', true)
-            ->assertJsonPath('data.courier.package_description', 'kunci')
+            ->assertJsonPath('data.courier.package_description', 'sabun')
             ->assertJsonPath('data.courier.pickup_latitude', -7.3289)
             ->assertJsonPath('data.courier.dropoff_latitude', -7.3312);
+
+        $confirmResponse = $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/process', [
+                'message' => 'konfirmasi',
+                'service_type' => 'kurir',
+                'session_id' => $sessionId,
+            ]);
+
+        $confirmResponse
+            ->assertOk()
+            ->assertJsonPath('data.order.created', true);
     }
 
-    public function test_chatbot_kurir_merges_partial_gemini_payload_with_explicit_package_text(): void
+    public function test_chatbot_kurir_short_package_completion_after_route_patch_is_ready(): void
+    {
+        $this->fakeGeocoding();
+
+        $user = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+            'phone' => '089333333336',
+        ]);
+
+        $token = $user->createToken('test-chatbot')->plainTextToken;
+        $sessionId = 'sess-kurir-route-short-package';
+
+        $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/sessions/'.$sessionId.'/locations', [
+                'service_type' => 'kurir',
+                'locations' => [
+                    [
+                        'target' => 'pickup',
+                        'latitude' => -7.328900,
+                        'longitude' => 110.500100,
+                        'address' => 'Ramayan Salatiga',
+                    ],
+                    [
+                        'target' => 'dropoff',
+                        'latitude' => -7.331200,
+                        'longitude' => 110.507700,
+                        'address' => 'Lapangan Pancasila Salatiga',
+                    ],
+                ],
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.courier.ready_to_confirm', false);
+
+        $draftResponse = $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/process', [
+                'message' => 'sabun',
+                'service_type' => 'kurir',
+                'session_id' => $sessionId,
+            ]);
+
+        $draftResponse
+            ->assertOk()
+            ->assertJsonPath('data.validation.is_valid_order', true)
+            ->assertJsonPath('data.courier.ready_to_confirm', true)
+            ->assertJsonPath('data.courier.package_description', 'sabun');
+    }
+
+    public function test_chatbot_kurir_ignores_gemini_confirm_when_message_contains_package_text(): void
     {
         Http::fake([
             'https://generativelanguage.googleapis.com/*' => Http::response([
                 'candidates' => [[
                     'content' => [
                         'parts' => [[
-                            'text' => '{"intent":"courier_order","command":"none","pickup_address":"Ramayan Salatiga","dropoff_address":"Lapangan Pancasila Salatiga","package_description":null}',
+                            'text' => '{"intent":"courier_order","command":"confirm","pickup_address":"Ramayan Salatiga","dropoff_address":"Lapangan Pancasila Salatiga","package_description":null}',
                         ]],
                     ],
                 ]],
@@ -779,7 +847,7 @@ class ChatbotCourierFlowTest extends TestCase
         $response = $this
             ->withHeader('Authorization', 'Bearer '.$token)
             ->postJson('/api/chatbot/process', [
-                'message' => 'isi paket kunci',
+                'message' => 'isi paket sabun',
                 'service_type' => 'kurir',
                 'session_id' => $sessionId,
             ]);
@@ -788,7 +856,8 @@ class ChatbotCourierFlowTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.validation.is_valid_order', true)
             ->assertJsonPath('data.courier.ready_to_confirm', true)
-            ->assertJsonPath('data.courier.package_description', 'kunci');
+            ->assertJsonPath('data.courier.package_description', 'sabun')
+            ->assertJsonPath('data.order.created', false);
     }
 
     public function test_chatbot_kurir_reset_destination_preserves_package_for_map_replacement(): void

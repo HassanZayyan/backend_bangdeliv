@@ -424,6 +424,111 @@ class ChatbotRideFlowTest extends TestCase
             ->assertJsonPath('data.ride.destination_address', 'Lapangan Pancasila Salatiga');
     }
 
+    public function test_chatbot_ride_bulk_route_patch_without_address_uses_reverse_geocoded_label(): void
+    {
+        Http::fake([
+            'https://maps.googleapis.com/maps/api/geocode/*' => function ($request) {
+                $queryString = parse_url($request->url(), PHP_URL_QUERY) ?? '';
+                parse_str($queryString, $query);
+                $latLng = (string) ($query['latlng'] ?? '');
+
+                if (str_contains($latLng, '-7.328900')) {
+                    return Http::response([
+                        'status' => 'OK',
+                        'results' => [[
+                            'formatted_address' => 'Ramayan Salatiga, Jl. Diponegoro, Kota Salatiga, Jawa Tengah, Indonesia',
+                            'geometry' => [
+                                'location' => [
+                                    'lat' => -7.328900,
+                                    'lng' => 110.500100,
+                                ],
+                            ],
+                        ]],
+                    ], 200);
+                }
+
+                if (str_contains($latLng, '-7.331200')) {
+                    return Http::response([
+                        'status' => 'OK',
+                        'results' => [[
+                            'formatted_address' => 'Lapangan Pancasila Salatiga, Jl. Ahmad Yani, Kota Salatiga, Jawa Tengah, Indonesia',
+                            'geometry' => [
+                                'location' => [
+                                    'lat' => -7.331200,
+                                    'lng' => 110.507700,
+                                ],
+                            ],
+                        ]],
+                    ], 200);
+                }
+
+                return Http::response([
+                    'status' => 'ZERO_RESULTS',
+                    'results' => [],
+                ], 200);
+            },
+            'https://maps.googleapis.com/maps/api/place/nearbysearch/*' => Http::response([
+                'status' => 'ZERO_RESULTS',
+                'results' => [],
+            ], 200),
+            'https://maps.googleapis.com/maps/api/distancematrix/*' => Http::response([
+                'status' => 'OK',
+                'rows' => [[
+                    'elements' => [[
+                        'status' => 'OK',
+                        'distance' => [
+                            'text' => '1.6 km',
+                            'value' => 1600,
+                        ],
+                        'duration' => [
+                            'text' => '8 mins',
+                            'value' => 480,
+                        ],
+                    ]],
+                ]],
+            ], 200),
+        ]);
+
+        $user = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+            'phone' => '089900000112',
+        ]);
+
+        $this->createDefaultAddress($user);
+
+        $token = $user->createToken('test-chatbot-ride')->plainTextToken;
+        $sessionId = 'sess-ride-route-reverse-label';
+
+        $response = $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/sessions/'.$sessionId.'/locations', [
+                'service_type' => 'antar_jemput',
+                'locations' => [
+                    [
+                        'target' => 'pickup',
+                        'latitude' => -7.328900,
+                        'longitude' => 110.500100,
+                    ],
+                    [
+                        'target' => 'destination',
+                        'latitude' => -7.331200,
+                        'longitude' => 110.507700,
+                    ],
+                ],
+            ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('data.validation.is_valid_order', true)
+            ->assertJsonPath('data.ride.ready_to_confirm', true);
+
+        $destination = (string) $response->json('data.ride.destination_address');
+        $this->assertStringContainsString('Lapangan Pancasila Salatiga', $destination);
+        $this->assertStringNotContainsString('Pin -7.', $destination);
+    }
+
     public function test_chatbot_ride_reset_destination_preserves_custom_map_pickup(): void
     {
         $this->fakeGeminiAndGeocoding();

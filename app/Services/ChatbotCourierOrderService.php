@@ -61,6 +61,7 @@ class ChatbotCourierOrderService
         'buku',
         'makanan',
         'obat',
+        'sabun',
         'surat',
     ];
 
@@ -126,6 +127,7 @@ class ChatbotCourierOrderService
         }
 
         $normalizedMessage = $this->normalizeWhitespace($message);
+        $latestDraftSeed = $this->resolveLatestDraftSeed($user, $sessionId);
         $command = $this->resolveCommand($normalizedMessage, $nluPayload);
 
         if ($command === 'reset_destination') {
@@ -141,8 +143,21 @@ class ChatbotCourierOrderService
             $this->buildDraftSeedFromNlu($nluPayload) ?? [],
             $this->extractCourierPayload($normalizedMessage)
         );
+
+        if (
+            $this->isAwaitingPackageOnly($latestDraftSeed) &&
+            $this->normalizeOptionalString($incomingSeed['package_description'] ?? null) === null
+        ) {
+            $packageCompletion = $this->extractPackageCompletion($normalizedMessage);
+            if ($packageCompletion !== null) {
+                $incomingSeed = $this->mergeCourierDraftSeed($incomingSeed, [
+                    'package_description' => $packageCompletion,
+                ]);
+            }
+        }
+
         $draftSeed = $this->mergeCourierDraftSeed(
-            $this->resolveLatestDraftSeed($user, $sessionId),
+            $latestDraftSeed,
             $incomingSeed
         );
         $draft = $this->buildCourierDraft($normalizedMessage, $defaultPickupAddress, $draftSeed);
@@ -1131,14 +1146,6 @@ class ChatbotCourierOrderService
     {
         $nluCommand = strtolower(trim((string) ($nluPayload['command'] ?? '')));
 
-        if ($nluCommand === 'confirm') {
-            return 'confirm';
-        }
-
-        if ($nluCommand === 'reset_destination') {
-            return 'reset_destination';
-        }
-
         if ($this->isResetDestinationCommand($normalizedMessage)) {
             return 'reset_destination';
         }
@@ -1147,7 +1154,57 @@ class ChatbotCourierOrderService
             return 'confirm';
         }
 
+        if ($nluCommand === 'reset_destination') {
+            return 'reset_destination';
+        }
+
         return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $draftSeed
+     */
+    private function isAwaitingPackageOnly(array $draftSeed): bool
+    {
+        return $this->normalizeOptionalString($draftSeed['pickup_address'] ?? null) !== null &&
+            $this->nullableCoordinate($draftSeed['pickup_latitude'] ?? null) !== null &&
+            $this->nullableCoordinate($draftSeed['pickup_longitude'] ?? null) !== null &&
+            $this->normalizeOptionalString($draftSeed['dropoff_address'] ?? null) !== null &&
+            $this->nullableCoordinate($draftSeed['dropoff_latitude'] ?? null) !== null &&
+            $this->nullableCoordinate($draftSeed['dropoff_longitude'] ?? null) !== null &&
+            $this->normalizeOptionalString($draftSeed['package_description'] ?? null) === null;
+    }
+
+    private function extractPackageCompletion(string $message): ?string
+    {
+        $candidate = $this->sanitizeAddressFragment(
+            preg_replace(
+                '/^\s*(?:isi\s+paket|deskripsi\s+paket|paket(?:nya)?|barang(?:nya)?|kirim(?:kan)?|antar(?:kan)?)\s*[:\-]?\s*/iu',
+                '',
+                $message
+            )
+        );
+
+        if ($candidate === null) {
+            return null;
+        }
+
+        $normalized = strtolower($this->normalizeWhitespace($candidate));
+        if (
+            $this->isConfirmCommand($normalized) ||
+            $this->isResetDestinationCommand($normalized) ||
+            preg_match('/\b(?:jalan|jl\.?|gang|desa|kelurahan|kecamatan|kota|kabupaten|stasiun|bandara|terminal|mall|kampus|perumahan|kos)\b/iu', $normalized) === 1 ||
+            preg_match('/\d|,/u', $normalized) === 1
+        ) {
+            return null;
+        }
+
+        $words = preg_split('/\s+/', $normalized, -1, PREG_SPLIT_NO_EMPTY);
+        if (! is_array($words) || count($words) > 4 || strlen($normalized) > 60) {
+            return null;
+        }
+
+        return $candidate;
     }
 
     /**
@@ -1461,6 +1518,10 @@ class ChatbotCourierOrderService
 
         if (! is_array($reasons) || $reasons === []) {
             return 'Data kurir belum lengkap. Mohon isi lokasi ambil, tujuan kirim, dan isi paket.';
+        }
+
+        if ($this->isAwaitingPackageOnly($parsed)) {
+            return 'Titik ambil dan tujuan sudah saya simpan. Barang apa yang mau dikirim? Contoh: "isi paket sabun".';
         }
 
         if (

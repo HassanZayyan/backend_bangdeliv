@@ -262,7 +262,7 @@ class CourierPackagePolicyService
         }
 
         return preg_match(
-            '/\b(kacamata|dokumen|berkas|surat|ijazah|buku(?:\s+kecil)?|baju|pakaian|kunci|charger|kabel|earphone|headset|aksesoris|aksesori|alat tulis|pulpen|pensil|flashdisk|usb|kosmetik kecil)\b/iu',
+            '/\b(kacamata|dokumen|berkas|surat|ijazah|buku(?:\s+kecil)?|baju|pakaian|kunci|sabun|charger|kabel|earphone|headset|aksesoris|aksesori|alat tulis|pulpen|pensil|flashdisk|usb|kosmetik kecil)\b/iu',
             strtolower($description)
         ) === 1;
     }

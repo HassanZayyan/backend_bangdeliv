@@ -481,7 +481,7 @@ class ChatbotController extends Controller
         try {
             $resolved = $this->geocodingService->reverseGeocodeWithPlaceName($latitude, $longitude);
             $formattedAddress = trim((string) ($resolved['formatted_address'] ?? ''));
-            if ($formattedAddress !== '') {
+            if ($formattedAddress !== '' && !$this->isPinPlaceholderAddress($formattedAddress)) {
                 return $formattedAddress;
             }
         } catch (ApiException $exception) {
@@ -493,7 +493,7 @@ class ChatbotController extends Controller
             ]);
         }
 
-        return sprintf('Pin %.6f, %.6f', $latitude, $longitude);
+        return 'Titik dipilih di peta';
     }
 
     private function isPinPlaceholderAddress(string $address): bool
