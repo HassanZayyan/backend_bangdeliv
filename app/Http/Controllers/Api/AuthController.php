@@ -178,6 +178,15 @@ class AuthController extends Controller
             'avatar' => $request->file('avatar'),
             'remove_avatar' => $request->boolean('remove_avatar'),
         ];
+        if ($request->has('vehicle_type')) {
+            $payload['vehicle_type'] = trim((string) $request->input('vehicle_type', ''));
+        }
+        if ($request->has('vehicle_brand')) {
+            $payload['vehicle_brand'] = trim((string) $request->input('vehicle_brand', ''));
+        }
+        if ($request->has('vehicle_model')) {
+            $payload['vehicle_model'] = trim((string) $request->input('vehicle_model', ''));
+        }
 
         $validator = Validator::make($payload, [
             'name' => 'required|string|max:255',
@@ -194,6 +203,9 @@ class AuthController extends Controller
                 'max:20',
                 Rule::unique('users', 'phone')->ignore($user->id),
             ],
+            'vehicle_type' => ['nullable', 'string', 'max:50'],
+            'vehicle_brand' => ['nullable', 'string', 'max:50'],
+            'vehicle_model' => ['nullable', 'string', 'max:100'],
             'avatar' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
             'remove_avatar' => ['nullable', 'boolean'],
         ]);
@@ -226,6 +238,26 @@ class AuthController extends Controller
             'email' => $validated['email'] ?? $user->email,
             'avatar' => $avatarPath,
         ]);
+
+        if ($user->role === 'driver') {
+            $driver = $user->driver()->first();
+            if ($driver) {
+                $driverUpdates = [];
+                if (array_key_exists('vehicle_type', $validated)) {
+                    $driverUpdates['vehicle_type'] = trim((string) ($validated['vehicle_type'] ?? '')) ?: null;
+                }
+                if (array_key_exists('vehicle_brand', $validated)) {
+                    $driverUpdates['vehicle_brand'] = trim((string) ($validated['vehicle_brand'] ?? '')) ?: null;
+                }
+                if (array_key_exists('vehicle_model', $validated)) {
+                    $driverUpdates['vehicle_model'] = trim((string) ($validated['vehicle_model'] ?? '')) ?: null;
+                }
+
+                if (!empty($driverUpdates)) {
+                    $driver->update($driverUpdates);
+                }
+            }
+        }
 
         return response()->json([
             'message' => 'Profil berhasil diperbarui.',

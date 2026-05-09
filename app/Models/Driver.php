@@ -11,6 +11,9 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property int $id
  * @property int $user_id
  * @property string|null $vehicle_plate
+ * @property string|null $vehicle_type
+ * @property string|null $vehicle_brand
+ * @property string|null $vehicle_model
  * @property string|null $license_number
  * @property string $registration_status
  * @property string $status
@@ -33,6 +36,9 @@ class Driver extends Model
     protected $fillable = [
         'user_id',
         'vehicle_plate',
+        'vehicle_type',
+        'vehicle_brand',
+        'vehicle_model',
         'license_number',
         'registration_status',
         'status',
