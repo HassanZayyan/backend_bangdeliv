@@ -93,6 +93,111 @@ class DriverOrderWorkflowTest extends TestCase
             'event_type' => 'STATUS_CHANGE',
             'changed_by_user_id' => $driverUser->id,
         ]);
+
+        $this->assertDatabaseHas('drivers', [
+            'id' => $driver->id,
+            'status' => 'busy',
+        ]);
+    }
+
+    public function test_offline_driver_does_not_receive_incoming_orders_but_keeps_running_orders(): void
+    {
+        [$driverUser, $driver] = $this->createActiveDriver('offline-list');
+        $driver->update(['status' => 'offline']);
+
+        $pendingOrder = $this->createShoppingOrder(null, 'PENDING');
+        $runningOrder = $this->createShoppingOrder($driver, 'DRIVER_ASSIGNED');
+
+        Sanctum::actingAs($driverUser);
+
+        $response = $this->getJson('/api/v1/driver/orders');
+
+        $response->assertOk()
+            ->assertJsonPath('success', true);
+
+        $this->assertCount(0, $response->json('data.incoming_orders'));
+        $this->assertCount(1, $response->json('data.running_orders'));
+        $this->assertSame((string) $runningOrder->id, (string) $response->json('data.running_orders.0.id'));
+        $this->assertDatabaseHas('orders', [
+            'id' => $pendingOrder->id,
+            'driver_id' => null,
+        ]);
+    }
+
+    public function test_available_driver_receives_incoming_orders(): void
+    {
+        [$driverUser, $driver] = $this->createActiveDriver('available-list');
+        $driver->update(['status' => 'available']);
+
+        $pendingOrder = $this->createShoppingOrder(null, 'PENDING');
+
+        Sanctum::actingAs($driverUser);
+
+        $response = $this->getJson('/api/v1/driver/orders');
+
+        $response->assertOk()
+            ->assertJsonPath('success', true);
+
+        $this->assertCount(1, $response->json('data.incoming_orders'));
+        $this->assertSame((string) $pendingOrder->id, (string) $response->json('data.incoming_orders.0.id'));
+    }
+
+    public function test_offline_driver_cannot_accept_pending_order(): void
+    {
+        [$driverUser, $driver] = $this->createActiveDriver('offline-accept');
+        $driver->update(['status' => 'offline']);
+
+        $order = $this->createShoppingOrder(null, 'PENDING');
+
+        Sanctum::actingAs($driverUser);
+
+        $response = $this->postJson('/api/v1/driver/orders/'.$order->id.'/accept');
+
+        $response->assertStatus(409)
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('message', 'Aktifkan status kerja sebelum menerima order.');
+
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
+            'driver_id' => null,
+        ]);
+
+        $this->assertDatabaseHas('drivers', [
+            'id' => $driver->id,
+            'status' => 'offline',
+        ]);
+    }
+
+    public function test_driver_becomes_available_after_completing_last_running_order(): void
+    {
+        [$driverUser, $driver] = $this->createActiveDriver('complete-availability');
+        $driver->update(['status' => 'busy']);
+
+        $order = $this->createCourierOrderForDriver($driver, 'DELIVERED', 21000);
+        OrderPayment::query()
+            ->where('order_id', $order->id)
+            ->update([
+                'payment_status' => 'PAID',
+                'driver_id' => $driver->id,
+                'recorded_by_user_id' => $driverUser->id,
+                'paid_at' => now(),
+            ]);
+
+        Sanctum::actingAs($driverUser);
+
+        $response = $this->postJson('/api/v1/driver/orders/'.$order->id.'/status-transition', [
+            'action_code' => 'COMPLETE_ORDER',
+            'target_status_code' => 'COMPLETED',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.status_code', 'COMPLETED');
+
+        $this->assertDatabaseHas('drivers', [
+            'id' => $driver->id,
+            'status' => 'available',
+        ]);
     }
 
     public function test_driver_status_transition_broadcasts_realtime_status_payload(): void
@@ -626,6 +731,33 @@ class DriverOrderWorkflowTest extends TestCase
         ]));
 
         return [$driverUser, $driver];
+    }
+
+    private function createShoppingOrder(?Driver $driver, string $statusCode): Order
+    {
+        $customer = User::factory()->create(['role' => 'customer']);
+        $shoppingTypeId = (int) ServiceType::query()->where('code', 'SHOPPING')->value('id');
+        $statusId = (int) OrderStatus::query()->where('code', $statusCode)->value('id');
+
+        return Order::query()->create([
+            'order_number' => 'BD-SHP-'.strtoupper(substr(md5($statusCode.random_int(1, 999999)), 0, 8)),
+            'user_id' => $customer->id,
+            'restaurant_id' => null,
+            'service_type_id' => $shoppingTypeId,
+            'driver_id' => $driver?->id,
+            'address_id' => null,
+            'delivery_address' => 'Jl. Test Driver Order No. '.random_int(1, 99),
+            'delivery_latitude' => -7.001234,
+            'delivery_longitude' => 110.401234,
+            'subtotal' => 12000,
+            'delivery_fee' => 6000,
+            'service_fee' => 0,
+            'total_amount' => 18000,
+            'total_price' => 18000,
+            'status_id' => $statusId,
+            'payment_status' => 'unpaid',
+            'payment_method' => 'COD',
+        ]);
     }
 
     private function createCourierOrderForDriver(Driver $driver, string $statusCode, int $amount): Order

@@ -37,6 +37,19 @@ class OrderService
     private array $failedAttemptRecordableStatuses = ['PENDING', 'DRIVER_ASSIGNED', 'PICKED_UP', 'ON_THE_WAY'];
 
     /**
+     * @var array<int, string>
+     */
+    private const RUNNING_DRIVER_ORDER_STATUS_CODES = [
+        'DRIVER_ASSIGNED',
+        'ARRIVED_MERCHANT',
+        'ARRIVED_PICKUP',
+        'PICKED_UP',
+        'ON_THE_WAY',
+        'ARRIVED_DROPOFF',
+        'DELIVERED',
+    ];
+
+    /**
      * @param  array<string, mixed>  $filters
      */
     public function paginateCustomerOrders(User $user, array $filters): LengthAwarePaginator
@@ -85,6 +98,7 @@ class OrderService
                 throw new ApiException('Order tidak bisa dibatalkan pada status saat ini.', 409);
             }
 
+            $assignedDriverId = $order->driver_id !== null ? (int) $order->driver_id : null;
             $isShopping = ($order->serviceType->code ?? null) === 'SHOPPING';
             $cancellationPenalty = 0.0;
             $cancelledStatusCode = 'CANCELLED';
@@ -135,6 +149,10 @@ class OrderService
                     'cancellation_penalty' => round($cancellationPenalty, 2),
                 ],
             ]);
+
+            if ($assignedDriverId !== null) {
+                $this->syncDriverAvailabilityAfterNonRunningOrder($assignedDriverId);
+            }
 
             if ($isShopping) {
                 $order = $this->recalculateShoppingOrder(
@@ -394,13 +412,15 @@ class OrderService
         $pendingStatusId = $this->resolveStatusId('PENDING');
         $runningStatusIds = $this->runningDriverOrderStatusIds();
 
-        $incoming = Order::query()
-            ->with($this->driverOrderRelations())
-            ->where('status_id', $pendingStatusId)
-            ->whereNull('driver_id')
-            ->latest('id')
-            ->limit(30)
-            ->get();
+        $incoming = $this->isDriverAvailableForIncomingOrders($driver)
+            ? Order::query()
+                ->with($this->driverOrderRelations())
+                ->where('status_id', $pendingStatusId)
+                ->whereNull('driver_id')
+                ->latest('id')
+                ->limit(30)
+                ->get()
+            : collect();
 
         $running = Order::query()
             ->with($this->driverOrderRelations())
@@ -499,6 +519,11 @@ class OrderService
         $statusChangeEventPayload = null;
 
         $order = DB::transaction(function () use ($driver, $actor, $orderId, &$statusChangeEventPayload): Order {
+            $lockedDriver = Driver::query()->lockForUpdate()->find($driver->id);
+            if (! $lockedDriver) {
+                throw new ApiException('Profil driver tidak ditemukan.', 403);
+            }
+
             $order = Order::query()
                 ->with(['statusRef', 'serviceType'])
                 ->lockForUpdate()
@@ -512,6 +537,8 @@ class OrderService
             $isAssignedToCurrentDriver = (int) ($order->driver_id ?? 0) === (int) $driver->id;
 
             if ($statusCode === 'DRIVER_ASSIGNED' && $isAssignedToCurrentDriver) {
+                $this->markDriverBusy($lockedDriver);
+
                 return $order;
             }
 
@@ -521,6 +548,10 @@ class OrderService
 
             if ($order->driver_id !== null && ! $isAssignedToCurrentDriver) {
                 throw new ApiException('Order sudah diambil driver lain.', 409);
+            }
+
+            if (! $this->isDriverAvailableForIncomingOrders($lockedDriver)) {
+                throw new ApiException('Aktifkan status kerja sebelum menerima order.', 409);
             }
 
             $previousStatusCode = strtoupper((string) ($order->statusRef->code ?? 'PENDING'));
@@ -538,6 +569,8 @@ class OrderService
                 'changed_by_user_id' => $actor->id,
                 'note' => 'Order diterima oleh driver.',
             ]);
+
+            $this->markDriverBusy($lockedDriver);
 
             $statusChangeEventPayload = $this->buildOrderStatusBroadcastPayload(
                 $order->id,
@@ -597,6 +630,8 @@ class OrderService
                     'driver_id' => null,
                     'status_id' => $pendingStatusId,
                 ]);
+
+                $this->syncDriverAvailabilityAfterNonRunningOrder($driver->id);
 
                 $statusHistory = OrderStatusHistory::query()->create([
                     'order_id' => $order->id,
@@ -719,6 +754,9 @@ class OrderService
 
             $order->update($updates);
             $this->syncDriverServiceTimestamp($order, $resolvedTargetStatusCode);
+            if (! $this->isRunningDriverStatusCode($resolvedTargetStatusCode)) {
+                $this->syncDriverAvailabilityAfterNonRunningOrder($driver->id);
+            }
 
             $snapshot = [
                 'action_code' => $normalizedActionCode,
@@ -829,15 +867,7 @@ class OrderService
      */
     private function runningDriverOrderStatusIds(): array
     {
-        return $this->resolveStatusIdsLenient([
-            'DRIVER_ASSIGNED',
-            'ARRIVED_MERCHANT',
-            'ARRIVED_PICKUP',
-            'PICKED_UP',
-            'ON_THE_WAY',
-            'ARRIVED_DROPOFF',
-            'DELIVERED',
-        ]);
+        return $this->resolveStatusIdsLenient(self::RUNNING_DRIVER_ORDER_STATUS_CODES);
     }
 
     private function hasRunningDriverOrder(int $driverId): bool
@@ -851,6 +881,43 @@ class OrderService
             ->where('driver_id', $driverId)
             ->whereIn('status_id', $runningStatusIds)
             ->exists();
+    }
+
+    private function isRunningDriverStatusCode(string $statusCode): bool
+    {
+        return in_array(strtoupper(trim($statusCode)), self::RUNNING_DRIVER_ORDER_STATUS_CODES, true);
+    }
+
+    private function isDriverAvailableForIncomingOrders(Driver $driver): bool
+    {
+        return strtolower(trim((string) ($driver->status ?? 'offline'))) === 'available';
+    }
+
+    private function markDriverBusy(Driver $driver): void
+    {
+        if ((string) $driver->status === 'busy') {
+            return;
+        }
+
+        $driver->update([
+            'status' => 'busy',
+        ]);
+    }
+
+    private function syncDriverAvailabilityAfterNonRunningOrder(int $driverId): void
+    {
+        $driver = Driver::query()->find($driverId);
+        if (! $driver || (string) $driver->status !== 'busy') {
+            return;
+        }
+
+        if ($this->hasRunningDriverOrder($driverId)) {
+            return;
+        }
+
+        $driver->update([
+            'status' => 'available',
+        ]);
     }
 
     /**
