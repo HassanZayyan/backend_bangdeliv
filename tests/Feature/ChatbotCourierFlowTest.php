@@ -533,8 +533,8 @@ class ChatbotCourierFlowTest extends TestCase
             ->assertJsonPath('data.validation.is_valid_order', false)
             ->assertJsonPath('data.courier.ready_to_confirm', false)
             ->assertJsonPath('data.validation.missing_fields.0', 'dropoff_address')
-            ->assertJsonPath('data.validation.next_actions.0', 'OPEN_MAP_PICKER_DROPOFF')
-            ->assertJsonPath('data.action_payloads.OPEN_MAP_PICKER_DROPOFF.label', 'Pilih Titik Tujuan di Map');
+            ->assertJsonPath('data.validation.next_actions.0', 'OPEN_ROUTE_PICKER')
+            ->assertJsonPath('data.action_payloads.OPEN_ROUTE_PICKER.label', 'Atur Titik Ambil & Tujuan');
 
         $this->assertStringContainsString('belum pas di peta', (string) $response->json('data.assistant_text'));
         $this->assertStringNotContainsString('Format cepat', (string) $response->json('data.assistant_text'));
@@ -640,6 +640,155 @@ class ChatbotCourierFlowTest extends TestCase
             'latitude' => -7.33120000,
             'longitude' => 110.50770000,
         ]);
+    }
+
+    public function test_chatbot_kurir_bulk_route_patch_then_isi_paket_kunci_is_ready(): void
+    {
+        $this->fakeGeocoding();
+
+        $user = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+            'phone' => '089333333334',
+        ]);
+
+        $token = $user->createToken('test-chatbot')->plainTextToken;
+        $sessionId = 'sess-kurir-route-bulk';
+
+        $routeResponse = $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/sessions/'.$sessionId.'/locations', [
+                'service_type' => 'kurir',
+                'locations' => [
+                    [
+                        'target' => 'pickup',
+                        'latitude' => -7.328900,
+                        'longitude' => 110.500100,
+                        'address' => 'Ramayan Salatiga',
+                    ],
+                    [
+                        'target' => 'dropoff',
+                        'latitude' => -7.331200,
+                        'longitude' => 110.507700,
+                        'address' => 'Lapangan Pancasila Salatiga',
+                    ],
+                ],
+            ]);
+
+        $routeResponse
+            ->assertOk()
+            ->assertJsonPath('model_used', 'map-route-action')
+            ->assertJsonPath('data.courier.ready_to_confirm', false)
+            ->assertJsonPath('data.validation.missing_fields.0', 'package_description');
+
+        $draftResponse = $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/process', [
+                'message' => 'isi paket kunci',
+                'service_type' => 'kurir',
+                'session_id' => $sessionId,
+            ]);
+
+        $draftResponse
+            ->assertOk()
+            ->assertJsonPath('data.validation.is_valid_order', true)
+            ->assertJsonPath('data.courier.ready_to_confirm', true)
+            ->assertJsonPath('data.courier.package_description', 'kunci')
+            ->assertJsonPath('data.courier.pickup_latitude', -7.3289)
+            ->assertJsonPath('data.courier.dropoff_latitude', -7.3312);
+    }
+
+    public function test_chatbot_kurir_merges_partial_gemini_payload_with_explicit_package_text(): void
+    {
+        Http::fake([
+            'https://generativelanguage.googleapis.com/*' => Http::response([
+                'candidates' => [[
+                    'content' => [
+                        'parts' => [[
+                            'text' => '{"intent":"courier_order","command":"none","pickup_address":"Ramayan Salatiga","dropoff_address":"Lapangan Pancasila Salatiga","package_description":null}',
+                        ]],
+                    ],
+                ]],
+            ], 200),
+            'https://maps.googleapis.com/maps/api/distancematrix/*' => Http::response([
+                'status' => 'OK',
+                'rows' => [[
+                    'elements' => [[
+                        'status' => 'OK',
+                        'distance' => [
+                            'text' => '1.6 km',
+                            'value' => 1600,
+                        ],
+                        'duration' => [
+                            'text' => '8 mins',
+                            'value' => 480,
+                        ],
+                    ]],
+                ]],
+            ], 200),
+        ]);
+
+        $user = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+            'phone' => '089333333335',
+        ]);
+
+        $sessionId = 'sess-kurir-partial-gemini';
+        AiChatLog::query()->create([
+            'user_id' => $user->id,
+            'session_id' => $sessionId,
+            'role' => 'assistant',
+            'message' => 'Lengkapi isi paket.',
+            'ai_response' => [
+                'intent' => 'courier_order',
+                'service_type' => 'kurir',
+                'courier' => [
+                    'pickup_address' => 'Ramayan Salatiga',
+                    'pickup_latitude' => -7.328900,
+                    'pickup_longitude' => 110.500100,
+                    'dropoff_address' => 'Lapangan Pancasila Salatiga',
+                    'dropoff_latitude' => -7.331200,
+                    'dropoff_longitude' => 110.507700,
+                    'package_description' => null,
+                    'ready_to_confirm' => false,
+                    'used_default_pickup' => false,
+                ],
+                'validation' => [
+                    'is_valid_order' => false,
+                    'rejection_reasons' => ['Isi paket belum jelas.'],
+                    'missing_fields' => ['package_description'],
+                    'next_actions' => [],
+                ],
+                'order' => [
+                    'created' => false,
+                    'id' => null,
+                    'order_number' => null,
+                    'delivery_fee' => 5000,
+                ],
+            ],
+            'model_used' => 'map-route-action',
+            'intent' => 'courier_order',
+            'order_id' => null,
+        ]);
+
+        $token = $user->createToken('test-chatbot')->plainTextToken;
+
+        $response = $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/process', [
+                'message' => 'isi paket kunci',
+                'service_type' => 'kurir',
+                'session_id' => $sessionId,
+            ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('data.validation.is_valid_order', true)
+            ->assertJsonPath('data.courier.ready_to_confirm', true)
+            ->assertJsonPath('data.courier.package_description', 'kunci');
     }
 
     public function test_chatbot_kurir_reset_destination_preserves_package_for_map_replacement(): void
