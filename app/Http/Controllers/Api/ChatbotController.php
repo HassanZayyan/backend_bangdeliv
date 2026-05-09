@@ -272,17 +272,9 @@ class ChatbotController extends Controller
             ->latest('id')
             ->first();
 
-        if ($latestAssistantLog === null || !is_array($latestAssistantLog->ai_response)) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Draft chatbot belum tersedia untuk diperbarui.',
-            ], 422);
-        }
-
-        $existingPayload = $latestAssistantLog->ai_response;
         $serviceType = isset($validated['service_type'])
             ? (string) $validated['service_type']
-            : $this->resolveServiceTypeFromLog($latestAssistantLog);
+            : ($latestAssistantLog === null ? 'nitip' : $this->resolveServiceTypeFromLog($latestAssistantLog));
         $target = (string) $validated['target'];
         $latitude = (float) $validated['latitude'];
         $longitude = (float) $validated['longitude'];
@@ -291,9 +283,15 @@ class ChatbotController extends Controller
 
         try {
             $patchedPayload = match ($serviceType) {
-                'antar_jemput' => $this->patchRideDraftPayload($user, $existingPayload, $target, $latitude, $longitude, $address),
-                'kurir' => $this->patchCourierDraftPayload($user, $existingPayload, $target, $latitude, $longitude, $address),
-                'nitip' => $this->patchShoppingDraftPayload($existingPayload, $target, $latitude, $longitude, $address),
+                'antar_jemput' => $this->rideOrderService->applyLocationPatch($user, $normalizedSessionId, $target, $latitude, $longitude, $address),
+                'kurir' => $this->courierOrderService->applyLocationPatch($user, $normalizedSessionId, $target, $latitude, $longitude, $address),
+                'nitip' => $this->patchShoppingDraftPayload(
+                    $this->resolveExistingAssistantPayload($latestAssistantLog),
+                    $target,
+                    $latitude,
+                    $longitude,
+                    $address
+                ),
                 default => throw new ApiException('Service type tidak didukung untuk patch lokasi.', 422),
             };
         } catch (ApiException $exception) {
@@ -302,6 +300,10 @@ class ChatbotController extends Controller
                 'message' => $exception->getMessage(),
                 'errors' => $exception->errors(),
             ], $exception->status());
+        }
+
+        if ($serviceType === 'antar_jemput' || $serviceType === 'kurir') {
+            $patchedPayload = $this->enrichTransportActionPayload($patchedPayload, $serviceType);
         }
 
         $intent = (string) ($patchedPayload['intent'] ?? 'unknown');
@@ -354,7 +356,7 @@ class ChatbotController extends Controller
             try {
                 $resolved = $this->geocodingService->reverseGeocodeWithPlaceName($latitude, $longitude);
                 $enriched = trim((string) ($resolved['formatted_address'] ?? ''));
-                if ($enriched !== '') {
+                if ($enriched !== '' && !$this->isPinPlaceholderAddress($enriched)) {
                     return $enriched;
                 }
             } catch (ApiException $exception) {
@@ -389,6 +391,18 @@ class ChatbotController extends Controller
     private function isPinPlaceholderAddress(string $address): bool
     {
         return preg_match('/^pin\s+-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?$/iu', $address) === 1;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function resolveExistingAssistantPayload(?AiChatLog $latestAssistantLog): array
+    {
+        if ($latestAssistantLog === null || ! is_array($latestAssistantLog->ai_response)) {
+            throw new ApiException('Draft chatbot belum tersedia untuk diperbarui.', 422);
+        }
+
+        return $latestAssistantLog->ai_response;
     }
 
     public function clearSession(Request $request, string $sessionId): JsonResponse
@@ -1124,370 +1138,6 @@ class ChatbotController extends Controller
         $payload['validation'] = $validation;
 
         return $payload;
-    }
-
-    /**
-     * @param  array<string, mixed>  $payload
-     * @return array<string, mixed>
-     */
-    private function patchRideDraftPayload(
-        User $user,
-        array $payload,
-        string $target,
-        float $latitude,
-        float $longitude,
-        string $address
-    ): array {
-        if ($target !== 'pickup' && $target !== 'destination') {
-            throw new ApiException('Target lokasi antar jemput tidak valid.', 422);
-        }
-
-        $ride = is_array($payload['ride'] ?? null) ? $payload['ride'] : [];
-        $ride['pickup_address'] = $ride['pickup_address'] ?? null;
-        $ride['destination_address'] = $ride['destination_address'] ?? null;
-        $ride['pickup_latitude'] = $ride['pickup_latitude'] ?? null;
-        $ride['pickup_longitude'] = $ride['pickup_longitude'] ?? null;
-        $ride['destination_latitude'] = $ride['destination_latitude'] ?? null;
-        $ride['destination_longitude'] = $ride['destination_longitude'] ?? null;
-
-        if ($target === 'pickup') {
-            $ride['pickup_address'] = $address;
-            $ride['pickup_latitude'] = $latitude;
-            $ride['pickup_longitude'] = $longitude;
-            $ride['pickup_address_id'] = null;
-            $ride['used_default_pickup'] = false;
-        }
-
-        if ($target === 'destination') {
-            $ride['destination_address'] = $address;
-            $ride['destination_latitude'] = $latitude;
-            $ride['destination_longitude'] = $longitude;
-        }
-
-        // ── If pickup coords are missing but pickup_address is known, resolve them ─────
-        if (
-            $target === 'destination'
-            && trim((string) ($ride['pickup_address'] ?? '')) !== ''
-            && !is_numeric($ride['pickup_latitude'] ?? null)
-        ) {
-            try {
-                $resolvedPickup = $this->geocodingService->resolveAddress((string) $ride['pickup_address']);
-                if ($resolvedPickup !== null) {
-                    $ride['pickup_latitude']  = $resolvedPickup['latitude'];
-                    $ride['pickup_longitude'] = $resolvedPickup['longitude'];
-                }
-            } catch (\Throwable $e) {
-                // non-fatal – coords remain null; pickupReady will be false below
-                Log::warning('Could not geocode existing pickup address in patchRideDraftPayload.', [
-                    'pickup_address' => $ride['pickup_address'],
-                    'error'          => $e->getMessage(),
-                ]);
-            }
-        }
-
-        $pickupReady = trim((string) ($ride['pickup_address'] ?? '')) !== ''
-            && is_numeric($ride['pickup_latitude'] ?? null)
-            && is_numeric($ride['pickup_longitude'] ?? null);
-        $destinationReady = trim((string) ($ride['destination_address'] ?? '')) !== ''
-            && is_numeric($ride['destination_latitude'] ?? null)
-            && is_numeric($ride['destination_longitude'] ?? null);
-
-        $missingFields = [];
-        if (!$pickupReady) {
-            $missingFields[] = 'pickup_address';
-        }
-        if (!$destinationReady) {
-            $missingFields[] = 'destination_address';
-        }
-
-        $isValid = $pickupReady && $destinationReady;
-
-        $validation = is_array($payload['validation'] ?? null)
-            ? $payload['validation']
-            : [];
-        $validation['is_valid_order'] = $isValid;
-        $validation['missing_fields'] = $missingFields;
-        $validation['rejection_reasons'] = $isValid
-            ? []
-            : ['Lokasi jemput dan tujuan wajib lengkap sebelum konfirmasi.'];
-
-        $nextActions = [];
-        if (in_array('pickup_address', $missingFields, true)) {
-            // pickup truly missing — mandatory action
-            $nextActions[] = 'OPEN_MAP_PICKER_PICKUP';
-        }
-        if (in_array('destination_address', $missingFields, true)) {
-            $nextActions[] = 'OPEN_MAP_PICKER_DESTINATION';
-        }
-        if ($isValid) {
-            $nextActions[] = 'CONFIRM_DRAFT';
-            $nextActions[] = 'RESET_DESTINATION';
-            // Optional: let user change pickup without being forced to
-            $nextActions[] = 'CHANGE_PICKUP';
-        }
-        $validation['next_actions'] = $nextActions;
-
-        if ($isValid) {
-            try {
-                $route = app(\App\Services\GoogleMapsDistanceMatrixService::class)->resolveRoute(
-                    $ride['pickup_latitude'],
-                    $ride['pickup_longitude'],
-                    $ride['destination_latitude'],
-                    $ride['destination_longitude'],
-                );
-
-                $distanceMeters = (float) $route['distance_meters'];
-                $distanceKm = (float) $route['distance_km'];
-
-                if (!app(\App\Services\DeliveryPricingService::class)->isWithinMaxDistance($distanceMeters)) {
-                    $isValid = false;
-                    $validation['is_valid_order'] = false;
-                    $missingFields[] = 'destination_address';
-                    $validation['missing_fields'] = $missingFields;
-                    $validation['rejection_reasons'] = [sprintf('Jarak %.2f km melebihi batas layanan %.2f km.', $distanceKm, app(\App\Services\DeliveryPricingService::class)->getMaxDistanceKm())];
-                    $validation['next_actions'] = ['OPEN_MAP_PICKER_DESTINATION'];
-                } else {
-                    $ride['distance_km'] = $distanceKm;
-                    $ride['delivery_fee'] = (float) app(\App\Services\DeliveryPricingService::class)->calculateFromDistanceMeters($distanceMeters)['total_fee'];
-                }
-            } catch (\Exception $e) {
-                $isValid = false;
-                $validation['is_valid_order'] = false;
-                $missingFields[] = 'destination_address';
-                $validation['missing_fields'] = $missingFields;
-                $validation['rejection_reasons'] = ['Rute jemput ke tujuan tidak ditemukan.'];
-                $validation['next_actions'] = ['OPEN_MAP_PICKER_DESTINATION'];
-            }
-        }
-
-        $ride['ready_to_confirm'] = $isValid;
-        $payload['intent'] = 'ride_order';
-        $payload['service_type'] = 'antar_jemput';
-        $payload['ride'] = $ride;
-        $payload['validation'] = $validation;
-
-        if ($isValid) {
-            $name = trim((string) $user->name) === '' ? 'Kak' : trim((string) $user->name);
-            $deliveryFee = number_format((float) ($ride['delivery_fee'] ?? 0), 0, ',', '.');
-            $buffer = "Baik {$name}, saya sudah siapkan draft Antar Jemput.\n";
-            $buffer .= 'Jemput: '.(string) $ride['pickup_address']."\n";
-            $buffer .= 'Tujuan: '.(string) $ride['destination_address']."\n";
-            $buffer .= "Estimasi ongkir sementara: Rp {$deliveryFee} (kalkulasi detail menyusul).\n";
-            $buffer .= 'Ketik "Konfirmasi" untuk lanjut atau "Ubah Tujuan" untuk ganti tujuan.';
-            $payload['assistant_text'] = $buffer;
-        } else {
-            $payload['assistant_text'] = 'Titik '.$target.' berhasil diperbarui. Lengkapi titik lain agar draft siap dikonfirmasi.';
-            if (isset($validation['rejection_reasons'][0])) {
-                $payload['assistant_text'] .= "\n" . $validation['rejection_reasons'][0];
-            }
-        }
-
-        if (!is_array($payload['order'] ?? null)) {
-            $payload['order'] = [
-                'created' => false,
-                'id' => null,
-                'order_number' => null,
-                'delivery_fee' => null,
-            ];
-        }
-
-        return $this->enrichTransportActionPayload($payload, 'antar_jemput');
-    }
-
-    /**
-     * @param  array<string, mixed>  $payload
-     * @return array<string, mixed>
-     */
-    private function patchCourierDraftPayload(
-        User $user,
-        array $payload,
-        string $target,
-        float $latitude,
-        float $longitude,
-        string $address
-    ): array {
-        if ($target !== 'pickup' && $target !== 'dropoff') {
-            throw new ApiException('Target lokasi kurir tidak valid.', 422);
-        }
-
-        $courier = is_array($payload['courier'] ?? null) ? $payload['courier'] : [];
-        $courier['pickup_address'] = $courier['pickup_address'] ?? null;
-        $courier['dropoff_address'] = $courier['dropoff_address'] ?? null;
-        $courier['pickup_latitude'] = $courier['pickup_latitude'] ?? null;
-        $courier['pickup_longitude'] = $courier['pickup_longitude'] ?? null;
-        $courier['dropoff_latitude'] = $courier['dropoff_latitude'] ?? null;
-        $courier['dropoff_longitude'] = $courier['dropoff_longitude'] ?? null;
-
-        if ($target === 'pickup') {
-            $courier['pickup_address'] = $address;
-            $courier['pickup_latitude'] = $latitude;
-            $courier['pickup_longitude'] = $longitude;
-            $courier['pickup_address_id'] = null;
-            $courier['used_default_pickup'] = false;
-        }
-
-        if ($target === 'dropoff') {
-            $courier['dropoff_address'] = $address;
-            $courier['dropoff_latitude'] = $latitude;
-            $courier['dropoff_longitude'] = $longitude;
-        }
-
-        // ── If pickup coords are missing but pickup_address is known, resolve them ─────
-        if (
-            $target === 'dropoff'
-            && trim((string) ($courier['pickup_address'] ?? '')) !== ''
-            && !is_numeric($courier['pickup_latitude'] ?? null)
-        ) {
-            try {
-                $resolvedPickup = $this->geocodingService->resolveAddress((string) $courier['pickup_address']);
-                if ($resolvedPickup !== null) {
-                    $courier['pickup_latitude']  = $resolvedPickup['latitude'];
-                    $courier['pickup_longitude'] = $resolvedPickup['longitude'];
-                }
-            } catch (\Throwable $e) {
-                // non-fatal
-            }
-        }
-
-        $pickupReady = trim((string) ($courier['pickup_address'] ?? '')) !== ''
-            && is_numeric($courier['pickup_latitude'] ?? null)
-            && is_numeric($courier['pickup_longitude'] ?? null);
-        $dropoffReady = trim((string) ($courier['dropoff_address'] ?? '')) !== ''
-            && is_numeric($courier['dropoff_latitude'] ?? null)
-            && is_numeric($courier['dropoff_longitude'] ?? null);
-        $packageReady = trim((string) ($courier['package_description'] ?? '')) !== '';
-
-        $missingFields = [];
-        if (!$pickupReady) {
-            $missingFields[] = 'pickup_address';
-        }
-        if (!$dropoffReady) {
-            $missingFields[] = 'dropoff_address';
-        }
-        if (!$packageReady) {
-            $missingFields[] = 'package_description';
-        }
-
-        $packagePolicy = app(\App\Services\CourierPackagePolicyService::class)->evaluate([
-            'package_description' => $courier['package_description'] ?? null,
-            'estimated_weight_kg' => $courier['estimated_weight_kg'] ?? null,
-            'package_length_cm' => $courier['package_length_cm'] ?? null,
-            'package_width_cm' => $courier['package_width_cm'] ?? null,
-            'package_height_cm' => $courier['package_height_cm'] ?? null,
-            'packing_note' => $courier['packing_note'] ?? null,
-        ]);
-
-        $courier['safety_status'] = $packagePolicy['safety_status'] ?? null;
-        $courier['safety_flags'] = $packagePolicy['safety_flags'] ?? [];
-        $courier['safety_reason'] = $packagePolicy['safety_reason'] ?? null;
-        $courier['size_class'] = $packagePolicy['size_class'] ?? null;
-        $courier['estimated_weight_kg'] = $packagePolicy['estimated_weight_kg'] ?? null;
-        $courier['package_length_cm'] = $packagePolicy['package_length_cm'] ?? null;
-        $courier['package_width_cm'] = $packagePolicy['package_width_cm'] ?? null;
-        $courier['package_height_cm'] = $packagePolicy['package_height_cm'] ?? null;
-        $courier['packing_note'] = $packagePolicy['packing_note'] ?? null;
-
-        $isPackageAllowed = ($packagePolicy['safety_status'] ?? null) === \App\Services\CourierPackagePolicyService::STATUS_ALLOWED;
-        $isValid = $pickupReady && $dropoffReady && $packageReady && $isPackageAllowed;
-
-        $validation = is_array($payload['validation'] ?? null)
-            ? $payload['validation']
-            : [];
-        $validation['is_valid_order'] = $isValid;
-        $validation['missing_fields'] = $missingFields;
-        $validation['rejection_reasons'] = $isValid
-            ? []
-            : ['Lokasi ambil, lokasi tujuan, dan isi paket wajib lengkap sebelum konfirmasi.'];
-
-        $nextActions = [];
-        if (in_array('pickup_address', $missingFields, true)) {
-            $nextActions[] = 'OPEN_MAP_PICKER_PICKUP';
-        }
-        if (in_array('dropoff_address', $missingFields, true)) {
-            $nextActions[] = 'OPEN_MAP_PICKER_DROPOFF';
-        }
-        if ($packageReady && !$isPackageAllowed) {
-            $validation['is_valid_order'] = false;
-            $validation['missing_fields'] = array_values(array_unique([...$missingFields, 'package_description']));
-            $validation['rejection_reasons'] = [$packagePolicy['safety_reason'] ?? 'Barang belum memenuhi kebijakan layanan kurir motor.'];
-            $validation['next_actions'] = [];
-        }
-
-        if ($isValid) {
-            $nextActions[] = 'CONFIRM_DRAFT';
-            $nextActions[] = 'RESET_DESTINATION';
-            $nextActions[] = 'CHANGE_PICKUP';
-        }
-        $validation['next_actions'] = $nextActions;
-
-        if ($isValid) {
-            try {
-                $route = app(\App\Services\GoogleMapsDistanceMatrixService::class)->resolveRoute(
-                    $courier['pickup_latitude'],
-                    $courier['pickup_longitude'],
-                    $courier['dropoff_latitude'],
-                    $courier['dropoff_longitude'],
-                );
-
-                $distanceMeters = (float) $route['distance_meters'];
-                $distanceKm = (float) $route['distance_km'];
-
-                if (!app(\App\Services\DeliveryPricingService::class)->isWithinMaxDistance($distanceMeters)) {
-                    $isValid = false;
-                    $validation['is_valid_order'] = false;
-                    $missingFields[] = 'dropoff_address';
-                    $validation['missing_fields'] = $missingFields;
-                    $validation['rejection_reasons'] = [sprintf('Jarak %.2f km melebihi batas layanan %.2f km.', $distanceKm, app(\App\Services\DeliveryPricingService::class)->getMaxDistanceKm())];
-                    $validation['next_actions'] = ['OPEN_MAP_PICKER_DROPOFF'];
-                } else {
-                    $courier['distance_km'] = $distanceKm;
-                    $courier['delivery_fee'] = (float) app(\App\Services\DeliveryPricingService::class)->calculateFromDistanceMeters($distanceMeters)['total_fee'];
-                }
-            } catch (\Exception $e) {
-                $isValid = false;
-                $validation['is_valid_order'] = false;
-                $missingFields[] = 'dropoff_address';
-                $validation['missing_fields'] = $missingFields;
-                $validation['rejection_reasons'] = ['Rute jemput ke tujuan tidak ditemukan.'];
-                $validation['next_actions'] = ['OPEN_MAP_PICKER_DROPOFF'];
-            }
-        }
-
-        $courier['ready_to_confirm'] = $isValid;
-        $payload['intent'] = 'courier_order';
-        $payload['service_type'] = 'kurir';
-        $payload['courier'] = $courier;
-        $payload['validation'] = $validation;
-
-        if ($isValid) {
-            $name = trim((string) $user->name) === '' ? 'Kak' : trim((string) $user->name);
-            $deliveryFee = number_format((float) ($courier['delivery_fee'] ?? 0), 0, ',', '.');
-            $buffer = "Baik {$name}, saya sudah siapkan draft pengiriman Kurir.\n";
-            $buffer .= 'Ambil: '.(string) $courier['pickup_address']."\n";
-            $buffer .= 'Tujuan: '.(string) $courier['dropoff_address']."\n";
-            $buffer .= 'Barang: '.(string) $courier['package_description']."\n";
-            $buffer .= 'Ukuran/Berat: '.$this->formatCourierPackageSizeLine($courier)."\n";
-            $buffer .= 'Status barang: '.(string) ($courier['safety_reason'] ?? 'Paket aman untuk layanan kurir motor.')."\n";
-            $buffer .= "Estimasi ongkir sementara: Rp {$deliveryFee} (kalkulasi detail menyusul).\n";
-            $buffer .= 'Ketik "Konfirmasi" untuk lanjut. Pembayaran dilakukan tunai saat driver tiba dan mengecek barang di titik ambil.';
-            $payload['assistant_text'] = $buffer;
-        } else {
-            $payload['assistant_text'] = 'Titik '.$target.' berhasil diperbarui. Lengkapi data lain agar draft siap dikonfirmasi.';
-            if (isset($validation['rejection_reasons'][0])) {
-                $payload['assistant_text'] .= "\n" . $validation['rejection_reasons'][0];
-            }
-        }
-
-        if (!is_array($payload['order'] ?? null)) {
-            $payload['order'] = [
-                'created' => false,
-                'id' => null,
-                'order_number' => null,
-                'delivery_fee' => null,
-            ];
-        }
-
-        return $this->enrichTransportActionPayload($payload, 'kurir');
     }
 
     /**

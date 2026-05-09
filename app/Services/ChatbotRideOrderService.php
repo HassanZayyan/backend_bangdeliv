@@ -53,7 +53,7 @@ class ChatbotRideOrderService
         $command = $this->resolveCommand($normalizedMessage, $nluPayload);
 
         if ($command === 'reset_destination') {
-            return $this->handleResetDestination($user);
+            return $this->handleResetDestination($user, $sessionId);
         }
 
         if ($command === 'confirm') {
@@ -61,7 +61,12 @@ class ChatbotRideOrderService
         }
 
         $defaultPickupAddress = $this->resolveDefaultPickupAddress($user);
-        $draft = $this->buildRideDraft($normalizedMessage, $defaultPickupAddress, $nluPayload);
+        $incomingSeed = $this->buildIncomingDraftSeed($normalizedMessage, $nluPayload);
+        $draftSeed = $this->mergeRideDraftSeed(
+            $this->resolveLatestDraftSeed($user, $sessionId),
+            $incomingSeed
+        );
+        $draft = $this->buildRideDraft($normalizedMessage, $defaultPickupAddress, $draftSeed);
 
         if (($draft['validation']['is_valid_order'] ?? false) !== true) {
             return $this->buildValidationPayload($draft);
@@ -73,24 +78,84 @@ class ChatbotRideOrderService
     /**
      * @return array<string, mixed>
      */
-    private function handleResetDestination(User $user): array
-    {
-        $defaultPickupAddress = $this->resolveDefaultPickupAddress($user);
-        $pickupText = null;
-        $pickupLat = null;
-        $pickupLng = null;
-        $pickupAddressId = null;
+    public function applyLocationPatch(
+        User $user,
+        string $sessionId,
+        string $target,
+        float $latitude,
+        float $longitude,
+        string $address
+    ): array {
+        if ($user->role !== 'customer') {
+            throw new ApiException('Hanya customer yang dapat membuat order antar jemput dari chatbot.', 403);
+        }
 
-        if ($defaultPickupAddress !== null) {
+        if (! $user->is_active || $user->is_blacklisted) {
+            throw new ApiException('Akun tidak memenuhi syarat untuk membuat order antar jemput.', 403);
+        }
+
+        if ($target !== 'pickup' && $target !== 'destination') {
+            throw new ApiException('Target lokasi antar jemput tidak valid.', 422);
+        }
+
+        $incomingSeed = [];
+        if ($target === 'pickup') {
+            $incomingSeed = [
+                'pickup_address' => $address,
+                'pickup_latitude' => $latitude,
+                'pickup_longitude' => $longitude,
+                'pickup_address_id' => null,
+                'used_default_pickup' => false,
+            ];
+        }
+
+        if ($target === 'destination') {
+            $incomingSeed = [
+                'destination_address' => $address,
+                'destination_latitude' => $latitude,
+                'destination_longitude' => $longitude,
+            ];
+        }
+
+        $draftSeed = $this->mergeRideDraftSeed(
+            $this->resolveLatestDraftSeed($user, $sessionId),
+            $incomingSeed
+        );
+        $draft = $this->buildRideDraft('', $this->resolveDefaultPickupAddress($user), $draftSeed);
+
+        if (($draft['validation']['is_valid_order'] ?? false) === true) {
+            return $this->buildDraftPayload($draft, $user->name);
+        }
+
+        return $this->buildValidationPayload($draft);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function handleResetDestination(User $user, string $sessionId): array
+    {
+        $current = $this->resolveLatestDraftSeed($user, $sessionId);
+        $defaultPickupAddress = $this->resolveDefaultPickupAddress($user);
+
+        if (trim((string) ($current['pickup_address'] ?? '')) === '' && $defaultPickupAddress !== null) {
             $resolved = $this->resolveProfilePickupAddress($defaultPickupAddress);
             if ($resolved !== null) {
-                $pickupText = $resolved['formatted_address'];
-                $pickupLat = $resolved['latitude'];
-                $pickupLng = $resolved['longitude'];
-                $pickupAddressId = $defaultPickupAddress->id;
+                $current['pickup_address'] = $resolved['formatted_address'];
+                $current['pickup_latitude'] = $resolved['latitude'];
+                $current['pickup_longitude'] = $resolved['longitude'];
+                $current['pickup_address_id'] = $defaultPickupAddress->id;
+                $current['used_default_pickup'] = true;
             }
         }
 
+        $pickupText = $this->normalizeOptionalString($current['pickup_address'] ?? null);
+        $pickupLat = $this->nullableCoordinate($current['pickup_latitude'] ?? null);
+        $pickupLng = $this->nullableCoordinate($current['pickup_longitude'] ?? null);
+        $pickupAddressId = isset($current['pickup_address_id']) && is_numeric($current['pickup_address_id'])
+            ? (int) $current['pickup_address_id']
+            : null;
+        $usedDefaultPickup = (bool) ($current['used_default_pickup'] ?? false);
         $name = trim((string) $user->name) === '' ? 'Kak' : trim((string) $user->name);
 
         if ($pickupText === null) {
@@ -107,7 +172,7 @@ class ChatbotRideOrderService
                 'pickup_latitude' => $pickupLat,
                 'pickup_longitude' => $pickupLng,
                 'pickup_address_id' => $pickupAddressId,
-                'used_default_pickup' => $pickupText !== null,
+                'used_default_pickup' => $usedDefaultPickup,
                 'destination_address' => null,
                 'destination_latitude' => null,
                 'destination_longitude' => null,
@@ -282,15 +347,18 @@ class ChatbotRideOrderService
      * @param  array<string, mixed>|null  $nluPayload
      * @return array<string, mixed>
      */
-    private function buildRideDraft(string $message, ?Address $defaultPickupAddress, ?array $nluPayload = null): array
+    private function buildRideDraft(string $message, ?Address $defaultPickupAddress, ?array $draftSeed = null): array
     {
-        $destinationRaw = $this->normalizeOptionalString($nluPayload['destination_address'] ?? null);
+        $draftSeed ??= [];
+        $destinationRaw = $this->normalizeOptionalString($draftSeed['destination_address'] ?? null);
         $destinationRaw ??= $this->extractDestinationFromMessage($message);
+        $pickupRaw = $this->normalizeOptionalString($draftSeed['pickup_address'] ?? null);
 
         $pickupAddress = null;
         $pickupLatitude = null;
         $pickupLongitude = null;
         $pickupAddressId = null;
+        $usedDefaultPickup = false;
 
         $destinationAddress = null;
         $destinationLatitude = null;
@@ -301,7 +369,15 @@ class ChatbotRideOrderService
         $missingFields = [];
         $nextActions = [];
 
-        if ($defaultPickupAddress === null) {
+        if ($pickupRaw !== null && $this->hasCoordinatePair($draftSeed, 'pickup')) {
+            $pickupAddress = $pickupRaw;
+            $pickupLatitude = (float) $draftSeed['pickup_latitude'];
+            $pickupLongitude = (float) $draftSeed['pickup_longitude'];
+            $pickupAddressId = isset($draftSeed['pickup_address_id']) && is_numeric($draftSeed['pickup_address_id'])
+                ? (int) $draftSeed['pickup_address_id']
+                : null;
+            $usedDefaultPickup = $pickupAddressId !== null && (bool) ($draftSeed['used_default_pickup'] ?? false);
+        } elseif ($defaultPickupAddress === null) {
             $reasons[] = 'Lokasi jemput di profil belum tersedia. Isi Alamat Saya terlebih dahulu.';
             $missingFields[] = 'pickup_address';
             $nextActions[] = 'OPEN_ADDRESSES';
@@ -316,6 +392,7 @@ class ChatbotRideOrderService
                 $pickupLatitude = $resolvedPickup['latitude'];
                 $pickupLongitude = $resolvedPickup['longitude'];
                 $pickupAddressId = $defaultPickupAddress->id;
+                $usedDefaultPickup = true;
             }
         }
 
@@ -324,10 +401,16 @@ class ChatbotRideOrderService
             $missingFields[] = 'destination_address';
         } else {
             try {
-                $resolvedDestination = $this->rideOrderService->validateDestination($destinationRaw);
-                $destinationAddress = $resolvedDestination['formatted_address'];
-                $destinationLatitude = $resolvedDestination['latitude'];
-                $destinationLongitude = $resolvedDestination['longitude'];
+                if ($this->hasCoordinatePair($draftSeed, 'destination')) {
+                    $destinationAddress = $destinationRaw;
+                    $destinationLatitude = (float) $draftSeed['destination_latitude'];
+                    $destinationLongitude = (float) $draftSeed['destination_longitude'];
+                } else {
+                    $resolvedDestination = $this->rideOrderService->validateDestination($destinationRaw);
+                    $destinationAddress = $resolvedDestination['formatted_address'];
+                    $destinationLatitude = $resolvedDestination['latitude'];
+                    $destinationLongitude = $resolvedDestination['longitude'];
+                }
             } catch (ApiException $exception) {
                 if ($exception->status() === 422) {
                     $reasons[] = 'Lokasi tujuan tidak ditemukan di peta. Gunakan alamat yang lebih spesifik.';
@@ -387,7 +470,7 @@ class ChatbotRideOrderService
             'destination_longitude' => $destinationLongitude,
             'distance_km' => $distanceKm,
             'delivery_fee' => $deliveryFee,
-            'used_default_pickup' => $pickupAddressId !== null,
+            'used_default_pickup' => $usedDefaultPickup,
             'validation' => [
                 'is_valid_order' => $reasons === [] && $pickupAddress !== null && $destinationAddress !== null,
                 'rejection_reasons' => $reasons,
@@ -395,6 +478,150 @@ class ChatbotRideOrderService
                 'next_actions' => array_values(array_unique($nextActions)),
             ],
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $nluPayload
+     * @return array<string, mixed>
+     */
+    private function buildIncomingDraftSeed(string $message, ?array $nluPayload): array
+    {
+        $destination = $this->normalizeOptionalString($nluPayload['destination_address'] ?? null);
+        $destination ??= $this->extractDestinationFromMessage($message);
+
+        return [
+            'destination_address' => $destination,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function resolveLatestDraftSeed(User $user, string $sessionId): array
+    {
+        $latestAssistantLog = AiChatLog::query()
+            ->where('user_id', $user->id)
+            ->where('session_id', $sessionId)
+            ->where('role', 'assistant')
+            ->latest('id')
+            ->first();
+
+        $payload = $latestAssistantLog?->ai_response;
+        if (! is_array($payload) || ($payload['intent'] ?? null) !== 'ride_order') {
+            return [];
+        }
+
+        $order = $payload['order'] ?? null;
+        if (is_array($order) && ($order['created'] ?? false) === true) {
+            return [];
+        }
+
+        $ride = $payload['ride'] ?? null;
+        if (! is_array($ride)) {
+            return [];
+        }
+
+        return [
+            'pickup_address' => $this->normalizeOptionalString($ride['pickup_address'] ?? null),
+            'pickup_latitude' => $this->nullableCoordinate($ride['pickup_latitude'] ?? null),
+            'pickup_longitude' => $this->nullableCoordinate($ride['pickup_longitude'] ?? null),
+            'pickup_address_id' => isset($ride['pickup_address_id']) && is_numeric($ride['pickup_address_id'])
+                ? (int) $ride['pickup_address_id']
+                : null,
+            'used_default_pickup' => (bool) ($ride['used_default_pickup'] ?? false),
+            'destination_address' => $this->normalizeOptionalString($ride['destination_address'] ?? null),
+            'destination_latitude' => $this->nullableCoordinate($ride['destination_latitude'] ?? null),
+            'destination_longitude' => $this->nullableCoordinate($ride['destination_longitude'] ?? null),
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $base
+     * @param  array<string, mixed>|null  $incoming
+     * @return array<string, mixed>
+     */
+    private function mergeRideDraftSeed(array $base, ?array $incoming): array
+    {
+        $merged = $base;
+        $incoming ??= [];
+
+        $merged = $this->mergeLocationSeed(
+            $merged,
+            $incoming,
+            'pickup_address',
+            'pickup_latitude',
+            'pickup_longitude'
+        );
+        $merged = $this->mergeLocationSeed(
+            $merged,
+            $incoming,
+            'destination_address',
+            'destination_latitude',
+            'destination_longitude'
+        );
+
+        if (array_key_exists('pickup_address_id', $incoming)) {
+            $merged['pickup_address_id'] = isset($incoming['pickup_address_id']) && is_numeric($incoming['pickup_address_id'])
+                ? (int) $incoming['pickup_address_id']
+                : null;
+        }
+
+        if (array_key_exists('used_default_pickup', $incoming)) {
+            $merged['used_default_pickup'] = (bool) $incoming['used_default_pickup'];
+        }
+
+        return $merged;
+    }
+
+    /**
+     * @param  array<string, mixed>  $merged
+     * @param  array<string, mixed>  $incoming
+     * @return array<string, mixed>
+     */
+    private function mergeLocationSeed(
+        array $merged,
+        array $incoming,
+        string $addressKey,
+        string $latitudeKey,
+        string $longitudeKey
+    ): array {
+        if (! array_key_exists($addressKey, $incoming)) {
+            return $merged;
+        }
+
+        $address = $this->normalizeOptionalString($incoming[$addressKey]);
+        if ($address === null) {
+            return $merged;
+        }
+
+        $previousAddress = $this->normalizeOptionalString($merged[$addressKey] ?? null);
+        $merged[$addressKey] = $address;
+
+        $latitude = $this->nullableCoordinate($incoming[$latitudeKey] ?? null);
+        $longitude = $this->nullableCoordinate($incoming[$longitudeKey] ?? null);
+        if ($latitude !== null && $longitude !== null) {
+            $merged[$latitudeKey] = $latitude;
+            $merged[$longitudeKey] = $longitude;
+        } elseif ($previousAddress === null || strcasecmp($previousAddress, $address) !== 0) {
+            $merged[$latitudeKey] = null;
+            $merged[$longitudeKey] = null;
+        }
+
+        if ($addressKey === 'pickup_address' && ($previousAddress === null || strcasecmp($previousAddress, $address) !== 0)) {
+            $merged['pickup_address_id'] = null;
+            $merged['used_default_pickup'] = false;
+        }
+
+        return $merged;
+    }
+
+    /**
+     * @param  array<string, mixed>  $source
+     */
+    private function hasCoordinatePair(array $source, string $prefix): bool
+    {
+        return $this->nullableCoordinate($source[$prefix.'_latitude'] ?? null) !== null
+            && $this->nullableCoordinate($source[$prefix.'_longitude'] ?? null) !== null;
     }
 
     private function normalizeWhitespace(string $text): string
@@ -411,6 +638,15 @@ class ChatbotRideOrderService
         $normalized = trim($value);
 
         return $normalized === '' ? null : $normalized;
+    }
+
+    private function nullableCoordinate(mixed $value): ?float
+    {
+        if (! is_numeric($value)) {
+            return null;
+        }
+
+        return (float) $value;
     }
 
     private function resolveCommand(string $normalizedMessage, ?array $nluPayload): ?string

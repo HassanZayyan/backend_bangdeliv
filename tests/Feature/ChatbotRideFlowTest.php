@@ -313,6 +313,109 @@ class ChatbotRideFlowTest extends TestCase
         $this->assertContains('OPEN_MAP_PICKER_PICKUP', $nextActions);
     }
 
+    public function test_chatbot_ride_can_build_draft_from_destination_map_pin_before_chat(): void
+    {
+        $this->fakeGeminiAndGeocoding();
+
+        $user = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+            'phone' => '089900000011',
+        ]);
+
+        $this->createDefaultAddress($user);
+
+        $token = $user->createToken('test-chatbot-ride')->plainTextToken;
+        $sessionId = 'sess-ride-map-first';
+
+        $response = $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/sessions/'.$sessionId.'/location', [
+                'service_type' => 'antar_jemput',
+                'target' => 'destination',
+                'latitude' => -7.052301,
+                'longitude' => 110.435601,
+                'address' => 'Polines Semarang',
+            ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('data.intent', 'ride_order')
+            ->assertJsonPath('data.validation.is_valid_order', true)
+            ->assertJsonPath('data.ride.ready_to_confirm', true)
+            ->assertJsonPath('data.ride.destination_address', 'Polines Semarang')
+            ->assertJsonPath('data.ride.destination_latitude', -7.052301);
+    }
+
+    public function test_chatbot_ride_reset_destination_preserves_custom_map_pickup(): void
+    {
+        $this->fakeGeminiAndGeocoding();
+
+        $user = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+            'phone' => '089900000012',
+        ]);
+
+        $token = $user->createToken('test-chatbot-ride')->plainTextToken;
+        $sessionId = 'sess-ride-custom-pickup-reset';
+
+        $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/sessions/'.$sessionId.'/location', [
+                'service_type' => 'antar_jemput',
+                'target' => 'pickup',
+                'latitude' => -7.328900,
+                'longitude' => 110.500100,
+                'address' => 'Ramayan Salatiga',
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.ride.ready_to_confirm', false);
+
+        $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/sessions/'.$sessionId.'/location', [
+                'service_type' => 'antar_jemput',
+                'target' => 'destination',
+                'latitude' => -7.331200,
+                'longitude' => 110.507700,
+                'address' => 'Lapangan Pancasila Salatiga',
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.ride.ready_to_confirm', true)
+            ->assertJsonPath('data.ride.pickup_address', 'Ramayan Salatiga');
+
+        $resetResponse = $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/process', [
+                'message' => 'Ubah Tujuan',
+                'service_type' => 'antar_jemput',
+                'session_id' => $sessionId,
+            ]);
+
+        $resetResponse
+            ->assertOk()
+            ->assertJsonPath('data.ride.ready_to_confirm', false)
+            ->assertJsonPath('data.ride.pickup_address', 'Ramayan Salatiga')
+            ->assertJsonPath('data.ride.destination_address', null);
+
+        $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/sessions/'.$sessionId.'/location', [
+                'service_type' => 'antar_jemput',
+                'target' => 'destination',
+                'latitude' => -7.332300,
+                'longitude' => 110.510800,
+                'address' => 'Terminal Tingkir Salatiga',
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.ride.ready_to_confirm', true)
+            ->assertJsonPath('data.ride.pickup_address', 'Ramayan Salatiga')
+            ->assertJsonPath('data.ride.destination_address', 'Terminal Tingkir Salatiga');
+    }
+
     public function test_chatbot_ride_destination_message_is_not_misread_as_confirm_command(): void
     {
         $user = User::factory()->create([

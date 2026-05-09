@@ -129,7 +129,7 @@ class ChatbotCourierOrderService
         $command = $this->resolveCommand($normalizedMessage, $nluPayload);
 
         if ($command === 'reset_destination') {
-            return $this->handleResetDestination($user);
+            return $this->handleResetDestination($user, $sessionId);
         }
 
         if ($command === 'confirm') {
@@ -137,7 +137,12 @@ class ChatbotCourierOrderService
         }
 
         $defaultPickupAddress = $this->resolveDefaultPickupAddress($user);
-        $draftSeed = $this->buildDraftSeedFromNlu($nluPayload);
+        $incomingSeed = $this->buildDraftSeedFromNlu($nluPayload)
+            ?? $this->extractCourierPayload($normalizedMessage);
+        $draftSeed = $this->mergeCourierDraftSeed(
+            $this->resolveLatestDraftSeed($user, $sessionId),
+            $incomingSeed
+        );
         $draft = $this->buildCourierDraft($normalizedMessage, $defaultPickupAddress, $draftSeed);
 
         if (($draft['validation']['is_valid_order'] ?? false) !== true) {
@@ -150,22 +155,93 @@ class ChatbotCourierOrderService
     /**
      * @return array<string, mixed>
      */
-    private function handleResetDestination(User $user): array
-    {
-        $defaultPickupAddress = $this->resolveDefaultPickupAddress($user);
-        $pickupText = null;
-        $pickupLat = null;
-        $pickupLng = null;
-        $pickupAddressId = null;
+    public function applyLocationPatch(
+        User $user,
+        string $sessionId,
+        string $target,
+        float $latitude,
+        float $longitude,
+        string $address
+    ): array {
+        if ($user->role !== 'customer') {
+            throw new ApiException('Hanya customer yang dapat membuat order kurir dari chatbot.', 403);
+        }
 
-        if ($defaultPickupAddress !== null) {
+        if (! $user->is_active || $user->is_blacklisted) {
+            throw new ApiException('Akun tidak memenuhi syarat untuk membuat order kurir.', 403);
+        }
+
+        if ($target !== 'pickup' && $target !== 'dropoff') {
+            throw new ApiException('Target lokasi kurir tidak valid.', 422);
+        }
+
+        $incomingSeed = [];
+        if ($target === 'pickup') {
+            $incomingSeed = [
+                'pickup_address' => $address,
+                'pickup_latitude' => $latitude,
+                'pickup_longitude' => $longitude,
+                'pickup_address_id' => null,
+                'used_default_pickup' => false,
+            ];
+        }
+
+        if ($target === 'dropoff') {
+            $incomingSeed = [
+                'dropoff_address' => $address,
+                'dropoff_latitude' => $latitude,
+                'dropoff_longitude' => $longitude,
+            ];
+        }
+
+        $draftSeed = $this->mergeCourierDraftSeed(
+            $this->resolveLatestDraftSeed($user, $sessionId),
+            $incomingSeed
+        );
+
+        $draft = $this->buildCourierDraft('', $this->resolveDefaultPickupAddress($user), $draftSeed);
+
+        if (($draft['validation']['is_valid_order'] ?? false) === true) {
+            return $this->buildDraftPayload($draft, $user->name);
+        }
+
+        return $this->buildValidationPayload($draft);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function handleResetDestination(User $user, string $sessionId): array
+    {
+        $current = $this->resolveLatestDraftSeed($user, $sessionId);
+        $defaultPickupAddress = $this->resolveDefaultPickupAddress($user);
+
+        if (trim((string) ($current['pickup_address'] ?? '')) === '' && $defaultPickupAddress !== null) {
             $resolved = $this->resolveProfilePickupAddress($defaultPickupAddress);
             if ($resolved !== null) {
-                $pickupText = $resolved['formatted_address'];
-                $pickupLat = $resolved['latitude'];
-                $pickupLng = $resolved['longitude'];
-                $pickupAddressId = $defaultPickupAddress->id;
+                $current['pickup_address'] = $resolved['formatted_address'];
+                $current['pickup_latitude'] = $resolved['latitude'];
+                $current['pickup_longitude'] = $resolved['longitude'];
+                $current['pickup_address_id'] = $defaultPickupAddress->id;
+                $current['used_default_pickup'] = true;
             }
+        }
+
+        $pickupText = $this->normalizeOptionalString($current['pickup_address'] ?? null);
+        $pickupLat = $this->nullableCoordinate($current['pickup_latitude'] ?? null);
+        $pickupLng = $this->nullableCoordinate($current['pickup_longitude'] ?? null);
+        $pickupAddressId = isset($current['pickup_address_id']) && is_numeric($current['pickup_address_id'])
+            ? (int) $current['pickup_address_id']
+            : null;
+        $packageDescription = $this->normalizeOptionalString($current['package_description'] ?? null);
+
+        $missingFields = [];
+        if ($pickupText === null || $pickupLat === null || $pickupLng === null) {
+            $missingFields[] = 'pickup_address';
+        }
+        $missingFields[] = 'dropoff_address';
+        if ($packageDescription === null) {
+            $missingFields[] = 'package_description';
         }
 
         $name = trim((string) $user->name) === '' ? 'Kak' : trim((string) $user->name);
@@ -190,13 +266,14 @@ class ChatbotCourierOrderService
                 'dropoff_address' => null,
                 'dropoff_latitude' => null,
                 'dropoff_longitude' => null,
-                'package_description' => null,
+                'package_description' => $packageDescription,
+                ...$this->packagePolicyPayload($current),
                 'ready_to_confirm' => false,
             ],
             'validation' => [
                 'is_valid_order' => false,
                 'rejection_reasons' => [],
-                'missing_fields' => ['dropoff_address', 'package_description'],
+                'missing_fields' => array_values(array_unique($missingFields)),
                 'next_actions' => $pickupText === null ? ['OPEN_ADDRESSES'] : [],
             ],
             'order' => [
@@ -428,29 +505,45 @@ class ChatbotCourierOrderService
                 }
             }
         } else {
-            $resolvedPickup = $this->resolveAddressViaGeocoding((string) $pickupRawAddress);
-            if ($resolvedPickup === null) {
-                $reasons[] = 'Lokasi ambil tidak ditemukan di peta. Gunakan alamat yang lebih spesifik.';
-                $missingFields[] = 'pickup_address';
+            if ($this->hasCoordinatePair($extracted, 'pickup')) {
+                $pickupAddress = (string) $pickupRawAddress;
+                $pickupLatitude = (float) $extracted['pickup_latitude'];
+                $pickupLongitude = (float) $extracted['pickup_longitude'];
+                $pickupAddressId = isset($extracted['pickup_address_id']) && is_numeric($extracted['pickup_address_id'])
+                    ? (int) $extracted['pickup_address_id']
+                    : null;
+                $usedDefaultPickup = $pickupAddressId !== null && (bool) ($extracted['used_default_pickup'] ?? false);
             } else {
+                $resolvedPickup = $this->resolveAddressViaGeocoding((string) $pickupRawAddress);
+                if ($resolvedPickup === null) {
+                    $reasons[] = 'Lokasi ambil tidak ditemukan di peta. Gunakan alamat yang lebih spesifik.';
+                    $missingFields[] = 'pickup_address';
+                } else {
                     $pickupAddress = $resolvedPickup['formatted_address'];
                     $pickupLatitude = $resolvedPickup['latitude'];
                     $pickupLongitude = $resolvedPickup['longitude'];
                 }
             }
+        }
 
         if ($dropoffRawAddress === null) {
             $reasons[] = 'Lokasi tujuan belum terbaca. Tulis contoh: "kirim ke Jalan Sudirman No 10".';
             $missingFields[] = 'dropoff_address';
         } else {
-            $resolvedDropoff = $this->resolveAddressViaGeocoding((string) $dropoffRawAddress);
-            if ($resolvedDropoff === null) {
-                $reasons[] = 'Lokasi tujuan tidak ditemukan di peta. Gunakan alamat yang lebih spesifik.';
-                $missingFields[] = 'dropoff_address';
+            if ($this->hasCoordinatePair($extracted, 'dropoff')) {
+                $dropoffAddress = (string) $dropoffRawAddress;
+                $dropoffLatitude = (float) $extracted['dropoff_latitude'];
+                $dropoffLongitude = (float) $extracted['dropoff_longitude'];
             } else {
-                $dropoffAddress = $resolvedDropoff['formatted_address'];
-                $dropoffLatitude = $resolvedDropoff['latitude'];
-                $dropoffLongitude = $resolvedDropoff['longitude'];
+                $resolvedDropoff = $this->resolveAddressViaGeocoding((string) $dropoffRawAddress);
+                if ($resolvedDropoff === null) {
+                    $reasons[] = 'Lokasi tujuan tidak ditemukan di peta. Gunakan alamat yang lebih spesifik.';
+                    $missingFields[] = 'dropoff_address';
+                } else {
+                    $dropoffAddress = $resolvedDropoff['formatted_address'];
+                    $dropoffLatitude = $resolvedDropoff['latitude'];
+                    $dropoffLongitude = $resolvedDropoff['longitude'];
+                }
             }
         }
 
@@ -617,9 +710,14 @@ class ChatbotCourierOrderService
             '/\b(?:kirim(?:kan)?|antar(?:kan)?)\s+(.+?)\s+\b(?:dari|ke)\b/iu',
         ]);
 
+        $packageKeywordPattern = implode('|', array_map(
+            static fn (string $keyword): string => preg_quote($keyword, '/'),
+            $this->packageOnlyKeywords
+        ));
+
         if (
             $packageDescription === null &&
-            preg_match('/\b(dokumen|berkas|paket|barang|makanan|obat|surat)\b/iu', $message, $packageMatch) === 1
+            preg_match('/\b('.$packageKeywordPattern.')\b/iu', $message, $packageMatch) === 1
         ) {
             $packageDescription = $this->normalizeWhitespace((string) $packageMatch[1]);
         }
@@ -849,6 +947,17 @@ class ChatbotCourierOrderService
         return trim((string) preg_replace('/\s+/', ' ', $text));
     }
 
+    private function normalizeOptionalString(mixed $value): ?string
+    {
+        if (! is_string($value)) {
+            return null;
+        }
+
+        $normalized = $this->normalizeWhitespace($value);
+
+        return $normalized === '' ? null : $normalized;
+    }
+
     /**
      * @param  array<int, string>  $patterns
      */
@@ -1062,6 +1171,170 @@ class ChatbotCourierOrderService
         ];
     }
 
+    /**
+     * @return array<string, mixed>
+     */
+    private function resolveLatestDraftSeed(User $user, string $sessionId): array
+    {
+        $latestAssistantLog = AiChatLog::query()
+            ->where('user_id', $user->id)
+            ->where('session_id', $sessionId)
+            ->where('role', 'assistant')
+            ->latest('id')
+            ->first();
+
+        $payload = $latestAssistantLog?->ai_response;
+        if (! is_array($payload) || ($payload['intent'] ?? null) !== 'courier_order') {
+            return [];
+        }
+
+        $order = $payload['order'] ?? null;
+        if (is_array($order) && ($order['created'] ?? false) === true) {
+            return [];
+        }
+
+        $courier = $payload['courier'] ?? null;
+        if (! is_array($courier)) {
+            return [];
+        }
+
+        return [
+            'pickup_address' => $this->normalizeOptionalString($courier['pickup_address'] ?? null),
+            'pickup_latitude' => $this->nullableCoordinate($courier['pickup_latitude'] ?? null),
+            'pickup_longitude' => $this->nullableCoordinate($courier['pickup_longitude'] ?? null),
+            'pickup_address_id' => isset($courier['pickup_address_id']) && is_numeric($courier['pickup_address_id'])
+                ? (int) $courier['pickup_address_id']
+                : null,
+            'used_default_pickup' => (bool) ($courier['used_default_pickup'] ?? false),
+            'dropoff_address' => $this->normalizeOptionalString($courier['dropoff_address'] ?? null),
+            'dropoff_latitude' => $this->nullableCoordinate($courier['dropoff_latitude'] ?? null),
+            'dropoff_longitude' => $this->nullableCoordinate($courier['dropoff_longitude'] ?? null),
+            'package_description' => $this->normalizeOptionalString($courier['package_description'] ?? null),
+            'estimated_weight_kg' => $this->nullablePositiveFloat($courier['estimated_weight_kg'] ?? null),
+            'package_length_cm' => $this->nullablePositiveInt($courier['package_length_cm'] ?? null),
+            'package_width_cm' => $this->nullablePositiveInt($courier['package_width_cm'] ?? null),
+            'package_height_cm' => $this->nullablePositiveInt($courier['package_height_cm'] ?? null),
+            'packing_note' => $this->normalizeOptionalString($courier['packing_note'] ?? null),
+            'safety_status' => $courier['safety_status'] ?? null,
+            'safety_flags' => is_array($courier['safety_flags'] ?? null) ? $courier['safety_flags'] : [],
+            'safety_reason' => $courier['safety_reason'] ?? null,
+            'size_class' => $courier['size_class'] ?? null,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $base
+     * @param  array<string, mixed>|null  $incoming
+     * @return array<string, mixed>
+     */
+    private function mergeCourierDraftSeed(array $base, ?array $incoming): array
+    {
+        $merged = $base;
+        $incoming ??= [];
+
+        $merged = $this->mergeLocationSeed(
+            $merged,
+            $incoming,
+            'pickup_address',
+            'pickup_latitude',
+            'pickup_longitude'
+        );
+        $merged = $this->mergeLocationSeed(
+            $merged,
+            $incoming,
+            'dropoff_address',
+            'dropoff_latitude',
+            'dropoff_longitude'
+        );
+
+        if (array_key_exists('pickup_address_id', $incoming)) {
+            $merged['pickup_address_id'] = isset($incoming['pickup_address_id']) && is_numeric($incoming['pickup_address_id'])
+                ? (int) $incoming['pickup_address_id']
+                : null;
+        }
+
+        if (array_key_exists('used_default_pickup', $incoming)) {
+            $merged['used_default_pickup'] = (bool) $incoming['used_default_pickup'];
+        }
+
+        foreach (['package_description', 'packing_note'] as $field) {
+            if (! array_key_exists($field, $incoming)) {
+                continue;
+            }
+
+            $value = $this->normalizeOptionalString($incoming[$field]);
+            if ($value !== null) {
+                $merged[$field] = $value;
+            }
+        }
+
+        foreach (['estimated_weight_kg', 'package_length_cm', 'package_width_cm', 'package_height_cm'] as $field) {
+            if (! array_key_exists($field, $incoming)) {
+                continue;
+            }
+
+            $value = $field === 'estimated_weight_kg'
+                ? $this->nullablePositiveFloat($incoming[$field])
+                : $this->nullablePositiveInt($incoming[$field]);
+            if ($value !== null) {
+                $merged[$field] = $value;
+            }
+        }
+
+        return $merged;
+    }
+
+    /**
+     * @param  array<string, mixed>  $merged
+     * @param  array<string, mixed>  $incoming
+     * @return array<string, mixed>
+     */
+    private function mergeLocationSeed(
+        array $merged,
+        array $incoming,
+        string $addressKey,
+        string $latitudeKey,
+        string $longitudeKey
+    ): array {
+        if (! array_key_exists($addressKey, $incoming)) {
+            return $merged;
+        }
+
+        $address = $this->normalizeOptionalString($incoming[$addressKey]);
+        if ($address === null) {
+            return $merged;
+        }
+
+        $previousAddress = $this->normalizeOptionalString($merged[$addressKey] ?? null);
+        $merged[$addressKey] = $address;
+
+        $latitude = $this->nullableCoordinate($incoming[$latitudeKey] ?? null);
+        $longitude = $this->nullableCoordinate($incoming[$longitudeKey] ?? null);
+        if ($latitude !== null && $longitude !== null) {
+            $merged[$latitudeKey] = $latitude;
+            $merged[$longitudeKey] = $longitude;
+        } elseif ($previousAddress === null || strcasecmp($previousAddress, $address) !== 0) {
+            $merged[$latitudeKey] = null;
+            $merged[$longitudeKey] = null;
+        }
+
+        if ($addressKey === 'pickup_address' && ($previousAddress === null || strcasecmp($previousAddress, $address) !== 0)) {
+            $merged['pickup_address_id'] = null;
+            $merged['used_default_pickup'] = false;
+        }
+
+        return $merged;
+    }
+
+    /**
+     * @param  array<string, mixed>  $source
+     */
+    private function hasCoordinatePair(array $source, string $prefix): bool
+    {
+        return $this->nullableCoordinate($source[$prefix.'_latitude'] ?? null) !== null
+            && $this->nullableCoordinate($source[$prefix.'_longitude'] ?? null) !== null;
+    }
+
     private function estimateDeliveryMinutes(int $durationSeconds): int
     {
         $estimated = (int) ceil(max(0, $durationSeconds) / 60);
@@ -1097,6 +1370,15 @@ class ChatbotCourierOrderService
         $parsed = round((float) $value, 2);
 
         return $parsed > 0 ? $parsed : null;
+    }
+
+    private function nullableCoordinate(mixed $value): ?float
+    {
+        if (! is_numeric($value)) {
+            return null;
+        }
+
+        return (float) $value;
     }
 
     private function nullablePositiveInt(mixed $value): ?int
