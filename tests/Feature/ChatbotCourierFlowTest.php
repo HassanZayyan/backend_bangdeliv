@@ -556,6 +556,150 @@ class ChatbotCourierFlowTest extends TestCase
             ->assertJsonPath('data.validation.next_actions.0', 'CONFIRM_DRAFT');
     }
 
+    public function test_chatbot_kurir_can_build_draft_from_map_pins_before_chat(): void
+    {
+        $this->fakeGeocoding();
+
+        $user = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+            'phone' => '089333333333',
+        ]);
+
+        $token = $user->createToken('test-chatbot')->plainTextToken;
+        $sessionId = 'sess-kurir-map-first';
+
+        $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/sessions/'.$sessionId.'/location', [
+                'service_type' => 'kurir',
+                'target' => 'pickup',
+                'latitude' => -7.328900,
+                'longitude' => 110.500100,
+                'address' => 'Ramayan Salatiga',
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.order.created', false)
+            ->assertJsonPath('data.courier.ready_to_confirm', false)
+            ->assertJsonPath('data.courier.pickup_address', 'Ramayan Salatiga');
+
+        $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/sessions/'.$sessionId.'/location', [
+                'service_type' => 'kurir',
+                'target' => 'dropoff',
+                'latitude' => -7.331200,
+                'longitude' => 110.507700,
+                'address' => 'Lapangan Pancasila Salatiga',
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.order.created', false)
+            ->assertJsonPath('data.courier.ready_to_confirm', false)
+            ->assertJsonPath('data.courier.dropoff_address', 'Lapangan Pancasila Salatiga');
+
+        $draftResponse = $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/process', [
+                'message' => 'kunci',
+                'service_type' => 'kurir',
+                'session_id' => $sessionId,
+            ]);
+
+        $draftResponse
+            ->assertOk()
+            ->assertJsonPath('data.validation.is_valid_order', true)
+            ->assertJsonPath('data.courier.ready_to_confirm', true)
+            ->assertJsonPath('data.courier.package_description', 'kunci')
+            ->assertJsonPath('data.courier.pickup_latitude', -7.3289)
+            ->assertJsonPath('data.courier.dropoff_latitude', -7.3312);
+
+        $confirmResponse = $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/process', [
+                'message' => 'Konfirmasi',
+                'service_type' => 'kurir',
+                'session_id' => $sessionId,
+            ]);
+
+        $confirmResponse
+            ->assertOk()
+            ->assertJsonPath('data.order.created', true);
+
+        $orderId = (int) $confirmResponse->json('data.order.id');
+
+        $this->assertDatabaseHas('order_locations', [
+            'order_id' => $orderId,
+            'location_role' => 'PICKUP',
+            'latitude' => -7.32890000,
+            'longitude' => 110.50010000,
+        ]);
+        $this->assertDatabaseHas('order_locations', [
+            'order_id' => $orderId,
+            'location_role' => 'DROPOFF',
+            'latitude' => -7.33120000,
+            'longitude' => 110.50770000,
+        ]);
+    }
+
+    public function test_chatbot_kurir_reset_destination_preserves_package_for_map_replacement(): void
+    {
+        $this->fakeGeocoding();
+
+        $user = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+            'phone' => '089444444444',
+        ]);
+
+        $this->createDefaultAddress($user);
+
+        $token = $user->createToken('test-chatbot')->plainTextToken;
+        $sessionId = 'sess-kurir-reset-map';
+
+        $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/process', [
+                'message' => 'kirim ke polines, isi paket: kunci',
+                'service_type' => 'kurir',
+                'session_id' => $sessionId,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.courier.ready_to_confirm', true);
+
+        $resetResponse = $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/process', [
+                'message' => 'Ubah Tujuan',
+                'service_type' => 'kurir',
+                'session_id' => $sessionId,
+            ]);
+
+        $resetResponse
+            ->assertOk()
+            ->assertJsonPath('data.courier.ready_to_confirm', false)
+            ->assertJsonPath('data.courier.package_description', 'kunci')
+            ->assertJsonPath('data.courier.dropoff_address', null);
+
+        $pinResponse = $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/sessions/'.$sessionId.'/location', [
+                'service_type' => 'kurir',
+                'target' => 'dropoff',
+                'latitude' => -7.331200,
+                'longitude' => 110.507700,
+                'address' => 'Lapangan Pancasila Salatiga',
+            ]);
+
+        $pinResponse
+            ->assertOk()
+            ->assertJsonPath('data.validation.is_valid_order', true)
+            ->assertJsonPath('data.courier.ready_to_confirm', true)
+            ->assertJsonPath('data.courier.package_description', 'kunci')
+            ->assertJsonPath('data.courier.dropoff_address', 'Lapangan Pancasila Salatiga');
+    }
+
     private function fakeGeocoding(): void
     {
         Http::fake([
