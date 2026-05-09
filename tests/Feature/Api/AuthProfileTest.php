@@ -144,7 +144,7 @@ class AuthProfileTest extends TestCase
             'role' => 'driver',
         ]);
 
-        $driver = Driver::query()->create([
+        $driver = Driver::query()->create($this->driverAttributes([
             'user_id' => $driverUser->id,
             'vehicle_plate' => 'B 1234 XYZ',
             'license_number' => 'SIMC-8899123',
@@ -152,7 +152,7 @@ class AuthProfileTest extends TestCase
             'status' => 'available',
             'avg_rating' => 4.20,
             'total_deliveries' => 99,
-        ]);
+        ]));
 
         $customer = User::factory()->create([
             'role' => 'customer',
@@ -305,6 +305,9 @@ class AuthProfileTest extends TestCase
             ->assertJsonPath('data.stats.total_orders', 2)
             ->assertJsonPath('data.stats.total_paid', 20000)
             ->assertJsonPath('data.stats.rating', 4.5)
+            ->assertJsonPath('data.driver_profile.vehicle_type', 'Motor Matic')
+            ->assertJsonPath('data.driver_profile.vehicle_brand', 'Honda')
+            ->assertJsonPath('data.driver_profile.vehicle_model', 'Beat')
             ->assertJsonPath('data.driver_profile.vehicle_plate', 'B 1234 XYZ')
             ->assertJsonPath('data.driver_profile.registration_status', 'active');
     }
@@ -338,6 +341,49 @@ class AuthProfileTest extends TestCase
             'name' => 'Baru',
             'phone' => '081200000002',
             'email' => 'baru@example.com',
+        ]);
+    }
+
+    public function test_driver_can_update_required_vehicle_profile_fields(): void
+    {
+        $driverUser = User::query()->create([
+            'name' => 'Driver Kendaraan Lama',
+            'email' => 'driver.kendaraan.lama@example.com',
+            'phone' => '081277770001',
+            'password' => Hash::make('rahasia123'),
+            'role' => 'driver',
+        ]);
+
+        Driver::query()->create($this->driverAttributes([
+            'user_id' => $driverUser->id,
+            'vehicle_plate' => 'B 9091 OLD',
+            'license_number' => 'SIMC-OLD-2026',
+            'registration_status' => 'active',
+            'status' => 'available',
+        ]));
+
+        Sanctum::actingAs($driverUser);
+
+        $response = $this->putJson('/api/user', [
+            'name' => 'Driver Kendaraan Baru',
+            'phone' => '0812-7777-0002',
+            'email' => 'driver.kendaraan.baru@example.com',
+            'vehicle_type' => 'Motor Listrik',
+            'vehicle_brand' => 'Yamaha',
+            'vehicle_model' => 'E01',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.driver_profile.vehicle_type', 'Motor Listrik')
+            ->assertJsonPath('data.driver_profile.vehicle_brand', 'Yamaha')
+            ->assertJsonPath('data.driver_profile.vehicle_model', 'E01');
+
+        $this->assertDatabaseHas('drivers', [
+            'user_id' => $driverUser->id,
+            'vehicle_type' => 'Motor Listrik',
+            'vehicle_brand' => 'Yamaha',
+            'vehicle_model' => 'E01',
+            'vehicle_plate' => 'B 9091 OLD',
         ]);
     }
 

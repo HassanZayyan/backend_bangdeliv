@@ -22,6 +22,9 @@ class DriverSeeder extends Seeder
                     'phone' => '081322220001',
                 ],
                 'driver' => [
+                    'vehicle_type' => 'Motor Matic',
+                    'vehicle_brand' => 'Honda',
+                    'vehicle_model' => 'Vario 160',
                     'vehicle_plate' => 'B 1234 AGS',
                     'license_number' => 'SIMC-AGUS-2026',
                     'registration_status' => 'active',
@@ -42,6 +45,9 @@ class DriverSeeder extends Seeder
                     'phone' => '081322220002',
                 ],
                 'driver' => [
+                    'vehicle_type' => 'Motor Manual',
+                    'vehicle_brand' => 'Yamaha',
+                    'vehicle_model' => 'Jupiter MX',
                     'vehicle_plate' => 'B 8899 DWI',
                     'license_number' => 'SIMC-DWI-2026',
                     'registration_status' => 'pending',
@@ -62,6 +68,9 @@ class DriverSeeder extends Seeder
                     'phone' => '081322220003',
                 ],
                 'driver' => [
+                    'vehicle_type' => 'Motor Matic',
+                    'vehicle_brand' => 'Suzuki',
+                    'vehicle_model' => 'Nex II',
                     'vehicle_plate' => 'D 5511 SIT',
                     'license_number' => 'SIMC-SITI-2026',
                     'registration_status' => 'rejected',

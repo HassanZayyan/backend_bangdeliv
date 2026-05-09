@@ -28,6 +28,9 @@ class UpgradeToDriverTest extends TestCase
         Sanctum::actingAs($customer);
 
         $response = $this->postJson('/api/user/upgrade-to-driver', [
+            'vehicle_type' => 'Motor Matic',
+            'vehicle_brand' => 'Honda',
+            'vehicle_model' => 'Vario 160',
             'vehicle_plate' => 'K 6969 MT',
             'license_number' => '3374011201010001',
         ]);
@@ -35,6 +38,9 @@ class UpgradeToDriverTest extends TestCase
         $response->assertCreated()
             ->assertJsonPath('message', 'Upgrade ke driver berhasil. Dokumen menunggu verifikasi admin.')
             ->assertJsonPath('data.user.role', 'driver')
+            ->assertJsonPath('data.driver_profile.vehicle_type', 'Motor Matic')
+            ->assertJsonPath('data.driver_profile.vehicle_brand', 'Honda')
+            ->assertJsonPath('data.driver_profile.vehicle_model', 'Vario 160')
             ->assertJsonPath('data.driver_profile.registration_status', 'pending')
             ->assertJsonPath('data.driver_profile.status', 'offline');
 
@@ -45,15 +51,48 @@ class UpgradeToDriverTest extends TestCase
 
         $this->assertDatabaseHas('drivers', [
             'user_id' => $customer->id,
+            'vehicle_type' => 'Motor Matic',
+            'vehicle_brand' => 'Honda',
+            'vehicle_model' => 'Vario 160',
             'vehicle_plate' => 'K 6969 MT',
             'license_number' => '3374011201010001',
             'registration_status' => 'pending',
         ]);
     }
 
+    public function test_customer_must_provide_vehicle_detail_when_upgrading_to_driver(): void
+    {
+        $customer = User::query()->create([
+            'name' => 'Customer Missing Vehicle',
+            'email' => 'customer.missing.vehicle@example.com',
+            'phone' => '081233445577',
+            'password' => Hash::make('rahasia123'),
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        Sanctum::actingAs($customer);
+
+        $response = $this->postJson('/api/user/upgrade-to-driver', [
+            'vehicle_plate' => 'K 7070 MT',
+            'license_number' => '3374011201010707',
+        ]);
+
+        $response->assertUnprocessable()
+            ->assertJsonValidationErrors([
+                'vehicle_type',
+                'vehicle_brand',
+                'vehicle_model',
+            ]);
+    }
+
     public function test_guest_cannot_upgrade_to_driver(): void
     {
         $response = $this->postJson('/api/user/upgrade-to-driver', [
+            'vehicle_type' => 'Motor Matic',
+            'vehicle_brand' => 'Honda',
+            'vehicle_model' => 'Beat',
             'vehicle_plate' => 'K 1111 AB',
             'license_number' => '3374011201010002',
         ]);
@@ -76,6 +115,9 @@ class UpgradeToDriverTest extends TestCase
         Sanctum::actingAs($driver);
 
         $response = $this->postJson('/api/user/upgrade-to-driver', [
+            'vehicle_type' => 'Motor Matic',
+            'vehicle_brand' => 'Honda',
+            'vehicle_model' => 'Beat',
             'vehicle_plate' => 'K 2222 AB',
             'license_number' => '3374011201010003',
         ]);
@@ -95,17 +137,20 @@ class UpgradeToDriverTest extends TestCase
             'is_blacklisted' => false,
         ]);
 
-        Driver::query()->create([
+        Driver::query()->create($this->driverAttributes([
             'user_id' => $customer->id,
             'vehicle_plate' => 'K 3333 AB',
             'license_number' => '3374011201010004',
             'registration_status' => 'pending',
             'status' => 'offline',
-        ]);
+        ]));
 
         Sanctum::actingAs($customer);
 
         $response = $this->postJson('/api/user/upgrade-to-driver', [
+            'vehicle_type' => 'Motor Matic',
+            'vehicle_brand' => 'Honda',
+            'vehicle_model' => 'Beat',
             'vehicle_plate' => 'K 4444 AB',
             'license_number' => '3374011201010005',
         ]);
@@ -122,6 +167,9 @@ class UpgradeToDriverTest extends TestCase
             'phone' => '081200000099',
             'password' => 'rahasia123',
             'password_confirmation' => 'rahasia123',
+            'vehicle_type' => 'Motor Matic',
+            'vehicle_brand' => 'Honda',
+            'vehicle_model' => 'Beat',
             'vehicle_plate' => 'K 5555 AB',
             'license_number' => '3374011201010006',
         ]);

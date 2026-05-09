@@ -30,13 +30,13 @@ class DriverVerificationTest extends TestCase
             'is_blacklisted' => false,
         ]);
 
-        $driver = Driver::query()->create([
+        $driver = Driver::query()->create($this->driverAttributes([
             'user_id' => $driverUser->id,
             'vehicle_plate' => 'B 1010 UPL',
             'license_number' => 'SIMC-UPL-2026',
             'registration_status' => 'rejected',
             'status' => 'offline',
-        ]);
+        ]));
 
         Sanctum::actingAs($driverUser);
 
@@ -91,13 +91,13 @@ class DriverVerificationTest extends TestCase
             'is_blacklisted' => false,
         ]);
 
-        $driver = Driver::query()->create([
+        $driver = Driver::query()->create($this->driverAttributes([
             'user_id' => $driverUser->id,
             'vehicle_plate' => 'B 2020 VRF',
             'license_number' => 'SIMC-VRF-2026',
             'registration_status' => 'pending',
             'status' => 'offline',
-        ]);
+        ]));
 
         foreach (['ktp', 'sim', 'selfie'] as $type) {
             DriverDocument::query()->create([
@@ -147,13 +147,13 @@ class DriverVerificationTest extends TestCase
             'is_blacklisted' => false,
         ]);
 
-        Driver::query()->create([
+        Driver::query()->create($this->driverAttributes([
             'user_id' => $driverUser->id,
             'vehicle_plate' => 'B 3030 PNG',
             'license_number' => 'SIMC-PNG-2026',
             'registration_status' => 'pending',
             'status' => 'offline',
-        ]);
+        ]));
 
         Sanctum::actingAs($driverUser);
 

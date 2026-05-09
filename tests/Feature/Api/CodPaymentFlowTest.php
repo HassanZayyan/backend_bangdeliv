@@ -27,13 +27,13 @@ class CodPaymentFlowTest extends TestCase
             'role' => 'driver',
         ]);
 
-        $driver = Driver::query()->create([
+        $driver = Driver::query()->create($this->driverAttributes([
             'user_id' => $driverUser->id,
             'vehicle_plate' => 'B 7777 COD',
             'license_number' => 'SIMC-SETTLE-2026',
             'registration_status' => 'active',
             'status' => 'busy',
-        ]);
+        ]));
 
         $customer = User::factory()->create([
             'role' => 'customer',

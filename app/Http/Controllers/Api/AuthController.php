@@ -76,8 +76,7 @@ class AuthController extends Controller
     public function upgradeToDriver(
         UpgradeToDriverRequest $request,
         DriverOnboardingService $service
-    )
-    {
+    ) {
         try {
             $payload = $service->upgradeCustomerToDriver(
                 $request->user(),
@@ -120,12 +119,12 @@ class AuthController extends Controller
 
         $user = User::where('email', $payload['email'])->first();
 
-        if (!$user || !Hash::check($payload['password'], $user->password)) {
+        if (! $user || ! Hash::check($payload['password'], $user->password)) {
             return response()->json(['message' => 'Kredensial tidak valid.'], 401);
         }
 
         // Anti-Fraud Checks
-        if (!$user->is_active) {
+        if (! $user->is_active) {
             return response()->json(['message' => 'Akun Anda dinonaktifkan. Silakan hubungi Admin.'], 403);
         }
 
@@ -160,7 +159,7 @@ class AuthController extends Controller
         $responseUserData = $this->buildProfilePayload($user, $request);
 
         return response()->json([
-            'data' => $responseUserData
+            'data' => $responseUserData,
         ]);
     }
 
@@ -170,6 +169,7 @@ class AuthController extends Controller
     public function updateProfile(Request $request)
     {
         $user = $request->user();
+        $isDriver = $user->role === 'driver';
 
         $payload = [
             'name' => $request->input('name'),
@@ -178,13 +178,13 @@ class AuthController extends Controller
             'avatar' => $request->file('avatar'),
             'remove_avatar' => $request->boolean('remove_avatar'),
         ];
-        if ($request->has('vehicle_type')) {
+        if ($isDriver || $request->has('vehicle_type')) {
             $payload['vehicle_type'] = trim((string) $request->input('vehicle_type', ''));
         }
-        if ($request->has('vehicle_brand')) {
+        if ($isDriver || $request->has('vehicle_brand')) {
             $payload['vehicle_brand'] = trim((string) $request->input('vehicle_brand', ''));
         }
-        if ($request->has('vehicle_model')) {
+        if ($isDriver || $request->has('vehicle_model')) {
             $payload['vehicle_model'] = trim((string) $request->input('vehicle_model', ''));
         }
 
@@ -203,11 +203,15 @@ class AuthController extends Controller
                 'max:20',
                 Rule::unique('users', 'phone')->ignore($user->id),
             ],
-            'vehicle_type' => ['nullable', 'string', 'max:50'],
-            'vehicle_brand' => ['nullable', 'string', 'max:50'],
-            'vehicle_model' => ['nullable', 'string', 'max:100'],
+            'vehicle_type' => [$isDriver ? 'required' : 'nullable', 'string', 'max:50'],
+            'vehicle_brand' => [$isDriver ? 'required' : 'nullable', 'string', 'max:50'],
+            'vehicle_model' => [$isDriver ? 'required' : 'nullable', 'string', 'max:100'],
             'avatar' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
             'remove_avatar' => ['nullable', 'boolean'],
+        ], [
+            'vehicle_type.required' => 'Jenis kendaraan wajib dipilih.',
+            'vehicle_brand.required' => 'Merk kendaraan wajib dipilih.',
+            'vehicle_model.required' => 'Model kendaraan wajib diisi.',
         ]);
 
         if ($validator->fails()) {
@@ -239,21 +243,16 @@ class AuthController extends Controller
             'avatar' => $avatarPath,
         ]);
 
-        if ($user->role === 'driver') {
+        if ($isDriver) {
             $driver = $user->driver()->first();
             if ($driver) {
-                $driverUpdates = [];
-                if (array_key_exists('vehicle_type', $validated)) {
-                    $driverUpdates['vehicle_type'] = trim((string) ($validated['vehicle_type'] ?? '')) ?: null;
-                }
-                if (array_key_exists('vehicle_brand', $validated)) {
-                    $driverUpdates['vehicle_brand'] = trim((string) ($validated['vehicle_brand'] ?? '')) ?: null;
-                }
-                if (array_key_exists('vehicle_model', $validated)) {
-                    $driverUpdates['vehicle_model'] = trim((string) ($validated['vehicle_model'] ?? '')) ?: null;
-                }
+                $driverUpdates = [
+                    'vehicle_type' => trim((string) $validated['vehicle_type']),
+                    'vehicle_brand' => trim((string) $validated['vehicle_brand']),
+                    'vehicle_model' => trim((string) $validated['vehicle_model']),
+                ];
 
-                if (!empty($driverUpdates)) {
+                if (! empty($driverUpdates)) {
                     $driver->update($driverUpdates);
                 }
             }
@@ -287,7 +286,7 @@ class AuthController extends Controller
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        if (!Hash::check((string) $payload['current_password'], (string) $user->password)) {
+        if (! Hash::check((string) $payload['current_password'], (string) $user->password)) {
             return response()->json([
                 'errors' => [
                     'current_password' => ['Password saat ini tidak sesuai.'],
@@ -338,7 +337,7 @@ class AuthController extends Controller
         $user = $request->user();
         $address = $user->addresses()->whereKey($addressId)->first();
 
-        if (!$address) {
+        if (! $address) {
             return response()->json(['message' => 'Alamat tidak ditemukan.'], 404);
         }
 
@@ -385,7 +384,7 @@ class AuthController extends Controller
         $user = $request->user();
         $address = $user->addresses()->whereKey($addressId)->first();
 
-        if (!$address) {
+        if (! $address) {
             return response()->json(['message' => 'Alamat tidak ditemukan.'], 404);
         }
 
@@ -490,7 +489,7 @@ class AuthController extends Controller
             return null;
         }
 
-        if (!Storage::disk('public')->exists($avatarPath)) {
+        if (! Storage::disk('public')->exists($avatarPath)) {
             return null;
         }
 

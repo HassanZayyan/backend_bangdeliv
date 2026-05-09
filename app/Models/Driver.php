@@ -3,17 +3,17 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
  * @property int $id
  * @property int $user_id
  * @property string|null $vehicle_plate
- * @property string|null $vehicle_type
- * @property string|null $vehicle_brand
- * @property string|null $vehicle_model
+ * @property string $vehicle_type
+ * @property string $vehicle_brand
+ * @property string $vehicle_model
  * @property string|null $license_number
  * @property string $registration_status
  * @property string $status
@@ -24,7 +24,6 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property \Carbon\Carbon|null $created_at
  * @property \Carbon\Carbon|null $updated_at
  * @property \Carbon\Carbon|null $deleted_at
- *
  * @property-read \App\Models\User $user
  * @property-read \Illuminate\Database\Eloquent\Collection<int, \App\Models\DriverDocument> $driverDocuments
  * @property-read \Illuminate\Database\Eloquent\Collection<int, \App\Models\Order> $orders

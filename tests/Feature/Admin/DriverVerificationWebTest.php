@@ -25,26 +25,26 @@ class DriverVerificationWebTest extends TestCase
             'name' => 'Driver Pending Web',
             'phone' => '081355550002',
         ]);
-        $pendingDriver = Driver::query()->create([
+        $pendingDriver = Driver::query()->create($this->driverAttributes([
             'user_id' => $pendingUser->id,
             'vehicle_plate' => 'B 1234 PND',
             'license_number' => 'SIMC-PND-WEB',
             'registration_status' => 'pending',
             'status' => 'offline',
-        ]);
+        ]));
 
         $rejectedUser = User::factory()->create([
             'role' => 'driver',
             'name' => 'Driver Rejected Web',
             'phone' => '081355550003',
         ]);
-        Driver::query()->create([
+        Driver::query()->create($this->driverAttributes([
             'user_id' => $rejectedUser->id,
             'vehicle_plate' => 'B 5678 REJ',
             'license_number' => 'SIMC-REJ-WEB',
             'registration_status' => 'rejected',
             'status' => 'offline',
-        ]);
+        ]));
 
         $this->actingAs($admin)
             ->get(route('admin.verification', ['status' => 'pending']))
@@ -70,13 +70,13 @@ class DriverVerificationWebTest extends TestCase
             'phone' => '081355550012',
         ]);
 
-        $driver = Driver::query()->create([
+        $driver = Driver::query()->create($this->driverAttributes([
             'user_id' => $driverUser->id,
             'vehicle_plate' => 'B 9012 RVW',
             'license_number' => 'SIMC-RVW-WEB',
             'registration_status' => 'pending',
             'status' => 'offline',
-        ]);
+        ]));
 
         foreach (['ktp', 'sim', 'selfie'] as $type) {
             DriverDocument::query()->create([
@@ -124,13 +124,13 @@ class DriverVerificationWebTest extends TestCase
             'phone' => '081355550022',
         ]);
 
-        $driver = Driver::query()->create([
+        $driver = Driver::query()->create($this->driverAttributes([
             'user_id' => $driverUser->id,
             'vehicle_plate' => 'B 3344 DEL',
             'license_number' => 'SIMC-DEL-WEB',
             'registration_status' => 'active',
             'status' => 'available',
-        ]);
+        ]));
 
         $ktpPath = 'driver-documents/'.$driver->id.'/ktp/to-delete.jpg';
         Storage::disk('public')->put($ktpPath, 'dummy');
@@ -191,13 +191,13 @@ class DriverVerificationWebTest extends TestCase
             'phone' => '081355550032',
         ]);
 
-        $driver = Driver::query()->create([
+        $driver = Driver::query()->create($this->driverAttributes([
             'user_id' => $driverUser->id,
             'vehicle_plate' => 'B 7788 PRV',
             'license_number' => 'SIMC-PRV-WEB',
             'registration_status' => 'pending',
             'status' => 'offline',
-        ]);
+        ]));
 
         $ktpPath = 'driver-documents/'.$driver->id.'/ktp/preview.jpg';
         Storage::disk('public')->put($ktpPath, 'preview-data');

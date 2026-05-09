@@ -71,13 +71,13 @@ class OrderChatTest extends TestCase
         [, , , $order] = $this->createAssignedOrder();
         $otherCustomer = User::factory()->create(['role' => 'customer']);
         $otherDriverUser = User::factory()->create(['role' => 'driver']);
-        Driver::query()->create([
+        Driver::query()->create($this->driverAttributes([
             'user_id' => $otherDriverUser->id,
             'vehicle_plate' => 'B 7788 OTH',
             'license_number' => 'SIM-OTHER-2026',
             'registration_status' => 'active',
             'status' => 'available',
-        ]);
+        ]));
 
         Sanctum::actingAs($otherCustomer);
         $this->getJson("/api/v1/orders/{$order->id}/chat/messages")
@@ -175,13 +175,13 @@ class OrderChatTest extends TestCase
     ): array {
         $customer = User::factory()->create(['role' => 'customer']);
         $driverUser = User::factory()->create(['role' => 'driver']);
-        $driver = Driver::query()->create([
+        $driver = Driver::query()->create($this->driverAttributes([
             'user_id' => $driverUser->id,
             'vehicle_plate' => 'B 1234 CHT',
             'license_number' => 'SIM-CHAT-2026',
             'registration_status' => 'active',
             'status' => 'busy',
-        ]);
+        ]));
 
         $serviceTypeId = (int) ServiceType::query()->where('code', 'RIDE')->value('id');
         $statusId = (int) OrderStatus::query()->where('code', $statusCode)->value('id');
