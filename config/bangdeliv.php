@@ -46,6 +46,24 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Google Maps Routes API
+    |--------------------------------------------------------------------------
+    |
+    | Fallback modern untuk Distance Matrix API legacy.
+    |
+    */
+    'routes' => [
+        'endpoint' => env('GOOGLE_MAPS_ROUTES_ENDPOINT', 'https://routes.googleapis.com/directions/v2:computeRoutes'),
+        'timeout_seconds' => (int) env('GOOGLE_MAPS_ROUTES_TIMEOUT', 8),
+        'travel_mode' => env('GOOGLE_MAPS_ROUTES_TRAVEL_MODE', 'DRIVE'),
+        'routing_preference' => env('GOOGLE_MAPS_ROUTES_ROUTING_PREFERENCE', 'TRAFFIC_UNAWARE'),
+        'language_code' => env('GOOGLE_MAPS_ROUTES_LANGUAGE', 'id'),
+        'region_code' => env('GOOGLE_MAPS_ROUTES_REGION', 'ID'),
+        'units' => env('GOOGLE_MAPS_ROUTES_UNITS', 'METRIC'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Delivery Fee Configuration
     |--------------------------------------------------------------------------
     |
@@ -88,7 +106,7 @@ return [
                 'trim',
                 explode(',', (string) env(
                     'GEMINI_MODELS',
-                    'gemini-3.1-flash-lite-preview,gemini-2.5-flash,gemini-2.5-flash-lite,gemini-3-flash-preview'
+                    'gemini-3.1-flash-lite,gemini-2.5-flash-lite,gemini-2.5-flash,gemini-3-flash-preview'
                 ))
             ))),
         ],

@@ -129,9 +129,9 @@ class ChatbotGeminiService
         $apiKey = (string) config('bangdeliv.chatbot.gemini.api_key', env('GEMINI_API_KEY', ''));
         $timeout = (int) config('bangdeliv.chatbot.gemini.timeout_seconds', 12);
         $models = config('bangdeliv.chatbot.gemini.models', [
-            'gemini-3.1-flash-lite-preview',
-            'gemini-2.5-flash',
+            'gemini-3.1-flash-lite',
             'gemini-2.5-flash-lite',
+            'gemini-2.5-flash',
             'gemini-3-flash-preview',
         ]);
 

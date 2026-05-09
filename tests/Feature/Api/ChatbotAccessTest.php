@@ -57,7 +57,7 @@ class ChatbotAccessTest extends TestCase
             ->assertJsonPath('service_context.service_code', 'COURIER')
             ->assertJsonPath('data.intent', 'courier_order')
             ->assertJsonPath('data.validation.is_valid_order', false)
-            ->assertJsonPath('model_used', 'gemini-3.1-flash-lite-preview');
+            ->assertJsonPath('model_used', 'gemini-3.1-flash-lite');
     }
 
     public function test_authenticated_user_is_throttled_when_exceeding_limit(): void
