@@ -80,6 +80,36 @@ class ChatbotRideFlowTest extends TestCase
         $this->assertDatabaseCount('orders', 1);
     }
 
+    public function test_chatbot_ride_with_saved_address_offers_route_picker_when_destination_missing(): void
+    {
+        $this->fakeGeminiAndGeocoding();
+
+        $user = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+            'phone' => '089900000101',
+        ]);
+
+        $this->createDefaultAddress($user);
+        $token = $user->createToken('test-chatbot-ride')->plainTextToken;
+
+        $response = $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/process', [
+                'message' => 'konfirmasi',
+                'service_type' => 'antar_jemput',
+                'session_id' => 'sess-ride-route-action',
+            ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('data.intent', 'ride_order')
+            ->assertJsonPath('data.validation.is_valid_order', false)
+            ->assertJsonPath('data.validation.next_actions.0', 'OPEN_ROUTE_PICKER')
+            ->assertJsonPath('data.action_payloads.OPEN_ROUTE_PICKER.label', 'Atur Titik Jemput & Tujuan');
+    }
+
     public function test_chatbot_ride_confirmation_preserves_draft_coordinates_without_regeocoding_destination(): void
     {
         $user = User::factory()->create([
@@ -346,6 +376,52 @@ class ChatbotRideFlowTest extends TestCase
             ->assertJsonPath('data.ride.ready_to_confirm', true)
             ->assertJsonPath('data.ride.destination_address', 'Polines Semarang')
             ->assertJsonPath('data.ride.destination_latitude', -7.052301);
+    }
+
+    public function test_chatbot_ride_bulk_route_patch_builds_confirmable_draft(): void
+    {
+        $this->fakeGeminiAndGeocoding();
+
+        $user = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+            'phone' => '089900000111',
+        ]);
+
+        $this->createDefaultAddress($user);
+
+        $token = $user->createToken('test-chatbot-ride')->plainTextToken;
+        $sessionId = 'sess-ride-route-bulk';
+
+        $response = $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/sessions/'.$sessionId.'/locations', [
+                'service_type' => 'antar_jemput',
+                'locations' => [
+                    [
+                        'target' => 'pickup',
+                        'latitude' => -7.328900,
+                        'longitude' => 110.500100,
+                        'address' => 'Ramayan Salatiga',
+                    ],
+                    [
+                        'target' => 'destination',
+                        'latitude' => -7.331200,
+                        'longitude' => 110.507700,
+                        'address' => 'Lapangan Pancasila Salatiga',
+                    ],
+                ],
+            ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('model_used', 'map-route-action')
+            ->assertJsonPath('data.intent', 'ride_order')
+            ->assertJsonPath('data.validation.is_valid_order', true)
+            ->assertJsonPath('data.ride.ready_to_confirm', true)
+            ->assertJsonPath('data.ride.pickup_address', 'Ramayan Salatiga')
+            ->assertJsonPath('data.ride.destination_address', 'Lapangan Pancasila Salatiga');
     }
 
     public function test_chatbot_ride_reset_destination_preserves_custom_map_pickup(): void

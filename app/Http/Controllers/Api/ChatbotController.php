@@ -346,6 +346,114 @@ class ChatbotController extends Controller
         ], 200);
     }
 
+    public function patchSessionLocations(Request $request, string $sessionId): JsonResponse
+    {
+        $validated = $request->validate([
+            'service_type' => ['required', Rule::in(['antar_jemput', 'kurir'])],
+            'locations' => ['required', 'array', 'min:1', 'max:2'],
+            'locations.*.target' => ['required', Rule::in(['pickup', 'destination', 'dropoff'])],
+            'locations.*.latitude' => ['required', 'numeric', 'between:-90,90'],
+            'locations.*.longitude' => ['required', 'numeric', 'between:-180,180'],
+            'locations.*.address' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $user = $request->user();
+        $normalizedSessionId = substr(trim($sessionId), 0, 100);
+        if ($normalizedSessionId === '') {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Session ID tidak valid.',
+            ], 422);
+        }
+
+        $serviceType = (string) $validated['service_type'];
+        $locations = [];
+        foreach ($validated['locations'] as $location) {
+            $target = (string) $location['target'];
+            if ($serviceType === 'antar_jemput' && ! in_array($target, ['pickup', 'destination'], true)) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Target lokasi antar jemput tidak valid.',
+                ], 422);
+            }
+
+            if ($serviceType === 'kurir' && ! in_array($target, ['pickup', 'dropoff'], true)) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Target lokasi kurir tidak valid.',
+                ], 422);
+            }
+
+            $latitude = (float) $location['latitude'];
+            $longitude = (float) $location['longitude'];
+            $rawAddress = isset($location['address']) ? trim((string) $location['address']) : '';
+
+            $locations[] = [
+                'target' => $target,
+                'latitude' => $latitude,
+                'longitude' => $longitude,
+                'address' => $this->resolveMapPinAddress($latitude, $longitude, $rawAddress),
+            ];
+        }
+
+        try {
+            $patchedPayload = match ($serviceType) {
+                'antar_jemput' => $this->rideOrderService->applyLocationPatches($user, $normalizedSessionId, $locations),
+                'kurir' => $this->courierOrderService->applyLocationPatches($user, $normalizedSessionId, $locations),
+            };
+        } catch (ApiException $exception) {
+            return response()->json([
+                'status' => 'error',
+                'message' => $exception->getMessage(),
+                'errors' => $exception->errors(),
+            ], $exception->status());
+        }
+
+        $patchedPayload = $this->enrichTransportActionPayload($patchedPayload, $serviceType);
+        $intent = (string) ($patchedPayload['intent'] ?? 'unknown');
+        $orderId = $this->resolveOrderId($patchedPayload);
+        $assistantText = trim((string) ($patchedPayload['assistant_text'] ?? 'Titik rute berhasil diperbarui.'));
+
+        $routeSummary = collect($locations)
+            ->map(static fn (array $location): string => $location['target'].' => '.$location['address'])
+            ->implode('; ');
+
+        AiChatLog::query()->create([
+            'user_id' => $user->id,
+            'session_id' => $normalizedSessionId,
+            'role' => 'user',
+            'message' => '[MAP_ROUTE] '.$routeSummary,
+            'ai_response' => null,
+            'model_used' => null,
+            'intent' => $intent,
+            'order_id' => $orderId,
+            'created_at' => now(),
+        ]);
+
+        AiChatLog::query()->create([
+            'user_id' => $user->id,
+            'session_id' => $normalizedSessionId,
+            'role' => 'assistant',
+            'message' => $assistantText,
+            'ai_response' => $patchedPayload,
+            'model_used' => 'map-route-action',
+            'intent' => $intent,
+            'order_id' => $orderId,
+            'created_at' => now(),
+        ]);
+
+        return response()->json([
+            'status' => 'success',
+            'session_id' => $normalizedSessionId,
+            'service_context' => [
+                'service_type' => $serviceType,
+                'service_code' => self::SERVICE_TYPE_MAP[$serviceType],
+            ],
+            'data' => $patchedPayload,
+            'model_used' => 'map-route-action',
+        ], 200);
+    }
+
     private function resolveMapPinAddress(float $latitude, float $longitude, string $providedAddress): string
     {
         $normalizedAddress = trim($providedAddress);
@@ -941,6 +1049,29 @@ class ChatbotController extends Controller
             }
         }
 
+        $transportMapActions = match ($serviceType) {
+            'antar_jemput' => ['OPEN_MAP_PICKER_PICKUP', 'OPEN_MAP_PICKER_DESTINATION'],
+            'kurir' => ['OPEN_MAP_PICKER_PICKUP', 'OPEN_MAP_PICKER_DROPOFF'],
+            default => [],
+        };
+        $hasTransportMapAction = false;
+        foreach ($transportMapActions as $action) {
+            if (in_array($action, $nextActions, true)) {
+                $hasTransportMapAction = true;
+                break;
+            }
+        }
+        if (
+            ($hasTransportMapAction || in_array('OPEN_ROUTE_PICKER', $nextActions, true)) &&
+            ! in_array('OPEN_ADDRESSES', $nextActions, true)
+        ) {
+            $nextActions = array_values(array_filter(
+                $nextActions,
+                static fn (string $action): bool => ! in_array($action, $transportMapActions, true)
+            ));
+            $nextActions[] = 'OPEN_ROUTE_PICKER';
+        }
+
         $nextActions = array_values(array_unique($nextActions));
         $nextActions = $this->orderTransportActions($nextActions, $serviceType);
         $validation['next_actions'] = $nextActions;
@@ -949,6 +1080,50 @@ class ChatbotController extends Controller
         $actionPayloads = is_array($payload['action_payloads'] ?? null)
             ? $payload['action_payloads']
             : [];
+
+        if (in_array('OPEN_ROUTE_PICKER', $nextActions, true)) {
+            if ($serviceType === 'antar_jemput') {
+                $ride = is_array($payload['ride'] ?? null) ? $payload['ride'] : [];
+                $actionPayloads['OPEN_ROUTE_PICKER'] = [
+                    'service_type' => 'antar_jemput',
+                    'label' => 'Atur Titik Jemput & Tujuan',
+                    'points' => [
+                        'pickup' => [
+                            'target' => 'pickup',
+                            'label' => 'Titik Jemput',
+                            'initial_latitude' => $ride['pickup_latitude'] ?? null,
+                            'initial_longitude' => $ride['pickup_longitude'] ?? null,
+                        ],
+                        'destination' => [
+                            'target' => 'destination',
+                            'label' => 'Titik Tujuan',
+                            'initial_latitude' => $ride['destination_latitude'] ?? null,
+                            'initial_longitude' => $ride['destination_longitude'] ?? null,
+                        ],
+                    ],
+                ];
+            } elseif ($serviceType === 'kurir') {
+                $courier = is_array($payload['courier'] ?? null) ? $payload['courier'] : [];
+                $actionPayloads['OPEN_ROUTE_PICKER'] = [
+                    'service_type' => 'kurir',
+                    'label' => 'Atur Titik Ambil & Tujuan',
+                    'points' => [
+                        'pickup' => [
+                            'target' => 'pickup',
+                            'label' => 'Titik Ambil',
+                            'initial_latitude' => $courier['pickup_latitude'] ?? null,
+                            'initial_longitude' => $courier['pickup_longitude'] ?? null,
+                        ],
+                        'dropoff' => [
+                            'target' => 'dropoff',
+                            'label' => 'Titik Tujuan',
+                            'initial_latitude' => $courier['dropoff_latitude'] ?? null,
+                            'initial_longitude' => $courier['dropoff_longitude'] ?? null,
+                        ],
+                    ],
+                ];
+            }
+        }
 
         if ($serviceType === 'antar_jemput') {
             $ride = is_array($payload['ride'] ?? null) ? $payload['ride'] : [];
@@ -1055,6 +1230,7 @@ class ChatbotController extends Controller
         $priority = match ($serviceType) {
             'antar_jemput' => [
                 'OPEN_ADDRESSES',
+                'OPEN_ROUTE_PICKER',
                 'OPEN_MAP_PICKER_PICKUP',
                 'OPEN_MAP_PICKER_DESTINATION',
                 'CONFIRM_DRAFT',
@@ -1063,6 +1239,7 @@ class ChatbotController extends Controller
             ],
             'kurir' => [
                 'OPEN_ADDRESSES',
+                'OPEN_ROUTE_PICKER',
                 'OPEN_MAP_PICKER_PICKUP',
                 'OPEN_MAP_PICKER_DROPOFF',
                 'CONFIRM_DRAFT',

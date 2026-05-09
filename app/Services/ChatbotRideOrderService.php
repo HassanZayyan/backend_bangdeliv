@@ -86,6 +86,20 @@ class ChatbotRideOrderService
         float $longitude,
         string $address
     ): array {
+        return $this->applyLocationPatches($user, $sessionId, [[
+            'target' => $target,
+            'latitude' => $latitude,
+            'longitude' => $longitude,
+            'address' => $address,
+        ]]);
+    }
+
+    /**
+     * @param  array<int, array{target: string, latitude: float, longitude: float, address: string}>  $locations
+     * @return array<string, mixed>
+     */
+    public function applyLocationPatches(User $user, string $sessionId, array $locations): array
+    {
         if ($user->role !== 'customer') {
             throw new ApiException('Hanya customer yang dapat membuat order antar jemput dari chatbot.', 403);
         }
@@ -94,27 +108,34 @@ class ChatbotRideOrderService
             throw new ApiException('Akun tidak memenuhi syarat untuk membuat order antar jemput.', 403);
         }
 
-        if ($target !== 'pickup' && $target !== 'destination') {
-            throw new ApiException('Target lokasi antar jemput tidak valid.', 422);
-        }
-
         $incomingSeed = [];
-        if ($target === 'pickup') {
-            $incomingSeed = [
-                'pickup_address' => $address,
-                'pickup_latitude' => $latitude,
-                'pickup_longitude' => $longitude,
-                'pickup_address_id' => null,
-                'used_default_pickup' => false,
-            ];
-        }
+        foreach ($locations as $location) {
+            $target = (string) ($location['target'] ?? '');
+            $latitude = (float) ($location['latitude'] ?? 0);
+            $longitude = (float) ($location['longitude'] ?? 0);
+            $address = trim((string) ($location['address'] ?? ''));
 
-        if ($target === 'destination') {
-            $incomingSeed = [
-                'destination_address' => $address,
-                'destination_latitude' => $latitude,
-                'destination_longitude' => $longitude,
-            ];
+            if ($target === 'pickup') {
+                $incomingSeed = $this->mergeRideDraftSeed($incomingSeed, [
+                    'pickup_address' => $address,
+                    'pickup_latitude' => $latitude,
+                    'pickup_longitude' => $longitude,
+                    'pickup_address_id' => null,
+                    'used_default_pickup' => false,
+                ]);
+                continue;
+            }
+
+            if ($target === 'destination') {
+                $incomingSeed = $this->mergeRideDraftSeed($incomingSeed, [
+                    'destination_address' => $address,
+                    'destination_latitude' => $latitude,
+                    'destination_longitude' => $longitude,
+                ]);
+                continue;
+            }
+
+            throw new ApiException('Target lokasi antar jemput tidak valid.', 422);
         }
 
         $draftSeed = $this->mergeRideDraftSeed(
@@ -161,7 +182,7 @@ class ChatbotRideOrderService
         if ($pickupText === null) {
             $text = 'Baik '.$name.', tujuan sebelumnya saya reset. Alamat jemput dari profil belum tersedia. Isi Alamat Saya dulu, lalu kirim tujuan baru.';
         } else {
-            $text = 'Baik '.$name.', tujuan sebelumnya saya reset. Alamat jemput kamu di '.$pickupText.'. Sekarang kirim tujuan baru, misalnya: "Antar ke Jalan XXX".';
+            $text = 'Baik '.$name.', tujuan sebelumnya saya reset. Alamat jemput kamu di '.$pickupText.'. Sekarang kirim tujuan baru, misalnya: "antar ke Stasiun Tawang".';
         }
 
         return [
@@ -397,7 +418,7 @@ class ChatbotRideOrderService
         }
 
         if ($destinationRaw === null) {
-            $reasons[] = 'Lokasi tujuan belum terbaca. Tulis contoh: "antar ke Jalan Sudirman No 10".';
+            $reasons[] = 'Lokasi tujuan belum terbaca. Tulis contoh: "antar ke Stasiun Tawang" atau "tujuan ke Jalan Sudirman No 10".';
             $missingFields[] = 'destination_address';
         } else {
             try {
@@ -845,7 +866,7 @@ class ChatbotRideOrderService
         }
 
         if (in_array('destination_address', $missingFields, true)) {
-            $buffer .= "\nContoh: Antar ke Jalan Sudirman No 10.";
+            $buffer .= "\nContoh: antar ke Stasiun Tawang, tujuan ke Jalan Sudirman No 10, atau saya mau ke Polines.";
         }
 
         return trim($buffer);

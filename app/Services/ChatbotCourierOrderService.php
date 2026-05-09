@@ -137,8 +137,10 @@ class ChatbotCourierOrderService
         }
 
         $defaultPickupAddress = $this->resolveDefaultPickupAddress($user);
-        $incomingSeed = $this->buildDraftSeedFromNlu($nluPayload)
-            ?? $this->extractCourierPayload($normalizedMessage);
+        $incomingSeed = $this->mergeCourierDraftSeed(
+            $this->buildDraftSeedFromNlu($nluPayload) ?? [],
+            $this->extractCourierPayload($normalizedMessage)
+        );
         $draftSeed = $this->mergeCourierDraftSeed(
             $this->resolveLatestDraftSeed($user, $sessionId),
             $incomingSeed
@@ -163,6 +165,20 @@ class ChatbotCourierOrderService
         float $longitude,
         string $address
     ): array {
+        return $this->applyLocationPatches($user, $sessionId, [[
+            'target' => $target,
+            'latitude' => $latitude,
+            'longitude' => $longitude,
+            'address' => $address,
+        ]]);
+    }
+
+    /**
+     * @param  array<int, array{target: string, latitude: float, longitude: float, address: string}>  $locations
+     * @return array<string, mixed>
+     */
+    public function applyLocationPatches(User $user, string $sessionId, array $locations): array
+    {
         if ($user->role !== 'customer') {
             throw new ApiException('Hanya customer yang dapat membuat order kurir dari chatbot.', 403);
         }
@@ -171,27 +187,34 @@ class ChatbotCourierOrderService
             throw new ApiException('Akun tidak memenuhi syarat untuk membuat order kurir.', 403);
         }
 
-        if ($target !== 'pickup' && $target !== 'dropoff') {
-            throw new ApiException('Target lokasi kurir tidak valid.', 422);
-        }
-
         $incomingSeed = [];
-        if ($target === 'pickup') {
-            $incomingSeed = [
-                'pickup_address' => $address,
-                'pickup_latitude' => $latitude,
-                'pickup_longitude' => $longitude,
-                'pickup_address_id' => null,
-                'used_default_pickup' => false,
-            ];
-        }
+        foreach ($locations as $location) {
+            $target = (string) ($location['target'] ?? '');
+            $latitude = (float) ($location['latitude'] ?? 0);
+            $longitude = (float) ($location['longitude'] ?? 0);
+            $address = trim((string) ($location['address'] ?? ''));
 
-        if ($target === 'dropoff') {
-            $incomingSeed = [
-                'dropoff_address' => $address,
-                'dropoff_latitude' => $latitude,
-                'dropoff_longitude' => $longitude,
-            ];
+            if ($target === 'pickup') {
+                $incomingSeed = $this->mergeCourierDraftSeed($incomingSeed, [
+                    'pickup_address' => $address,
+                    'pickup_latitude' => $latitude,
+                    'pickup_longitude' => $longitude,
+                    'pickup_address_id' => null,
+                    'used_default_pickup' => false,
+                ]);
+                continue;
+            }
+
+            if ($target === 'dropoff') {
+                $incomingSeed = $this->mergeCourierDraftSeed($incomingSeed, [
+                    'dropoff_address' => $address,
+                    'dropoff_latitude' => $latitude,
+                    'dropoff_longitude' => $longitude,
+                ]);
+                continue;
+            }
+
+            throw new ApiException('Target lokasi kurir tidak valid.', 422);
         }
 
         $draftSeed = $this->mergeCourierDraftSeed(
@@ -548,7 +571,7 @@ class ChatbotCourierOrderService
         }
 
         if ($packageDescription === null) {
-            $reasons[] = 'Isi paket belum jelas. Tulis contoh: "isi paket: dokumen kontrak".';
+            $reasons[] = 'Isi paket belum jelas. Tulis contoh: "isi paket kunci" atau "dokumen kontrak".';
             $missingFields[] = 'package_description';
         }
 

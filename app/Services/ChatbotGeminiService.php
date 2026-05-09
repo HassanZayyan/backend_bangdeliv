@@ -57,7 +57,7 @@ class ChatbotGeminiService
         }
 
         if ($serviceType === 'kurir') {
-            $systemInstruction = 'Kamu adalah NLU assistant BangDeliv untuk layanan Kurir motor. Keluarkan hanya JSON sesuai schema. command valid: "confirm", "reset_destination", atau "none". Ekstrak pickup, tujuan, isi paket, berat, ukuran, dan packing hanya jika user menyebutnya. Jangan mengarang berat/ukuran; untuk barang kecil umum seperti kacamata, dokumen, kunci, buku kecil, baju, charger, atau earphone cukup isi package_description. Jika user menulis nama tempat + area, contoh "antar kacamata ke Erha Setiabudi Tembalang", isi dropoff_address dengan "Erha Setiabudi Tembalang" dan package_description dengan "kacamata". Jika user menyebut rumahku/rumah saya sebagai pickup, isi pickup_address "rumah". Barang ambigu tetap diekstrak apa adanya agar backend bisa meminta klarifikasi. intent harus "courier_order" atau "out_of_domain". Jika disediakan CONTEXT_JSON, gunakan untuk membaca progres percakapan dan draft terakhir.';
+            $systemInstruction = 'Kamu adalah NLU assistant BangDeliv untuk layanan Kurir motor. Keluarkan hanya JSON sesuai schema. command valid: "confirm", "reset_destination", atau "none". Ekstrak pickup, tujuan, isi paket, berat, ukuran, dan packing hanya jika user menyebutnya. Frasa seperti "isi paket kunci", "paketnya kunci", "kunci", dan "kirim kunci" harus mengisi package_description "kunci" jika konteksnya sedang melengkapi isi paket. Jangan mengarang berat/ukuran; untuk barang kecil umum seperti kacamata, dokumen, kunci, buku kecil, baju, charger, atau earphone cukup isi package_description. Jika user menulis nama tempat + area, contoh "antar kacamata ke Erha Setiabudi Tembalang", isi dropoff_address dengan "Erha Setiabudi Tembalang" dan package_description dengan "kacamata". Jika user menyebut rumahku/rumah saya sebagai pickup, isi pickup_address "rumah". Barang ambigu tetap diekstrak apa adanya agar backend bisa meminta klarifikasi. intent harus "courier_order" atau "out_of_domain". Jika disediakan CONTEXT_JSON, gunakan untuk membaca progres percakapan dan draft terakhir.';
             $schema = [
                 'type' => 'OBJECT',
                 'properties' => [
@@ -94,7 +94,7 @@ class ChatbotGeminiService
             ];
         }
 
-        $systemInstruction = 'Kamu adalah NLU assistant BangDeliv untuk layanan Antar Jemput. Keluarkan hanya JSON sesuai schema. command valid: "confirm", "reset_destination", atau "none". Jika user memberi tujuan, isi destination_address. intent harus "ride_order" atau "out_of_domain". Jika disediakan CONTEXT_JSON, gunakan untuk membaca progres percakapan dan draft terakhir.';
+        $systemInstruction = 'Kamu adalah NLU assistant BangDeliv untuk layanan Antar Jemput. Keluarkan hanya JSON sesuai schema. command valid: "confirm", "reset_destination", atau "none". Jika user memberi tujuan dengan pola seperti "antar ke Stasiun Tawang", "tujuan ke Jalan Sudirman No 10", atau "saya mau ke Polines", isi destination_address. intent harus "ride_order" atau "out_of_domain". Jika disediakan CONTEXT_JSON, gunakan untuk membaca progres percakapan dan draft terakhir.';
         $schema = [
             'type' => 'OBJECT',
             'properties' => [
