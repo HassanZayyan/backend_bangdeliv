@@ -27,7 +27,6 @@ class AddressService
 
         return DB::transaction(function () use ($user, $payload, $resolvedAddress, $phone, $fullAddress): Address {
             $isDefault = (bool) ($payload['is_default'] ?? false);
-            $storedFullAddress = trim((string) ($resolvedAddress['formatted_address'] ?? $fullAddress));
 
             if ($isDefault || !$user->addresses()->exists()) {
                 $user->addresses()->update(['is_default' => false]);
@@ -38,7 +37,9 @@ class AddressService
                 'label' => trim((string) $payload['label']),
                 'recipient_name' => trim((string) $payload['recipient_name']),
                 'phone' => $phone,
-                'full_address' => $storedFullAddress !== '' ? $storedFullAddress : $fullAddress,
+                // Keep the user-entered address detail verbatim.
+                // Geocoding should validate/assist coordinates, not rewrite manual address text.
+                'full_address' => $fullAddress,
                 'detail' => $this->normalizeNullableString($payload['detail'] ?? null),
                 'latitude' => round((float) $resolvedAddress['latitude'], 8),
                 'longitude' => round((float) $resolvedAddress['longitude'], 8),
@@ -59,7 +60,6 @@ class AddressService
 
         return DB::transaction(function () use ($user, $address, $payload, $resolvedAddress, $phone, $fullAddress): Address {
             $isDefault = (bool) ($payload['is_default'] ?? false);
-            $storedFullAddress = trim((string) ($resolvedAddress['formatted_address'] ?? $fullAddress));
 
             if ($isDefault) {
                 $user->addresses()->where('id', '!=', $address->id)->update(['is_default' => false]);
@@ -69,7 +69,9 @@ class AddressService
                 'label' => trim((string) $payload['label']),
                 'recipient_name' => trim((string) $payload['recipient_name']),
                 'phone' => $phone,
-                'full_address' => $storedFullAddress !== '' ? $storedFullAddress : $fullAddress,
+                // Keep the user-entered address detail verbatim.
+                // Geocoding should validate/assist coordinates, not rewrite manual address text.
+                'full_address' => $fullAddress,
                 'detail' => $this->normalizeNullableString($payload['detail'] ?? null),
                 'latitude' => round((float) $resolvedAddress['latitude'], 8),
                 'longitude' => round((float) $resolvedAddress['longitude'], 8),
