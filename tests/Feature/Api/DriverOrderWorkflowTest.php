@@ -2,6 +2,8 @@
 
 namespace Tests\Feature\Api;
 
+use App\Events\DriverOrderAvailable;
+use App\Events\DriverOrderRemoved;
 use App\Events\OrderStatusChanged;
 use App\Models\CourierOrder;
 use App\Models\Driver;
@@ -10,6 +12,7 @@ use App\Models\OrderPayment;
 use App\Models\OrderStatus;
 use App\Models\ServiceType;
 use App\Models\User;
+use App\Services\DriverOrderRealtimeService;
 use Illuminate\Broadcasting\BroadcastException;
 use Illuminate\Contracts\Broadcasting\Broadcaster as BroadcasterContract;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -140,6 +143,60 @@ class DriverOrderWorkflowTest extends TestCase
 
         $this->assertCount(1, $response->json('data.incoming_orders'));
         $this->assertSame((string) $pendingOrder->id, (string) $response->json('data.incoming_orders.0.id'));
+    }
+
+    public function test_driver_order_available_event_uses_same_payload_as_driver_orders_api(): void
+    {
+        [$driverUser, $driver] = $this->createActiveDriver('realtime-available');
+        $driver->update(['status' => 'available']);
+
+        $order = $this->createShoppingOrder(null, 'PENDING');
+        $capturedPayload = null;
+
+        Event::fake([DriverOrderAvailable::class]);
+
+        app(DriverOrderRealtimeService::class)->broadcastOrderAvailable($order);
+
+        Event::assertDispatched(DriverOrderAvailable::class, function (DriverOrderAvailable $event) use ($driverUser, &$capturedPayload): bool {
+            $capturedPayload = $event->order;
+
+            return (int) $event->driverUserId === (int) $driverUser->id;
+        });
+
+        Sanctum::actingAs($driverUser);
+
+        $response = $this->getJson('/api/v1/driver/orders');
+
+        $response->assertOk()
+            ->assertJsonPath('success', true);
+
+        $this->assertEquals($response->json('data.incoming_orders.0'), $capturedPayload);
+        $this->assertSame((string) $order->id, (string) ($capturedPayload['id'] ?? ''));
+    }
+
+    public function test_accepting_order_broadcasts_removed_to_other_available_drivers(): void
+    {
+        [$acceptingDriverUser, $acceptingDriver] = $this->createActiveDriver('realtime-accepting');
+        $acceptingDriver->update(['status' => 'available']);
+
+        [$otherDriverUser, $otherDriver] = $this->createActiveDriver('realtime-other');
+        $otherDriver->update(['status' => 'available']);
+
+        $order = $this->createShoppingOrder(null, 'PENDING');
+
+        Event::fake([DriverOrderRemoved::class]);
+        Sanctum::actingAs($acceptingDriverUser);
+
+        $response = $this->postJson('/api/v1/driver/orders/'.$order->id.'/accept');
+
+        $response->assertOk()
+            ->assertJsonPath('success', true);
+
+        Event::assertDispatched(DriverOrderRemoved::class, function (DriverOrderRemoved $event) use ($otherDriverUser, $order): bool {
+            return (int) $event->driverUserId === (int) $otherDriverUser->id &&
+                (int) $event->orderId === (int) $order->id &&
+                $event->reason === 'accepted';
+        });
     }
 
     public function test_offline_driver_cannot_accept_pending_order(): void

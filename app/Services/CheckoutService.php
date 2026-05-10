@@ -20,7 +20,8 @@ class CheckoutService
         private readonly CartService $cartService,
         private readonly GoogleMapsDistanceMatrixService $distanceMatrixService,
         private readonly DeliveryPricingService $deliveryPricingService,
-        private readonly OrderPaymentService $orderPaymentService
+        private readonly OrderPaymentService $orderPaymentService,
+        private readonly DriverOrderRealtimeService $driverOrderRealtimeService
     ) {}
 
     /**
@@ -101,7 +102,7 @@ class CheckoutService
             throw new ApiException('Konfigurasi service type atau status order belum lengkap.', 500);
         }
 
-        return DB::transaction(function () use (
+        $order = DB::transaction(function () use (
             $user,
             $cart,
             $address,
@@ -198,6 +199,10 @@ class CheckoutService
 
             return $order->fresh(['restaurant', 'orderLocations', 'items', 'payments', 'statusRef', 'statusHistories', 'shoppingOrder']);
         });
+
+        $this->driverOrderRealtimeService->broadcastOrderAvailable($order);
+
+        return $order;
     }
 
     private function generateOrderNumber(): string

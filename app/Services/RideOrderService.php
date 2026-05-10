@@ -19,7 +19,8 @@ class RideOrderService
         private readonly GoogleMapsGeocodingService $geocodingService,
         private readonly GoogleMapsDistanceMatrixService $distanceMatrixService,
         private readonly DeliveryPricingService $deliveryPricingService,
-        private readonly OrderPaymentService $orderPaymentService
+        private readonly OrderPaymentService $orderPaymentService,
+        private readonly DriverOrderRealtimeService $driverOrderRealtimeService
     ) {}
 
     /**
@@ -125,7 +126,7 @@ class RideOrderService
         $serviceFee = 0.0;
         $totalAmount = $subtotal + $deliveryFee + $serviceFee;
 
-        return DB::transaction(function () use (
+        $order = DB::transaction(function () use (
             $user,
             $pickupAddress,
             $rideServiceTypeId,
@@ -205,6 +206,10 @@ class RideOrderService
                 'payments',
             ]);
         });
+
+        $this->driverOrderRealtimeService->broadcastOrderAvailable($order);
+
+        return $order;
     }
 
     /**

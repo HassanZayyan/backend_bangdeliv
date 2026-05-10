@@ -110,7 +110,8 @@ class ChatbotCourierOrderService
         private readonly GoogleMapsDistanceMatrixService $distanceMatrixService,
         private readonly DeliveryPricingService $deliveryPricingService,
         private readonly OrderPaymentService $orderPaymentService,
-        private readonly CourierPackagePolicyService $packagePolicyService
+        private readonly CourierPackagePolicyService $packagePolicyService,
+        private readonly DriverOrderRealtimeService $driverOrderRealtimeService
     ) {}
 
     /**
@@ -217,6 +218,7 @@ class ChatbotCourierOrderService
                     'pickup_address_id' => null,
                     'used_default_pickup' => false,
                 ]);
+
                 continue;
             }
 
@@ -226,6 +228,7 @@ class ChatbotCourierOrderService
                     'dropoff_latitude' => $latitude,
                     'dropoff_longitude' => $longitude,
                 ]);
+
                 continue;
             }
 
@@ -890,7 +893,7 @@ class ChatbotCourierOrderService
 
         $estimatedMinutes = $this->estimateDeliveryMinutes((int) $route['duration_seconds']);
 
-        return DB::transaction(function () use (
+        $order = DB::transaction(function () use (
             $user,
             $profilePickupAddress,
             $serviceTypeId,
@@ -978,6 +981,10 @@ class ChatbotCourierOrderService
 
             return $order->fresh(['statusRef', 'courierOrder', 'orderLocations', 'payments']);
         });
+
+        $this->driverOrderRealtimeService->broadcastOrderAvailable($order);
+
+        return $order;
     }
 
     private function normalizeWhitespace(string $text): string
