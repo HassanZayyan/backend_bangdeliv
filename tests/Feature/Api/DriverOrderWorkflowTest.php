@@ -5,6 +5,7 @@ namespace Tests\Feature\Api;
 use App\Events\DriverOrderAvailable;
 use App\Events\DriverOrderRemoved;
 use App\Events\OrderStatusChanged;
+use App\Models\Address;
 use App\Models\CourierOrder;
 use App\Models\Driver;
 use App\Models\Order;
@@ -21,6 +22,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -172,6 +174,61 @@ class DriverOrderWorkflowTest extends TestCase
 
         $this->assertEquals($response->json('data.incoming_orders.0'), $capturedPayload);
         $this->assertSame((string) $order->id, (string) ($capturedPayload['id'] ?? ''));
+    }
+
+    public function test_customer_created_ride_order_broadcasts_available_order_to_active_driver(): void
+    {
+        [$driverUser, $driver] = $this->createActiveDriver('ride-realtime');
+        $driver->update(['status' => 'available']);
+
+        $customer = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+        $address = Address::query()->create([
+            'user_id' => $customer->id,
+            'label' => 'Kampus',
+            'recipient_name' => 'Customer Ride',
+            'phone' => '081234560001',
+            'full_address' => 'Politeknik Negeri Semarang',
+            'latitude' => -7.051234,
+            'longitude' => 110.433456,
+            'is_default' => true,
+        ]);
+
+        Config::set('bangdeliv.google_maps_api_key', 'test-google-key');
+        Http::fake([
+            'https://maps.googleapis.com/maps/api/distancematrix/json*' => Http::response([
+                'status' => 'OK',
+                'rows' => [[
+                    'elements' => [[
+                        'status' => 'OK',
+                        'distance' => ['value' => 2200, 'text' => '2.2 km'],
+                        'duration' => ['value' => 600, 'text' => '10 menit'],
+                    ]],
+                ]],
+            ]),
+        ]);
+        Event::fake([DriverOrderAvailable::class]);
+
+        Sanctum::actingAs($customer);
+
+        $response = $this->postJson('/api/v1/orders/ride', [
+            'address_id' => $address->id,
+            'destination_address' => 'FISIP Undip',
+            'destination_latitude' => -7.047500,
+            'destination_longitude' => 110.441000,
+        ]);
+
+        $response->assertCreated()
+            ->assertJsonPath('success', true);
+
+        $orderId = (int) $response->json('data.id');
+        Event::assertDispatched(DriverOrderAvailable::class, function (DriverOrderAvailable $event) use ($driverUser, $orderId): bool {
+            return (int) $event->driverUserId === (int) $driverUser->id
+                && (int) ($event->order['id'] ?? 0) === $orderId;
+        });
     }
 
     public function test_accepting_order_broadcasts_removed_to_other_available_drivers(): void

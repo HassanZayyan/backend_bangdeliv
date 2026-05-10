@@ -42,6 +42,8 @@ Route::prefix('v1')->group(function () {
 
     Route::middleware('auth:sanctum')->group(function () {
         Route::get('/orders/{orderId}/chat/messages', [OrderChatController::class, 'index']);
+        Route::get('/orders/{orderId}/chat/unread', [OrderChatController::class, 'unread']);
+        Route::post('/orders/{orderId}/chat/read', [OrderChatController::class, 'markRead']);
         Route::post('/orders/{orderId}/chat/messages', [OrderChatController::class, 'store']);
     });
 

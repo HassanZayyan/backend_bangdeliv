@@ -6,6 +6,7 @@ use App\Exceptions\ApiException;
 use App\Models\Driver;
 use App\Models\Order;
 use App\Models\OrderChatMessage;
+use App\Models\OrderChatRead;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -23,6 +24,7 @@ class OrderChatService
         $limit = min(max((int) ($filters['limit'] ?? 50), 1), 100);
         $beforeId = $this->positiveIntOrNull($filters['before_id'] ?? null);
         $afterId = $this->positiveIntOrNull($filters['after_id'] ?? null);
+        $readSummary = $this->readSummary($actor, $order);
 
         $query = OrderChatMessage::query()
             ->where('order_id', $order->id);
@@ -44,6 +46,7 @@ class OrderChatService
                     'next_before_id' => null,
                 ],
                 'can_send' => $this->canSend($order),
+                ...$readSummary,
             ];
         }
 
@@ -69,6 +72,7 @@ class OrderChatService
                 'next_before_id' => $nextBeforeId,
             ],
             'can_send' => $this->canSend($order),
+            ...$readSummary,
         ];
     }
 
@@ -130,6 +134,50 @@ class OrderChatService
         ];
     }
 
+    /**
+     * @return array<string, mixed>
+     */
+    public function unreadSummary(User $actor, int $orderId): array
+    {
+        $order = $this->resolveReadableOrder($actor, $orderId);
+
+        return $this->readSummary($actor, $order);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function markRead(User $actor, int $orderId, int $messageId): array
+    {
+        $order = $this->resolveReadableOrder($actor, $orderId);
+        if ($messageId <= 0) {
+            throw new ApiException('Message ID tidak valid.', 422, [
+                'message_id' => ['Message ID tidak valid.'],
+            ]);
+        }
+
+        $targetMessageId = (int) OrderChatMessage::query()
+            ->where('order_id', $order->id)
+            ->where('id', '<=', $messageId)
+            ->max('id');
+
+        $currentLastRead = $this->lastReadMessageId($actor, $order);
+        $nextLastRead = max($currentLastRead, $targetMessageId);
+
+        OrderChatRead::query()->updateOrCreate(
+            [
+                'order_id' => $order->id,
+                'user_id' => $actor->id,
+            ],
+            [
+                'last_read_message_id' => $nextLastRead > 0 ? $nextLastRead : null,
+                'read_at' => now(),
+            ],
+        );
+
+        return $this->readSummary($actor, $order);
+    }
+
     private function resolveReadableOrder(User $actor, int $orderId): Order
     {
         $order = Order::query()
@@ -166,6 +214,36 @@ class OrderChatService
         $order->loadMissing('statusRef');
 
         return $order->statusRef?->is_terminal !== true;
+    }
+
+    /**
+     * @return array{unread_count: int, last_read_message_id: int}
+     */
+    private function readSummary(User $actor, Order $order): array
+    {
+        $lastReadMessageId = $this->lastReadMessageId($actor, $order);
+
+        return [
+            'unread_count' => $this->unreadCount($actor, $order, $lastReadMessageId),
+            'last_read_message_id' => $lastReadMessageId,
+        ];
+    }
+
+    private function lastReadMessageId(User $actor, Order $order): int
+    {
+        return (int) (OrderChatRead::query()
+            ->where('order_id', $order->id)
+            ->where('user_id', $actor->id)
+            ->value('last_read_message_id') ?? 0);
+    }
+
+    private function unreadCount(User $actor, Order $order, int $lastReadMessageId): int
+    {
+        return OrderChatMessage::query()
+            ->where('order_id', $order->id)
+            ->where('id', '>', $lastReadMessageId)
+            ->where('sender_user_id', '!=', $actor->id)
+            ->count();
     }
 
     private function resolveSenderRole(User $actor, Order $order): string

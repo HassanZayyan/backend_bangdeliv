@@ -49,8 +49,16 @@ class OrderChatTest extends TestCase
             'client_message_id' => 'customer-message-1',
         ]);
 
-        Event::assertDispatched(OrderChatMessageSent::class, function (OrderChatMessageSent $event) use ($order): bool {
+        Event::assertDispatched(OrderChatMessageSent::class, function (OrderChatMessageSent $event) use ($customer, $order): bool {
+            $channels = $event->broadcastOn();
+            $usesOrderTrackingChannel = collect($channels)->contains(
+                fn ($channel): bool => $channel->name === 'private-order.tracking.'.$order->id
+            );
+
             return $event->orderId === $order->id
+                && $usesOrderTrackingChannel
+                && ($event->message['sender_user_id'] ?? null) === $customer->id
+                && ($event->message['sender_role'] ?? null) === 'customer'
                 && ($event->message['body'] ?? null) === 'Saya sudah menunggu di lobi.';
         });
 
@@ -60,10 +68,65 @@ class OrderChatTest extends TestCase
         $listResponse->assertOk()
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.can_send', true)
+            ->assertJsonPath('data.unread_count', 1)
+            ->assertJsonPath('data.last_read_message_id', 0)
             ->assertJsonPath('data.messages.0.body', 'Saya sudah menunggu di lobi.')
             ->assertJsonPath('data.messages.0.sender_user_id', $customer->id);
 
         $this->assertSame($driver->id, $order->driver_id);
+    }
+
+    public function test_unread_count_ignores_messages_sent_by_current_user(): void
+    {
+        [$customer, , , $order] = $this->createAssignedOrder();
+
+        Sanctum::actingAs($customer);
+        $this->postJson("/api/v1/orders/{$order->id}/chat/messages", [
+            'body' => 'Pesan saya sendiri.',
+            'client_message_id' => 'own-message-1',
+        ])->assertCreated();
+
+        $this->getJson("/api/v1/orders/{$order->id}/chat/unread")
+            ->assertOk()
+            ->assertJsonPath('data.unread_count', 0)
+            ->assertJsonPath('data.last_read_message_id', 0);
+    }
+
+    public function test_mark_read_clears_unread_count_for_assigned_participant(): void
+    {
+        [$customer, $driverUser, , $order] = $this->createAssignedOrder();
+
+        Sanctum::actingAs($customer);
+        $messageId = (int) $this->postJson("/api/v1/orders/{$order->id}/chat/messages", [
+            'body' => 'Tolong cek titik jemput.',
+            'client_message_id' => 'readable-message-1',
+        ])->assertCreated()->json('data.message.id');
+
+        Sanctum::actingAs($driverUser);
+        $this->getJson("/api/v1/orders/{$order->id}/chat/unread")
+            ->assertOk()
+            ->assertJsonPath('data.unread_count', 1)
+            ->assertJsonPath('data.last_read_message_id', 0);
+
+        $this->postJson("/api/v1/orders/{$order->id}/chat/read", [
+            'message_id' => $messageId,
+        ])->assertOk()
+            ->assertJsonPath('data.unread_count', 0)
+            ->assertJsonPath('data.last_read_message_id', $messageId);
+    }
+
+    public function test_unrelated_user_cannot_read_or_mark_order_chat_unread_state(): void
+    {
+        [, , , $order] = $this->createAssignedOrder();
+        $otherCustomer = User::factory()->create(['role' => 'customer']);
+
+        Sanctum::actingAs($otherCustomer);
+        $this->getJson("/api/v1/orders/{$order->id}/chat/unread")
+            ->assertNotFound();
+
+        $this->postJson("/api/v1/orders/{$order->id}/chat/read", [
+            'message_id' => 1,
+        ])->assertNotFound();
     }
 
     public function test_unrelated_customer_and_driver_cannot_access_order_chat(): void
@@ -164,6 +227,14 @@ class OrderChatTest extends TestCase
             'body' => 'Tetap tersimpan walau realtime mati.',
             'client_message_id' => 'broadcast-fails-1',
         ]);
+
+        $driverUser = $order->driver?->user;
+        $this->assertNotNull($driverUser);
+
+        Sanctum::actingAs($driverUser);
+        $this->getJson("/api/v1/orders/{$order->id}/chat/unread")
+            ->assertOk()
+            ->assertJsonPath('data.unread_count', 1);
     }
 
     /**

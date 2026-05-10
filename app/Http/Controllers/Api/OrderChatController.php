@@ -36,6 +36,39 @@ class OrderChatController extends Controller
         }
     }
 
+    public function unread(Request $request, int $orderId): JsonResponse
+    {
+        try {
+            $payload = $this->orderChatService->unreadSummary(
+                $request->user(),
+                $orderId,
+            );
+
+            return $this->success($payload, 'Jumlah pesan belum dibaca berhasil diambil.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
+    public function markRead(Request $request, int $orderId): JsonResponse
+    {
+        $validated = $request->validate([
+            'message_id' => ['required', 'integer', 'min:1'],
+        ]);
+
+        try {
+            $payload = $this->orderChatService->markRead(
+                $request->user(),
+                $orderId,
+                (int) $validated['message_id'],
+            );
+
+            return $this->success($payload, 'Pesan chat order ditandai sudah dibaca.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
     public function store(Request $request, int $orderId): JsonResponse
     {
         $validated = $request->validate([
