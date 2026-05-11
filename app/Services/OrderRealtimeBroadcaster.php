@@ -76,13 +76,21 @@ class OrderRealtimeBroadcaster
      */
     private function safelyBroadcast(object $event, string $eventName, array $context): bool
     {
+        $startedAt = microtime(true);
+
         try {
             broadcast($event);
+
+            Log::debug("Broadcast {$eventName} terkirim.", [
+                ...$context,
+                'elapsed_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+            ]);
 
             return true;
         } catch (\Throwable $exception) {
             Log::warning("Broadcast {$eventName} gagal.", [
                 ...$context,
+                'elapsed_ms' => (int) round((microtime(true) - $startedAt) * 1000),
                 'error' => $exception->getMessage(),
             ]);
 

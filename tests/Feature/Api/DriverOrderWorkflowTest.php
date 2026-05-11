@@ -11,11 +11,14 @@ use App\Models\Driver;
 use App\Models\Order;
 use App\Models\OrderPayment;
 use App\Models\OrderStatus;
+use App\Models\OrderStatusHistory;
 use App\Models\ServiceType;
 use App\Models\User;
 use App\Services\DriverOrderRealtimeService;
 use Illuminate\Broadcasting\BroadcastException;
 use Illuminate\Contracts\Broadcasting\Broadcaster as BroadcasterContract;
+use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
+use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Cache;
@@ -29,6 +32,17 @@ use Tests\TestCase;
 class DriverOrderWorkflowTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_driver_order_availability_events_are_immediate_broadcasts(): void
+    {
+        $available = new DriverOrderAvailable(10, ['id' => 1]);
+        $removed = new DriverOrderRemoved(10, 1, 'accepted_by_other_driver');
+
+        $this->assertInstanceOf(ShouldBroadcast::class, $available);
+        $this->assertInstanceOf(ShouldBroadcastNow::class, $available);
+        $this->assertInstanceOf(ShouldBroadcast::class, $removed);
+        $this->assertInstanceOf(ShouldBroadcastNow::class, $removed);
+    }
 
     public function test_driver_can_accept_pending_order(): void
     {
@@ -147,6 +161,78 @@ class DriverOrderWorkflowTest extends TestCase
         $this->assertSame((string) $pendingOrder->id, (string) $response->json('data.incoming_orders.0.id'));
     }
 
+    public function test_rejected_pending_order_is_hidden_and_reject_is_idempotent(): void
+    {
+        [$driverUser, $driver] = $this->createActiveDriver('reject-hide');
+        $driver->update(['status' => 'available']);
+
+        $order = $this->createShoppingOrder(null, 'PENDING');
+
+        Event::fake([DriverOrderRemoved::class]);
+        Sanctum::actingAs($driverUser);
+
+        $firstReject = $this->postJson('/api/v1/driver/orders/'.$order->id.'/reject', [
+            'reason' => 'Tidak bisa ambil order ini.',
+        ]);
+
+        $firstReject->assertOk()
+            ->assertJsonPath('success', true);
+
+        Event::assertDispatched(DriverOrderRemoved::class, function (DriverOrderRemoved $event) use ($driverUser, $order): bool {
+            return (int) $event->driverUserId === (int) $driverUser->id
+                && (int) $event->orderId === (int) $order->id
+                && $event->reason === 'rejected_by_driver';
+        });
+
+        $listResponse = $this->getJson('/api/v1/driver/orders');
+        $listResponse->assertOk()
+            ->assertJsonPath('success', true);
+        $this->assertCount(0, $listResponse->json('data.incoming_orders'));
+
+        $detailResponse = $this->getJson('/api/v1/driver/orders/'.$order->id);
+        $detailResponse->assertNotFound();
+
+        $secondReject = $this->postJson('/api/v1/driver/orders/'.$order->id.'/reject');
+        $secondReject->assertOk()
+            ->assertJsonPath('success', true);
+
+        $this->assertSame(1, OrderStatusHistory::query()
+            ->where('order_id', $order->id)
+            ->where('event_type', 'DRIVER_REJECT')
+            ->where('changed_by_user_id', $driverUser->id)
+            ->count());
+    }
+
+    public function test_driver_order_available_event_skips_driver_that_rejected_order(): void
+    {
+        [$rejectedDriverUser, $rejectedDriver] = $this->createActiveDriver('realtime-rejected');
+        $rejectedDriver->update(['status' => 'available']);
+
+        [$otherDriverUser, $otherDriver] = $this->createActiveDriver('realtime-still-eligible');
+        $otherDriver->update(['status' => 'available']);
+
+        $order = $this->createShoppingOrder(null, 'PENDING');
+        OrderStatusHistory::query()->create([
+            'order_id' => $order->id,
+            'status_id' => $order->status_id,
+            'event_type' => 'DRIVER_REJECT',
+            'changed_by_user_id' => $rejectedDriverUser->id,
+            'note' => 'Order ditolak driver.',
+        ]);
+
+        Event::fake([DriverOrderAvailable::class]);
+
+        app(DriverOrderRealtimeService::class)->broadcastOrderAvailable($order);
+
+        Event::assertNotDispatched(DriverOrderAvailable::class, function (DriverOrderAvailable $event) use ($rejectedDriverUser): bool {
+            return (int) $event->driverUserId === (int) $rejectedDriverUser->id;
+        });
+        Event::assertDispatched(DriverOrderAvailable::class, function (DriverOrderAvailable $event) use ($otherDriverUser, $order): bool {
+            return (int) $event->driverUserId === (int) $otherDriverUser->id
+                && (int) ($event->order['id'] ?? 0) === (int) $order->id;
+        });
+    }
+
     public function test_driver_order_available_event_uses_same_payload_as_driver_orders_api(): void
     {
         [$driverUser, $driver] = $this->createActiveDriver('realtime-available');
@@ -174,6 +260,23 @@ class DriverOrderWorkflowTest extends TestCase
 
         $this->assertEquals($response->json('data.incoming_orders.0'), $capturedPayload);
         $this->assertSame((string) $order->id, (string) ($capturedPayload['id'] ?? ''));
+    }
+
+    public function test_driver_order_available_broadcast_failure_is_swallowed(): void
+    {
+        $this->useFailingBroadcaster();
+
+        [$driverUser, $driver] = $this->createActiveDriver('realtime-failure');
+        $driver->update(['status' => 'available']);
+
+        $order = $this->createShoppingOrder(null, 'PENDING');
+
+        app(DriverOrderRealtimeService::class)->broadcastOrderAvailable($order);
+
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
+            'driver_id' => null,
+        ]);
     }
 
     public function test_customer_created_ride_order_broadcasts_available_order_to_active_driver(): void

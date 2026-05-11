@@ -2,10 +2,13 @@
 
 namespace Tests\Feature;
 
+use App\Events\DriverOrderAvailable;
 use App\Models\AiChatLog;
 use App\Models\Address;
+use App\Models\Driver;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
@@ -72,6 +75,20 @@ class ChatbotCourierFlowTest extends TestCase
         $this->assertDatabaseCount('orders', 0);
         $this->assertDatabaseCount('courier_orders', 0);
 
+        $driverUser = User::factory()->create([
+            'role' => 'driver',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+        Driver::query()->create($this->driverAttributes([
+            'user_id' => $driverUser->id,
+            'vehicle_plate' => 'H 1234 CRT',
+            'license_number' => 'SIMC-CHATBOT-COURIER',
+            'registration_status' => 'active',
+            'status' => 'available',
+        ]));
+        Event::fake([DriverOrderAvailable::class]);
+
         $confirmResponse = $this
             ->withHeader('Authorization', 'Bearer '.$token)
             ->postJson('/api/chatbot/process', [
@@ -88,6 +105,10 @@ class ChatbotCourierFlowTest extends TestCase
         $orderId = (int) $confirmResponse->json('data.order.id');
 
         $this->assertGreaterThan(0, $orderId);
+        Event::assertDispatched(DriverOrderAvailable::class, function (DriverOrderAvailable $event) use ($driverUser, $orderId): bool {
+            return (int) $event->driverUserId === (int) $driverUser->id
+                && (int) ($event->order['id'] ?? 0) === $orderId;
+        });
         $this->assertDatabaseHas('orders', [
             'id' => $orderId,
             'user_id' => $user->id,

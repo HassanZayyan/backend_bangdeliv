@@ -43,6 +43,8 @@ return [
             ],
             'client_options' => [
                 // Guzzle client options: https://docs.guzzlephp.org/en/stable/request-options.html
+                'connect_timeout' => (float) env('BROADCAST_HTTP_CONNECT_TIMEOUT', 1),
+                'timeout' => (float) env('BROADCAST_HTTP_TIMEOUT', 2),
             ],
         ],
 
@@ -61,6 +63,8 @@ return [
             ],
             'client_options' => [
                 // Guzzle client options: https://docs.guzzlephp.org/en/stable/request-options.html
+                'connect_timeout' => (float) env('BROADCAST_HTTP_CONNECT_TIMEOUT', 1),
+                'timeout' => (float) env('BROADCAST_HTTP_TIMEOUT', 2),
             ],
         ],
 

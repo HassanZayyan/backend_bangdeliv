@@ -428,6 +428,11 @@ class OrderService
                 ->with($this->driverOrderPayloadFactory->relations())
                 ->where('status_id', $pendingStatusId)
                 ->whereNull('driver_id')
+                ->whereDoesntHave('statusHistories', function ($query) use ($actor): void {
+                    $query
+                        ->where('event_type', 'DRIVER_REJECT')
+                        ->where('changed_by_user_id', $actor->id);
+                })
                 ->latest('id')
                 ->limit(30)
                 ->get()
@@ -514,6 +519,10 @@ class OrderService
         $isIncomingCandidate = $statusCode === 'PENDING' && $order->driver_id === null;
         $isAssignedToCurrentDriver = (int) ($order->driver_id ?? 0) === (int) $driver->id;
 
+        if ($isIncomingCandidate && $this->hasDriverRejectedOrder($order->id, $actor->id)) {
+            throw new ApiException('Order tidak ditemukan.', 404);
+        }
+
         if (! $isIncomingCandidate && ! $isAssignedToCurrentDriver) {
             throw new ApiException('Order tidak ditemukan.', 404);
         }
@@ -559,6 +568,10 @@ class OrderService
 
             if ($order->driver_id !== null && ! $isAssignedToCurrentDriver) {
                 throw new ApiException('Order sudah diambil driver lain.', 409);
+            }
+
+            if ($this->hasDriverRejectedOrder($order->id, $actor->id)) {
+                throw new ApiException('Order sudah ditolak oleh driver.', 409);
             }
 
             if (! $this->isDriverAvailableForIncomingOrders($lockedDriver)) {
@@ -623,13 +636,11 @@ class OrderService
             $statusCode = (string) ($order->statusRef->code ?? '');
 
             if ($statusCode === 'PENDING' && $order->driver_id === null) {
-                OrderStatusHistory::query()->create([
-                    'order_id' => $order->id,
-                    'status_id' => $order->status_id,
-                    'event_type' => 'DRIVER_REJECT',
-                    'changed_by_user_id' => $actor->id,
-                    'note' => $reason ?: 'Order ditolak driver sebelum assignment.',
-                ]);
+                $this->recordDriverRejectHistory(
+                    $order,
+                    $actor->id,
+                    $reason ?: 'Order ditolak driver sebelum assignment.',
+                );
 
                 return $order;
             }
@@ -644,6 +655,12 @@ class OrderService
                 ]);
 
                 $this->syncDriverAvailabilityAfterNonRunningOrder($driver->id);
+
+                $this->recordDriverRejectHistory(
+                    $order,
+                    $actor->id,
+                    $reason ?: 'Driver melepaskan order setelah assignment.',
+                );
 
                 $statusHistory = OrderStatusHistory::query()->create([
                     'order_id' => $order->id,
@@ -667,6 +684,11 @@ class OrderService
         });
 
         $this->broadcastOrderStatusChanged($statusChangeEventPayload);
+        $this->driverOrderRealtimeService->broadcastOrderRemovedForDriverUser(
+            $actor->id,
+            $order->id,
+            'rejected_by_driver',
+        );
         if ($statusChangeEventPayload !== null) {
             $this->driverOrderRealtimeService->broadcastOrderAvailable($order);
         }
@@ -906,6 +928,31 @@ class OrderService
     private function isDriverAvailableForIncomingOrders(Driver $driver): bool
     {
         return strtolower(trim((string) ($driver->status ?? 'offline'))) === 'available';
+    }
+
+    private function hasDriverRejectedOrder(int $orderId, int $driverUserId): bool
+    {
+        return OrderStatusHistory::query()
+            ->where('order_id', $orderId)
+            ->where('event_type', 'DRIVER_REJECT')
+            ->where('changed_by_user_id', $driverUserId)
+            ->exists();
+    }
+
+    private function recordDriverRejectHistory(Order $order, int $driverUserId, string $note): void
+    {
+        $alreadyRejected = $this->hasDriverRejectedOrder((int) $order->id, $driverUserId);
+        if ($alreadyRejected) {
+            return;
+        }
+
+        OrderStatusHistory::query()->create([
+            'order_id' => $order->id,
+            'status_id' => $order->status_id,
+            'event_type' => 'DRIVER_REJECT',
+            'changed_by_user_id' => $driverUserId,
+            'note' => $note,
+        ]);
     }
 
     private function markDriverBusy(Driver $driver): void
