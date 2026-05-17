@@ -132,7 +132,6 @@ class ChatbotShoppingOrderService
     }
 
     /**
-     * @param  mixed  $items
      * @return array<int, array<string, mixed>>
      */
     private function normalizeIncomingItems(mixed $items): array
@@ -564,6 +563,12 @@ class ChatbotShoppingOrderService
         $serviceTypeId = $this->resolveServiceTypeId();
         $pendingStatusId = $this->resolveStatusId('PENDING');
         $routeMinutes = $this->estimateTravelMinutes((int) ($route['duration_seconds'] ?? 0));
+        $routeSnapshot = $route === []
+            ? null
+            : [
+                ...$route,
+                'delivery_fee' => round((float) ($pricing['delivery_fee'] ?? $route['delivery_fee'] ?? 0), 2),
+            ];
 
         $order = DB::transaction(function () use (
             $user,
@@ -575,6 +580,7 @@ class ChatbotShoppingOrderService
             $serviceTypeId,
             $pendingStatusId,
             $routeMinutes,
+            $routeSnapshot,
         ): Order {
             $order = Order::query()->create([
                 'order_number' => $this->generateOrderNumber(),
@@ -586,6 +592,7 @@ class ChatbotShoppingOrderService
                 'service_fee' => round((float) ($pricing['service_fee'] ?? 0), 2),
                 'delivery_distance_km' => isset($route['distance_km']) ? round((float) $route['distance_km'], 2) : null,
                 'delivery_distance_text' => isset($route['distance_text']) ? (string) $route['distance_text'] : null,
+                'route_snapshot' => $routeSnapshot,
                 'total_price' => round((float) ($pricing['total_price'] ?? 0), 2),
                 'status_id' => $pendingStatusId,
                 'estimated_delivery' => Carbon::now()->addMinutes((int) $merchant->estimated_prep_time + $routeMinutes),
@@ -602,6 +609,14 @@ class ChatbotShoppingOrderService
                 'longitude' => $merchant->longitude,
                 'sequence_no' => 1,
             ]);
+
+            if ($routeSnapshot !== null) {
+                $routeSnapshot = [
+                    ...$routeSnapshot,
+                    'ordered_pickup_location_ids' => [(int) $pickupLocation->id],
+                ];
+                $order->update(['route_snapshot' => $routeSnapshot]);
+            }
 
             $order->orderLocations()->create([
                 'location_role' => 'DROPOFF',
@@ -646,7 +661,12 @@ class ChatbotShoppingOrderService
                 'has_overweight_item' => (bool) ($pricing['has_overweight_item'] ?? false),
                 'recalculation_version' => 0,
                 'last_recalculated_at' => now(),
-                'pricing_snapshot' => $pricing,
+                'pricing_snapshot' => $routeSnapshot === null
+                    ? $pricing
+                    : [
+                        ...$pricing,
+                        'shopping_route' => $routeSnapshot,
+                    ],
             ]);
 
             OrderStatusHistory::query()->create([

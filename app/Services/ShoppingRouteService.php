@@ -349,7 +349,7 @@ class ShoppingRouteService
             ? $shoppingOrder->pricing_snapshot
             : [];
 
-        $snapshot['shopping_route'] = [
+        $routeSnapshot = [
             'distance_meters' => $route['distance_meters'] ?? null,
             'distance_km' => $route['distance_km'] ?? null,
             'distance_text' => $route['distance_text'] ?? null,
@@ -364,7 +364,9 @@ class ShoppingRouteService
             'travel_mode' => $route['travel_mode'] ?? null,
             'route_status' => $route['route_status'] ?? 'OK',
         ];
+        $snapshot['shopping_route'] = $routeSnapshot;
 
+        $order->update(['route_snapshot' => $routeSnapshot]);
         $shoppingOrder->update(['pricing_snapshot' => $snapshot]);
         $order->setRelation('shoppingOrder', $shoppingOrder->refresh());
     }

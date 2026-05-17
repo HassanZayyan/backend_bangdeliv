@@ -25,6 +25,7 @@ return new class extends Migration
             $table->decimal('service_fee', 12, 2)->default(0);
             $table->decimal('delivery_distance_km', 8, 2)->nullable();
             $table->string('delivery_distance_text', 50)->nullable();
+            $table->json('route_snapshot')->nullable();
             $table->decimal('total_price', 12, 2)->default(0);
 
             // Lifecycle status uses lookup table instead of enum.

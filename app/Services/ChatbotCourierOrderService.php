@@ -883,6 +883,11 @@ class ChatbotCourierOrderService
         $deliveryFee = (float) $pricing['total_fee'];
         $serviceFee = 0.0;
         $totalAmount = $deliveryFee + $serviceFee;
+        $routeSnapshot = [
+            ...$route,
+            'delivery_fee' => round($deliveryFee, 2),
+            'delivery_pricing' => $pricing,
+        ];
 
         $estimatedMinutes = $this->estimateDeliveryMinutes((int) $route['duration_seconds']);
 
@@ -895,6 +900,7 @@ class ChatbotCourierOrderService
             $deliveryFee,
             $serviceFee,
             $totalAmount,
+            $routeSnapshot,
             $pickupAddress,
             $pickupLatitude,
             $pickupLongitude,
@@ -918,6 +924,7 @@ class ChatbotCourierOrderService
                 'delivery_distance_text' => $distanceKm !== null
                     ? (string) ($route['distance_text'] ?? number_format($distanceKm, 2).' km')
                     : null,
+                'route_snapshot' => $routeSnapshot,
                 'total_price' => round($totalAmount, 2),
                 'status_id' => $pendingStatusId,
                 'estimated_delivery' => Carbon::now()->addMinutes($estimatedMinutes),

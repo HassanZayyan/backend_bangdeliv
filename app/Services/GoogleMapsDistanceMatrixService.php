@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Log;
 class GoogleMapsDistanceMatrixService
 {
     /**
-     * @return array{distance_meters: int, distance_km: float, distance_text: string, duration_seconds: int, duration_text: string}
+     * @return array<string, mixed>
      */
     public function resolveRoute(float $originLat, float $originLng, float $destinationLat, float $destinationLng): array
     {
@@ -18,6 +18,28 @@ class GoogleMapsDistanceMatrixService
         if ($apiKey === '') {
             throw new ApiException('Konfigurasi API Google Maps belum tersedia.', 500);
         }
+
+        try {
+            return $this->resolveRouteWithRoutesApi($apiKey, $originLat, $originLng, $destinationLat, $destinationLng);
+        } catch (\Throwable $exception) {
+            Log::warning('Routes API single-leg route failed; falling back to Distance Matrix.', [
+                'message' => $exception->getMessage(),
+            ]);
+        }
+
+        return $this->resolveRouteWithDistanceMatrix($apiKey, $originLat, $originLng, $destinationLat, $destinationLng);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function resolveRouteWithDistanceMatrix(
+        string $apiKey,
+        float $originLat,
+        float $originLng,
+        float $destinationLat,
+        float $destinationLng,
+    ): array {
 
         $response = Http::timeout((int) config('bangdeliv.distance_matrix.timeout_seconds', 8))
             ->acceptJson()
@@ -30,24 +52,24 @@ class GoogleMapsDistanceMatrixService
                 'key' => $apiKey,
             ]);
 
-        if (!$response->successful()) {
-            return $this->resolveRouteWithRoutesApi($apiKey, $originLat, $originLng, $destinationLat, $destinationLng);
+        if (! $response->successful()) {
+            throw new ApiException('Layanan kalkulasi rute sedang tidak tersedia.', 503);
         }
 
         $payload = $response->json();
         $status = (string) ($payload['status'] ?? 'UNKNOWN_ERROR');
 
         if ($status !== 'OK') {
-            Log::warning('Distance Matrix API returned non-OK status; falling back to Routes API.', [
+            Log::warning('Distance Matrix API returned non-OK status.', [
                 'status' => $status,
                 'error_message' => $payload['error_message'] ?? null,
             ]);
 
-            return $this->resolveRouteWithRoutesApi($apiKey, $originLat, $originLng, $destinationLat, $destinationLng);
+            throw new ApiException('Layanan kalkulasi rute sedang tidak tersedia.', 503);
         }
 
         $element = $payload['rows'][0]['elements'][0] ?? null;
-        if (!is_array($element)) {
+        if (! is_array($element)) {
             throw new ApiException('Respons kalkulasi rute tidak lengkap.', 503);
         }
 
@@ -77,6 +99,20 @@ class GoogleMapsDistanceMatrixService
             'distance_text' => (string) ($element['distance']['text'] ?? number_format(max(0, $distanceMeters) / 1000, 2).' km'),
             'duration_seconds' => max(0, $durationSeconds),
             'duration_text' => (string) ($element['duration']['text'] ?? ''),
+            'segments' => [[
+                'from_label' => 'Pickup',
+                'to_label' => 'Dropoff',
+                'distance_meters' => max(0, $distanceMeters),
+                'distance_km' => round(max(0, $distanceMeters) / 1000, 2),
+                'distance_text' => (string) ($element['distance']['text'] ?? number_format(max(0, $distanceMeters) / 1000, 2).' km'),
+                'duration_seconds' => max(0, $durationSeconds),
+                'duration_text' => (string) ($element['duration']['text'] ?? ''),
+            ]],
+            'encoded_polyline' => null,
+            'route_provider' => 'distance_matrix',
+            'travel_mode' => strtoupper((string) config('bangdeliv.routes.travel_mode', 'TWO_WHEELER')),
+            'routing_preference' => null,
+            'route_status' => 'OK',
         ];
     }
 
@@ -104,7 +140,7 @@ class GoogleMapsDistanceMatrixService
                 'ordered_pickup_location_ids' => array_values(array_filter([
                     isset($pickupPoints[0]['id']) ? (int) $pickupPoints[0]['id'] : null,
                 ])),
-                'segments' => [[
+                'segments' => $route['segments'] ?? [[
                     'from_label' => $pickupPoints[0]['label'],
                     'to_label' => $dropoffPoint['label'],
                     'distance_meters' => $route['distance_meters'],
@@ -113,8 +149,6 @@ class GoogleMapsDistanceMatrixService
                     'duration_seconds' => $route['duration_seconds'],
                     'duration_text' => $route['duration_text'],
                 ]],
-                'encoded_polyline' => null,
-                'route_provider' => 'distance_matrix',
             ];
         }
 
@@ -284,6 +318,7 @@ class GoogleMapsDistanceMatrixService
             'route_provider' => 'routes_api',
             'routing_preference' => $routingPreference,
             'travel_mode' => $travelMode,
+            'route_status' => 'OK',
         ];
     }
 
@@ -304,7 +339,6 @@ class GoogleMapsDistanceMatrixService
     }
 
     /**
-     * @param  mixed  $rawLegs
      * @param  array<int, array{id?: int, label: string, latitude: float, longitude: float}>  $orderedPoints
      * @return array<int, array<string, mixed>>
      */
@@ -338,7 +372,7 @@ class GoogleMapsDistanceMatrixService
     }
 
     /**
-     * @return array{distance_meters: int, distance_km: float, distance_text: string, duration_seconds: int, duration_text: string}
+     * @return array<string, mixed>
      */
     private function resolveRouteWithRoutesApi(
         string $apiKey,
@@ -347,10 +381,39 @@ class GoogleMapsDistanceMatrixService
         float $destinationLat,
         float $destinationLng
     ): array {
+        $travelMode = strtoupper((string) config('bangdeliv.routes.travel_mode', 'TWO_WHEELER'));
+        if (! in_array($travelMode, ['DRIVE', 'TWO_WHEELER'], true)) {
+            $travelMode = 'TWO_WHEELER';
+        }
+
+        try {
+            return $this->postSingleLegRoute($apiKey, $originLat, $originLng, $destinationLat, $destinationLng, $travelMode);
+        } catch (ApiException $exception) {
+            if ($travelMode !== 'TWO_WHEELER') {
+                throw $exception;
+            }
+
+            return $this->postSingleLegRoute($apiKey, $originLat, $originLng, $destinationLat, $destinationLng, 'DRIVE');
+        }
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function postSingleLegRoute(
+        string $apiKey,
+        float $originLat,
+        float $originLng,
+        float $destinationLat,
+        float $destinationLng,
+        string $travelMode,
+    ): array {
+        $routingPreference = strtoupper((string) config('bangdeliv.routes.routing_preference', 'TRAFFIC_AWARE'));
+
         $response = Http::timeout((int) config('bangdeliv.routes.timeout_seconds', 8))
             ->withHeaders([
                 'X-Goog-Api-Key' => $apiKey,
-                'X-Goog-FieldMask' => 'routes.distanceMeters,routes.duration',
+                'X-Goog-FieldMask' => 'routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline,routes.legs.distanceMeters,routes.legs.duration',
             ])
             ->acceptJson()
             ->post((string) config('bangdeliv.routes.endpoint', 'https://routes.googleapis.com/directions/v2:computeRoutes'), [
@@ -370,17 +433,18 @@ class GoogleMapsDistanceMatrixService
                         ],
                     ],
                 ],
-                'travelMode' => (string) config('bangdeliv.routes.travel_mode', 'DRIVE'),
-                'routingPreference' => (string) config('bangdeliv.routes.routing_preference', 'TRAFFIC_UNAWARE'),
+                'travelMode' => $travelMode,
+                'routingPreference' => $routingPreference,
                 'languageCode' => (string) config('bangdeliv.routes.language_code', 'id'),
                 'regionCode' => (string) config('bangdeliv.routes.region_code', 'ID'),
                 'units' => (string) config('bangdeliv.routes.units', 'METRIC'),
             ]);
 
-        if (!$response->successful()) {
+        if (! $response->successful()) {
             $payload = $response->json();
             Log::warning('Routes API failed.', [
                 'http_status' => $response->status(),
+                'travel_mode' => $travelMode,
                 'error_message' => is_array($payload) ? data_get($payload, 'error.message') : null,
             ]);
 
@@ -389,7 +453,7 @@ class GoogleMapsDistanceMatrixService
 
         $payload = $response->json();
         $route = $payload['routes'][0] ?? null;
-        if (!is_array($route)) {
+        if (! is_array($route)) {
             throw new ApiException('Rute tidak ditemukan untuk lokasi jemput dan tujuan.', 422);
         }
 
@@ -402,12 +466,43 @@ class GoogleMapsDistanceMatrixService
             throw new ApiException('Respons kalkulasi rute tidak lengkap.', 503);
         }
 
+        $distanceText = number_format(round(max(0, $distanceMeters) / 1000, 2), 2).' km';
+        $durationText = $this->formatDurationText($durationSeconds);
+        $segments = $this->segmentsFromRouteLegs($route['legs'] ?? [], [
+            [
+                'label' => 'Pickup',
+                'latitude' => $originLat,
+                'longitude' => $originLng,
+            ],
+            [
+                'label' => 'Dropoff',
+                'latitude' => $destinationLat,
+                'longitude' => $destinationLng,
+            ],
+        ]);
+
         return [
             'distance_meters' => max(0, $distanceMeters),
             'distance_km' => round(max(0, $distanceMeters) / 1000, 2),
-            'distance_text' => number_format(round(max(0, $distanceMeters) / 1000, 2), 2).' km',
+            'distance_text' => $distanceText,
             'duration_seconds' => max(0, $durationSeconds),
-            'duration_text' => $this->formatDurationText($durationSeconds),
+            'duration_text' => $durationText,
+            'segments' => $segments === [] ? [[
+                'from_label' => 'Pickup',
+                'to_label' => 'Dropoff',
+                'distance_meters' => max(0, $distanceMeters),
+                'distance_km' => round(max(0, $distanceMeters) / 1000, 2),
+                'distance_text' => $distanceText,
+                'duration_seconds' => max(0, $durationSeconds),
+                'duration_text' => $durationText,
+            ]] : $segments,
+            'encoded_polyline' => isset($route['polyline']['encodedPolyline'])
+                ? (string) $route['polyline']['encodedPolyline']
+                : null,
+            'route_provider' => 'routes_api',
+            'travel_mode' => $travelMode,
+            'routing_preference' => $routingPreference,
+            'route_status' => 'OK',
         ];
     }
 
@@ -417,7 +512,7 @@ class GoogleMapsDistanceMatrixService
             return max(0, (int) round((float) $value));
         }
 
-        if (!is_string($value)) {
+        if (! is_string($value)) {
             return null;
         }
 

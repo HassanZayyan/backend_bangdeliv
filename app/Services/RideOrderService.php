@@ -125,6 +125,11 @@ class RideOrderService
         $deliveryFee = (float) $pricing['total_fee'];
         $serviceFee = 0.0;
         $totalAmount = $subtotal + $deliveryFee + $serviceFee;
+        $routeSnapshot = [
+            ...$route,
+            'delivery_fee' => round($deliveryFee, 2),
+            'delivery_pricing' => $pricing,
+        ];
 
         $order = DB::transaction(function () use (
             $user,
@@ -140,6 +145,7 @@ class RideOrderService
             $deliveryFee,
             $serviceFee,
             $totalAmount,
+            $routeSnapshot,
             $estimatedMinutes,
             $pickupAddressText,
             $pickupLatitude,
@@ -155,6 +161,7 @@ class RideOrderService
                 'service_fee' => round($serviceFee, 2),
                 'delivery_distance_km' => round($distanceKm, 2),
                 'delivery_distance_text' => (string) ($route['distance_text'] ?? number_format($distanceKm, 2).' km'),
+                'route_snapshot' => $routeSnapshot,
                 'total_price' => round($totalAmount, 2),
                 'status_id' => $pendingStatusId,
                 'estimated_delivery' => Carbon::now()->addMinutes($estimatedMinutes),

@@ -3,9 +3,10 @@
 namespace Tests\Feature;
 
 use App\Events\DriverOrderAvailable;
-use App\Models\AiChatLog;
 use App\Models\Address;
+use App\Models\AiChatLog;
 use App\Models\Driver;
+use App\Models\Order;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
@@ -444,6 +445,10 @@ class ChatbotCourierFlowTest extends TestCase
 
         $this->assertDatabaseCount('orders', 1);
         $this->assertDatabaseCount('courier_orders', 1);
+        $order = Order::query()->firstOrFail();
+        $this->assertIsArray($order->route_snapshot);
+        $this->assertSame('distance_matrix', $order->route_snapshot['route_provider'] ?? null);
+        $this->assertSame(1600, $order->route_snapshot['distance_meters'] ?? null);
     }
 
     public function test_chatbot_kurir_rejects_prohibited_package(): void

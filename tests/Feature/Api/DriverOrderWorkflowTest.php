@@ -14,8 +14,8 @@ use App\Models\OrderLog;
 use App\Models\OrderPayment;
 use App\Models\OrderStatus;
 use App\Models\OrderStatusHistory;
-use App\Models\ShoppingOrder;
 use App\Models\ServiceType;
+use App\Models\ShoppingOrder;
 use App\Models\User;
 use App\Services\DriverOrderRealtimeService;
 use Illuminate\Broadcasting\BroadcastException;
@@ -333,7 +333,9 @@ class DriverOrderWorkflowTest extends TestCase
         $orderId = (int) $response->json('data.id');
         Event::assertDispatched(DriverOrderAvailable::class, function (DriverOrderAvailable $event) use ($driverUser, $orderId): bool {
             return (int) $event->driverUserId === (int) $driverUser->id
-                && (int) ($event->order['id'] ?? 0) === $orderId;
+                && (int) ($event->order['id'] ?? 0) === $orderId
+                && ($event->order['route']['distance_meters'] ?? null) === 2200
+                && ($event->order['route']['route_provider'] ?? null) === 'distance_matrix';
         });
     }
 

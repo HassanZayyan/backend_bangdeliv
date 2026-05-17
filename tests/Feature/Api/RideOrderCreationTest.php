@@ -3,6 +3,7 @@
 namespace Tests\Feature\Api;
 
 use App\Models\Address;
+use App\Models\Order;
 use App\Models\OrderStatus;
 use App\Models\ServiceType;
 use App\Models\User;
@@ -46,6 +47,17 @@ class RideOrderCreationTest extends TestCase
         Sanctum::actingAs($user);
 
         Http::fake([
+            'https://routes.googleapis.com/*' => Http::response([
+                'routes' => [[
+                    'distanceMeters' => 5000,
+                    'duration' => '600s',
+                    'polyline' => ['encodedPolyline' => '_p~iF~ps|U_ulLnnqC_mqNvxq`@'],
+                    'legs' => [[
+                        'distanceMeters' => 5000,
+                        'duration' => '600s',
+                    ]],
+                ]],
+            ], 200),
             'https://maps.googleapis.com/maps/api/distancematrix/json*' => Http::response([
                 'status' => 'OK',
                 'rows' => [
@@ -105,7 +117,9 @@ class RideOrderCreationTest extends TestCase
             ->assertJsonPath('data.status_id', $pendingStatusId)
             ->assertJsonPath('data.delivery_address', 'Jl. Sudirman No. 10, Jakarta')
             ->assertJsonPath('data.delivery_latitude', '-6.21462000')
-            ->assertJsonPath('data.delivery_longitude', '106.84513000');
+            ->assertJsonPath('data.delivery_longitude', '106.84513000')
+            ->assertJsonPath('data.route.encoded_polyline', '_p~iF~ps|U_ulLnnqC_mqNvxq`@')
+            ->assertJsonPath('data.route.route_provider', 'routes_api');
 
         $orderId = (int) $response->json('data.id');
 
@@ -136,6 +150,10 @@ class RideOrderCreationTest extends TestCase
         $this->assertDatabaseHas('ride_orders', [
             'order_id' => $orderId,
         ]);
+
+        $routeSnapshot = Order::query()->findOrFail($orderId)->route_snapshot;
+        $this->assertSame('_p~iF~ps|U_ulLnnqC_mqNvxq`@', $routeSnapshot['encoded_polyline'] ?? null);
+        $this->assertSame('routes_api', $routeSnapshot['route_provider'] ?? null);
 
         $this->assertDatabaseHas('order_payments', [
             'order_id' => $orderId,

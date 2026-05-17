@@ -113,6 +113,11 @@ class CheckoutService
         $subtotal = (float) $shoppingPricing['subtotal'];
         $serviceFee = (float) $shoppingPricing['service_fee'];
         $totalAmount = (float) $shoppingPricing['total_price'];
+        $routeSnapshot = [
+            ...$route,
+            'delivery_fee' => round($deliveryFee, 2),
+            'delivery_pricing' => $pricing,
+        ];
 
         $order = DB::transaction(function () use (
             $user,
@@ -129,6 +134,7 @@ class CheckoutService
             $route,
             $routeMinutes,
             $shoppingPricing,
+            $routeSnapshot,
         ): Order {
             $order = Order::query()->create([
                 'order_number' => $this->generateOrderNumber(),
@@ -140,6 +146,7 @@ class CheckoutService
                 'service_fee' => round($serviceFee, 2),
                 'delivery_distance_km' => round($distanceKm, 2),
                 'delivery_distance_text' => (string) ($route['distance_text'] ?? number_format($distanceKm, 2).' km'),
+                'route_snapshot' => $routeSnapshot,
                 'total_price' => round($totalAmount, 2),
                 'status_id' => $pendingStatusId,
                 'estimated_delivery' => Carbon::now()->addMinutes((int) $restaurant->estimated_prep_time + $routeMinutes),
@@ -158,6 +165,12 @@ class CheckoutService
                 'longitude' => $restaurant->longitude,
                 'sequence_no' => 1,
             ]);
+
+            $routeSnapshot = [
+                ...$routeSnapshot,
+                'ordered_pickup_location_ids' => [(int) $pickupLocation->id],
+            ];
+            $order->update(['route_snapshot' => $routeSnapshot]);
 
             $order->orderLocations()->create([
                 'location_role' => 'DROPOFF',
@@ -205,7 +218,10 @@ class CheckoutService
                 'has_overweight_item' => $shoppingPricing['has_overweight_item'],
                 'recalculation_version' => 0,
                 'last_recalculated_at' => now(),
-                'pricing_snapshot' => $shoppingPricing,
+                'pricing_snapshot' => [
+                    ...$shoppingPricing,
+                    'shopping_route' => $routeSnapshot,
+                ],
             ]);
 
             $cart->items()->delete();

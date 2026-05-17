@@ -507,6 +507,7 @@ class ShoppingOrderItemEditTest extends TestCase
             $replacementStop['pickup_location_id'] ?? null,
             $response->json('data.shopping_route.ordered_pickup_location_ids.0')
         );
+        $this->assertSame($response->json('data.route'), $response->json('data.shopping_route'));
 
         $this->assertDatabaseHas('order_locations', [
             'id' => $failedPickup->id,

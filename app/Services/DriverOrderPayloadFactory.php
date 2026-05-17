@@ -88,6 +88,7 @@ class DriverOrderPayloadFactory
             'payment_status' => $paymentStatus,
             'payment_method' => $order->payment_method,
             'available_actions' => $availableActions,
+            'route' => $this->orderRouteSnapshot($order),
         ];
 
         if ($serviceCode === 'COURIER' && $order->courierOrder !== null) {
@@ -116,7 +117,7 @@ class DriverOrderPayloadFactory
             ];
             $payload['shopping_items'] = $this->serializeShoppingItems($order);
             $payload['shopping_stops'] = $this->serializeShoppingStops($order);
-            $payload['shopping_route'] = $this->shoppingRouteSnapshot($order);
+            $payload['shopping_route'] = $payload['route'] ?? $this->shoppingRouteSnapshot($order);
             $payload['pricing'] = [
                 'subtotal' => round((float) $order->subtotal, 2),
                 'delivery_fee' => round((float) $order->delivery_fee, 2),
@@ -521,8 +522,23 @@ class DriverOrderPayloadFactory
     /**
      * @return array<string, mixed>|null
      */
+    private function orderRouteSnapshot(Order $order): ?array
+    {
+        $route = $order->route_snapshot;
+
+        return is_array($route) ? $route : $this->shoppingRouteSnapshot($order);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
     private function shoppingRouteSnapshot(Order $order): ?array
     {
+        $route = $order->route_snapshot;
+        if (is_array($route)) {
+            return $route;
+        }
+
         $snapshot = $order->shoppingOrder?->pricing_snapshot;
         if (! is_array($snapshot)) {
             return null;

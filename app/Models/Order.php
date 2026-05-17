@@ -23,6 +23,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property string|null $service_fee
  * @property float|null $delivery_distance_km
  * @property string|null $delivery_distance_text
+ * @property array<string, mixed>|null $route_snapshot
  * @property string|null $total_price
  * @property int $status_id
  * @property string $payment_status
@@ -72,12 +73,17 @@ class Order extends Model
         'service_fee',
         'delivery_distance_km',
         'delivery_distance_text',
+        'route_snapshot',
         'total_price',
         'status_id',
         'cancellation_reason',
         'cancelled_by',
         'estimated_delivery',
         'delivered_at',
+    ];
+
+    protected $hidden = [
+        'route_snapshot',
     ];
 
     protected $appends = [
@@ -90,6 +96,7 @@ class Order extends Model
         'paid_by_user_id',
         'paid_at',
         'shopping_stops',
+        'route',
         'shopping_route',
     ];
 
@@ -100,6 +107,7 @@ class Order extends Model
             'delivery_fee' => 'decimal:2',
             'service_fee' => 'decimal:2',
             'delivery_distance_km' => 'float',
+            'route_snapshot' => 'array',
             'total_price' => 'decimal:2',
             'estimated_delivery' => 'datetime',
             'delivered_at' => 'datetime',
@@ -325,6 +333,21 @@ class Order extends Model
     /**
      * @return array<string, mixed>|null
      */
+    public function getRouteAttribute(): ?array
+    {
+        $route = $this->route_snapshot;
+        if (is_array($route)) {
+            return $route;
+        }
+
+        $serviceCode = strtoupper((string) ($this->serviceType?->code ?? ''));
+
+        return $serviceCode === 'SHOPPING' ? $this->legacyShoppingRouteSnapshot() : null;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
     public function getShoppingRouteAttribute(): ?array
     {
         $serviceCode = strtoupper((string) ($this->serviceType?->code ?? ''));
@@ -332,6 +355,19 @@ class Order extends Model
             return null;
         }
 
+        $route = $this->route_snapshot;
+        if (is_array($route)) {
+            return $route;
+        }
+
+        return $this->legacyShoppingRouteSnapshot();
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function legacyShoppingRouteSnapshot(): ?array
+    {
         if (! $this->relationLoaded('shoppingOrder')) {
             $this->load('shoppingOrder');
         }
