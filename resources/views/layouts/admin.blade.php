@@ -191,6 +191,37 @@
         document.addEventListener('DOMContentLoaded', () => {
             const saved = localStorage.getItem('theme') || 'dark';
             updateThemeIcon(saved);
+
+            // Auto-submit search forms
+            const searchInputs = document.querySelectorAll('.search-bar input[name="q"], .search-bar input[name="search"]');
+            searchInputs.forEach(input => {
+                const form = input.closest('form');
+                if(form) {
+                    form.addEventListener('submit', () => {
+                        sessionStorage.setItem('autoSearchTriggered', 'true');
+                    });
+                }
+                
+                let timeout = null;
+                input.addEventListener('input', function() {
+                    clearTimeout(timeout);
+                    timeout = setTimeout(() => {
+                        const val = this.value.trim();
+                        if (val.length >= 2 || val.length === 0) {
+                            sessionStorage.setItem('autoSearchTriggered', 'true');
+                            form.submit();
+                        }
+                    }, 600); // 600ms debounce
+                });
+                
+                if (sessionStorage.getItem('autoSearchTriggered') === 'true' && document.activeElement !== input) {
+                    input.focus();
+                    const val = input.value;
+                    input.value = '';
+                    input.value = val;
+                    sessionStorage.removeItem('autoSearchTriggered');
+                }
+            });
         });
     </script>
     @stack('scripts')

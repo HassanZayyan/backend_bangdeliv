@@ -131,9 +131,6 @@
                 ->orWhereHas('courierOrder', function ($courierQuery) use ($search) {
                     $courierQuery->where('package_description', 'like', "%{$search}%")
                         ->orWhere('complaint_reason', 'like', "%{$search}%");
-                })
-                ->orWhereHas('rideOrder', function ($rideQuery) use ($search) {
-                    $rideQuery->where('notes', 'like', "%{$search}%");
                 });
         });
     }
@@ -386,7 +383,7 @@
                             </td>
                             <td class="td-sub">{{ $rideOrder?->picked_up_at?->format('d M Y, H:i') ?? '-' }}</td>
                             <td class="td-sub">{{ $rideOrder?->arrived_at?->format('d M Y, H:i') ?? '-' }}</td>
-                            <td class="td-sub">{{ \Illuminate\Support\Str::limit($rideOrder?->notes ?? '-', 55) }}</td>
+                            <td class="td-sub">-</td>
                             <td class="td-price">Rp {{ number_format((float) $order->total_price, 0, ',', '.') }}</td>
                             <td>
                                 <span class="badge {{ $statusConfig['class'] }}">

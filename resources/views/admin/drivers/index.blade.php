@@ -5,10 +5,35 @@
 
 @section('content')
 @php
-    $drivers = \App\Models\Driver::query()
+    $statusFilter = request()->query('status', 'semua');
+
+    $query = \App\Models\Driver::query()
         ->with('user')
-        ->latest('created_at')
-        ->get();
+        ->latest('created_at');
+
+    $searchQuery = request()->query('q');
+    if ($searchQuery) {
+        $query->where(function ($q) use ($searchQuery) {
+            $q->where('vehicle_plate', 'like', "%{$searchQuery}%")
+              ->orWhere('license_number', 'like', "%{$searchQuery}%")
+              ->orWhereHas('user', function ($uq) use ($searchQuery) {
+                  $uq->where('name', 'like', "%{$searchQuery}%")
+                     ->orWhere('phone', 'like', "%{$searchQuery}%");
+              });
+        });
+    }
+
+    if ($statusFilter === 'aktif') {
+        $query->where('status', 'available')->where('registration_status', 'active');
+    } elseif ($statusFilter === 'offline') {
+        $query->where('status', 'offline');
+    } elseif ($statusFilter === 'suspended') {
+        $query->where('registration_status', 'suspended');
+    } elseif ($statusFilter === 'pending') {
+        $query->where('registration_status', 'pending');
+    }
+
+    $drivers = $query->get();
 
     $onlineCount = \App\Models\Driver::where('status', 'available')->where('registration_status', 'active')->count();
     $offlineCount = \App\Models\Driver::where('status', 'offline')->count();
@@ -24,19 +49,20 @@
                 <button class="btn" style="background: var(--bg-hover); color: var(--text-main); border: 1px solid var(--border-color);">
                     <i class='bx bx-filter-alt'></i> Filter
                 </button>
-                <div class="search-bar" style="width: 280px;">
+                <form class="search-bar" style="width: 280px;" method="GET" action="{{ route('admin.drivers.index') }}">
+                    <input type="hidden" name="status" value="{{ $statusFilter }}">
                     <i class='bx bx-search'></i>
-                    <input type="text" placeholder="Cari Nama, Plat Nomor, atau HP..." style="width: 100%;">
-                </div>
+                    <input type="text" name="q" value="{{ request('q') }}" placeholder="Cari Nama, Plat Nomor, atau HP..." style="width: 100%;">
+                </form>
             </div>
         </div>
 
         <div class="tabs">
-            <button class="tab-btn active">Semua</button>
-            <button class="tab-btn">Aktif (Online) <span class="badge badge-success" style="margin-left:5px;">{{ $onlineCount }}</span></button>
-            <button class="tab-btn">Offline <span class="badge badge-info" style="margin-left:5px;">{{ $offlineCount }}</span></button>
-            <button class="tab-btn">Suspended <span class="badge badge-danger" style="margin-left:5px;">{{ $suspendedCount }}</span></button>
-            <button class="tab-btn">Pending Verifikasi <span class="badge badge-warning" style="margin-left:5px;">{{ $pendingCount }}</span></button>
+            <button onclick="window.location.href='{{ route('admin.drivers.index', ['status' => 'semua', 'q' => request('q')]) }}'" class="tab-btn {{ $statusFilter === 'semua' ? 'active' : '' }}">Semua</button>
+            <button onclick="window.location.href='{{ route('admin.drivers.index', ['status' => 'aktif', 'q' => request('q')]) }}'" class="tab-btn {{ $statusFilter === 'aktif' ? 'active' : '' }}">Aktif (Online) <span class="badge badge-success" style="margin-left:5px;">{{ $onlineCount }}</span></button>
+            <button onclick="window.location.href='{{ route('admin.drivers.index', ['status' => 'offline', 'q' => request('q')]) }}'" class="tab-btn {{ $statusFilter === 'offline' ? 'active' : '' }}">Offline <span class="badge badge-info" style="margin-left:5px;">{{ $offlineCount }}</span></button>
+            <button onclick="window.location.href='{{ route('admin.drivers.index', ['status' => 'suspended', 'q' => request('q')]) }}'" class="tab-btn {{ $statusFilter === 'suspended' ? 'active' : '' }}">Suspended <span class="badge badge-danger" style="margin-left:5px;">{{ $suspendedCount }}</span></button>
+            <button onclick="window.location.href='{{ route('admin.drivers.index', ['status' => 'pending', 'q' => request('q')]) }}'" class="tab-btn {{ $statusFilter === 'pending' ? 'active' : '' }}">Pending Verifikasi <span class="badge badge-warning" style="margin-left:5px;">{{ $pendingCount }}</span></button>
         </div>
     </div>
     
@@ -106,7 +132,7 @@
                         <td><span class="badge {{ $statusClass }}">{{ $statusText }}</span></td>
                         <td class="td-action">
                             <div style="display:flex; gap: 8px;">
-                                <button class="btn-action detail" title="Lihat Profil Lengkap"><i class='bx bx-id-card'></i></button>
+                                <button onclick="window.location.href='{{ route('admin.verification.show', ['driverId' => $driver->id]) }}'" class="btn-action detail" title="Lihat Profil Lengkap"><i class='bx bx-id-card'></i></button>
                             </div>
                         </td>
                     </tr>

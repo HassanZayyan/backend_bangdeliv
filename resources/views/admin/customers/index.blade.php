@@ -9,14 +9,34 @@
     $successStatusIds = collect(['DELIVERED', 'COMPLETED'])->map(fn ($code) => $statusCodeToId[$code] ?? null)->filter()->values()->all();
     $cancelledStatusIds = collect(['CANCELLED', 'CANCELLED_WITH_FEE'])->map(fn ($code) => $statusCodeToId[$code] ?? null)->filter()->values()->all();
 
-    $customers = \App\Models\User::query()
+    $statusFilter = request()->query('status', 'semua');
+
+    $query = \App\Models\User::query()
         ->where('role', 'customer')
         ->withCount([
             'orders as success_orders_count' => fn ($query) => $query->whereIn('status_id', $successStatusIds),
             'orders as cancelled_orders_count' => fn ($query) => $query->whereIn('status_id', $cancelledStatusIds),
         ])
-        ->latest('created_at')
-        ->get();
+        ->latest('created_at');
+
+    $searchQuery = request()->query('q');
+    if ($searchQuery) {
+        $query->where(function ($q) use ($searchQuery) {
+            $q->where('name', 'like', "%{$searchQuery}%")
+              ->orWhere('email', 'like', "%{$searchQuery}%")
+              ->orWhere('phone', 'like', "%{$searchQuery}%");
+        });
+    }
+
+    if ($statusFilter === 'aktif') {
+        $query->where('is_active', true)->where('is_blacklisted', false);
+    } elseif ($statusFilter === 'baru') {
+        $query->whereDate('created_at', now()->toDateString());
+    } elseif ($statusFilter === 'blacklisted') {
+        $query->where('is_blacklisted', true);
+    }
+
+    $customers = $query->get();
 
     $activeCount = \App\Models\User::where('role', 'customer')->where('is_active', true)->where('is_blacklisted', false)->count();
     $newCount = \App\Models\User::where('role', 'customer')->whereDate('created_at', now()->toDateString())->count();
@@ -31,18 +51,19 @@
                 <button class="btn" style="background: var(--bg-hover); color: var(--text-main); border: 1px solid var(--border-color);">
                     <i class='bx bx-filter-alt'></i> Filter
                 </button>
-                <div class="search-bar" style="width: 280px;">
+                <form class="search-bar" style="width: 280px;" method="GET" action="{{ route('admin.customers.index') }}">
+                    <input type="hidden" name="status" value="{{ $statusFilter }}">
                     <i class='bx bx-search'></i>
-                    <input type="text" placeholder="Cari Nama, Email, atau HP..." style="width: 100%;">
-                </div>
+                    <input type="text" name="q" value="{{ request('q') }}" placeholder="Cari Nama, Email, atau HP..." style="width: 100%;">
+                </form>
             </div>
         </div>
 
         <div class="tabs">
-            <button class="tab-btn active">Semua</button>
-            <button class="tab-btn">Aktif <span class="badge badge-success" style="margin-left:5px;">{{ $activeCount }}</span></button>
-            <button class="tab-btn">Pelanggan Baru <span class="badge badge-info" style="margin-left:5px;">{{ $newCount }}</span></button>
-            <button class="tab-btn">Blacklisted <span class="badge badge-danger" style="margin-left:5px;">{{ $blacklistedCount }}</span></button>
+            <button onclick="window.location.href='{{ route('admin.customers.index', ['status' => 'semua', 'q' => request('q')]) }}'" class="tab-btn {{ $statusFilter === 'semua' ? 'active' : '' }}">Semua</button>
+            <button onclick="window.location.href='{{ route('admin.customers.index', ['status' => 'aktif', 'q' => request('q')]) }}'" class="tab-btn {{ $statusFilter === 'aktif' ? 'active' : '' }}">Aktif <span class="badge badge-success" style="margin-left:5px;">{{ $activeCount }}</span></button>
+            <button onclick="window.location.href='{{ route('admin.customers.index', ['status' => 'baru', 'q' => request('q')]) }}'" class="tab-btn {{ $statusFilter === 'baru' ? 'active' : '' }}">Pelanggan Baru <span class="badge badge-info" style="margin-left:5px;">{{ $newCount }}</span></button>
+            <button onclick="window.location.href='{{ route('admin.customers.index', ['status' => 'blacklisted', 'q' => request('q')]) }}'" class="tab-btn {{ $statusFilter === 'blacklisted' ? 'active' : '' }}">Blacklisted <span class="badge badge-danger" style="margin-left:5px;">{{ $blacklistedCount }}</span></button>
         </div>
     </div>
     
@@ -93,7 +114,7 @@
                         </td>
                         <td class="td-action">
                             <div style="display:flex; gap: 8px;">
-                                <button class="btn-action detail" title="Lihat History & Detail"><i class='bx bx-show'></i></button>
+                                <button onclick="window.location.href='{{ route('admin.orders.index', ['q' => $customer->phone ?? $customer->name]) }}'" class="btn-action detail" title="Lihat History & Detail"><i class='bx bx-show'></i></button>
                             </div>
                         </td>
                     </tr>
