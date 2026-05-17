@@ -95,6 +95,7 @@ class OrderExecutionController extends Controller
         $allowedStatusCodes = match ($serviceCode) {
             'RIDE' => ['DRIVER_ASSIGNED', 'ARRIVED_PICKUP', 'ON_THE_WAY'],
             'COURIER' => ['DRIVER_ASSIGNED', 'ARRIVED_PICKUP', 'PICKED_UP', 'ON_THE_WAY'],
+            'SHOPPING' => ['DRIVER_ASSIGNED', 'ARRIVED_MERCHANT', 'PICKED_UP', 'ON_THE_WAY'],
             default => ['ON_THE_WAY'],
         };
 

@@ -32,7 +32,8 @@ class ChatbotRideOrderService
         private readonly RideOrderService $rideOrderService,
         private readonly GoogleMapsGeocodingService $geocodingService,
         private readonly GoogleMapsDistanceMatrixService $distanceMatrixService,
-        private readonly DeliveryPricingService $deliveryPricingService
+        private readonly DeliveryPricingService $deliveryPricingService,
+        private readonly ChatbotAddressReadinessService $addressReadinessService
     ) {}
 
     /**
@@ -754,7 +755,7 @@ class ChatbotRideOrderService
                 'validation' => [
                     'is_valid_order' => false,
                     'rejection_reasons' => [
-                        'Alamat jemput belum tersedia. Isi Alamat Saya terlebih dahulu atau pilih titik jemput lewat peta.',
+                        'Alamat jemput belum tersedia. Isi Alamat Saya terlebih dahulu.',
                     ],
                     'missing_fields' => ['pickup_address', 'destination_address'],
                     'next_actions' => ['OPEN_ADDRESSES'],
@@ -765,7 +766,7 @@ class ChatbotRideOrderService
                     'order_number' => null,
                     'delivery_fee' => null,
                 ],
-                'assistant_text' => 'Alamat jemput kamu belum tersedia. Isi Alamat Saya dulu, atau pilih titik jemput dan tujuan langsung di peta.',
+                'assistant_text' => 'Alamat jemput kamu belum tersedia. Isi Alamat Saya dulu sebelum membuat order antar jemput.',
             ];
         }
 
@@ -828,20 +829,12 @@ class ChatbotRideOrderService
      */
     private function resolveProfilePickupAddress(Address $address): ?array
     {
-        return [
-            'formatted_address' => trim((string) $address->full_address),
-            'latitude' => (float) $address->latitude,
-            'longitude' => (float) $address->longitude,
-        ];
+        return $this->addressReadinessService->toLocationPayload($address);
     }
 
     private function resolveDefaultPickupAddress(User $user): ?Address
     {
-        return Address::query()
-            ->where('user_id', $user->id)
-            ->orderByDesc('is_default')
-            ->orderByDesc('id')
-            ->first();
+        return $this->addressReadinessService->resolveDefaultUsableAddress($user);
     }
 
     /**

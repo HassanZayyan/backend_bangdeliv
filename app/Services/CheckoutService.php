@@ -21,6 +21,7 @@ class CheckoutService
         private readonly GoogleMapsDistanceMatrixService $distanceMatrixService,
         private readonly DeliveryPricingService $deliveryPricingService,
         private readonly OrderPaymentService $orderPaymentService,
+        private readonly ShoppingPricingService $shoppingPricingService,
         private readonly DriverOrderRealtimeService $driverOrderRealtimeService
     ) {}
 
@@ -90,17 +91,28 @@ class CheckoutService
         $pricing = $this->deliveryPricingService->calculateFromDistanceMeters($distanceMeters);
         $routeMinutes = $this->estimateTravelMinutes((int) $route['duration_seconds']);
 
-        $subtotal = $cart->items->sum(fn ($item) => (float) $item->menu->price * $item->quantity);
-
         $deliveryFee = (float) $pricing['total_fee'];
-        $serviceFee = 0.0;
-        $totalAmount = $subtotal + $deliveryFee + $serviceFee;
         $shoppingServiceTypeId = ServiceType::query()->where('code', 'SHOPPING')->value('id');
         $pendingStatusId = OrderStatus::query()->where('code', 'PENDING')->value('id');
 
         if (! $shoppingServiceTypeId || ! $pendingStatusId) {
             throw new ApiException('Konfigurasi service type atau status order belum lengkap.', 500);
         }
+
+        $shoppingPricing = $this->shoppingPricingService->calculateForItems(
+            (int) $shoppingServiceTypeId,
+            $cart->items->map(fn ($item): array => [
+                'quantity' => (int) $item->quantity,
+                'unit_price' => (float) $item->menu->price,
+                'is_available' => true,
+                'is_heavy' => false,
+            ]),
+            $deliveryFee,
+        );
+
+        $subtotal = (float) $shoppingPricing['subtotal'];
+        $serviceFee = (float) $shoppingPricing['service_fee'];
+        $totalAmount = (float) $shoppingPricing['total_price'];
 
         $order = DB::transaction(function () use (
             $user,
@@ -116,6 +128,7 @@ class CheckoutService
             $distanceKm,
             $route,
             $routeMinutes,
+            $shoppingPricing,
         ): Order {
             $order = Order::query()->create([
                 'order_number' => $this->generateOrderNumber(),
@@ -134,19 +147,41 @@ class CheckoutService
 
             $this->orderPaymentService->ensurePendingCodPayment($order);
 
+            $pickupLocation = $order->orderLocations()->create([
+                'restaurant_id' => $restaurant->id,
+                'location_role' => 'PICKUP',
+                'label' => 'Merchant',
+                'contact_name' => $restaurant->name,
+                'contact_phone' => $restaurant->phone,
+                'full_address' => $restaurant->address,
+                'latitude' => $restaurant->latitude,
+                'longitude' => $restaurant->longitude,
+                'sequence_no' => 1,
+            ]);
+
+            $order->orderLocations()->create([
+                'location_role' => 'DROPOFF',
+                'label' => $address->label,
+                'contact_name' => $address->recipient_name,
+                'contact_phone' => $address->phone,
+                'full_address' => trim($address->full_address.' '.($address->detail ?? '')),
+                'latitude' => $address->latitude,
+                'longitude' => $address->longitude,
+                'sequence_no' => 2,
+            ]);
+
             foreach ($cart->items as $item) {
                 $unitPrice = (float) $item->menu->price;
                 $qty = (int) $item->quantity;
 
                 $order->items()->create([
                     'menu_id' => $item->menu_id,
+                    'pickup_location_id' => $pickupLocation->id,
                     'item_source' => 'MENU_DB',
                     'menu_name' => $item->menu->name,
                     'quantity' => $qty,
                     'unit_price' => round($unitPrice, 2),
                     'subtotal' => round($unitPrice * $qty, 2),
-                    'line_service_fee' => 0,
-                    'line_total' => round($unitPrice * $qty, 2),
                     'notes' => $item->notes,
                     'is_available' => true,
                     'is_heavy' => false,
@@ -164,40 +199,19 @@ class CheckoutService
             ShoppingOrder::query()->create([
                 'order_id' => $order->id,
                 'failed_attempt_count' => 0,
-                'item_surcharge' => 0,
-                'overweight_surcharge' => 0,
-                'cancellation_penalty' => 0,
-                'has_overweight_item' => false,
+                'item_surcharge' => $shoppingPricing['item_surcharge'],
+                'overweight_surcharge' => $shoppingPricing['overweight_surcharge'],
+                'cancellation_penalty' => $shoppingPricing['cancellation_penalty'],
+                'has_overweight_item' => $shoppingPricing['has_overweight_item'],
                 'recalculation_version' => 0,
-            ]);
-
-            $order->orderLocations()->createMany([
-                [
-                    'location_role' => 'PICKUP',
-                    'label' => 'Restaurant',
-                    'contact_name' => $restaurant->name,
-                    'contact_phone' => $restaurant->phone,
-                    'full_address' => $restaurant->address,
-                    'latitude' => $restaurant->latitude,
-                    'longitude' => $restaurant->longitude,
-                    'sequence_no' => 1,
-                ],
-                [
-                    'location_role' => 'DROPOFF',
-                    'label' => $address->label,
-                    'contact_name' => $address->recipient_name,
-                    'contact_phone' => $address->phone,
-                    'full_address' => trim($address->full_address.' '.($address->detail ?? '')),
-                    'latitude' => $address->latitude,
-                    'longitude' => $address->longitude,
-                    'sequence_no' => 2,
-                ],
+                'last_recalculated_at' => now(),
+                'pricing_snapshot' => $shoppingPricing,
             ]);
 
             $cart->items()->delete();
             $cart->touch();
 
-            return $order->fresh(['restaurant', 'orderLocations', 'items', 'payments', 'statusRef', 'statusHistories', 'shoppingOrder']);
+            return $order->fresh(['restaurant', 'orderLocations.restaurant', 'items', 'payments', 'statusRef', 'statusHistories', 'shoppingOrder', 'serviceType']);
         });
 
         $this->driverOrderRealtimeService->broadcastOrderAvailable($order);

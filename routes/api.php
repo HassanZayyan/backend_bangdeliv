@@ -61,6 +61,7 @@ Route::prefix('v1')->group(function () {
         Route::get('/orders/{orderId}', [OrderController::class, 'show']);
         Route::post('/orders/{orderId}/cancel', [OrderController::class, 'cancel']);
         Route::post('/orders/{orderId}/items', [OrderController::class, 'addShoppingItem']);
+        Route::post('/orders/{orderId}/items/bulk', [OrderController::class, 'addShoppingItems']);
         Route::patch('/orders/{orderId}/items/{itemId}', [OrderController::class, 'updateShoppingItem']);
         Route::delete('/orders/{orderId}/items/{itemId}', [OrderController::class, 'removeShoppingItem']);
     });
@@ -77,6 +78,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/driver/orders/{orderId}', [OrderController::class, 'driverOrderDetail']);
             Route::post('/driver/orders/{orderId}/accept', [OrderController::class, 'acceptByDriver']);
             Route::post('/driver/orders/{orderId}/reject', [OrderController::class, 'rejectByDriver']);
+            Route::patch('/driver/orders/{orderId}/shopping-items', [OrderController::class, 'updateDriverShoppingItems']);
             Route::post('/driver/orders/{orderId}/status-transition', [OrderController::class, 'transitionStatusByDriver']);
             Route::patch('/driver/orders/{orderId}/status', [OrderExecutionController::class, 'updateStatus']);
             Route::post('/driver/orders/{orderId}/location', [OrderExecutionController::class, 'updateLocation']);

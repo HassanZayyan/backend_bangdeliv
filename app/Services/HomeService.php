@@ -51,6 +51,7 @@ class HomeService
                 'id' => $restaurant->id,
                 'name' => $restaurant->name,
                 'slug' => $restaurant->slug,
+                'merchant_type' => $restaurant->merchant_type,
                 'banner_image' => $restaurant->banner_image,
                 'avg_rating' => (float) $restaurant->avg_rating,
                 'total_reviews' => (int) $restaurant->total_reviews,

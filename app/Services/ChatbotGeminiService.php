@@ -13,31 +13,40 @@ class ChatbotGeminiService
      */
     public function parseFoodOrder(string $message, ?array $context = null): array
     {
-        $systemInstruction = 'Kamu adalah AI asisten BangDeliv. Ekstrak pesan menjadi JSON. Format wajib: {"intent": "pesan_makanan" atau "out_of_domain", "resto": "string/null", "items": [{"menu": "string", "qty": integer}]}. Pastikan mengekstrak setiap pesanan menu secara terpisah ke dalam array items. Jika disediakan CONTEXT_JSON, gunakan untuk menjaga kesinambungan percakapan dan draft pesanan. Dilarang merespon teks biasa.';
+        $systemInstruction = 'Kamu adalah NLU assistant BangDeliv untuk layanan Titip Belanja. Keluarkan hanya JSON sesuai schema. intent valid: "shopping_order" atau "out_of_domain". command valid: "confirm" atau "none"; gunakan confirm hanya untuk pesan konfirmasi singkat seperti "konfirmasi", "confirm", atau "lanjut". Ekstrak merchant/resto/toko, item belanja, jumlah, catatan, dan alamat antar jika disebut. Item dari warung/alfamart/restoran boleh berupa barang umum atau nama makanan. Jangan menentukan item berat; berat akan dikonfirmasi driver. Jika disediakan CONTEXT_JSON, gunakan untuk menjaga kesinambungan draft. Dilarang merespon teks biasa.';
 
         $schema = [
             'type' => 'OBJECT',
             'properties' => [
                 'intent' => ['type' => 'STRING'],
+                'command' => ['type' => 'STRING'],
+                'merchant' => ['type' => 'STRING', 'nullable' => true],
                 'resto' => ['type' => 'STRING', 'nullable' => true],
+                'delivery_address' => ['type' => 'STRING', 'nullable' => true],
                 'items' => [
                     'type' => 'ARRAY',
                     'items' => [
                         'type' => 'OBJECT',
                         'properties' => [
+                            'name' => ['type' => 'STRING'],
                             'menu' => ['type' => 'STRING'],
+                            'quantity' => ['type' => 'INTEGER'],
                             'qty' => ['type' => 'INTEGER'],
+                            'notes' => ['type' => 'STRING', 'nullable' => true],
                         ],
-                        'required' => ['menu', 'qty'],
+                        'required' => ['name', 'quantity'],
                     ],
                 ],
             ],
-            'required' => ['intent', 'items'],
+            'required' => ['intent', 'command', 'items'],
         ];
 
         $parsed = $this->generateJson($message, $systemInstruction, $schema, [
             'intent' => 'out_of_domain',
+            'command' => 'none',
+            'merchant' => null,
             'resto' => null,
+            'delivery_address' => null,
             'items' => [],
         ], $context);
 
@@ -229,15 +238,14 @@ class ChatbotGeminiService
     private function normalizeFoodPayload(array $payload): array
     {
         $intent = strtolower(trim((string) ($payload['intent'] ?? 'out_of_domain')));
-        if ($intent !== 'pesan_makanan') {
+        if ($intent === 'pesan_makanan') {
+            $intent = 'shopping_order';
+        }
+        if ($intent !== 'shopping_order') {
             $intent = 'out_of_domain';
         }
 
-        $restoRaw = $payload['resto'] ?? null;
-        $resto = is_string($restoRaw) ? trim($restoRaw) : null;
-        if ($resto === '') {
-            $resto = null;
-        }
+        $merchant = $this->normalizeOptionalString($payload['merchant'] ?? $payload['resto'] ?? null);
 
         $items = [];
         if (is_array($payload['items'] ?? null)) {
@@ -246,21 +254,28 @@ class ChatbotGeminiService
                     continue;
                 }
 
-                $menu = trim((string) ($item['menu'] ?? ''));
-                if ($menu === '') {
+                $name = trim((string) ($item['name'] ?? $item['menu'] ?? ''));
+                if ($name === '') {
                     continue;
                 }
 
+                $quantity = max(1, (int) ($item['quantity'] ?? $item['qty'] ?? 1));
                 $items[] = [
-                    'menu' => $menu,
-                    'qty' => max(1, (int) ($item['qty'] ?? 1)),
+                    'name' => $name,
+                    'menu' => $name,
+                    'quantity' => $quantity,
+                    'qty' => $quantity,
+                    'notes' => $this->normalizeOptionalString($item['notes'] ?? null),
                 ];
             }
         }
 
         return [
             'intent' => $intent,
-            'resto' => $resto,
+            'command' => $this->normalizeCommand($payload['command'] ?? null),
+            'merchant' => $merchant,
+            'resto' => $merchant,
+            'delivery_address' => $this->normalizeOptionalString($payload['delivery_address'] ?? null),
             'items' => $items,
         ];
     }

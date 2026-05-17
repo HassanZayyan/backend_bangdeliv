@@ -28,6 +28,10 @@ class UpdateRestaurantRequest extends FormRequest
         $this->merge([
             'latitude' => $latitude,
             'longitude' => $longitude,
+            'merchant_type' => $this->normalizeMerchantTypeInput(
+                $this->input('merchant_type'),
+                (string) ($this->route('restaurant')?->merchant_type ?? 'restaurant')
+            ),
         ]);
     }
 
@@ -47,6 +51,7 @@ class UpdateRestaurantRequest extends FormRequest
             'name' => ['required', 'string', 'max:255'],
             'slug' => ['nullable', 'string', 'max:255', Rule::unique('restaurants', 'slug')->ignore($restaurantId)],
             'description' => ['nullable', 'string'],
+            'merchant_type' => ['required', 'in:restaurant,warung,convenience_store,other'],
             'address' => ['required', 'string'],
             'latitude' => ['required', 'numeric', 'between:-90,90'],
             'longitude' => ['required', 'numeric', 'between:-180,180'],
@@ -74,5 +79,12 @@ class UpdateRestaurantRequest extends FormRequest
         }
 
         return str_replace(',', '.', trim($value));
+    }
+
+    private function normalizeMerchantTypeInput(mixed $value, string $default): string
+    {
+        $normalized = trim((string) ($value ?? ''));
+
+        return $normalized === '' ? $default : $normalized;
     }
 }

@@ -4,14 +4,13 @@ namespace App\Services;
 
 use App\Exceptions\ApiException;
 use App\Models\Driver;
-use App\Models\Menu;
 use App\Models\Order;
-use App\Models\OrderItem;
+use App\Models\OrderLocation;
 use App\Models\OrderLog;
 use App\Models\OrderPayment;
 use App\Models\OrderStatus;
 use App\Models\OrderStatusHistory;
-use App\Models\ServiceFeeRule;
+use App\Models\Restaurant;
 use App\Models\ShoppingOrder;
 use App\Models\User;
 use Carbon\Carbon;
@@ -23,7 +22,8 @@ class OrderService
 {
     public function __construct(
         private readonly OrderRealtimeBroadcaster $realtimeBroadcaster,
-        private readonly OrderPaymentService $orderPaymentService,
+        private readonly ShoppingPricingService $shoppingPricingService,
+        private readonly ShoppingRouteService $shoppingRouteService,
         private readonly DriverOrderPayloadFactory $driverOrderPayloadFactory,
         private readonly DriverOrderRealtimeService $driverOrderRealtimeService
     ) {}
@@ -31,7 +31,7 @@ class OrderService
     /**
      * @var array<int, string>
      */
-    private array $editableShoppingStatuses = ['PENDING', 'DRIVER_ASSIGNED'];
+    private array $editableShoppingStatuses = ['PENDING', 'DRIVER_ASSIGNED', 'ARRIVED_MERCHANT'];
 
     /**
      * @var array<int, string>
@@ -60,7 +60,7 @@ class OrderService
 
         $query = Order::query()
             ->where('user_id', $user->id)
-            ->with(['restaurant', 'items', 'payments', 'statusRef', 'serviceType', 'courierOrder'])
+            ->with(['restaurant', 'items', 'orderLocations.restaurant', 'payments', 'statusRef', 'serviceType', 'courierOrder', 'shoppingOrder'])
             ->latest('id');
 
         if (! empty($filters['status'])) {
@@ -73,7 +73,7 @@ class OrderService
     public function customerOrderDetail(User $user, int $orderId): Order
     {
         $order = Order::query()
-            ->with(['restaurant', 'driver.user', 'items', 'orderLocations', 'payments', 'statusRef', 'statusHistories.statusRef', 'serviceType', 'courierOrder'])
+            ->with(['restaurant', 'driver.user', 'items', 'orderLocations.restaurant', 'payments', 'statusRef', 'statusHistories.statusRef', 'serviceType', 'courierOrder', 'shoppingOrder'])
             ->find($orderId);
 
         if (! $order || $order->user_id !== $user->id) {
@@ -126,7 +126,7 @@ class OrderService
                     ]);
                 }
 
-                $cancellationPenalty = $this->calculateCancellationPenalty($order, $shoppingOrder);
+                $cancellationPenalty = $this->shoppingPricingService->calculateCancellationPenalty($order, $shoppingOrder);
                 $shoppingOrder->update([
                     'cancellation_penalty' => round($cancellationPenalty, 2),
                 ]);
@@ -160,7 +160,7 @@ class OrderService
             }
 
             if ($isShopping) {
-                $order = $this->recalculateShoppingOrder(
+                $order = $this->shoppingPricingService->recalculate(
                     $order->refresh()->load(['items', 'shoppingOrder', 'statusRef', 'serviceType']),
                     $user->id,
                     $cancellationPenalty > 0 ? 'CUSTOMER_CANCEL_WITH_FEE' : 'CUSTOMER_CANCEL',
@@ -768,6 +768,14 @@ class OrderService
                 throw new ApiException('Aksi ini hanya tersedia sebelum pembayaran COD dicatat.', 409);
             }
 
+            if (
+                strtoupper((string) $serviceCode) === 'SHOPPING' &&
+                $normalizedActionCode === 'CONFIRM_PICKED_UP' &&
+                $this->shoppingPricingService->hasPendingManualPrices($order)
+            ) {
+                throw new ApiException('Harga nota untuk item manual belum lengkap.', 409);
+            }
+
             $eventNote = trim((string) $note);
             if ($eventNote === '') {
                 $eventNote = $normalizedActionCode === 'REPORT_PACKAGE_INVALID'
@@ -1096,55 +1104,192 @@ class OrderService
 
     /**
      * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    public function updateShoppingItemsByDriver(User $actor, int $orderId, array $payload): array
+    {
+        $driver = $this->resolveActiveDriverProfile($actor);
+
+        $order = DB::transaction(function () use ($actor, $driver, $orderId, $payload): Order {
+            $order = Order::query()
+                ->with(['statusRef', 'serviceType', 'shoppingOrder', 'items'])
+                ->lockForUpdate()
+                ->find($orderId);
+
+            if (! $order) {
+                throw new ApiException('Order tidak ditemukan.', 404);
+            }
+
+            if ((int) ($order->driver_id ?? 0) !== (int) $driver->id) {
+                throw new ApiException('Order ini tidak ditugaskan kepada driver saat ini.', 403);
+            }
+
+            if (($order->serviceType->code ?? null) !== 'SHOPPING') {
+                throw new ApiException('Update nota hanya tersedia untuk order SHOPPING.', 409);
+            }
+
+            $statusCode = strtoupper((string) ($order->statusRef->code ?? ''));
+            if (! in_array($statusCode, ['DRIVER_ASSIGNED', 'ARRIVED_MERCHANT'], true)) {
+                throw new ApiException('Harga nota hanya bisa diperbarui sebelum belanja selesai.', 409);
+            }
+
+            if (! $order->shoppingOrder) {
+                $order->shoppingOrder()->create([
+                    'failed_attempt_count' => 0,
+                    'item_surcharge' => 0,
+                    'overweight_surcharge' => 0,
+                    'cancellation_penalty' => 0,
+                    'has_overweight_item' => false,
+                    'recalculation_version' => 0,
+                ]);
+            }
+
+            $receiptNote = trim((string) ($payload['receipt_note'] ?? ''));
+            $items = is_array($payload['items'] ?? null) ? $payload['items'] : [];
+
+            foreach ($items as $itemPayload) {
+                if (! is_array($itemPayload)) {
+                    continue;
+                }
+
+                $itemId = (int) ($itemPayload['id'] ?? 0);
+                if ($itemId <= 0) {
+                    continue;
+                }
+
+                $item = $order->items()->where('id', $itemId)->lockForUpdate()->first();
+                if (! $item) {
+                    throw new ApiException('Item belanja tidak ditemukan pada order ini.', 404);
+                }
+
+                $quantity = array_key_exists('quantity', $itemPayload)
+                    ? max(1, (int) $itemPayload['quantity'])
+                    : (int) $item->quantity;
+                $unitPrice = array_key_exists('unit_price', $itemPayload) && $itemPayload['unit_price'] !== null
+                    ? max(0.0, (float) $itemPayload['unit_price'])
+                    : (float) $item->unit_price;
+                $isAvailable = array_key_exists('is_available', $itemPayload)
+                    ? (bool) $itemPayload['is_available']
+                    : (bool) $item->is_available;
+                $isHeavy = array_key_exists('is_heavy', $itemPayload)
+                    ? (bool) $itemPayload['is_heavy']
+                    : (bool) $item->is_heavy;
+
+                $metadata = is_array($item->metadata) ? $item->metadata : [];
+                if ($item->item_source === 'MANUAL') {
+                    $metadata['price_status'] = (! $isAvailable)
+                        ? 'UNAVAILABLE'
+                        : ($unitPrice > 0 ? 'DRIVER_CONFIRMED' : 'PENDING_DRIVER_INPUT');
+                }
+                if ($receiptNote !== '') {
+                    $metadata['receipt_note'] = $receiptNote;
+                }
+
+                $lineSubtotal = $isAvailable ? round($unitPrice * $quantity, 2) : 0.0;
+
+                $item->update([
+                    'quantity' => $quantity,
+                    'unit_price' => round($unitPrice, 2),
+                    'subtotal' => $lineSubtotal,
+                    'notes' => array_key_exists('notes', $itemPayload)
+                        ? ($itemPayload['notes'] !== null ? (string) $itemPayload['notes'] : null)
+                        : $item->notes,
+                    'is_available' => $isAvailable,
+                    'is_heavy' => $isHeavy,
+                    'metadata' => $metadata === [] ? null : $metadata,
+                ]);
+            }
+
+            return $this->shoppingPricingService->recalculate(
+                $order->refresh()->load(['items', 'shoppingOrder', 'statusRef', 'serviceType']),
+                $actor->id,
+                'DRIVER_RECEIPT_UPDATE',
+                true,
+                $receiptNote !== '' ? $receiptNote : 'Driver memperbarui harga nota belanja.'
+            );
+        });
+
+        return $this->driverOrderPayloadFactory->serialize(
+            $order->fresh($this->driverOrderPayloadFactory->relations()),
+            includeTimeline: true,
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
      */
     public function addShoppingItem(User $user, int $orderId, array $payload): Order
     {
-        return DB::transaction(function () use ($user, $orderId, $payload): Order {
+        return $this->addShoppingItems($user, $orderId, [$payload]);
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $items
+     */
+    public function addShoppingItems(User $user, int $orderId, array $items): Order
+    {
+        return DB::transaction(function () use ($user, $orderId, $items): Order {
             $order = $this->getEditableShoppingOrder($user, $orderId);
 
-            $itemSource = (string) $payload['item_source'];
-            $quantity = (int) $payload['quantity'];
-            $isHeavy = (bool) ($payload['is_heavy'] ?? false);
-            $notes = isset($payload['notes']) ? (string) $payload['notes'] : null;
-            $metadata = $payload['metadata'] ?? null;
-
-            if ($itemSource === 'MENU_DB') {
-                $menu = Menu::query()->where('id', (int) $payload['menu_id'])->first();
-
-                if (! $menu || ! $menu->is_available) {
-                    throw new ApiException('Menu tidak ditemukan atau tidak tersedia.', 404);
-                }
-
-                $menuName = $menu->name;
-                $unitPrice = (float) $menu->price;
-                $menuId = $menu->id;
-            } else {
-                $menuName = (string) $payload['menu_name'];
-                $unitPrice = (float) $payload['unit_price'];
-                $menuId = null;
+            if ($items === []) {
+                throw new ApiException('Minimal satu item belanja wajib ditambahkan.', 422);
             }
 
-            $lineSubtotal = round($unitPrice * $quantity, 2);
+            $statusCode = strtoupper((string) ($order->statusRef?->code ?? ''));
+            $routeChanged = false;
+            $pickupLocationsByMerchantId = [];
 
-            $order->items()->create([
-                'menu_id' => $menuId,
-                'item_source' => $itemSource,
-                'menu_name' => $menuName,
-                'quantity' => $quantity,
-                'unit_price' => round($unitPrice, 2),
-                'subtotal' => $lineSubtotal,
-                'line_service_fee' => 0,
-                'line_total' => $lineSubtotal,
-                'notes' => $notes,
-                'metadata' => $metadata,
-                'is_available' => true,
-                'is_heavy' => $isHeavy,
-            ]);
+            foreach ($items as $payload) {
+                if (! is_array($payload)) {
+                    continue;
+                }
 
-            return $this->recalculateShoppingOrder(
+                $merchant = $this->resolveManualItemMerchant($order, $payload);
+                $merchantId = (int) $merchant->id;
+                $pickupLocation = $pickupLocationsByMerchantId[$merchantId] ?? null;
+
+                if (! $pickupLocation) {
+                    $pickupLocation = $this->resolvePickupLocationForMerchant($order, $merchant);
+                }
+
+                if (! $pickupLocation) {
+                    if (! in_array($statusCode, ['PENDING', 'DRIVER_ASSIGNED'], true)) {
+                        throw new ApiException('Merchant baru hanya bisa ditambahkan sebelum driver mulai belanja.', 409);
+                    }
+
+                    $pickupLocation = $this->createPickupLocationForMerchant($order, $merchant);
+                    $routeChanged = true;
+                }
+
+                $pickupLocationsByMerchantId[$merchantId] = $pickupLocation;
+
+                $order->items()->create([
+                    'menu_id' => null,
+                    'pickup_location_id' => $pickupLocation->id,
+                    'item_source' => 'MANUAL',
+                    'menu_name' => (string) $payload['menu_name'],
+                    'quantity' => (int) $payload['quantity'],
+                    'unit_price' => 0,
+                    'subtotal' => 0,
+                    'notes' => isset($payload['notes']) ? (string) $payload['notes'] : null,
+                    'metadata' => ['price_status' => 'PENDING_DRIVER_INPUT'],
+                    'is_available' => true,
+                    'is_heavy' => false,
+                ]);
+            }
+
+            if ($routeChanged) {
+                $this->shoppingRouteService->applyRouteToOrder($order->refresh()->load(['orderLocations.restaurant']));
+            }
+
+            return $this->shoppingPricingService->recalculate(
                 $order->refresh()->load(['items', 'shoppingOrder', 'statusRef', 'serviceType']),
                 $user->id,
-                'CUSTOMER_ADD_ITEM'
+                $routeChanged ? 'SHOPPING_ROUTE_UPDATED' : 'CUSTOMER_ADD_ITEM',
+                true,
+                $routeChanged
+                    ? 'Customer menambahkan merchant/item belanja sehingga rute dihitung ulang.'
+                    : 'Customer menambahkan item belanja.'
             );
         });
     }
@@ -1171,10 +1316,6 @@ class OrderService
                 if (array_key_exists('menu_name', $payload) && $payload['menu_name'] !== null) {
                     $menuName = (string) $payload['menu_name'];
                 }
-
-                if (array_key_exists('unit_price', $payload) && $payload['unit_price'] !== null) {
-                    $unitPrice = (float) $payload['unit_price'];
-                }
             }
 
             $lineSubtotal = round($unitPrice * $quantity, 2);
@@ -1184,16 +1325,15 @@ class OrderService
                 'quantity' => $quantity,
                 'unit_price' => round($unitPrice, 2),
                 'subtotal' => $lineSubtotal,
-                'line_total' => $lineSubtotal,
                 'notes' => array_key_exists('notes', $payload) ? ($payload['notes'] !== null ? (string) $payload['notes'] : null) : $item->notes,
-                'is_heavy' => array_key_exists('is_heavy', $payload) ? (bool) $payload['is_heavy'] : (bool) $item->is_heavy,
-                'metadata' => array_key_exists('metadata', $payload) ? $payload['metadata'] : $item->metadata,
             ]);
 
-            return $this->recalculateShoppingOrder(
+            return $this->shoppingPricingService->recalculate(
                 $order->refresh()->load(['items', 'shoppingOrder', 'statusRef', 'serviceType']),
                 $user->id,
-                'CUSTOMER_UPDATE_ITEM'
+                'CUSTOMER_UPDATE_ITEM',
+                true,
+                'Customer memperbarui item belanja.'
             );
         });
     }
@@ -1212,12 +1352,33 @@ class OrderService
                 throw new ApiException('Order belanja harus memiliki minimal satu item.', 409);
             }
 
+            $pickupLocationId = $item->pickup_location_id !== null ? (int) $item->pickup_location_id : null;
             $item->delete();
+            $routeChanged = false;
 
-            return $this->recalculateShoppingOrder(
+            if ($pickupLocationId !== null && ! $order->items()->where('pickup_location_id', $pickupLocationId)->exists()) {
+                $pickup = OrderLocation::query()
+                    ->where('order_id', $order->id)
+                    ->where('id', $pickupLocationId)
+                    ->where('location_role', 'PICKUP')
+                    ->first();
+
+                if ($pickup) {
+                    $pickup->delete();
+                    $this->syncPrimaryRestaurantFromFirstPickup($order);
+                    $this->shoppingRouteService->applyRouteToOrder($order->refresh()->load(['orderLocations.restaurant']));
+                    $routeChanged = true;
+                }
+            }
+
+            return $this->shoppingPricingService->recalculate(
                 $order->refresh()->load(['items', 'shoppingOrder', 'statusRef', 'serviceType']),
                 $user->id,
-                'CUSTOMER_REMOVE_ITEM'
+                $routeChanged ? 'SHOPPING_ROUTE_UPDATED' : 'CUSTOMER_REMOVE_ITEM',
+                true,
+                $routeChanged
+                    ? 'Customer menghapus item terakhir pada merchant sehingga rute dihitung ulang.'
+                    : 'Customer menghapus item belanja.'
             );
         });
     }
@@ -1250,7 +1411,7 @@ class OrderService
     private function getEditableShoppingOrder(User $user, int $orderId): Order
     {
         $order = Order::query()
-            ->with(['items', 'shoppingOrder', 'statusRef', 'serviceType'])
+            ->with(['items', 'shoppingOrder', 'statusRef', 'serviceType', 'restaurant', 'orderLocations.restaurant'])
             ->find($orderId);
 
         if (! $order || $order->user_id !== $user->id) {
@@ -1282,154 +1443,105 @@ class OrderService
         return $order;
     }
 
-    private function recalculateShoppingOrder(Order $order, int $changedByUserId, string $triggerType, bool $writeHistory = true): Order
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function resolveManualItemMerchant(Order $order, array $payload): Restaurant
     {
-        $shoppingOrder = $order->shoppingOrder;
-        if (! $shoppingOrder instanceof ShoppingOrder) {
-            throw new ApiException('Data shopping order tidak ditemukan.', 500);
+        if (isset($payload['merchant_id']) && is_numeric($payload['merchant_id'])) {
+            $merchant = Restaurant::query()
+                ->where('status', 'active')
+                ->whereKey((int) $payload['merchant_id'])
+                ->first();
+
+            if (! $merchant) {
+                throw new ApiException('Merchant tidak ditemukan atau tidak aktif.', 404);
+            }
+
+            return $merchant;
         }
 
-        $itemBlockRule = $this->getRuleConfig((int) $order->service_type_id, 'ITEM_BLOCK_SURCHARGE');
-        $overweightRule = $this->getRuleConfig((int) $order->service_type_id, 'OVERWEIGHT_FLAT_SURCHARGE');
-
-        $oldSubtotal = (float) $order->subtotal;
-        $oldServiceFee = (float) $order->service_fee;
-        $oldTotalPrice = (float) $order->total_price;
-        $deliveryFee = (float) $order->delivery_fee;
-
-        $newSubtotal = round((float) $order->items->sum('subtotal'), 2);
-        $totalItemQuantity = (int) $order->items->sum('quantity');
-        $hasOverweightItem = $order->items->contains(fn (OrderItem $item) => (bool) $item->is_heavy);
-
-        $itemSurcharge = $this->calculateItemSurcharge($totalItemQuantity, $itemBlockRule);
-        $overweightSurcharge = $hasOverweightItem ? (float) ($overweightRule['surcharge'] ?? 0) : 0.0;
-        $cancellationPenalty = (float) $shoppingOrder->cancellation_penalty;
-
-        $newServiceFee = round($itemSurcharge + $overweightSurcharge + $cancellationPenalty, 2);
-        $newTotalPrice = round($newSubtotal + $deliveryFee + $newServiceFee, 2);
-
-        $nextVersion = (int) $shoppingOrder->recalculation_version + 1;
-
-        $shoppingOrder->update([
-            'item_surcharge' => round($itemSurcharge, 2),
-            'overweight_surcharge' => round($overweightSurcharge, 2),
-            'has_overweight_item' => $hasOverweightItem,
-            'recalculation_version' => $nextVersion,
-            'last_recalculated_at' => now(),
-            'pricing_snapshot' => [
-                'item_count' => $totalItemQuantity,
-                'subtotal' => $newSubtotal,
-                'delivery_fee' => $deliveryFee,
-                'item_surcharge' => round($itemSurcharge, 2),
-                'overweight_surcharge' => round($overweightSurcharge, 2),
-                'cancellation_penalty' => round($cancellationPenalty, 2),
-                'service_fee' => $newServiceFee,
-                'total_price' => $newTotalPrice,
-            ],
-        ]);
-
-        $order->update([
-            'subtotal' => $newSubtotal,
-            'service_fee' => $newServiceFee,
-            'total_price' => $newTotalPrice,
-        ]);
-
-        $this->orderPaymentService->syncPendingCodAmount($order->refresh());
-
-        OrderLog::query()->create([
-            'order_id' => $order->id,
-            'log_type' => 'PRICE_RECALCULATION',
-            'trigger_type' => $triggerType,
-            'old_subtotal' => round($oldSubtotal, 2),
-            'new_subtotal' => $newSubtotal,
-            'old_delivery_fee' => round($deliveryFee, 2),
-            'new_delivery_fee' => round($deliveryFee, 2),
-            'old_service_fee' => round($oldServiceFee, 2),
-            'new_service_fee' => $newServiceFee,
-            'old_total_price' => round($oldTotalPrice, 2),
-            'new_total_price' => $newTotalPrice,
-            'delta_total_price' => round($newTotalPrice - $oldTotalPrice, 2),
-            'recalculation_version' => $nextVersion,
-            'changed_by_user_id' => $changedByUserId,
-            'note' => 'Rekalkulasi harga order SHOPPING setelah perubahan item.',
-            'metadata' => [
-                'item_count' => $totalItemQuantity,
-                'has_overweight_item' => $hasOverweightItem,
-            ],
-        ]);
-
-        if ($writeHistory) {
-            OrderStatusHistory::query()->create([
-                'order_id' => $order->id,
-                'status_id' => $order->status_id,
-                'event_type' => 'ITEM_UPDATE',
-                'changed_by_user_id' => $changedByUserId,
-                'note' => 'Perubahan item order SHOPPING oleh customer.',
-                'price_snapshot' => [
-                    'subtotal' => $newSubtotal,
-                    'service_fee' => $newServiceFee,
-                    'total_price' => $newTotalPrice,
-                ],
-            ]);
+        if ($order->restaurant instanceof Restaurant && $order->restaurant->status === 'active') {
+            return $order->restaurant;
         }
 
-        return $order->refresh()->load(['restaurant', 'orderLocations', 'items', 'statusRef', 'statusHistories.statusRef', 'shoppingOrder']);
+        $pickup = $order->orderLocations
+            ->first(fn (OrderLocation $location): bool => strtoupper((string) $location->location_role) === 'PICKUP' && $location->restaurant instanceof Restaurant);
+
+        if ($pickup?->restaurant instanceof Restaurant && $pickup->restaurant->status === 'active') {
+            return $pickup->restaurant;
+        }
+
+        throw new ApiException('Merchant wajib dipilih untuk item manual.', 422);
     }
 
-    /**
-     * @return array<string, mixed>
-     */
-    private function getRuleConfig(int $serviceTypeId, string $ruleCode): array
+    private function resolvePickupLocationForMerchant(Order $order, Restaurant $merchant): ?OrderLocation
     {
-        $rule = ServiceFeeRule::query()
-            ->where('service_type_id', $serviceTypeId)
-            ->where('rule_code', $ruleCode)
-            ->where('is_active', true)
-            ->where(function ($query) {
-                $query->whereNull('starts_at')->orWhere('starts_at', '<=', now());
-            })
-            ->where(function ($query) {
-                $query->whereNull('ends_at')->orWhere('ends_at', '>=', now());
-            })
-            ->latest('id')
+        $order->loadMissing(['orderLocations.restaurant']);
+
+        $pickup = $order->orderLocations
+            ->filter(fn (OrderLocation $location): bool => strtoupper((string) $location->location_role) === 'PICKUP')
+            ->first(fn (OrderLocation $location): bool => (int) $location->restaurant_id === (int) $merchant->id);
+
+        if ($pickup instanceof OrderLocation) {
+            return $pickup;
+        }
+
+        if ((int) $order->restaurant_id === (int) $merchant->id) {
+            $legacyPickup = $order->orderLocations
+                ->filter(fn (OrderLocation $location): bool => strtoupper((string) $location->location_role) === 'PICKUP')
+                ->first(fn (OrderLocation $location): bool => $location->restaurant_id === null);
+
+            if ($legacyPickup instanceof OrderLocation) {
+                $legacyPickup->update([
+                    'restaurant_id' => $merchant->id,
+                    'label' => $legacyPickup->label ?: 'Merchant',
+                    'contact_name' => $legacyPickup->contact_name ?: $merchant->name,
+                    'contact_phone' => $legacyPickup->contact_phone ?: $merchant->phone,
+                    'full_address' => $legacyPickup->full_address ?: $merchant->address,
+                    'latitude' => $legacyPickup->latitude ?: $merchant->latitude,
+                    'longitude' => $legacyPickup->longitude ?: $merchant->longitude,
+                ]);
+
+                return $legacyPickup->refresh();
+            }
+        }
+
+        return null;
+    }
+
+    private function createPickupLocationForMerchant(Order $order, Restaurant $merchant): OrderLocation
+    {
+        $maxSequence = (int) $order->orderLocations()->max('sequence_no');
+        if ($order->restaurant_id === null) {
+            $order->update(['restaurant_id' => $merchant->id]);
+        }
+
+        return $order->orderLocations()->create([
+            'restaurant_id' => $merchant->id,
+            'location_role' => 'PICKUP',
+            'label' => 'Merchant',
+            'contact_name' => $merchant->name,
+            'contact_phone' => $merchant->phone,
+            'full_address' => $merchant->address,
+            'latitude' => $merchant->latitude,
+            'longitude' => $merchant->longitude,
+            'sequence_no' => max(1, $maxSequence + 1),
+        ]);
+    }
+
+    private function syncPrimaryRestaurantFromFirstPickup(Order $order): void
+    {
+        $firstPickup = $order->orderLocations()
+            ->where('location_role', 'PICKUP')
+            ->whereNotNull('restaurant_id')
+            ->orderBy('sequence_no')
+            ->orderBy('id')
             ->first();
 
-        return is_array($rule?->rule_config) ? $rule->rule_config : [];
-    }
-
-    /**
-     * @param  array<string, mixed>  $rule
-     */
-    private function calculateItemSurcharge(int $itemCount, array $rule): float
-    {
-        $freeUntil = max(0, (int) ($rule['free_until_item_count'] ?? 0));
-        $blockSize = max(1, (int) ($rule['block_size'] ?? 1));
-        $surchargePerBlock = max(0, (float) ($rule['surcharge_per_block'] ?? 0));
-
-        if ($itemCount <= $freeUntil || $surchargePerBlock <= 0) {
-            return 0.0;
-        }
-
-        $billableItems = $itemCount - $freeUntil;
-        $blockCount = (int) ceil($billableItems / $blockSize);
-
-        return (int) round($blockCount * $surchargePerBlock, 2);
-    }
-
-    private function calculateCancellationPenalty(Order $order, ShoppingOrder $shoppingOrder): float
-    {
-        $rule = $this->getRuleConfig((int) $order->service_type_id, 'CANCELLATION_PENALTY_AFTER_FAILED_ATTEMPTS');
-
-        $threshold = max(1, (int) ($rule['failed_attempt_threshold'] ?? 3));
-        $percent = max(0.0, (float) ($rule['penalty_percent_of_delivery_fee'] ?? 50));
-
-        if ((int) $shoppingOrder->failed_attempt_count < $threshold || $percent <= 0) {
-            return 0.0;
-        }
-
-        $deliveryFee = (float) $order->delivery_fee;
-
-        return (int) round($deliveryFee * ($percent / 100), 2);
+        $order->update([
+            'restaurant_id' => $firstPickup?->restaurant_id,
+        ]);
     }
 
     /**

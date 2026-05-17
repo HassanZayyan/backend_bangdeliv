@@ -9,9 +9,12 @@ use App\Models\Address;
 use App\Models\CourierOrder;
 use App\Models\Driver;
 use App\Models\Order;
+use App\Models\OrderItem;
+use App\Models\OrderLog;
 use App\Models\OrderPayment;
 use App\Models\OrderStatus;
 use App\Models\OrderStatusHistory;
+use App\Models\ShoppingOrder;
 use App\Models\ServiceType;
 use App\Models\User;
 use App\Services\DriverOrderRealtimeService;
@@ -923,6 +926,128 @@ class DriverOrderWorkflowTest extends TestCase
             'id' => $driver->id,
             'status' => 'available',
         ]);
+    }
+
+    public function test_driver_cannot_finish_shopping_before_manual_prices_are_filled(): void
+    {
+        [$driverUser, $driver] = $this->createActiveDriver('shopping-pending-price');
+        $order = $this->createShoppingOrder($driver, 'ARRIVED_MERCHANT');
+
+        ShoppingOrder::query()->create([
+            'order_id' => $order->id,
+            'failed_attempt_count' => 0,
+            'item_surcharge' => 0,
+            'overweight_surcharge' => 0,
+            'cancellation_penalty' => 0,
+            'has_overweight_item' => false,
+            'recalculation_version' => 0,
+        ]);
+
+        OrderItem::query()->create([
+            'order_id' => $order->id,
+            'item_source' => 'MANUAL',
+            'menu_name' => 'Telur 1 kg',
+            'quantity' => 1,
+            'unit_price' => 0,
+            'subtotal' => 0,
+            'is_available' => true,
+            'is_heavy' => false,
+        ]);
+
+        Sanctum::actingAs($driverUser);
+
+        $response = $this->postJson('/api/v1/driver/orders/'.$order->id.'/status-transition', [
+            'action_code' => 'CONFIRM_PICKED_UP',
+            'target_status_code' => 'PICKED_UP',
+        ]);
+
+        $response->assertStatus(409)
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('message', 'Harga nota untuk item manual belum lengkap.');
+    }
+
+    public function test_driver_bulk_updates_shopping_receipt_prices_and_recalculates_cod(): void
+    {
+        [$driverUser, $driver] = $this->createActiveDriver('shopping-receipt');
+        $order = $this->createShoppingOrder($driver, 'ARRIVED_MERCHANT');
+
+        ShoppingOrder::query()->create([
+            'order_id' => $order->id,
+            'failed_attempt_count' => 0,
+            'item_surcharge' => 0,
+            'overweight_surcharge' => 0,
+            'cancellation_penalty' => 0,
+            'has_overweight_item' => false,
+            'recalculation_version' => 0,
+        ]);
+
+        $item = OrderItem::query()->create([
+            'order_id' => $order->id,
+            'item_source' => 'MANUAL',
+            'menu_name' => 'Telur 1 kg',
+            'quantity' => 1,
+            'unit_price' => 0,
+            'subtotal' => 0,
+            'is_available' => true,
+            'is_heavy' => false,
+            'metadata' => ['price_status' => 'PENDING_DRIVER_INPUT'],
+        ]);
+
+        OrderPayment::query()->create([
+            'order_id' => $order->id,
+            'payment_method' => 'COD',
+            'payment_status' => 'PENDING',
+            'amount' => 18000,
+        ]);
+
+        Sanctum::actingAs($driverUser);
+
+        $response = $this->patchJson('/api/v1/driver/orders/'.$order->id.'/shopping-items', [
+            'items' => [
+                [
+                    'id' => $item->id,
+                    'quantity' => 2,
+                    'unit_price' => 15000,
+                    'is_available' => true,
+                    'is_heavy' => true,
+                    'notes' => 'Harga dari nota',
+                ],
+            ],
+            'receipt_note' => 'Nota Alfamart',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.pricing.subtotal', 30000)
+            ->assertJsonPath('data.pricing.overweight_surcharge', 6000)
+            ->assertJsonPath('data.pricing.total_price', 42000)
+            ->assertJsonPath('data.has_pending_shopping_prices', false);
+
+        $this->assertDatabaseHas('order_items', [
+            'id' => $item->id,
+            'quantity' => 2,
+            'unit_price' => 15000,
+            'subtotal' => 30000,
+            'is_heavy' => true,
+        ]);
+
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
+            'subtotal' => 30000,
+            'service_fee' => 6000,
+            'total_price' => 42000,
+        ]);
+
+        $this->assertDatabaseHas('order_payments', [
+            'order_id' => $order->id,
+            'payment_status' => 'PENDING',
+            'amount' => 42000,
+        ]);
+
+        $this->assertTrue(OrderLog::query()
+            ->where('order_id', $order->id)
+            ->where('trigger_type', 'DRIVER_RECEIPT_UPDATE')
+            ->exists());
     }
 
     /**

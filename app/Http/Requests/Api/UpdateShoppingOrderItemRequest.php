@@ -19,10 +19,7 @@ class UpdateShoppingOrderItemRequest extends FormRequest
         return [
             'quantity' => ['required', 'integer', 'min:1', 'max:99'],
             'notes' => ['nullable', 'string', 'max:500'],
-            'is_heavy' => ['nullable', 'boolean'],
             'menu_name' => ['nullable', 'string', 'max:255'],
-            'unit_price' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
-            'metadata' => ['nullable', 'array'],
         ];
     }
 }

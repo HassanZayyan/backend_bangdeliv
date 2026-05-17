@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Events\DriverLocationUpdated;
 use App\Events\OrderChatMessageSent;
+use App\Events\OrderContentUpdated;
 use App\Events\OrderStatusChanged;
 use Illuminate\Support\Facades\Log;
 
@@ -67,6 +68,21 @@ class OrderRealtimeBroadcaster
             [
                 'order_id' => $orderId,
                 'status_code' => $statusCode,
+            ],
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $pricing
+     */
+    public function orderContentUpdated(int $orderId, string $changeType, array $pricing = []): bool
+    {
+        return $this->safelyBroadcast(
+            new OrderContentUpdated($orderId, $changeType, $pricing, now()->toIso8601String()),
+            'OrderContentUpdated',
+            [
+                'order_id' => $orderId,
+                'change_type' => $changeType,
             ],
         );
     }

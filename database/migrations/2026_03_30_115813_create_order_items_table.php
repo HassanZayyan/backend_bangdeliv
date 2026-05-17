@@ -16,13 +16,12 @@ return new class extends Migration
             $table->id();
             $table->foreignId('order_id')->constrained()->cascadeOnDelete();
             $table->foreignId('menu_id')->nullable()->constrained()->nullOnDelete();
+            $table->foreignId('pickup_location_id')->nullable()->constrained('order_locations')->nullOnDelete();
             $table->enum('item_source', ['MENU_DB', 'MANUAL'])->default('MENU_DB');
             $table->string('menu_name'); // snapshot nama menu saat order
             $table->unsignedInteger('quantity');
             $table->decimal('unit_price', 12, 2); // snapshot harga saat order
             $table->decimal('subtotal', 12, 2); // qty × unit_price
-            $table->decimal('line_service_fee', 12, 2)->default(0);
-            $table->decimal('line_total', 12, 2)->default(0);
             $table->text('notes')->nullable();
             $table->json('metadata')->nullable();
             $table->boolean('is_available')->default(true); // driver update jika item habis
@@ -31,6 +30,7 @@ return new class extends Migration
 
             $table->index(['order_id', 'item_source'], 'order_items_order_source_idx');
             $table->index(['order_id', 'is_heavy'], 'order_items_order_heavy_idx');
+            $table->index(['order_id', 'pickup_location_id'], 'order_items_order_pickup_idx');
         });
 
         if (DB::getDriverName() === 'mysql') {

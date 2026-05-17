@@ -131,6 +131,77 @@ class ChatbotCourierFlowTest extends TestCase
         $this->assertStringContainsString('Ongkir:', $finalMessage);
     }
 
+    public function test_chatbot_kurir_requests_profile_address_when_missing(): void
+    {
+        $this->fakeGeocoding();
+
+        $user = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+            'phone' => '081111111118',
+        ]);
+
+        $token = $user->createToken('test-chatbot')->plainTextToken;
+
+        $response = $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/process', [
+                'message' => 'kirim ke polines, isi paket: kunci',
+                'service_type' => 'kurir',
+                'session_id' => 'sess-kurir-no-address',
+            ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('data.intent', 'courier_order')
+            ->assertJsonPath('data.validation.is_valid_order', false)
+            ->assertJsonPath('data.order.created', false)
+            ->assertJsonPath('data.action_payloads.OPEN_ADDRESSES.label', 'Isi Alamat Saya');
+
+        $this->assertSame(['OPEN_ADDRESSES'], $response->json('data.validation.next_actions'));
+    }
+
+    public function test_chatbot_kurir_treats_zero_coordinate_address_as_missing(): void
+    {
+        $this->fakeGeocoding();
+
+        $user = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+            'phone' => '081111111119',
+        ]);
+
+        Address::query()->create([
+            'user_id' => $user->id,
+            'label' => 'Rumah',
+            'recipient_name' => $user->name,
+            'phone' => $user->phone,
+            'full_address' => 'Jl. Koordinat Nol',
+            'latitude' => 0,
+            'longitude' => 0,
+            'is_default' => true,
+        ]);
+
+        $token = $user->createToken('test-chatbot')->plainTextToken;
+
+        $response = $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/process', [
+                'message' => 'kirim ke polines, isi paket: kunci',
+                'service_type' => 'kurir',
+                'session_id' => 'sess-kurir-zero-address',
+            ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('data.validation.is_valid_order', false)
+            ->assertJsonPath('data.validation.next_actions.0', 'OPEN_ADDRESSES');
+
+        $this->assertSame(['OPEN_ADDRESSES'], $response->json('data.validation.next_actions'));
+    }
+
     public function test_chatbot_kurir_uses_profile_pickup_for_rumah_alias(): void
     {
         $this->fakeGeocoding();

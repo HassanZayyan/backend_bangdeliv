@@ -89,6 +89,7 @@ class Order extends Model
         'paid_amount',
         'paid_by_user_id',
         'paid_at',
+        'shopping_stops',
     ];
 
     protected function casts(): array
@@ -246,6 +247,75 @@ class Order extends Model
         return $this->resolvedPaidPayment()?->paid_at;
     }
 
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    public function getShoppingStopsAttribute(): array
+    {
+        $serviceCode = strtoupper((string) ($this->serviceType?->code ?? ''));
+        if ($serviceCode !== 'SHOPPING') {
+            return [];
+        }
+
+        if (! $this->relationLoaded('orderLocations')) {
+            $this->setRelation('orderLocations', $this->orderLocations()->with('restaurant')->get());
+        } else {
+            $this->orderLocations->loadMissing('restaurant');
+        }
+
+        if (! $this->relationLoaded('items')) {
+            $this->setRelation('items', $this->items()->get());
+        }
+
+        $pickups = $this->orderLocations
+            ->filter(fn (OrderLocation $location): bool => strtoupper((string) $location->location_role) === 'PICKUP')
+            ->sortBy([['sequence_no', 'asc'], ['id', 'asc']])
+            ->values();
+
+        if ($pickups->isEmpty()) {
+            return [];
+        }
+
+        $firstPickupId = (int) $pickups->first()->id;
+
+        return $pickups
+            ->map(function (OrderLocation $pickup) use ($firstPickupId): array {
+                $pickupId = (int) $pickup->id;
+                $restaurantId = $pickup->restaurant_id !== null ? (int) $pickup->restaurant_id : null;
+
+                $items = $this->items
+                    ->filter(function (OrderItem $item) use ($pickupId, $firstPickupId, $restaurantId): bool {
+                        if ($item->pickup_location_id !== null) {
+                            return (int) $item->pickup_location_id === $pickupId;
+                        }
+
+                        return $pickupId === $firstPickupId
+                            && $restaurantId !== null
+                            && (int) $this->restaurant_id === $restaurantId;
+                    })
+                    ->map(fn (OrderItem $item): array => $this->serializeShoppingStopItem($item, $pickupId))
+                    ->values()
+                    ->all();
+
+                return [
+                    'pickup_location_id' => $pickupId,
+                    'sequence_no' => (int) $pickup->sequence_no,
+                    'merchant' => [
+                        'id' => $restaurantId,
+                        'name' => $pickup->restaurant?->name ?? $pickup->contact_name ?? $pickup->label,
+                        'merchant_type' => $pickup->restaurant?->merchant_type,
+                        'address' => $pickup->full_address,
+                        'phone' => $pickup->contact_phone,
+                        'latitude' => $pickup->latitude !== null ? (float) $pickup->latitude : null,
+                        'longitude' => $pickup->longitude !== null ? (float) $pickup->longitude : null,
+                    ],
+                    'items' => $items,
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
     private function resolvedDropoffLocation(): ?OrderLocation
     {
         if (! $this->relationLoaded('orderLocations')) {
@@ -278,5 +348,36 @@ class Order extends Model
             ->where('payment_status', 'PAID')
             ->sortByDesc(fn (OrderPayment $payment): int => $payment->paid_at?->getTimestamp() ?? 0)
             ->first();
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function serializeShoppingStopItem(OrderItem $item, int $fallbackPickupLocationId): array
+    {
+        $isManual = strtoupper((string) $item->item_source) === 'MANUAL';
+        $isAvailable = (bool) $item->is_available;
+        $unitPrice = (float) $item->unit_price;
+
+        return [
+            'id' => (int) $item->id,
+            'pickup_location_id' => $item->pickup_location_id !== null
+                ? (int) $item->pickup_location_id
+                : $fallbackPickupLocationId,
+            'menu_id' => $item->menu_id !== null ? (int) $item->menu_id : null,
+            'item_source' => strtoupper((string) $item->item_source),
+            'name' => (string) $item->menu_name,
+            'menu_name' => (string) $item->menu_name,
+            'quantity' => (int) $item->quantity,
+            'unit_price' => round($unitPrice, 2),
+            'subtotal' => round((float) $item->subtotal, 2),
+            'line_total' => round((float) $item->subtotal, 2),
+            'notes' => $item->notes,
+            'is_available' => $isAvailable,
+            'is_heavy' => (bool) $item->is_heavy,
+            'price_status' => $isManual && $isAvailable && $unitPrice <= 0
+                ? 'PENDING_DRIVER_INPUT'
+                : (string) data_get($item->metadata, 'price_status', 'CONFIRMED'),
+        ];
     }
 }

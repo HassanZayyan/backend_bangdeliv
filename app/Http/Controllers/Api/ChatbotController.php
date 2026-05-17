@@ -8,8 +8,8 @@ use App\Models\AiChatLog;
 use App\Models\User;
 use App\Services\ChatbotCourierOrderService;
 use App\Services\ChatbotGeminiService;
-use App\Services\ChatbotOrderValidationService;
 use App\Services\ChatbotRideOrderService;
+use App\Services\ChatbotShoppingOrderService;
 use App\Services\GoogleMapsGeocodingService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -52,14 +52,15 @@ class ChatbotController extends Controller
     private const INTENT_TO_SERVICE_TYPE = [
         'ride_order' => 'antar_jemput',
         'courier_order' => 'kurir',
+        'shopping_order' => 'nitip',
         'pesan_makanan' => 'nitip',
         'out_of_domain' => 'nitip',
     ];
 
     public function __construct(
-        private readonly ChatbotOrderValidationService $validator,
         private readonly ChatbotCourierOrderService $courierOrderService,
         private readonly ChatbotRideOrderService $rideOrderService,
+        private readonly ChatbotShoppingOrderService $shoppingOrderService,
         private readonly ChatbotGeminiService $geminiService,
         private readonly GoogleMapsGeocodingService $geocodingService,
     ) {
@@ -285,13 +286,7 @@ class ChatbotController extends Controller
             $patchedPayload = match ($serviceType) {
                 'antar_jemput' => $this->rideOrderService->applyLocationPatch($user, $normalizedSessionId, $target, $latitude, $longitude, $address),
                 'kurir' => $this->courierOrderService->applyLocationPatch($user, $normalizedSessionId, $target, $latitude, $longitude, $address),
-                'nitip' => $this->patchShoppingDraftPayload(
-                    $this->resolveExistingAssistantPayload($latestAssistantLog),
-                    $target,
-                    $latitude,
-                    $longitude,
-                    $address
-                ),
+                'nitip' => $this->shoppingOrderService->applyLocationPatch($user, $normalizedSessionId, $target, $latitude, $longitude, $address),
                 default => throw new ApiException('Service type tidak didukung untuk patch lokasi.', 422),
             };
         } catch (ApiException $exception) {
@@ -501,18 +496,6 @@ class ChatbotController extends Controller
         return preg_match('/^pin\s+-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?$/iu', $address) === 1;
     }
 
-    /**
-     * @return array<string, mixed>
-     */
-    private function resolveExistingAssistantPayload(?AiChatLog $latestAssistantLog): array
-    {
-        if ($latestAssistantLog === null || ! is_array($latestAssistantLog->ai_response)) {
-            throw new ApiException('Draft chatbot belum tersedia untuk diperbarui.', 422);
-        }
-
-        return $latestAssistantLog->ai_response;
-    }
-
     public function clearSession(Request $request, string $sessionId): JsonResponse
     {
         $normalizedSessionId = substr(trim($sessionId), 0, 100);
@@ -604,27 +587,32 @@ class ChatbotController extends Controller
         string $serviceCode
     ) {
         try {
-            $modelContext = $this->buildModelContext($user, $sessionId, $serviceType);
-            $parsed = $this->geminiService->parseFoodOrder($message, $modelContext);
-            $rawPayload = is_array($parsed['payload'] ?? null)
-                ? $parsed['payload']
-                : [
-                    'intent' => 'out_of_domain',
-                    'resto' => null,
-                    'items' => [],
-                ];
+            $nluPayload = null;
+            $modelUsed = null;
+            $fastCommand = $this->detectTransportFastCommand($message);
 
-            $validatedPayload = $this->validator->validate($rawPayload);
-            $validatedPayload = $this->enrichShoppingActionPayload($validatedPayload);
-            $validatedPayload['assistant_text'] = $this->buildShoppingAssistantText($validatedPayload);
+            if ($fastCommand !== null) {
+                $nluPayload = ['command' => $fastCommand];
+                $modelUsed = 'deterministic-command';
+            } else {
+                try {
+                    $modelContext = $this->buildModelContext($user, $sessionId, $serviceType);
+                    $parsed = $this->geminiService->parseFoodOrder($message, $modelContext);
+                    $nluPayload = is_array($parsed['payload'] ?? null) ? $parsed['payload'] : null;
+                    $modelUsed = isset($parsed['model_used']) ? (string) $parsed['model_used'] : null;
+                } catch (ApiException $exception) {
+                    $nluPayload = null;
+                    $modelUsed = null;
+                }
+            }
 
-            $modelUsed = isset($parsed['model_used']) ? (string) $parsed['model_used'] : null;
+            $shoppingPayload = $this->shoppingOrderService->process($user, $message, $sessionId, $nluPayload);
 
             $this->storeChatLogs(
                 user: $user,
                 sessionId: $sessionId,
                 userMessage: $message,
-                assistantPayload: $validatedPayload,
+                assistantPayload: $shoppingPayload,
                 modelUsed: $modelUsed
             );
 
@@ -635,7 +623,7 @@ class ChatbotController extends Controller
                     'service_type' => $serviceType,
                     'service_code' => $serviceCode,
                 ],
-                'data' => $validatedPayload,
+                'data' => $shoppingPayload,
                 'model_used' => $modelUsed,
             ], 200);
         } catch (ApiException $exception) {
@@ -645,85 +633,6 @@ class ChatbotController extends Controller
                 'errors' => $exception->errors(),
             ], $exception->status());
         }
-    }
-
-    /**
-     * @param  array<string, mixed>  $payload
-     */
-    private function buildShoppingAssistantText(array $payload): string
-    {
-        $intent = (string) ($payload['intent'] ?? 'unknown');
-        if ($intent !== 'pesan_makanan') {
-            return 'Aku fokus bantu pemesanan makanan. Coba tulis menu dan jumlahnya, ya.';
-        }
-
-        $validation = is_array($payload['validation'] ?? null)
-            ? $payload['validation']
-            : [];
-
-        $isValidOrder = ($validation['is_valid_order'] ?? false) === true;
-        $reasons = is_array($validation['rejection_reasons'] ?? null)
-            ? $validation['rejection_reasons']
-            : [];
-        $unmatchedItems = is_array($validation['unmatched_items'] ?? null)
-            ? $validation['unmatched_items']
-            : [];
-        $matchedItems = is_array($validation['matched_items'] ?? null)
-            ? $validation['matched_items']
-            : [];
-        $matchedRestaurant = is_array($validation['matched_restaurant'] ?? null)
-            ? $validation['matched_restaurant']
-            : null;
-
-        if (!$isValidOrder) {
-            $buffer = "Maaf, pesananmu belum bisa diproses karena:\n";
-
-            foreach ($reasons as $reason) {
-                $buffer .= '- '.trim((string) $reason)."\n";
-            }
-
-            if ($unmatchedItems !== []) {
-                $buffer .= '- Menu yang belum ditemukan:' . "\n";
-                foreach ($unmatchedItems as $item) {
-                    if (!is_array($item)) {
-                        continue;
-                    }
-
-                    $qty = max(1, (int) ($item['qty'] ?? 1));
-                    $menu = (string) ($item['menu'] ?? '-');
-                    $buffer .= "  - {$qty}x {$menu}\n";
-                }
-            }
-
-            $buffer .= "\nCoba pilih menu/resto yang tersedia di aplikasi, ya.";
-
-            return trim($buffer);
-        }
-
-        if ($matchedItems !== []) {
-            $buffer = "Siap, pesananmu valid dan tersedia:\n";
-
-            foreach ($matchedItems as $item) {
-                if (!is_array($item)) {
-                    continue;
-                }
-
-                $qty = max(1, (int) ($item['qty'] ?? 1));
-                $menuName = (string) ($item['menu_name'] ?? '-');
-                $buffer .= "- {$qty}x {$menuName}\n";
-            }
-
-            $restaurantName = is_array($matchedRestaurant)
-                ? trim((string) ($matchedRestaurant['name'] ?? ''))
-                : '';
-            if ($restaurantName !== '') {
-                $buffer .= "\nResto: {$restaurantName}";
-            }
-
-            return trim($buffer);
-        }
-
-        return 'Aku belum menangkap item pesananmu. Coba tulis seperti: "2 ayam geprek, 1 es teh".';
     }
 
     /**
@@ -910,6 +819,19 @@ class ChatbotController extends Controller
             ];
         }
 
+        if (is_array($payload['shopping'] ?? null)) {
+            $shopping = $payload['shopping'];
+            $merchant = is_array($shopping['merchant'] ?? null) ? $shopping['merchant'] : [];
+            $delivery = is_array($shopping['delivery'] ?? null) ? $shopping['delivery'] : [];
+            $items = is_array($shopping['items'] ?? null) ? $shopping['items'] : [];
+            $summary['shopping'] = [
+                'merchant_name' => $this->normalizeOptionalContextString($merchant['name'] ?? null),
+                'delivery_address' => $this->normalizeOptionalContextString($delivery['address'] ?? null),
+                'item_count' => count($items),
+                'ready_to_confirm' => (bool) ($shopping['ready_to_confirm'] ?? false),
+            ];
+        }
+
         if (is_array($payload['delivery'] ?? null)) {
             $delivery = $payload['delivery'];
             $summary['delivery'] = [
@@ -1054,6 +976,14 @@ class ChatbotController extends Controller
             'kurir' => ['OPEN_MAP_PICKER_PICKUP', 'OPEN_MAP_PICKER_DROPOFF'],
             default => [],
         };
+
+        if (in_array('OPEN_ADDRESSES', $nextActions, true)) {
+            $nextActions = array_values(array_filter(
+                $nextActions,
+                static fn (string $action): bool => $action === 'OPEN_ADDRESSES'
+            ));
+        }
+
         $hasTransportMapAction = false;
         foreach ($transportMapActions as $action) {
             if (in_array($action, $nextActions, true)) {
@@ -1080,6 +1010,12 @@ class ChatbotController extends Controller
         $actionPayloads = is_array($payload['action_payloads'] ?? null)
             ? $payload['action_payloads']
             : [];
+
+        if (in_array('OPEN_ADDRESSES', $nextActions, true)) {
+            $actionPayloads['OPEN_ADDRESSES'] = [
+                'label' => 'Isi Alamat Saya',
+            ];
+        }
 
         if (in_array('OPEN_ROUTE_PICKER', $nextActions, true)) {
             if ($serviceType === 'antar_jemput') {
@@ -1269,80 +1205,4 @@ class ChatbotController extends Controller
         return $ordered;
     }
 
-    /**
-     * @param  array<string, mixed>  $payload
-     * @return array<string, mixed>
-     */
-    private function enrichShoppingActionPayload(array $payload): array
-    {
-        $intent = strtolower(trim((string) ($payload['intent'] ?? '')));
-        $validation = is_array($payload['validation'] ?? null)
-            ? $payload['validation']
-            : [];
-
-        if ($intent === 'pesan_makanan') {
-            $nextActionsRaw = is_array($validation['next_actions'] ?? null)
-                ? $validation['next_actions']
-                : [];
-            $nextActions = [];
-            foreach ($nextActionsRaw as $action) {
-                $normalized = strtoupper(trim((string) $action));
-                if ($normalized !== '') {
-                    $nextActions[] = $normalized;
-                }
-            }
-
-            $nextActions[] = 'OPEN_MAP_PICKER_DELIVERY';
-            $validation['next_actions'] = array_values(array_unique($nextActions));
-
-            $delivery = is_array($payload['delivery'] ?? null)
-                ? $payload['delivery']
-                : [];
-
-            $actionPayloads = is_array($payload['action_payloads'] ?? null)
-                ? $payload['action_payloads']
-                : [];
-            $actionPayloads['OPEN_MAP_PICKER_DELIVERY'] = [
-                'target' => 'delivery',
-                'label' => 'Pilih Titik Antar',
-                'initial_latitude' => $delivery['latitude'] ?? null,
-                'initial_longitude' => $delivery['longitude'] ?? null,
-            ];
-
-            $payload['action_payloads'] = $actionPayloads;
-        }
-
-        $payload['validation'] = $validation;
-
-        return $payload;
-    }
-
-    /**
-     * @param  array<string, mixed>  $payload
-     * @return array<string, mixed>
-     */
-    private function patchShoppingDraftPayload(
-        array $payload,
-        string $target,
-        float $latitude,
-        float $longitude,
-        string $address
-    ): array {
-        if ($target !== 'delivery') {
-            throw new ApiException('Target lokasi nitip tidak valid.', 422);
-        }
-
-        $delivery = is_array($payload['delivery'] ?? null) ? $payload['delivery'] : [];
-        $delivery['address'] = $address;
-        $delivery['latitude'] = $latitude;
-        $delivery['longitude'] = $longitude;
-        $delivery['source'] = 'map_pin';
-
-        $payload['delivery'] = $delivery;
-        $payload['intent'] = (string) ($payload['intent'] ?? 'pesan_makanan');
-        $payload['service_type'] = 'nitip';
-        $payload['assistant_text'] = 'Titik antar berhasil diperbarui. Lanjutkan detail pesananmu, ya.';
-
-        return $this->enrichShoppingActionPayload($payload);
-    }
 }

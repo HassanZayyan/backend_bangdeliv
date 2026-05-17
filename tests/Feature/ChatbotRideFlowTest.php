@@ -339,8 +339,48 @@ class ChatbotRideFlowTest extends TestCase
             ->assertJsonPath('data.order.created', false);
 
         $nextActions = $response->json('data.validation.next_actions') ?? [];
-        $this->assertContains('OPEN_ADDRESSES', $nextActions);
-        $this->assertContains('OPEN_MAP_PICKER_PICKUP', $nextActions);
+        $this->assertSame(['OPEN_ADDRESSES'], $nextActions);
+        $this->assertSame('Isi Alamat Saya', $response->json('data.action_payloads.OPEN_ADDRESSES.label'));
+    }
+
+    public function test_chatbot_ride_treats_zero_coordinate_address_as_missing(): void
+    {
+        $this->fakeGeminiAndGeocoding();
+
+        $user = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+            'phone' => '089900000023',
+        ]);
+
+        Address::query()->create([
+            'user_id' => $user->id,
+            'label' => 'Rumah',
+            'recipient_name' => $user->name,
+            'phone' => $user->phone,
+            'full_address' => 'Jl. Koordinat Nol',
+            'latitude' => 0,
+            'longitude' => 0,
+            'is_default' => true,
+        ]);
+
+        $token = $user->createToken('test-chatbot-ride')->plainTextToken;
+
+        $response = $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/process', [
+                'message' => 'antar ke polines',
+                'service_type' => 'antar_jemput',
+                'session_id' => 'sess-ride-zero-address',
+            ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('data.validation.is_valid_order', false)
+            ->assertJsonPath('data.validation.next_actions.0', 'OPEN_ADDRESSES');
+
+        $this->assertSame(['OPEN_ADDRESSES'], $response->json('data.validation.next_actions'));
     }
 
     public function test_chatbot_ride_can_build_draft_from_destination_map_pin_before_chat(): void

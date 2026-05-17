@@ -28,6 +28,10 @@ class RestaurantService
             });
         }
 
+        if (!empty($filters['merchant_type'])) {
+            $query->where('merchant_type', (string) $filters['merchant_type']);
+        }
+
         $sort = (string) ($filters['sort'] ?? 'newest');
 
         if ($sort === 'rating') {
@@ -47,6 +51,8 @@ class RestaurantService
                 'id' => $restaurant->id,
                 'name' => $restaurant->name,
                 'slug' => $restaurant->slug,
+                'merchant_type' => $restaurant->merchant_type,
+                'address' => $restaurant->address,
                 'banner_image' => $restaurant->banner_image,
                 'avg_rating' => (float) $restaurant->avg_rating,
                 'total_reviews' => (int) $restaurant->total_reviews,
@@ -92,6 +98,7 @@ class RestaurantService
             'id' => $restaurant->id,
             'name' => $restaurant->name,
             'slug' => $restaurant->slug,
+            'merchant_type' => $restaurant->merchant_type,
             'description' => $restaurant->description,
             'address' => $restaurant->address,
             'phone' => $restaurant->phone,
@@ -141,6 +148,7 @@ class RestaurantService
                 'id' => $restaurant->id,
                 'name' => $restaurant->name,
                 'slug' => $restaurant->slug,
+                'merchant_type' => $restaurant->merchant_type,
             ],
             'categories' => $categories->map(fn ($category): array => [
                 'id' => $category->id,

@@ -16,6 +16,8 @@ return new class extends Migration
             $table->string('name');
             $table->string('slug')->unique();
             $table->text('description')->nullable();
+            $table->enum('merchant_type', ['restaurant', 'warung', 'convenience_store', 'other'])
+                ->default('restaurant');
             $table->text('address');
             $table->decimal('latitude', 10, 8);
             $table->decimal('longitude', 11, 8);
@@ -29,6 +31,7 @@ return new class extends Migration
             $table->softDeletes();
 
             $table->index('status');
+            $table->index(['merchant_type', 'status'], 'restaurants_type_status_idx');
         });
     }
 

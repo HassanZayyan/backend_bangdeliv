@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property string $name
  * @property string $slug
  * @property string|null $description
+ * @property string $merchant_type
  * @property string|null $address
  * @property string|null $latitude
  * @property string|null $longitude
@@ -38,6 +39,7 @@ class Restaurant extends Model
         'name',
         'slug',
         'description',
+        'merchant_type',
         'address',
         'latitude',
         'longitude',
@@ -54,6 +56,7 @@ class Restaurant extends Model
         return [
             'latitude' => 'decimal:8',
             'longitude' => 'decimal:8',
+            'merchant_type' => 'string',
             'avg_rating' => 'decimal:2',
             'total_reviews' => 'integer',
             'estimated_prep_time' => 'integer',

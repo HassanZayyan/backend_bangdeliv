@@ -9,13 +9,14 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $id
  * @property int $order_id
  * @property int|null $menu_id
+ * @property int|null $pickup_location_id
  * @property string $item_source
  * @property string $menu_name
  * @property int $quantity
  * @property string $unit_price
  * @property string $subtotal
- * @property string $line_service_fee
- * @property string $line_total
+ * @property-read string $line_service_fee
+ * @property-read string $line_total
  * @property string|null $notes
  * @property array<string, mixed>|null $metadata
  * @property bool $is_available
@@ -23,19 +24,19 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  *
  * @property-read \App\Models\Order $order
  * @property-read \App\Models\Menu|null $menu
+ * @property-read \App\Models\OrderLocation|null $pickupLocation
  */
 class OrderItem extends Model
 {
     protected $fillable = [
         'order_id',
         'menu_id',
+        'pickup_location_id',
         'item_source',
         'menu_name',
         'quantity',
         'unit_price',
         'subtotal',
-        'line_service_fee',
-        'line_total',
         'notes',
         'metadata',
         'is_available',
@@ -48,8 +49,6 @@ class OrderItem extends Model
             'quantity' => 'integer',
             'unit_price' => 'decimal:2',
             'subtotal' => 'decimal:2',
-            'line_service_fee' => 'decimal:2',
-            'line_total' => 'decimal:2',
             'metadata' => 'array',
             'is_available' => 'boolean',
             'is_heavy' => 'boolean',
@@ -64,5 +63,20 @@ class OrderItem extends Model
     public function menu(): BelongsTo
     {
         return $this->belongsTo(Menu::class);
+    }
+
+    public function pickupLocation(): BelongsTo
+    {
+        return $this->belongsTo(OrderLocation::class, 'pickup_location_id');
+    }
+
+    public function getLineServiceFeeAttribute($value): string
+    {
+        return $value ?? '0.00';
+    }
+
+    public function getLineTotalAttribute($value): string
+    {
+        return $value ?? (string) ($this->attributes['subtotal'] ?? '0.00');
     }
 }

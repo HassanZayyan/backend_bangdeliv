@@ -5,11 +5,13 @@ namespace App\Http\Controllers\Api;
 use App\Exceptions\ApiException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\AddShoppingOrderItemRequest;
+use App\Http\Requests\Api\AddShoppingOrderItemsRequest;
 use App\Http\Requests\Api\CancelOrderRequest;
 use App\Http\Requests\Api\CheckoutOrderRequest;
 use App\Http\Requests\Api\CreateRideOrderRequest;
 use App\Http\Requests\Api\RecordCodPaymentRequest;
 use App\Http\Requests\Api\RecordFailedAttemptRequest;
+use App\Http\Requests\Api\UpdateDriverShoppingItemsRequest;
 use App\Http\Requests\Api\UpdateShoppingOrderItemRequest;
 use App\Http\Requests\Api\ValidateRideDestinationRequest;
 use App\Http\Responses\ApiResponse;
@@ -125,6 +127,22 @@ class OrderController extends Controller
         }
     }
 
+    public function addShoppingItems(AddShoppingOrderItemsRequest $request, int $orderId): JsonResponse
+    {
+        try {
+            $validated = $request->validated();
+            $order = $this->orderService->addShoppingItems(
+                $request->user(),
+                $orderId,
+                $validated['items'] ?? []
+            );
+
+            return $this->success($order, 'Item belanja berhasil ditambahkan.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
     public function updateShoppingItem(UpdateShoppingOrderItemRequest $request, int $orderId, int $itemId): JsonResponse
     {
         try {
@@ -142,6 +160,21 @@ class OrderController extends Controller
             $order = $this->orderService->removeShoppingItem($request->user(), $orderId, $itemId);
 
             return $this->success($order, 'Item belanja berhasil dihapus.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
+    public function updateDriverShoppingItems(UpdateDriverShoppingItemsRequest $request, int $orderId): JsonResponse
+    {
+        try {
+            $payload = $this->orderService->updateShoppingItemsByDriver(
+                $request->user(),
+                $orderId,
+                $request->validated()
+            );
+
+            return $this->success($payload, 'Item belanja berhasil diperbarui dari nota.');
         } catch (ApiException $exception) {
             return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
         }

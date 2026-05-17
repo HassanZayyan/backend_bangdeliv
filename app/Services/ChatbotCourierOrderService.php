@@ -111,7 +111,8 @@ class ChatbotCourierOrderService
         private readonly DeliveryPricingService $deliveryPricingService,
         private readonly OrderPaymentService $orderPaymentService,
         private readonly CourierPackagePolicyService $packagePolicyService,
-        private readonly DriverOrderRealtimeService $driverOrderRealtimeService
+        private readonly DriverOrderRealtimeService $driverOrderRealtimeService,
+        private readonly ChatbotAddressReadinessService $addressReadinessService
     ) {}
 
     /**
@@ -814,20 +815,12 @@ class ChatbotCourierOrderService
 
     private function resolveProfilePickupAddress(Address $address): ?array
     {
-        return [
-            'formatted_address' => trim((string) $address->full_address),
-            'latitude' => (float) $address->latitude,
-            'longitude' => (float) $address->longitude,
-        ];
+        return $this->addressReadinessService->toLocationPayload($address);
     }
 
     private function resolveDefaultPickupAddress(User $user): ?Address
     {
-        return Address::query()
-            ->where('user_id', $user->id)
-            ->orderByDesc('is_default')
-            ->orderByDesc('id')
-            ->first();
+        return $this->addressReadinessService->resolveDefaultUsableAddress($user);
     }
 
     /**

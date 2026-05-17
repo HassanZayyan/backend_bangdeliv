@@ -51,6 +51,17 @@
                     @error('name') <div style="color:var(--color-danger); font-size:12px; margin-top:4px;"><i class='bx bx-error-circle'></i> {{ $message }}</div> @enderror
                 </div>
 
+                <div class="form-group" style="margin-bottom:0;">
+                    <label>Tipe Merchant <span style="color:var(--color-danger);">*</span></label>
+                    <select name="merchant_type" class="form-control" required>
+                        <option value="restaurant" @selected(old('merchant_type', $restaurant->merchant_type ?? 'restaurant') === 'restaurant')>Restoran</option>
+                        <option value="warung" @selected(old('merchant_type', $restaurant->merchant_type ?? 'restaurant') === 'warung')>Warung</option>
+                        <option value="convenience_store" @selected(old('merchant_type', $restaurant->merchant_type ?? 'restaurant') === 'convenience_store')>Minimarket</option>
+                        <option value="other" @selected(old('merchant_type', $restaurant->merchant_type ?? 'restaurant') === 'other')>Lainnya</option>
+                    </select>
+                    @error('merchant_type') <div style="color:var(--color-danger); font-size:12px; margin-top:4px;"><i class='bx bx-error-circle'></i> {{ $message }}</div> @enderror
+                </div>
+
                 <div class="form-group" style="margin-bottom:0; grid-column: span 2;">
                     <label>Alamat Lengkap <span style="color:var(--color-danger);">*</span></label>
                     <textarea name="address" rows="2" class="form-control" placeholder="Jl. Contoh No. 1, Kelurahan, Kecamatan, Kota" required>{{ old('address', $restaurant->address) }}</textarea>

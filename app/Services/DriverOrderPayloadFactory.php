@@ -17,11 +17,13 @@ class DriverOrderPayloadFactory
             'user:id,name,phone',
             'serviceType:id,code,display_name',
             'statusRef:id,code,display_name',
-            'restaurant:id,name,address,latitude,longitude',
+            'restaurant:id,name,address,latitude,longitude,phone,merchant_type',
             'rideOrder:id,order_id,picked_up_at,arrived_at',
             'courierOrder:id,order_id,package_description,estimated_weight_kg,package_length_cm,package_width_cm,package_height_cm,package_size_class,package_safety_status,package_safety_flags,package_safety_reason,package_packing_note,requires_photo_evidence',
-            'items:id,order_id,quantity',
-            'orderLocations:id,order_id,location_role,full_address,latitude,longitude,sequence_no',
+            'shoppingOrder:id,order_id,item_surcharge,overweight_surcharge,cancellation_penalty,has_overweight_item,recalculation_version,last_recalculated_at,pricing_snapshot',
+            'items:id,order_id,menu_id,pickup_location_id,item_source,menu_name,quantity,unit_price,subtotal,notes,metadata,is_available,is_heavy',
+            'orderLocations:id,order_id,restaurant_id,location_role,label,contact_name,contact_phone,full_address,latitude,longitude,sequence_no',
+            'orderLocations.restaurant:id,name,address,latitude,longitude,phone,merchant_type',
             'payments:id,order_id,payment_method,payment_status,amount,recorded_by_user_id,driver_id,paid_at',
             'statusHistories' => function (Relation $query): void {
                 $query
@@ -42,10 +44,12 @@ class DriverOrderPayloadFactory
 
         $pickup = $this->resolvePickupPoint($order, $serviceCode);
         $dropoff = $this->resolveDropoffPoint($order);
+        $hasPendingShoppingPrices = $serviceCode === 'SHOPPING' && $this->hasPendingManualShoppingPrices($order);
         $availableActions = $this->resolveAvailableDriverActions(
             $serviceCode,
             $statusCode,
             $paymentStatus,
+            $hasPendingShoppingPrices,
         );
 
         $acceptedAt = $order->statusHistories
@@ -95,6 +99,32 @@ class DriverOrderPayloadFactory
             $payload['package_packing_note'] = $order->courierOrder->package_packing_note;
         }
 
+        if ($serviceCode === 'SHOPPING') {
+            $payload['merchant'] = [
+                'id' => $order->restaurant?->id,
+                'name' => $order->restaurant?->name,
+                'merchant_type' => $order->restaurant?->merchant_type,
+                'address' => $order->restaurant?->address,
+                'phone' => $order->restaurant?->phone,
+                'latitude' => $this->toFloatOrNull($order->restaurant?->latitude),
+                'longitude' => $this->toFloatOrNull($order->restaurant?->longitude),
+            ];
+            $payload['shopping_items'] = $this->serializeShoppingItems($order);
+            $payload['shopping_stops'] = $this->serializeShoppingStops($order);
+            $payload['pricing'] = [
+                'subtotal' => round((float) $order->subtotal, 2),
+                'delivery_fee' => round((float) $order->delivery_fee, 2),
+                'service_fee' => round((float) $order->service_fee, 2),
+                'total_price' => round((float) $order->total_price, 2),
+                'item_surcharge' => round((float) ($order->shoppingOrder?->item_surcharge ?? 0), 2),
+                'overweight_surcharge' => round((float) ($order->shoppingOrder?->overweight_surcharge ?? 0), 2),
+                'cancellation_penalty' => round((float) ($order->shoppingOrder?->cancellation_penalty ?? 0), 2),
+                'recalculation_version' => (int) ($order->shoppingOrder?->recalculation_version ?? 0),
+                'has_pending_manual_prices' => $hasPendingShoppingPrices,
+            ];
+            $payload['has_pending_shopping_prices'] = $hasPendingShoppingPrices;
+        }
+
         if ($includeTimeline) {
             $payload['status_timeline'] = $this->serializeStatusTimeline($order);
         }
@@ -140,10 +170,15 @@ class DriverOrderPayloadFactory
     private function resolvePickupPoint(Order $order, string $serviceCode): array
     {
         if ($serviceCode === 'SHOPPING') {
+            $pickup = $order->orderLocations
+                ->filter(fn ($location): bool => strtoupper((string) $location->location_role) === 'PICKUP')
+                ->sortBy([['sequence_no', 'asc'], ['id', 'asc']])
+                ->first();
+
             return [
-                'address' => $order->restaurant->address ?? '-',
-                'latitude' => $this->toFloatOrNull($order->restaurant?->latitude),
-                'longitude' => $this->toFloatOrNull($order->restaurant?->longitude),
+                'address' => $pickup?->full_address ?? $order->restaurant->address ?? '-',
+                'latitude' => $this->toFloatOrNull($pickup?->latitude ?? $order->restaurant?->latitude),
+                'longitude' => $this->toFloatOrNull($pickup?->longitude ?? $order->restaurant?->longitude),
             ];
         }
 
@@ -179,6 +214,7 @@ class DriverOrderPayloadFactory
         string $serviceCode,
         string $statusCode,
         string $paymentStatus,
+        bool $hasPendingShoppingPrices = false,
     ): array {
         $actions = [];
         $rules = $this->driverActionRules($serviceCode);
@@ -195,15 +231,19 @@ class DriverOrderPayloadFactory
             }
 
             $blocked = $requiresPaid && $paymentStatus !== 'paid';
+            $blockedReason = $blocked ? 'Pembayaran COD belum dicatat.' : null;
+
+            if ($serviceCode === 'SHOPPING' && $actionCode === 'CONFIRM_PICKED_UP' && $hasPendingShoppingPrices) {
+                $blocked = true;
+                $blockedReason = 'Harga nota untuk item manual belum lengkap.';
+            }
 
             $actions[] = [
                 'action_code' => $actionCode,
                 'label' => $rule['label'],
                 'target_status_code' => $rule['to'],
                 'blocked' => $blocked,
-                'blocked_reason' => $blocked
-                    ? 'Pembayaran COD belum dicatat.'
-                    : null,
+                'blocked_reason' => $blockedReason,
             ];
         }
 
@@ -357,6 +397,135 @@ class DriverOrderPayloadFactory
                 'requires_paid' => true,
             ],
         ];
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function serializeShoppingItems(Order $order): array
+    {
+        return $order->items
+            ->map(function ($item): array {
+                $isManual = strtoupper((string) $item->item_source) === 'MANUAL';
+                $isAvailable = (bool) $item->is_available;
+                $unitPrice = (float) $item->unit_price;
+
+                return [
+                    'id' => (int) $item->id,
+                    'pickup_location_id' => $item->pickup_location_id !== null ? (int) $item->pickup_location_id : null,
+                    'menu_id' => $item->menu_id !== null ? (int) $item->menu_id : null,
+                    'item_source' => strtoupper((string) $item->item_source),
+                    'name' => (string) $item->menu_name,
+                    'menu_name' => (string) $item->menu_name,
+                    'quantity' => (int) $item->quantity,
+                    'unit_price' => round($unitPrice, 2),
+                    'subtotal' => round((float) $item->subtotal, 2),
+                    'line_total' => round((float) $item->subtotal, 2),
+                    'notes' => $item->notes,
+                    'is_available' => $isAvailable,
+                    'is_heavy' => (bool) $item->is_heavy,
+                    'price_status' => $isManual && $isAvailable && $unitPrice <= 0
+                        ? 'PENDING_DRIVER_INPUT'
+                        : (string) data_get($item->metadata, 'price_status', 'CONFIRMED'),
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function serializeShoppingStops(Order $order): array
+    {
+        $pickups = $order->orderLocations
+            ->filter(fn ($location): bool => strtoupper((string) $location->location_role) === 'PICKUP')
+            ->sortBy([['sequence_no', 'asc'], ['id', 'asc']])
+            ->values();
+
+        if ($pickups->isEmpty()) {
+            return [];
+        }
+
+        $firstPickupId = (int) $pickups->first()->id;
+
+        return $pickups
+            ->map(function ($pickup) use ($order, $firstPickupId): array {
+                $pickupId = (int) $pickup->id;
+                $restaurantId = $pickup->restaurant_id !== null ? (int) $pickup->restaurant_id : null;
+
+                $items = $order->items
+                    ->filter(function ($item) use ($order, $pickupId, $firstPickupId, $restaurantId): bool {
+                        if ($item->pickup_location_id !== null) {
+                            return (int) $item->pickup_location_id === $pickupId;
+                        }
+
+                        return $pickupId === $firstPickupId
+                            && $restaurantId !== null
+                            && (int) $order->restaurant_id === $restaurantId;
+                    })
+                    ->map(fn ($item): array => [
+                        ...$this->serializeShoppingItem($item),
+                        'pickup_location_id' => $pickupId,
+                    ])
+                    ->values()
+                    ->all();
+
+                return [
+                    'pickup_location_id' => $pickupId,
+                    'sequence_no' => (int) $pickup->sequence_no,
+                    'merchant' => [
+                        'id' => $restaurantId,
+                        'name' => $pickup->restaurant?->name ?? $pickup->contact_name ?? $pickup->label,
+                        'merchant_type' => $pickup->restaurant?->merchant_type,
+                        'address' => $pickup->full_address,
+                        'phone' => $pickup->contact_phone,
+                        'latitude' => $this->toFloatOrNull($pickup->latitude),
+                        'longitude' => $this->toFloatOrNull($pickup->longitude),
+                    ],
+                    'items' => $items,
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function serializeShoppingItem($item): array
+    {
+        $isManual = strtoupper((string) $item->item_source) === 'MANUAL';
+        $isAvailable = (bool) $item->is_available;
+        $unitPrice = (float) $item->unit_price;
+
+        return [
+            'id' => (int) $item->id,
+            'pickup_location_id' => $item->pickup_location_id !== null ? (int) $item->pickup_location_id : null,
+            'menu_id' => $item->menu_id !== null ? (int) $item->menu_id : null,
+            'item_source' => strtoupper((string) $item->item_source),
+            'name' => (string) $item->menu_name,
+            'menu_name' => (string) $item->menu_name,
+            'quantity' => (int) $item->quantity,
+            'unit_price' => round($unitPrice, 2),
+            'subtotal' => round((float) $item->subtotal, 2),
+            'line_total' => round((float) $item->subtotal, 2),
+            'notes' => $item->notes,
+            'is_available' => $isAvailable,
+            'is_heavy' => (bool) $item->is_heavy,
+            'price_status' => $isManual && $isAvailable && $unitPrice <= 0
+                ? 'PENDING_DRIVER_INPUT'
+                : (string) data_get($item->metadata, 'price_status', 'CONFIRMED'),
+        ];
+    }
+
+    private function hasPendingManualShoppingPrices(Order $order): bool
+    {
+        return $order->items->contains(function ($item): bool {
+            return strtoupper((string) $item->item_source) === 'MANUAL'
+                && (bool) $item->is_available
+                && (float) $item->unit_price <= 0;
+        });
     }
 
     private function estimateEtaMinutes(Order $order): int

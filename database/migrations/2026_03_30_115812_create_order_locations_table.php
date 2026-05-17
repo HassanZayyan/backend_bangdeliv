@@ -14,6 +14,7 @@ return new class extends Migration
         Schema::create('order_locations', function (Blueprint $table) {
             $table->id();
             $table->foreignId('order_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('restaurant_id')->nullable()->constrained()->nullOnDelete();
             $table->enum('location_role', ['PICKUP', 'DROPOFF']);
             $table->string('label', 50)->nullable();
             $table->string('contact_name')->nullable();
@@ -26,6 +27,7 @@ return new class extends Migration
 
             $table->unique(['order_id', 'location_role', 'sequence_no'], 'order_locations_order_role_sequence_unique');
             $table->index(['order_id', 'sequence_no'], 'order_locations_order_sequence_idx');
+            $table->index(['order_id', 'restaurant_id'], 'order_locations_order_restaurant_idx');
         });
     }
 
