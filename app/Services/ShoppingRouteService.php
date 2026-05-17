@@ -7,6 +7,7 @@ use App\Models\Order;
 use App\Models\OrderLocation;
 use App\Models\Restaurant;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 
 class ShoppingRouteService
 {
@@ -51,6 +52,10 @@ class ShoppingRouteService
             $points[] = $this->normalizePoint($pickupPoint, 'Koordinat merchant belum lengkap.');
         }
         $points[] = $this->normalizePoint($dropoffPoint, 'Koordinat titik antar belum lengkap.');
+        $orderedPickupLocationIds = array_values(array_filter(array_map(
+            static fn (array $point): ?int => isset($point['id']) ? (int) $point['id'] : null,
+            array_slice($points, 0, -1)
+        )));
 
         $segments = [];
         $totalDistanceMeters = 0;
@@ -82,13 +87,7 @@ class ShoppingRouteService
             ];
         }
 
-        if (! $this->deliveryPricingService->isWithinMaxDistance((float) $totalDistanceMeters)) {
-            throw new ApiException(sprintf(
-                'Jarak rute belanja %.2f km melebihi batas layanan %.2f km.',
-                $totalDistanceMeters / 1000,
-                $this->deliveryPricingService->getMaxDistanceKm()
-            ), 422);
-        }
+        $this->assertRouteWithinServiceDistance($totalDistanceMeters);
 
         $deliveryPricing = $this->deliveryPricingService->calculateFromDistanceMeters((float) $totalDistanceMeters);
         $distanceKm = round($totalDistanceMeters / 1000, 2);
@@ -102,20 +101,42 @@ class ShoppingRouteService
             'delivery_fee' => (float) $deliveryPricing['total_fee'],
             'delivery_pricing' => $deliveryPricing,
             'segments' => $segments,
+            'ordered_pickup_location_ids' => $orderedPickupLocationIds,
+            'encoded_polyline' => null,
+            'route_provider' => 'distance_matrix',
         ];
     }
 
     /**
      * @return array<string, mixed>
      */
-    public function applyRouteToOrder(Order $order): array
+    public function applyRouteToOrder(Order $order): ?array
     {
-        $this->resequenceStops($order);
-
         $order->refresh()->load(['orderLocations.restaurant']);
+
+        if ($this->activePickupLocations($order)->isEmpty()) {
+            $this->storeRouteSnapshot($order, [
+                'distance_meters' => null,
+                'distance_km' => null,
+                'distance_text' => null,
+                'duration_seconds' => null,
+                'duration_text' => null,
+                'delivery_fee' => round((float) $order->delivery_fee, 2),
+                'segments' => [],
+                'ordered_pickup_location_ids' => [],
+                'encoded_polyline' => null,
+                'route_provider' => 'none',
+                'route_status' => 'NO_ACTIVE_PICKUPS',
+            ]);
+
+            return null;
+        }
+
         $route = $this->calculateForOrder($order);
+        $this->resequenceStops($order, $route['ordered_pickup_location_ids'] ?? null);
         $routeMinutes = $this->estimateTravelMinutes((int) ($route['duration_seconds'] ?? 0));
-        $prepMinutes = $this->maxPrepMinutes($order->orderLocations);
+        $order->refresh()->load(['orderLocations.restaurant']);
+        $prepMinutes = $this->maxPrepMinutes($this->activePickupLocations($order));
 
         $order->update([
             'delivery_fee' => round((float) $route['delivery_fee'], 2),
@@ -123,6 +144,8 @@ class ShoppingRouteService
             'delivery_distance_text' => (string) $route['distance_text'],
             'estimated_delivery' => now()->addMinutes($prepMinutes + $routeMinutes),
         ]);
+
+        $this->storeRouteSnapshot($order, $route);
 
         return $route;
     }
@@ -134,10 +157,7 @@ class ShoppingRouteService
     {
         $order->loadMissing(['orderLocations.restaurant']);
 
-        $pickups = $order->orderLocations
-            ->filter(fn (OrderLocation $location): bool => strtoupper((string) $location->location_role) === 'PICKUP')
-            ->sortBy([['sequence_no', 'asc'], ['id', 'asc']])
-            ->values();
+        $pickups = $this->activePickupLocations($order);
 
         $dropoff = $order->orderLocations
             ->filter(fn (OrderLocation $location): bool => strtoupper((string) $location->location_role) === 'DROPOFF')
@@ -148,13 +168,39 @@ class ShoppingRouteService
             throw new ApiException('Titik antar order belum tersedia.', 422);
         }
 
-        return $this->calculateForPoints(
-            $pickups->map(fn (OrderLocation $location): array => $this->pointFromLocation($location))->all(),
-            $this->pointFromLocation($dropoff),
-        );
+        $pickupPoints = $pickups->map(fn (OrderLocation $location): array => $this->pointFromLocation($location))->all();
+        $dropoffPoint = $this->pointFromLocation($dropoff);
+
+        if ((bool) config('bangdeliv.routes.optimize_shopping_waypoints', true) && count($pickupPoints) > 1) {
+            try {
+                $route = $this->distanceMatrixService->resolveOptimizedShoppingRoute(
+                    $pickupPoints,
+                    $dropoffPoint,
+                    (int) config('bangdeliv.routes.shopping_route_max_origin_candidates', 8)
+                );
+
+                $this->assertRouteWithinServiceDistance((int) ($route['distance_meters'] ?? 0));
+                $route['delivery_pricing'] = $this->deliveryPricingService->calculateFromDistanceMeters(
+                    (float) ($route['distance_meters'] ?? 0)
+                );
+                $route['delivery_fee'] = (float) $route['delivery_pricing']['total_fee'];
+
+                return $route;
+            } catch (ApiException $exception) {
+                Log::warning('Optimized shopping route failed; falling back to sequential route.', [
+                    'order_id' => $order->id,
+                    'message' => $exception->getMessage(),
+                ]);
+            }
+        }
+
+        return $this->calculateForPoints($pickupPoints, $dropoffPoint);
     }
 
-    public function resequenceStops(Order $order): void
+    /**
+     * @param  array<int, int>|null  $orderedPickupLocationIds
+     */
+    public function resequenceStops(Order $order, ?array $orderedPickupLocationIds = null): void
     {
         $locations = $order->orderLocations()->orderBy('sequence_no')->orderBy('id')->get();
         $pickups = $locations
@@ -168,8 +214,21 @@ class ShoppingRouteService
             $location->update(['sequence_no' => 200 + $offset]);
         }
 
+        $orderedPickups = $pickups;
+        if ($orderedPickupLocationIds !== null && $orderedPickupLocationIds !== []) {
+            $byId = $pickups->keyBy(fn (OrderLocation $location): int => (int) $location->id);
+            $activeOrdered = collect($orderedPickupLocationIds)
+                ->map(fn (int $id): ?OrderLocation => $byId->get($id))
+                ->filter()
+                ->values();
+            $remaining = $pickups
+                ->reject(fn (OrderLocation $location): bool => $activeOrdered->contains(fn (OrderLocation $ordered): bool => (int) $ordered->id === (int) $location->id))
+                ->values();
+            $orderedPickups = $activeOrdered->concat($remaining)->values();
+        }
+
         $sequence = 1;
-        foreach ($pickups as $pickup) {
+        foreach ($orderedPickups as $pickup) {
             $pickup->update(['sequence_no' => $sequence++]);
         }
 
@@ -197,6 +256,7 @@ class ShoppingRouteService
     private function pointFromLocation(OrderLocation $location): array
     {
         return [
+            'id' => (int) $location->id,
             'label' => (string) ($location->label ?: $location->restaurant?->name ?: 'Titik'),
             'latitude' => (float) $location->latitude,
             'longitude' => (float) $location->longitude,
@@ -217,10 +277,96 @@ class ShoppingRouteService
         }
 
         return [
+            'id' => isset($point['id']) && is_numeric($point['id']) ? (int) $point['id'] : null,
             'label' => trim((string) ($point['label'] ?? 'Titik')) ?: 'Titik',
             'latitude' => (float) $latitude,
             'longitude' => (float) $longitude,
         ];
+    }
+
+    private function assertRouteWithinServiceDistance(int $totalDistanceMeters): void
+    {
+        if (! $this->deliveryPricingService->isWithinMaxDistance((float) $totalDistanceMeters)) {
+            throw new ApiException(sprintf(
+                'Jarak rute belanja %.2f km melebihi batas layanan %.2f km.',
+                $totalDistanceMeters / 1000,
+                $this->deliveryPricingService->getMaxDistanceKm()
+            ), 422);
+        }
+    }
+
+    /**
+     * @return Collection<int, OrderLocation>
+     */
+    private function activePickupLocations(Order $order): Collection
+    {
+        $order->loadMissing(['orderLocations.restaurant', 'items']);
+
+        return $order->orderLocations
+            ->filter(function (OrderLocation $location) use ($order): bool {
+                if (strtoupper((string) $location->location_role) !== 'PICKUP') {
+                    return false;
+                }
+
+                if (in_array(strtoupper((string) ($location->fulfillment_status ?? 'PENDING')), ['FAILED', 'SKIPPED', 'REPLACED'], true)) {
+                    return false;
+                }
+
+                return $this->hasAvailableItemsAtPickup($order, $location);
+            })
+            ->sortBy([['sequence_no', 'asc'], ['id', 'asc']])
+            ->values();
+    }
+
+    private function hasAvailableItemsAtPickup(Order $order, OrderLocation $pickup): bool
+    {
+        $pickupId = (int) $pickup->id;
+
+        return $order->items->contains(function ($item) use ($order, $pickup, $pickupId): bool {
+            if (! (bool) $item->is_available) {
+                return false;
+            }
+
+            if ($item->pickup_location_id !== null) {
+                return (int) $item->pickup_location_id === $pickupId;
+            }
+
+            return (int) $order->restaurant_id === (int) ($pickup->restaurant_id ?? 0);
+        });
+    }
+
+    /**
+     * @param  array<string, mixed>  $route
+     */
+    private function storeRouteSnapshot(Order $order, array $route): void
+    {
+        $shoppingOrder = $order->shoppingOrder;
+        if (! $shoppingOrder) {
+            return;
+        }
+
+        $snapshot = is_array($shoppingOrder->pricing_snapshot)
+            ? $shoppingOrder->pricing_snapshot
+            : [];
+
+        $snapshot['shopping_route'] = [
+            'distance_meters' => $route['distance_meters'] ?? null,
+            'distance_km' => $route['distance_km'] ?? null,
+            'distance_text' => $route['distance_text'] ?? null,
+            'duration_seconds' => $route['duration_seconds'] ?? null,
+            'duration_text' => $route['duration_text'] ?? null,
+            'delivery_fee' => $route['delivery_fee'] ?? null,
+            'segments' => $route['segments'] ?? [],
+            'ordered_pickup_location_ids' => $route['ordered_pickup_location_ids'] ?? [],
+            'encoded_polyline' => $route['encoded_polyline'] ?? null,
+            'route_provider' => $route['route_provider'] ?? null,
+            'routing_preference' => $route['routing_preference'] ?? null,
+            'travel_mode' => $route['travel_mode'] ?? null,
+            'route_status' => $route['route_status'] ?? 'OK',
+        ];
+
+        $shoppingOrder->update(['pricing_snapshot' => $snapshot]);
+        $order->setRelation('shoppingOrder', $shoppingOrder->refresh());
     }
 
     private function estimateTravelMinutes(int $durationSeconds): int

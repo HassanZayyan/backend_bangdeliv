@@ -119,7 +119,15 @@ class OrderController extends Controller
     public function addShoppingItem(AddShoppingOrderItemRequest $request, int $orderId): JsonResponse
     {
         try {
-            $order = $this->orderService->addShoppingItem($request->user(), $orderId, $request->validated());
+            $validated = $request->validated();
+            $order = $this->orderService->addShoppingItem(
+                $request->user(),
+                $orderId,
+                $validated,
+                isset($validated['replacement_for_pickup_location_id'])
+                    ? (int) $validated['replacement_for_pickup_location_id']
+                    : null
+            );
 
             return $this->success($order, 'Item belanja berhasil ditambahkan.');
         } catch (ApiException $exception) {
@@ -134,7 +142,10 @@ class OrderController extends Controller
             $order = $this->orderService->addShoppingItems(
                 $request->user(),
                 $orderId,
-                $validated['items'] ?? []
+                $validated['items'] ?? [],
+                isset($validated['replacement_for_pickup_location_id'])
+                    ? (int) $validated['replacement_for_pickup_location_id']
+                    : null
             );
 
             return $this->success($order, 'Item belanja berhasil ditambahkan.');

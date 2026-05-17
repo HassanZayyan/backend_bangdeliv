@@ -297,6 +297,8 @@ class OrderService
                     });
             }
 
+            $this->shoppingRouteService->applyRouteToOrder($order->refresh()->load(['orderLocations.restaurant', 'items', 'shoppingOrder']));
+
             OrderStatusHistory::query()->create([
                 'order_id' => $order->id,
                 'status_id' => $order->status_id,
@@ -1310,17 +1312,17 @@ class OrderService
     /**
      * @param  array<string, mixed>  $payload
      */
-    public function addShoppingItem(User $user, int $orderId, array $payload): Order
+    public function addShoppingItem(User $user, int $orderId, array $payload, ?int $replacementForPickupLocationId = null): Order
     {
-        return $this->addShoppingItems($user, $orderId, [$payload]);
+        return $this->addShoppingItems($user, $orderId, [$payload], $replacementForPickupLocationId);
     }
 
     /**
      * @param  array<int, array<string, mixed>>  $items
      */
-    public function addShoppingItems(User $user, int $orderId, array $items): Order
+    public function addShoppingItems(User $user, int $orderId, array $items, ?int $replacementForPickupLocationId = null): Order
     {
-        return DB::transaction(function () use ($user, $orderId, $items): Order {
+        return DB::transaction(function () use ($user, $orderId, $items, $replacementForPickupLocationId): Order {
             $order = $this->getEditableShoppingOrder($user, $orderId);
 
             if ($items === []) {
@@ -1329,6 +1331,9 @@ class OrderService
 
             $statusCode = strtoupper((string) ($order->statusRef?->code ?? ''));
             $routeChanged = false;
+            $replacementPickup = $replacementForPickupLocationId !== null
+                ? $this->resolveReplacementPickup($order, $replacementForPickupLocationId)
+                : null;
             $pickupLocationsByMerchantId = [];
 
             foreach ($items as $payload) {
@@ -1345,7 +1350,7 @@ class OrderService
                 }
 
                 if (! $pickupLocation) {
-                    if (! in_array($statusCode, ['PENDING', 'DRIVER_ASSIGNED'], true)) {
+                    if (! in_array($statusCode, ['PENDING', 'DRIVER_ASSIGNED'], true) && ! $replacementPickup instanceof OrderLocation) {
                         throw new ApiException('Merchant baru hanya bisa ditambahkan sebelum driver mulai belanja.', 409);
                     }
 
@@ -1372,6 +1377,29 @@ class OrderService
 
             if ($routeChanged) {
                 $this->shoppingRouteService->applyRouteToOrder($order->refresh()->load(['orderLocations.restaurant']));
+            }
+
+            if ($replacementPickup instanceof OrderLocation) {
+                $replacementPickup->update([
+                    'fulfillment_status' => 'REPLACED',
+                    'resolved_at' => now(),
+                ]);
+                $this->syncPrimaryRestaurantFromFirstPickup($order);
+
+                OrderStatusHistory::query()->create([
+                    'order_id' => $order->id,
+                    'status_id' => $order->status_id,
+                    'event_type' => 'SHOPPING_STOP_RESOLVED',
+                    'changed_by_user_id' => $user->id,
+                    'note' => 'Customer menambahkan merchant pengganti untuk '.$replacementPickup->contact_name.'.',
+                    'price_snapshot' => [
+                        'pickup_location_id' => (int) $replacementPickup->id,
+                        'resolution' => 'REPLACED',
+                    ],
+                ]);
+
+                $this->shoppingRouteService->applyRouteToOrder($order->refresh()->load(['orderLocations.restaurant', 'items', 'shoppingOrder']));
+                $routeChanged = true;
             }
 
             return $this->shoppingPricingService->recalculate(
@@ -1502,6 +1530,9 @@ class OrderService
                 'resolved_at' => now(),
             ]);
 
+            $this->syncPrimaryRestaurantFromFirstPickup($order);
+            $this->shoppingRouteService->applyRouteToOrder($order->refresh()->load(['orderLocations.restaurant', 'items', 'shoppingOrder']));
+
             OrderStatusHistory::query()->create([
                 'order_id' => $order->id,
                 'status_id' => $order->status_id,
@@ -1616,13 +1647,39 @@ class OrderService
         throw new ApiException('Merchant wajib dipilih untuk item manual.', 422);
     }
 
+    private function resolveReplacementPickup(Order $order, int $pickupLocationId): OrderLocation
+    {
+        $pickup = $order->orderLocations
+            ->first(fn (OrderLocation $location): bool => (int) $location->id === $pickupLocationId);
+
+        if (! $pickup || strtoupper((string) $pickup->location_role) !== 'PICKUP') {
+            throw new ApiException('Merchant pengganti tidak valid.', 422);
+        }
+
+        if (strtoupper((string) ($pickup->fulfillment_status ?? 'PENDING')) !== 'FAILED') {
+            throw new ApiException('Merchant ini belum ditandai tutup/gagal pickup.', 409);
+        }
+
+        return $pickup;
+    }
+
     private function resolvePickupLocationForMerchant(Order $order, Restaurant $merchant): ?OrderLocation
     {
         $order->loadMissing(['orderLocations.restaurant']);
 
         $pickup = $order->orderLocations
             ->filter(fn (OrderLocation $location): bool => strtoupper((string) $location->location_role) === 'PICKUP')
-            ->first(fn (OrderLocation $location): bool => (int) $location->restaurant_id === (int) $merchant->id);
+            ->first(function (OrderLocation $location) use ($merchant): bool {
+                if ((int) $location->restaurant_id !== (int) $merchant->id) {
+                    return false;
+                }
+
+                return ! in_array(
+                    strtoupper((string) ($location->fulfillment_status ?? 'PENDING')),
+                    ['FAILED', 'SKIPPED', 'REPLACED'],
+                    true
+                );
+            });
 
         if ($pickup instanceof OrderLocation) {
             return $pickup;
@@ -1676,6 +1733,11 @@ class OrderService
         $firstPickup = $order->orderLocations()
             ->where('location_role', 'PICKUP')
             ->whereNotNull('restaurant_id')
+            ->where(function ($query): void {
+                $query
+                    ->whereNull('fulfillment_status')
+                    ->orWhereNotIn('fulfillment_status', ['FAILED', 'SKIPPED', 'REPLACED']);
+            })
             ->orderBy('sequence_no')
             ->orderBy('id')
             ->first();

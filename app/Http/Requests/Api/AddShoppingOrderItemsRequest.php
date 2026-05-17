@@ -17,6 +17,7 @@ class AddShoppingOrderItemsRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'replacement_for_pickup_location_id' => ['nullable', 'integer', 'exists:order_locations,id'],
             'items' => ['required', 'array', 'min:1', 'max:30'],
             'items.*.merchant_id' => ['nullable', 'integer', 'exists:restaurants,id'],
             'items.*.item_source' => ['required', 'in:MANUAL'],

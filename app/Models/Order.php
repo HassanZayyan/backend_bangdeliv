@@ -90,6 +90,7 @@ class Order extends Model
         'paid_by_user_id',
         'paid_at',
         'shopping_stops',
+        'shopping_route',
     ];
 
     protected function casts(): array
@@ -319,6 +320,30 @@ class Order extends Model
             })
             ->values()
             ->all();
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function getShoppingRouteAttribute(): ?array
+    {
+        $serviceCode = strtoupper((string) ($this->serviceType?->code ?? ''));
+        if ($serviceCode !== 'SHOPPING') {
+            return null;
+        }
+
+        if (! $this->relationLoaded('shoppingOrder')) {
+            $this->load('shoppingOrder');
+        }
+
+        $snapshot = $this->shoppingOrder?->pricing_snapshot;
+        if (! is_array($snapshot)) {
+            return null;
+        }
+
+        $route = $snapshot['shopping_route'] ?? null;
+
+        return is_array($route) ? $route : null;
     }
 
     private function resolvedDropoffLocation(): ?OrderLocation

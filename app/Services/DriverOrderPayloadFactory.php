@@ -116,6 +116,7 @@ class DriverOrderPayloadFactory
             ];
             $payload['shopping_items'] = $this->serializeShoppingItems($order);
             $payload['shopping_stops'] = $this->serializeShoppingStops($order);
+            $payload['shopping_route'] = $this->shoppingRouteSnapshot($order);
             $payload['pricing'] = [
                 'subtotal' => round((float) $order->subtotal, 2),
                 'delivery_fee' => round((float) $order->delivery_fee, 2),
@@ -515,6 +516,21 @@ class DriverOrderPayloadFactory
             })
             ->values()
             ->all();
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function shoppingRouteSnapshot(Order $order): ?array
+    {
+        $snapshot = $order->shoppingOrder?->pricing_snapshot;
+        if (! is_array($snapshot)) {
+            return null;
+        }
+
+        $route = $snapshot['shopping_route'] ?? null;
+
+        return is_array($route) ? $route : null;
     }
 
     /**

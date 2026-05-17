@@ -92,6 +92,10 @@ class ShoppingPricingService
         if (! $shoppingOrder instanceof ShoppingOrder) {
             throw new ApiException('Data shopping order tidak ditemukan.', 500);
         }
+        $shoppingOrder->refresh();
+        $previousSnapshot = is_array($shoppingOrder->pricing_snapshot)
+            ? $shoppingOrder->pricing_snapshot
+            : [];
 
         $oldSubtotal = (float) $order->subtotal;
         $oldDeliveryFee = (float) $order->delivery_fee;
@@ -108,6 +112,13 @@ class ShoppingPricingService
         );
 
         $nextVersion = (int) $shoppingOrder->recalculation_version + 1;
+        $pricingSnapshot = [
+            ...$pricing,
+            'recalculation_version' => $nextVersion,
+        ];
+        if (isset($previousSnapshot['shopping_route'])) {
+            $pricingSnapshot['shopping_route'] = $previousSnapshot['shopping_route'];
+        }
 
         $shoppingOrder->update([
             'item_surcharge' => $pricing['item_surcharge'],
@@ -115,10 +126,7 @@ class ShoppingPricingService
             'has_overweight_item' => $pricing['has_overweight_item'],
             'recalculation_version' => $nextVersion,
             'last_recalculated_at' => now(),
-            'pricing_snapshot' => [
-                ...$pricing,
-                'recalculation_version' => $nextVersion,
-            ],
+            'pricing_snapshot' => $pricingSnapshot,
         ]);
 
         $order->update([

@@ -55,11 +55,13 @@ return [
     'routes' => [
         'endpoint' => env('GOOGLE_MAPS_ROUTES_ENDPOINT', 'https://routes.googleapis.com/directions/v2:computeRoutes'),
         'timeout_seconds' => (int) env('GOOGLE_MAPS_ROUTES_TIMEOUT', 8),
-        'travel_mode' => env('GOOGLE_MAPS_ROUTES_TRAVEL_MODE', 'DRIVE'),
-        'routing_preference' => env('GOOGLE_MAPS_ROUTES_ROUTING_PREFERENCE', 'TRAFFIC_UNAWARE'),
+        'travel_mode' => env('GOOGLE_MAPS_ROUTES_TRAVEL_MODE', 'TWO_WHEELER'),
+        'routing_preference' => env('GOOGLE_MAPS_ROUTES_ROUTING_PREFERENCE', 'TRAFFIC_AWARE'),
         'language_code' => env('GOOGLE_MAPS_ROUTES_LANGUAGE', 'id'),
         'region_code' => env('GOOGLE_MAPS_ROUTES_REGION', 'ID'),
         'units' => env('GOOGLE_MAPS_ROUTES_UNITS', 'METRIC'),
+        'optimize_shopping_waypoints' => (bool) env('GOOGLE_MAPS_ROUTES_OPTIMIZE_SHOPPING_WAYPOINTS', true),
+        'shopping_route_max_origin_candidates' => (int) env('SHOPPING_ROUTE_MAX_ORIGIN_CANDIDATES', 8),
     ],
 
     /*

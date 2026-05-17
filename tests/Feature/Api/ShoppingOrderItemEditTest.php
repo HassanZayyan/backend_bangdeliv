@@ -388,6 +388,9 @@ class ShoppingOrderItemEditTest extends TestCase
 
     public function test_customer_can_skip_failed_merchant_when_other_items_remain(): void
     {
+        Config::set('bangdeliv.google_maps_api_key', 'test-key');
+        $this->fakeDistance(0);
+
         $customer = User::factory()->create(['role' => 'customer']);
         $order = $this->createShoppingOrder($customer, 'ARRIVED_MERCHANT');
         $failedPickup = $order->orderLocations()
@@ -433,8 +436,11 @@ class ShoppingOrderItemEditTest extends TestCase
         $response = $this->postJson('/api/v1/orders/'.$order->id.'/shopping-stops/'.$failedPickup->id.'/skip');
 
         $response->assertOk()
-            ->assertJsonPath('data.shopping_stops.0.fulfillment_status', 'SKIPPED')
             ->assertJsonPath('data.total_price', '15000.00');
+        $failedStop = collect($response->json('data.shopping_stops'))
+            ->firstWhere('pickup_location_id', $failedPickup->id);
+        $this->assertNotNull($failedStop);
+        $this->assertSame('SKIPPED', $failedStop['fulfillment_status'] ?? null);
 
         $this->assertDatabaseHas('order_locations', [
             'id' => $failedPickup->id,
@@ -445,6 +451,82 @@ class ShoppingOrderItemEditTest extends TestCase
             'order_id' => $order->id,
             'payment_status' => 'PENDING',
             'amount' => 15000,
+        ]);
+    }
+
+    public function test_customer_can_replace_failed_merchant_after_driver_arrived(): void
+    {
+        Config::set('bangdeliv.google_maps_api_key', 'test-key');
+        $this->fakeDistance(2500);
+
+        $customer = User::factory()->create(['role' => 'customer']);
+        $order = $this->createShoppingOrder($customer, 'ARRIVED_MERCHANT');
+        $failedPickup = $order->orderLocations()
+            ->where('location_role', 'PICKUP')
+            ->firstOrFail();
+        $failedPickup->update([
+            'fulfillment_status' => 'FAILED',
+            'failure_reason' => 'Merchant tutup saat driver tiba.',
+            'failed_at' => now(),
+        ]);
+        $order->items()->where('pickup_location_id', $failedPickup->id)->update([
+            'is_available' => false,
+            'unit_price' => 0,
+            'subtotal' => 0,
+        ]);
+        $replacementMerchant = $this->createMerchant('Warung Pengganti Baru', 'warung-pengganti-baru', -7.006, 110.406, 'warung');
+
+        Sanctum::actingAs($customer);
+
+        $response = $this->postJson('/api/v1/orders/'.$order->id.'/items/bulk', [
+            'replacement_for_pickup_location_id' => $failedPickup->id,
+            'items' => [
+                [
+                    'merchant_id' => $replacementMerchant->id,
+                    'item_source' => 'MANUAL',
+                    'menu_name' => 'Beras 1 kg',
+                    'quantity' => 1,
+                ],
+            ],
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.delivery_fee', '11000.00')
+            ->assertJsonPath('data.total_price', '11000.00');
+
+        $stops = collect($response->json('data.shopping_stops'));
+        $failedStop = $stops->firstWhere('pickup_location_id', $failedPickup->id);
+        $replacementStop = $stops->firstWhere('merchant.id', $replacementMerchant->id);
+        $this->assertNotNull($failedStop);
+        $this->assertNotNull($replacementStop);
+        $this->assertSame('REPLACED', $failedStop['fulfillment_status'] ?? null);
+        $this->assertSame('PENDING', $replacementStop['fulfillment_status'] ?? null);
+        $this->assertSame('PENDING_DRIVER_INPUT', $replacementStop['items'][0]['price_status'] ?? null);
+        $this->assertSame(
+            $replacementStop['pickup_location_id'] ?? null,
+            $response->json('data.shopping_route.ordered_pickup_location_ids.0')
+        );
+
+        $this->assertDatabaseHas('order_locations', [
+            'id' => $failedPickup->id,
+            'fulfillment_status' => 'REPLACED',
+        ]);
+        $this->assertDatabaseHas('order_locations', [
+            'order_id' => $order->id,
+            'restaurant_id' => $replacementMerchant->id,
+            'location_role' => 'PICKUP',
+        ]);
+        $this->assertDatabaseHas('order_items', [
+            'order_id' => $order->id,
+            'menu_name' => 'Beras 1 kg',
+            'unit_price' => 0,
+            'is_available' => true,
+        ]);
+        $this->assertDatabaseHas('order_payments', [
+            'order_id' => $order->id,
+            'payment_status' => 'PENDING',
+            'amount' => 11000,
         ]);
     }
 
@@ -547,6 +629,34 @@ class ShoppingOrderItemEditTest extends TestCase
     private function fakeDistance(int $distanceMeters): void
     {
         Http::fake([
+            'https://routes.googleapis.com/*' => function ($request) use ($distanceMeters) {
+                $data = $request->data();
+                $intermediateCount = is_array($data['intermediates'] ?? null)
+                    ? count($data['intermediates'])
+                    : 0;
+                $legCount = max(1, $intermediateCount + 1);
+                $durationSeconds = 600 * $legCount;
+                $legs = [];
+
+                for ($index = 0; $index < $legCount; $index++) {
+                    $legs[] = [
+                        'distanceMeters' => $distanceMeters,
+                        'duration' => '600s',
+                    ];
+                }
+
+                return Http::response([
+                    'routes' => [[
+                        'distanceMeters' => $distanceMeters * $legCount,
+                        'duration' => $durationSeconds.'s',
+                        'optimizedIntermediateWaypointIndex' => $intermediateCount > 0
+                            ? range(0, $intermediateCount - 1)
+                            : [],
+                        'legs' => $legs,
+                        'polyline' => ['encodedPolyline' => '_p~iF~ps|U_ulLnnqC_mqNvxq`@'],
+                    ]],
+                ], 200);
+            },
             'https://maps.googleapis.com/maps/api/distancematrix/*' => Http::response([
                 'status' => 'OK',
                 'rows' => [
