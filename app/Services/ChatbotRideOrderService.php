@@ -180,9 +180,15 @@ class ChatbotRideOrderService
         $name = trim((string) $user->name) === '' ? 'Kak' : trim((string) $user->name);
 
         if ($pickupText === null) {
-            $text = 'Baik '.$name.', tujuan sebelumnya saya reset. Alamat jemput dari profil belum tersedia. Isi Alamat Saya dulu, lalu kirim tujuan baru.';
+            $text = "Baik {$name}, tujuan sebelumnya sudah saya reset.\n";
+            $text .= "\nAlamat jemput dari profil belum tersedia.";
+            $text .= "\nSilakan isi Alamat Saya terlebih dahulu.";
+            $text .= "\n\nSetelah itu, klik tombol \"Atur Titik Jemput & Tujuan\" di bawah untuk memilih tujuan baru.";
         } else {
-            $text = 'Baik '.$name.', tujuan sebelumnya saya reset. Alamat jemput kamu di '.$pickupText.'. Sekarang kirim tujuan baru, misalnya: "antar ke Stasiun Tawang".';
+            $text = "Baik {$name}, tujuan sebelumnya sudah saya reset.\n";
+            $text .= "\nJemput:";
+            $text .= "\n{$pickupText}";
+            $text .= "\n\nSilakan klik tombol \"Atur Titik Jemput & Tujuan\" di bawah untuk memilih tujuan baru.";
         }
 
         return [

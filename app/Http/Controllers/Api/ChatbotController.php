@@ -459,22 +459,6 @@ class ChatbotController extends Controller
         $normalizedAddress = trim($providedAddress);
 
         if ($normalizedAddress !== '' && !$this->isPinPlaceholderAddress($normalizedAddress)) {
-            // Even when a raw address is provided from the client, still enrich it
-            // with a nearby place name so the format is "[Place Name], [Address]"
-            try {
-                $resolved = $this->geocodingService->reverseGeocodeWithPlaceName($latitude, $longitude);
-                $enriched = trim((string) ($resolved['formatted_address'] ?? ''));
-                if ($enriched !== '' && !$this->isPinPlaceholderAddress($enriched)) {
-                    return $enriched;
-                }
-            } catch (ApiException $exception) {
-                Log::warning('Enrichment of provided map pin address failed; using raw address.', [
-                    'latitude'  => $latitude,
-                    'longitude' => $longitude,
-                    'message'   => $exception->getMessage(),
-                ]);
-            }
-
             return $normalizedAddress;
         }
 
@@ -1093,12 +1077,16 @@ class ChatbotController extends Controller
                             'label' => 'Titik Jemput',
                             'initial_latitude' => $ride['pickup_latitude'] ?? null,
                             'initial_longitude' => $ride['pickup_longitude'] ?? null,
+                            'address' => $ride['pickup_address'] ?? null,
+                            'formatted_address' => $ride['pickup_address'] ?? null,
                         ],
                         'destination' => [
                             'target' => 'destination',
                             'label' => 'Titik Tujuan',
                             'initial_latitude' => $ride['destination_latitude'] ?? null,
                             'initial_longitude' => $ride['destination_longitude'] ?? null,
+                            'address' => $ride['destination_address'] ?? null,
+                            'formatted_address' => $ride['destination_address'] ?? null,
                         ],
                     ],
                 ];
@@ -1113,12 +1101,16 @@ class ChatbotController extends Controller
                             'label' => 'Titik Ambil',
                             'initial_latitude' => $courier['pickup_latitude'] ?? null,
                             'initial_longitude' => $courier['pickup_longitude'] ?? null,
+                            'address' => $courier['pickup_address'] ?? null,
+                            'formatted_address' => $courier['pickup_address'] ?? null,
                         ],
                         'dropoff' => [
                             'target' => 'dropoff',
                             'label' => 'Titik Tujuan',
                             'initial_latitude' => $courier['dropoff_latitude'] ?? null,
                             'initial_longitude' => $courier['dropoff_longitude'] ?? null,
+                            'address' => $courier['dropoff_address'] ?? null,
+                            'formatted_address' => $courier['dropoff_address'] ?? null,
                         ],
                     ],
                 ];
