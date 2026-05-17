@@ -36,7 +36,7 @@ class OrderService
     /**
      * @var array<int, string>
      */
-    private array $failedAttemptRecordableStatuses = ['PENDING', 'DRIVER_ASSIGNED', 'PICKED_UP', 'ON_THE_WAY'];
+    private array $failedAttemptRecordableStatuses = ['PENDING', 'DRIVER_ASSIGNED', 'ARRIVED_MERCHANT', 'PICKED_UP', 'ON_THE_WAY'];
 
     /**
      * @var array<int, string>
@@ -178,7 +178,13 @@ class OrderService
         return $order;
     }
 
-    public function recordFailedAttempt(User $actor, int $orderId, string $failureType, string $reason): Order
+    public function recordFailedAttempt(
+        User $actor,
+        int $orderId,
+        string $failureType,
+        string $reason,
+        ?int $pickupLocationId = null,
+    ): Order
     {
         $normalizedFailureType = strtoupper(trim($failureType));
         $allowedFailureTypes = ['DRIVER_ASSIGNMENT', 'PICKUP', 'DELIVERY'];
@@ -191,9 +197,9 @@ class OrderService
             throw new ApiException('Hanya driver atau admin yang dapat mencatat failed attempt.', 403);
         }
 
-        return DB::transaction(function () use ($actor, $orderId, $normalizedFailureType, $reason): Order {
+        $order = DB::transaction(function () use ($actor, $orderId, $normalizedFailureType, $reason, $pickupLocationId): Order {
             $order = Order::query()
-                ->with(['statusRef', 'serviceType', 'shoppingOrder'])
+                ->with(['statusRef', 'serviceType', 'shoppingOrder', 'orderLocations'])
                 ->lockForUpdate()
                 ->find($orderId);
 
@@ -203,6 +209,15 @@ class OrderService
 
             if (($order->serviceType->code ?? null) !== 'SHOPPING') {
                 throw new ApiException('Failed attempt hanya berlaku untuk order SHOPPING.', 409);
+            }
+
+            if ($pickupLocationId !== null) {
+                $pickup = $order->orderLocations
+                    ->first(fn (OrderLocation $location): bool => (int) $location->id === $pickupLocationId);
+
+                if (! $pickup || strtoupper((string) $pickup->location_role) !== 'PICKUP') {
+                    throw new ApiException('Merchant/pickup order tidak valid.', 422);
+                }
             }
 
             $activeStatusCode = $order->statusRef?->code;
@@ -256,6 +271,7 @@ class OrderService
                 'price_snapshot' => [
                     'failure_type' => $normalizedFailureType,
                     'failed_attempt_count' => $nextFailedAttemptCount,
+                    'pickup_location_id' => $pickupLocationId,
                 ],
             ]);
 
@@ -270,11 +286,23 @@ class OrderService
                     'failure_type' => $normalizedFailureType,
                     'failed_attempt_count' => $nextFailedAttemptCount,
                     'actor_role' => $actor->role,
+                    'pickup_location_id' => $pickupLocationId,
                 ],
             ]);
 
             return $order->refresh()->load(['restaurant', 'orderLocations', 'items', 'statusRef', 'statusHistories.statusRef', 'shoppingOrder']);
         });
+
+        $this->realtimeBroadcaster->orderContentUpdated(
+            (int) $order->id,
+            'SHOPPING_FAILED_ATTEMPT',
+            [
+                'failed_attempt_count' => (int) ($order->shoppingOrder?->failed_attempt_count ?? 0),
+                'pickup_location_id' => $pickupLocationId,
+            ],
+        );
+
+        return $order;
     }
 
     /**
@@ -726,7 +754,7 @@ class OrderService
             &$statusChangeEventPayload,
         ): Order {
             $order = Order::query()
-                ->with(['statusRef', 'serviceType', 'rideOrder'])
+                ->with(['statusRef', 'serviceType', 'rideOrder', 'shoppingOrder'])
                 ->lockForUpdate()
                 ->find($orderId);
 
@@ -776,6 +804,23 @@ class OrderService
                 throw new ApiException('Harga nota untuk item manual belum lengkap.', 409);
             }
 
+            $shoppingCancellationPenalty = null;
+            if (strtoupper((string) $serviceCode) === 'SHOPPING' && $normalizedActionCode === 'CANCEL_WITH_FEE') {
+                $shoppingOrder = $order->shoppingOrder;
+                if (! $shoppingOrder instanceof ShoppingOrder) {
+                    throw new ApiException('Data shopping order tidak ditemukan.', 500);
+                }
+
+                if (! $this->shoppingPricingService->isCancellationPenaltyEligible($order, $shoppingOrder)) {
+                    throw new ApiException('Order belum memenuhi batas failed attempt untuk dibatalkan dengan fee.', 409);
+                }
+
+                $shoppingCancellationPenalty = $this->shoppingPricingService->calculateCancellationPenalty($order, $shoppingOrder);
+                if ($shoppingCancellationPenalty <= 0) {
+                    throw new ApiException('Penalty pembatalan belum dapat dihitung.', 409);
+                }
+            }
+
             $eventNote = trim((string) $note);
             if ($eventNote === '') {
                 $eventNote = $normalizedActionCode === 'REPORT_PACKAGE_INVALID'
@@ -792,7 +837,7 @@ class OrderService
                 $updates['delivered_at'] = now();
             }
 
-            if ($resolvedTargetStatusCode === 'CANCELLED') {
+            if (in_array($resolvedTargetStatusCode, ['CANCELLED', 'CANCELLED_WITH_FEE'], true)) {
                 $updates['cancelled_by'] = 'driver';
                 $updates['cancellation_reason'] = $eventNote;
             }
@@ -830,6 +875,20 @@ class OrderService
                 strtoupper($currentStatusCode),
                 $statusHistory,
             );
+
+            if ($shoppingCancellationPenalty !== null) {
+                $order->shoppingOrder?->update([
+                    'cancellation_penalty' => round($shoppingCancellationPenalty, 2),
+                ]);
+
+                $order = $this->shoppingPricingService->recalculate(
+                    $order->refresh()->load(['items', 'shoppingOrder', 'statusRef', 'serviceType']),
+                    $actor->id,
+                    'DRIVER_CANCEL_WITH_FEE',
+                    false,
+                    $eventNote
+                );
+            }
 
             return $order;
         });

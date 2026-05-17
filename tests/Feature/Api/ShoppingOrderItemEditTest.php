@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Api;
 
+use App\Events\OrderContentUpdated;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\OrderPayment;
@@ -12,6 +13,7 @@ use App\Models\ShoppingOrder;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -59,6 +61,7 @@ class ShoppingOrderItemEditTest extends TestCase
         $customer = User::factory()->create(['role' => 'customer']);
         $order = $this->createShoppingOrder($customer, 'DRIVER_ASSIGNED');
         $warung = $this->createMerchant('Warung Madura Barokah', 'warung-madura-barokah-test', -7.006, 110.406, 'warung');
+        Event::fake([OrderContentUpdated::class]);
 
         Sanctum::actingAs($customer);
 
@@ -74,7 +77,15 @@ class ShoppingOrderItemEditTest extends TestCase
             ->assertJsonPath('data.delivery_fee', '15000.00')
             ->assertJsonPath('data.total_price', '35000.00')
             ->assertJsonPath('data.shopping_stops.1.merchant.id', $warung->id)
+            ->assertJsonPath('data.shopping_stops.1.merchant.latitude', -7.006)
+            ->assertJsonPath('data.shopping_stops.1.merchant.longitude', 110.406)
             ->assertJsonPath('data.shopping_stops.1.items.0.price_status', 'PENDING_DRIVER_INPUT');
+
+        Event::assertDispatched(
+            OrderContentUpdated::class,
+            fn (OrderContentUpdated $event): bool => $event->orderId === $order->id
+                && $event->changeType === 'SHOPPING_ROUTE_UPDATED'
+        );
 
         $this->assertDatabaseHas('order_locations', [
             'order_id' => $order->id,

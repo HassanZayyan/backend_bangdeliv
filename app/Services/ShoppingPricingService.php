@@ -186,7 +186,7 @@ class ShoppingPricingService
     {
         $rule = $this->getRuleConfig((int) $order->service_type_id, 'CANCELLATION_PENALTY_AFTER_FAILED_ATTEMPTS');
 
-        $threshold = max(1, (int) ($rule['failed_attempt_threshold'] ?? 3));
+        $threshold = $this->failedAttemptThresholdForRule($rule);
         $percent = max(0.0, (float) ($rule['penalty_percent_of_delivery_fee'] ?? 50));
 
         if ((int) $shoppingOrder->failed_attempt_count < $threshold || $percent <= 0) {
@@ -196,6 +196,20 @@ class ShoppingPricingService
         $deliveryFee = (float) $order->delivery_fee;
 
         return round($deliveryFee * ($percent / 100), 2);
+    }
+
+    public function cancellationFailedAttemptThreshold(int $serviceTypeId): int
+    {
+        return $this->failedAttemptThresholdForRule(
+            $this->getRuleConfig($serviceTypeId, 'CANCELLATION_PENALTY_AFTER_FAILED_ATTEMPTS')
+        );
+    }
+
+    public function isCancellationPenaltyEligible(Order $order, ShoppingOrder $shoppingOrder): bool
+    {
+        return (int) $shoppingOrder->failed_attempt_count >= $this->cancellationFailedAttemptThreshold(
+            (int) $order->service_type_id
+        );
     }
 
     public function hasPendingManualPrices(Order $order): bool
@@ -247,6 +261,14 @@ class ShoppingPricingService
         $blockCount = (int) ceil($billableItems / $blockSize);
 
         return round($blockCount * $surchargePerBlock, 2);
+    }
+
+    /**
+     * @param  array<string, mixed>  $rule
+     */
+    private function failedAttemptThresholdForRule(array $rule): int
+    {
+        return max(1, (int) ($rule['failed_attempt_threshold'] ?? 3));
     }
 
     /**

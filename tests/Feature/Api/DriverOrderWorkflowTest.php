@@ -1050,6 +1050,127 @@ class DriverOrderWorkflowTest extends TestCase
             ->exists());
     }
 
+    public function test_driver_can_cancel_shopping_with_fee_after_three_failed_pickups(): void
+    {
+        [$driverUser, $driver] = $this->createActiveDriver('shopping-closed');
+        $order = $this->createShoppingOrder($driver, 'ARRIVED_MERCHANT');
+
+        $merchant = \App\Models\Restaurant::query()->create([
+            'name' => 'Resto Tutup Test',
+            'slug' => 'resto-tutup-test-'.strtolower(str()->random(6)),
+            'description' => 'Merchant test',
+            'merchant_type' => 'restaurant',
+            'address' => 'Jl. Merchant Tutup',
+            'latitude' => -7.001,
+            'longitude' => 110.401,
+            'phone' => '0812'.random_int(10000000, 99999999),
+            'status' => 'active',
+            'avg_rating' => 4.5,
+            'total_reviews' => 1,
+            'estimated_prep_time' => 10,
+        ]);
+
+        $pickup = $order->orderLocations()->create([
+            'restaurant_id' => $merchant->id,
+            'location_role' => 'PICKUP',
+            'label' => 'Merchant',
+            'contact_name' => $merchant->name,
+            'contact_phone' => $merchant->phone,
+            'full_address' => $merchant->address,
+            'latitude' => $merchant->latitude,
+            'longitude' => $merchant->longitude,
+            'sequence_no' => 1,
+        ]);
+
+        $order->orderLocations()->create([
+            'location_role' => 'DROPOFF',
+            'label' => 'Customer',
+            'full_address' => 'Jl. Customer Cancel Fee',
+            'latitude' => -7.003,
+            'longitude' => 110.403,
+            'sequence_no' => 2,
+        ]);
+
+        ShoppingOrder::query()->create([
+            'order_id' => $order->id,
+            'failed_attempt_count' => 2,
+            'item_surcharge' => 0,
+            'overweight_surcharge' => 0,
+            'cancellation_penalty' => 0,
+            'has_overweight_item' => false,
+            'recalculation_version' => 0,
+        ]);
+
+        OrderItem::query()->create([
+            'order_id' => $order->id,
+            'pickup_location_id' => $pickup->id,
+            'item_source' => 'MANUAL',
+            'menu_name' => 'Ayam Geprek',
+            'quantity' => 1,
+            'unit_price' => 12000,
+            'subtotal' => 12000,
+            'is_available' => true,
+            'is_heavy' => false,
+        ]);
+
+        OrderPayment::query()->create([
+            'order_id' => $order->id,
+            'payment_method' => 'COD',
+            'payment_status' => 'PENDING',
+            'amount' => 18000,
+        ]);
+
+        Sanctum::actingAs($driverUser);
+
+        $failedResponse = $this->postJson('/api/v1/orders/'.$order->id.'/attempt-failed', [
+            'failure_type' => 'PICKUP',
+            'reason' => 'Merchant tutup saat driver tiba.',
+            'pickup_location_id' => $pickup->id,
+        ]);
+
+        $failedResponse->assertOk()
+            ->assertJsonPath('success', true);
+
+        $this->assertDatabaseHas('shopping_orders', [
+            'order_id' => $order->id,
+            'failed_attempt_count' => 3,
+        ]);
+
+        $detailResponse = $this->getJson('/api/v1/driver/orders/'.$order->id);
+        $detailResponse->assertOk()
+            ->assertJsonPath('data.pricing.can_cancel_with_fee', true)
+            ->assertJsonPath('data.pricing.failed_attempt_count', 3);
+
+        $this->assertContains(
+            'CANCEL_WITH_FEE',
+            collect($detailResponse->json('data.available_actions'))->pluck('action_code')->all()
+        );
+
+        $cancelResponse = $this->postJson('/api/v1/driver/orders/'.$order->id.'/status-transition', [
+            'action_code' => 'CANCEL_WITH_FEE',
+            'target_status_code' => 'CANCELLED_WITH_FEE',
+            'note' => 'Tiga merchant gagal pickup.',
+        ]);
+
+        $cancelResponse->assertOk()
+            ->assertJsonPath('data.status_code', 'CANCELLED_WITH_FEE')
+            ->assertJsonPath('data.pricing.cancellation_penalty', 3000)
+            ->assertJsonPath('data.pricing.total_price', 21000);
+
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
+            'service_fee' => 3000,
+            'total_price' => 21000,
+            'cancelled_by' => 'driver',
+        ]);
+
+        $this->assertDatabaseHas('order_payments', [
+            'order_id' => $order->id,
+            'payment_status' => 'PENDING',
+            'amount' => 21000,
+        ]);
+    }
+
     /**
      * @return array{0: User, 1: Driver}
      */

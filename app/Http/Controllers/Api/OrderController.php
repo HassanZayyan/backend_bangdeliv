@@ -308,7 +308,10 @@ class OrderController extends Controller
                 $request->user(),
                 $orderId,
                 (string) $request->input('failure_type'),
-                (string) $request->input('reason')
+                (string) $request->input('reason'),
+                $request->filled('pickup_location_id')
+                    ? $request->integer('pickup_location_id')
+                    : null
             );
 
             return $this->success($order, 'Failed attempt berhasil dicatat.');
@@ -324,7 +327,10 @@ class OrderController extends Controller
                 $request->user(),
                 $orderId,
                 (string) $request->input('failure_type'),
-                (string) $request->input('reason')
+                (string) $request->input('reason'),
+                $request->filled('pickup_location_id')
+                    ? $request->integer('pickup_location_id')
+                    : null
             );
 
             return $this->success($order, 'Failed attempt berhasil dicatat oleh admin.');

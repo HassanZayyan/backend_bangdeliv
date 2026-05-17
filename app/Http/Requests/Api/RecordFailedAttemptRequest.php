@@ -19,6 +19,7 @@ class RecordFailedAttemptRequest extends FormRequest
         return [
             'failure_type' => ['required', 'in:DRIVER_ASSIGNMENT,PICKUP,DELIVERY'],
             'reason' => ['required', 'string', 'max:500'],
+            'pickup_location_id' => ['nullable', 'integer', 'exists:order_locations,id'],
         ];
     }
 }

@@ -8,6 +8,8 @@ use Illuminate\Database\Eloquent\Relations\Relation;
 
 class DriverOrderPayloadFactory
 {
+    public function __construct(private readonly ShoppingPricingService $shoppingPricingService) {}
+
     /**
      * @return array<int|string, mixed>
      */
@@ -20,7 +22,7 @@ class DriverOrderPayloadFactory
             'restaurant:id,name,address,latitude,longitude,phone,merchant_type',
             'rideOrder:id,order_id,picked_up_at,arrived_at',
             'courierOrder:id,order_id,package_description,estimated_weight_kg,package_length_cm,package_width_cm,package_height_cm,package_size_class,package_safety_status,package_safety_flags,package_safety_reason,package_packing_note,requires_photo_evidence',
-            'shoppingOrder:id,order_id,item_surcharge,overweight_surcharge,cancellation_penalty,has_overweight_item,recalculation_version,last_recalculated_at,pricing_snapshot',
+            'shoppingOrder:id,order_id,failed_attempt_count,item_surcharge,overweight_surcharge,cancellation_penalty,has_overweight_item,recalculation_version,last_recalculated_at,pricing_snapshot',
             'items:id,order_id,menu_id,pickup_location_id,item_source,menu_name,quantity,unit_price,subtotal,notes,metadata,is_available,is_heavy',
             'orderLocations:id,order_id,restaurant_id,location_role,label,contact_name,contact_phone,full_address,latitude,longitude,sequence_no',
             'orderLocations.restaurant:id,name,address,latitude,longitude,phone,merchant_type',
@@ -45,11 +47,14 @@ class DriverOrderPayloadFactory
         $pickup = $this->resolvePickupPoint($order, $serviceCode);
         $dropoff = $this->resolveDropoffPoint($order);
         $hasPendingShoppingPrices = $serviceCode === 'SHOPPING' && $this->hasPendingManualShoppingPrices($order);
+        $canCancelShoppingWithFee = $serviceCode === 'SHOPPING' && $order->shoppingOrder !== null
+            && $this->shoppingPricingService->isCancellationPenaltyEligible($order, $order->shoppingOrder);
         $availableActions = $this->resolveAvailableDriverActions(
             $serviceCode,
             $statusCode,
             $paymentStatus,
             $hasPendingShoppingPrices,
+            $canCancelShoppingWithFee,
         );
 
         $acceptedAt = $order->statusHistories
@@ -121,6 +126,11 @@ class DriverOrderPayloadFactory
                 'cancellation_penalty' => round((float) ($order->shoppingOrder?->cancellation_penalty ?? 0), 2),
                 'recalculation_version' => (int) ($order->shoppingOrder?->recalculation_version ?? 0),
                 'has_pending_manual_prices' => $hasPendingShoppingPrices,
+                'failed_attempt_count' => (int) ($order->shoppingOrder?->failed_attempt_count ?? 0),
+                'failed_attempt_threshold' => $this->shoppingPricingService->cancellationFailedAttemptThreshold(
+                    (int) $order->service_type_id
+                ),
+                'can_cancel_with_fee' => $canCancelShoppingWithFee,
             ];
             $payload['has_pending_shopping_prices'] = $hasPendingShoppingPrices;
         }
@@ -215,6 +225,7 @@ class DriverOrderPayloadFactory
         string $statusCode,
         string $paymentStatus,
         bool $hasPendingShoppingPrices = false,
+        bool $canCancelShoppingWithFee = false,
     ): array {
         $actions = [];
         $rules = $this->driverActionRules($serviceCode);
@@ -236,6 +247,10 @@ class DriverOrderPayloadFactory
             if ($serviceCode === 'SHOPPING' && $actionCode === 'CONFIRM_PICKED_UP' && $hasPendingShoppingPrices) {
                 $blocked = true;
                 $blockedReason = 'Harga nota untuk item manual belum lengkap.';
+            }
+
+            if ($serviceCode === 'SHOPPING' && ($rule['requires_failed_attempt_threshold'] ?? false) && ! $canCancelShoppingWithFee) {
+                continue;
             }
 
             $actions[] = [
@@ -395,6 +410,12 @@ class DriverOrderPayloadFactory
                 'from' => ['DELIVERED'],
                 'to' => 'COMPLETED',
                 'requires_paid' => true,
+            ],
+            'CANCEL_WITH_FEE' => [
+                'label' => 'Batalkan Order (Fee 50%)',
+                'from' => ['DRIVER_ASSIGNED', 'ARRIVED_MERCHANT'],
+                'to' => 'CANCELLED_WITH_FEE',
+                'requires_failed_attempt_threshold' => true,
             ],
         ];
     }
