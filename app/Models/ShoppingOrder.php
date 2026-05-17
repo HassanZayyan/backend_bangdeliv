@@ -21,6 +21,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class ShoppingOrder extends Model
 {
+    protected $appends = [
+        'fee_breakdown',
+    ];
+
     protected $fillable = [
         'order_id',
         'failed_attempt_count',
@@ -50,5 +54,45 @@ class ShoppingOrder extends Model
     public function order(): BelongsTo
     {
         return $this->belongsTo(Order::class);
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    public function getFeeBreakdownAttribute(): array
+    {
+        $snapshot = is_array($this->pricing_snapshot) ? $this->pricing_snapshot : [];
+        $breakdown = $snapshot['fee_breakdown'] ?? null;
+        if (is_array($breakdown)) {
+            return $breakdown;
+        }
+
+        $rows = [];
+        if ((float) $this->item_surcharge > 0) {
+            $rows[] = [
+                'code' => 'ITEM_BLOCK_SURCHARGE',
+                'label' => 'Biaya banyak item',
+                'description' => 'Tambahan berdasarkan jumlah item',
+                'amount' => round((float) $this->item_surcharge, 2),
+            ];
+        }
+        if ((float) $this->overweight_surcharge > 0) {
+            $rows[] = [
+                'code' => 'OVERWEIGHT_FLAT_SURCHARGE',
+                'label' => 'Item berat',
+                'description' => 'Dikenakan sekali per order',
+                'amount' => round((float) $this->overweight_surcharge, 2),
+            ];
+        }
+        if ((float) $this->cancellation_penalty > 0) {
+            $rows[] = [
+                'code' => 'CANCELLATION_PENALTY_AFTER_FAILED_ATTEMPTS',
+                'label' => 'Penalty merchant gagal',
+                'description' => '50% dari ongkir setelah batas percobaan gagal',
+                'amount' => round((float) $this->cancellation_penalty, 2),
+            ];
+        }
+
+        return $rows;
     }
 }

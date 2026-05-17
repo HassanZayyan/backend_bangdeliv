@@ -300,6 +300,11 @@ class Order extends Model
                 return [
                     'pickup_location_id' => $pickupId,
                     'sequence_no' => (int) $pickup->sequence_no,
+                    'fulfillment_status' => strtoupper((string) ($pickup->fulfillment_status ?? 'PENDING')),
+                    'failed_attempt_count' => (int) ($pickup->failed_attempt_count ?? 0),
+                    'failure_reason' => $pickup->failure_reason,
+                    'failed_at' => $pickup->failed_at?->toIso8601String(),
+                    'resolved_at' => $pickup->resolved_at?->toIso8601String(),
                     'merchant' => [
                         'id' => $restaurantId,
                         'name' => $pickup->restaurant?->name ?? $pickup->contact_name ?? $pickup->label,

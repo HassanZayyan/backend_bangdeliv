@@ -64,6 +64,7 @@ Route::prefix('v1')->group(function () {
         Route::post('/orders/{orderId}/items/bulk', [OrderController::class, 'addShoppingItems']);
         Route::patch('/orders/{orderId}/items/{itemId}', [OrderController::class, 'updateShoppingItem']);
         Route::delete('/orders/{orderId}/items/{itemId}', [OrderController::class, 'removeShoppingItem']);
+        Route::post('/orders/{orderId}/shopping-stops/{pickupLocationId}/skip', [OrderController::class, 'skipFailedShoppingStop']);
     });
 
     Route::middleware(['auth:sanctum', 'role:driver'])->group(function () {

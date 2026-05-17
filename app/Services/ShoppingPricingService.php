@@ -9,6 +9,7 @@ use App\Models\OrderLog;
 use App\Models\OrderStatusHistory;
 use App\Models\ServiceFeeRule;
 use App\Models\ShoppingOrder;
+use Illuminate\Support\Facades\DB;
 
 class ShoppingPricingService
 {
@@ -56,6 +57,13 @@ class ShoppingPricingService
         $overweightSurcharge = $hasOverweightItem ? (float) ($overweightRule['surcharge'] ?? 0) : 0.0;
         $serviceFee = round($itemSurcharge + $overweightSurcharge + $cancellationPenalty, 2);
         $totalPrice = round($subtotal + $deliveryFee + $serviceFee, 2);
+        $feeBreakdown = $this->feeBreakdown(
+            $totalItemQuantity,
+            $itemSurcharge,
+            $overweightSurcharge,
+            $cancellationPenalty,
+            $itemBlockRule,
+        );
 
         return [
             'item_count' => $totalItemQuantity,
@@ -67,6 +75,7 @@ class ShoppingPricingService
             'service_fee' => $serviceFee,
             'total_price' => $totalPrice,
             'has_overweight_item' => $hasOverweightItem,
+            'fee_breakdown' => $feeBreakdown,
         ];
     }
 
@@ -170,14 +179,10 @@ class ShoppingPricingService
             'serviceType',
         ]);
 
-        $this->realtimeBroadcaster->orderContentUpdated(
-            (int) $freshOrder->id,
-            $triggerType,
-            [
-                ...$pricing,
-                'recalculation_version' => $nextVersion,
-            ],
-        );
+        $this->broadcastContentUpdatedAfterCommit((int) $freshOrder->id, $triggerType, [
+            ...$pricing,
+            'recalculation_version' => $nextVersion,
+        ]);
 
         return $freshOrder;
     }
@@ -261,6 +266,67 @@ class ShoppingPricingService
         $blockCount = (int) ceil($billableItems / $blockSize);
 
         return round($blockCount * $surchargePerBlock, 2);
+    }
+
+    /**
+     * @param  array<string, mixed>  $itemBlockRule
+     * @return array<int, array<string, mixed>>
+     */
+    private function feeBreakdown(
+        int $itemCount,
+        float $itemSurcharge,
+        float $overweightSurcharge,
+        float $cancellationPenalty,
+        array $itemBlockRule,
+    ): array {
+        $rows = [];
+        if ($itemSurcharge > 0) {
+            $freeUntil = max(0, (int) ($itemBlockRule['free_until_item_count'] ?? 0));
+            $blockSize = max(1, (int) ($itemBlockRule['block_size'] ?? 1));
+            $billableItems = max(0, $itemCount - $freeUntil);
+            $blockCount = max(1, (int) ceil($billableItems / $blockSize));
+            $rows[] = [
+                'code' => 'ITEM_BLOCK_SURCHARGE',
+                'label' => 'Biaya banyak item',
+                'description' => $itemCount.' item, '.$blockCount.' blok tambahan',
+                'amount' => round($itemSurcharge, 2),
+            ];
+        }
+
+        if ($overweightSurcharge > 0) {
+            $rows[] = [
+                'code' => 'OVERWEIGHT_FLAT_SURCHARGE',
+                'label' => 'Item berat',
+                'description' => 'Dikenakan sekali per order',
+                'amount' => round($overweightSurcharge, 2),
+            ];
+        }
+
+        if ($cancellationPenalty > 0) {
+            $rows[] = [
+                'code' => 'CANCELLATION_PENALTY_AFTER_FAILED_ATTEMPTS',
+                'label' => 'Penalty merchant gagal',
+                'description' => '50% dari ongkir setelah batas percobaan gagal',
+                'amount' => round($cancellationPenalty, 2),
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * @param  array<string, mixed>  $pricing
+     */
+    private function broadcastContentUpdatedAfterCommit(int $orderId, string $triggerType, array $pricing): void
+    {
+        $broadcast = fn (): bool => $this->realtimeBroadcaster->orderContentUpdated($orderId, $triggerType, $pricing);
+
+        if (DB::transactionLevel() > 0) {
+            DB::afterCommit($broadcast);
+            return;
+        }
+
+        $broadcast();
     }
 
     /**

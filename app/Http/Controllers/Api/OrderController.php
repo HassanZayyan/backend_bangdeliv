@@ -165,6 +165,17 @@ class OrderController extends Controller
         }
     }
 
+    public function skipFailedShoppingStop(Request $request, int $orderId, int $pickupLocationId): JsonResponse
+    {
+        try {
+            $order = $this->orderService->skipFailedShoppingStop($request->user(), $orderId, $pickupLocationId);
+
+            return $this->success($order, 'Merchant gagal pickup dilewati.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
     public function updateDriverShoppingItems(UpdateDriverShoppingItemsRequest $request, int $orderId): JsonResponse
     {
         try {

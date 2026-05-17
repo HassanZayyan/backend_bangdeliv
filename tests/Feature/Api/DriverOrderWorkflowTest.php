@@ -1136,10 +1136,23 @@ class DriverOrderWorkflowTest extends TestCase
             'failed_attempt_count' => 3,
         ]);
 
+        $this->assertDatabaseHas('order_locations', [
+            'id' => $pickup->id,
+            'fulfillment_status' => 'FAILED',
+        ]);
+
+        $this->assertDatabaseHas('order_items', [
+            'order_id' => $order->id,
+            'pickup_location_id' => $pickup->id,
+            'is_available' => false,
+            'subtotal' => 0,
+        ]);
+
         $detailResponse = $this->getJson('/api/v1/driver/orders/'.$order->id);
         $detailResponse->assertOk()
             ->assertJsonPath('data.pricing.can_cancel_with_fee', true)
-            ->assertJsonPath('data.pricing.failed_attempt_count', 3);
+            ->assertJsonPath('data.pricing.failed_attempt_count', 3)
+            ->assertJsonPath('data.shopping_stops.0.fulfillment_status', 'FAILED');
 
         $this->assertContains(
             'CANCEL_WITH_FEE',
@@ -1155,19 +1168,19 @@ class DriverOrderWorkflowTest extends TestCase
         $cancelResponse->assertOk()
             ->assertJsonPath('data.status_code', 'CANCELLED_WITH_FEE')
             ->assertJsonPath('data.pricing.cancellation_penalty', 3000)
-            ->assertJsonPath('data.pricing.total_price', 21000);
+            ->assertJsonPath('data.pricing.total_price', 9000);
 
         $this->assertDatabaseHas('orders', [
             'id' => $order->id,
             'service_fee' => 3000,
-            'total_price' => 21000,
+            'total_price' => 9000,
             'cancelled_by' => 'driver',
         ]);
 
         $this->assertDatabaseHas('order_payments', [
             'order_id' => $order->id,
             'payment_status' => 'PENDING',
-            'amount' => 21000,
+            'amount' => 9000,
         ]);
     }
 

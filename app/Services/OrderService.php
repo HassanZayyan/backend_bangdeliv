@@ -199,7 +199,7 @@ class OrderService
 
         $order = DB::transaction(function () use ($actor, $orderId, $normalizedFailureType, $reason, $pickupLocationId): Order {
             $order = Order::query()
-                ->with(['statusRef', 'serviceType', 'shoppingOrder', 'orderLocations'])
+                ->with(['statusRef', 'serviceType', 'shoppingOrder', 'orderLocations', 'items'])
                 ->lockForUpdate()
                 ->find($orderId);
 
@@ -211,6 +211,7 @@ class OrderService
                 throw new ApiException('Failed attempt hanya berlaku untuk order SHOPPING.', 409);
             }
 
+            $pickup = null;
             if ($pickupLocationId !== null) {
                 $pickup = $order->orderLocations
                     ->first(fn (OrderLocation $location): bool => (int) $location->id === $pickupLocationId);
@@ -218,6 +219,14 @@ class OrderService
                 if (! $pickup || strtoupper((string) $pickup->location_role) !== 'PICKUP') {
                     throw new ApiException('Merchant/pickup order tidak valid.', 422);
                 }
+            } else {
+                $pickup = $order->orderLocations
+                    ->sortBy([['sequence_no', 'asc'], ['id', 'asc']])
+                    ->first(fn (OrderLocation $location): bool => strtoupper((string) $location->location_role) === 'PICKUP');
+            }
+
+            if ($pickup !== null && strtoupper((string) ($pickup->fulfillment_status ?? 'PENDING')) === 'FAILED') {
+                throw new ApiException('Merchant ini sudah ditandai tutup/gagal pickup.', 409);
             }
 
             $activeStatusCode = $order->statusRef?->code;
@@ -262,6 +271,32 @@ class OrderService
                 'failed_attempt_count' => $nextFailedAttemptCount,
             ]);
 
+            if ($pickup !== null) {
+                $pickup->update([
+                    'fulfillment_status' => 'FAILED',
+                    'failed_attempt_count' => min(255, (int) ($pickup->failed_attempt_count ?? 0) + 1),
+                    'failure_reason' => $reason,
+                    'failed_at' => now(),
+                    'resolved_at' => null,
+                ]);
+
+                $order->items()
+                    ->where('pickup_location_id', $pickup->id)
+                    ->get()
+                    ->each(function ($item) use ($reason): void {
+                        $metadata = is_array($item->metadata) ? $item->metadata : [];
+                        $metadata['price_status'] = 'UNAVAILABLE';
+                        $metadata['failure_reason'] = $reason;
+
+                        $item->update([
+                            'is_available' => false,
+                            'unit_price' => 0,
+                            'subtotal' => 0,
+                            'metadata' => $metadata,
+                        ]);
+                    });
+            }
+
             OrderStatusHistory::query()->create([
                 'order_id' => $order->id,
                 'status_id' => $order->status_id,
@@ -271,7 +306,8 @@ class OrderService
                 'price_snapshot' => [
                     'failure_type' => $normalizedFailureType,
                     'failed_attempt_count' => $nextFailedAttemptCount,
-                    'pickup_location_id' => $pickupLocationId,
+                    'pickup_location_id' => $pickup?->id ?? $pickupLocationId,
+                    'fulfillment_status' => $pickup !== null ? 'FAILED' : null,
                 ],
             ]);
 
@@ -286,21 +322,18 @@ class OrderService
                     'failure_type' => $normalizedFailureType,
                     'failed_attempt_count' => $nextFailedAttemptCount,
                     'actor_role' => $actor->role,
-                    'pickup_location_id' => $pickupLocationId,
+                    'pickup_location_id' => $pickup?->id ?? $pickupLocationId,
                 ],
             ]);
 
-            return $order->refresh()->load(['restaurant', 'orderLocations', 'items', 'statusRef', 'statusHistories.statusRef', 'shoppingOrder']);
+            return $this->shoppingPricingService->recalculate(
+                $order->refresh()->load(['items', 'shoppingOrder', 'statusRef', 'serviceType']),
+                $actor->id,
+                'SHOPPING_FAILED_ATTEMPT',
+                false,
+                $reason
+            );
         });
-
-        $this->realtimeBroadcaster->orderContentUpdated(
-            (int) $order->id,
-            'SHOPPING_FAILED_ATTEMPT',
-            [
-                'failed_attempt_count' => (int) ($order->shoppingOrder?->failed_attempt_count ?? 0),
-                'pickup_location_id' => $pickupLocationId,
-            ],
-        );
 
         return $order;
     }
@@ -1438,6 +1471,55 @@ class OrderService
                 $routeChanged
                     ? 'Customer menghapus item terakhir pada merchant sehingga rute dihitung ulang.'
                     : 'Customer menghapus item belanja.'
+            );
+        });
+    }
+
+    public function skipFailedShoppingStop(User $user, int $orderId, int $pickupLocationId): Order
+    {
+        return DB::transaction(function () use ($user, $orderId, $pickupLocationId): Order {
+            $order = $this->getEditableShoppingOrder($user, $orderId);
+
+            $pickup = $order->orderLocations
+                ->first(fn (OrderLocation $location): bool => (int) $location->id === $pickupLocationId);
+
+            if (! $pickup || strtoupper((string) $pickup->location_role) !== 'PICKUP') {
+                throw new ApiException('Merchant/pickup order tidak valid.', 422);
+            }
+
+            if (strtoupper((string) ($pickup->fulfillment_status ?? 'PENDING')) !== 'FAILED') {
+                throw new ApiException('Merchant ini belum ditandai tutup/gagal pickup.', 409);
+            }
+
+            $availableItemsOutsideStop = $order->items
+                ->contains(fn ($item): bool => (int) ($item->pickup_location_id ?? 0) !== $pickupLocationId && (bool) $item->is_available);
+            if (! $availableItemsOutsideStop) {
+                throw new ApiException('Tidak bisa lanjut tanpa item belanja lain. Tambahkan merchant pengganti atau batalkan order.', 409);
+            }
+
+            $pickup->update([
+                'fulfillment_status' => 'SKIPPED',
+                'resolved_at' => now(),
+            ]);
+
+            OrderStatusHistory::query()->create([
+                'order_id' => $order->id,
+                'status_id' => $order->status_id,
+                'event_type' => 'SHOPPING_STOP_RESOLVED',
+                'changed_by_user_id' => $user->id,
+                'note' => 'Customer memilih lanjut tanpa merchant '.$pickup->contact_name.'.',
+                'price_snapshot' => [
+                    'pickup_location_id' => $pickupLocationId,
+                    'resolution' => 'SKIPPED',
+                ],
+            ]);
+
+            return $this->shoppingPricingService->recalculate(
+                $order->refresh()->load(['items', 'shoppingOrder', 'statusRef', 'serviceType']),
+                $user->id,
+                'CUSTOMER_SKIP_FAILED_MERCHANT',
+                false,
+                'Customer memilih lanjut tanpa merchant yang tutup.'
             );
         });
     }

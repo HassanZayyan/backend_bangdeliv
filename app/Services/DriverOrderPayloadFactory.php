@@ -24,7 +24,7 @@ class DriverOrderPayloadFactory
             'courierOrder:id,order_id,package_description,estimated_weight_kg,package_length_cm,package_width_cm,package_height_cm,package_size_class,package_safety_status,package_safety_flags,package_safety_reason,package_packing_note,requires_photo_evidence',
             'shoppingOrder:id,order_id,failed_attempt_count,item_surcharge,overweight_surcharge,cancellation_penalty,has_overweight_item,recalculation_version,last_recalculated_at,pricing_snapshot',
             'items:id,order_id,menu_id,pickup_location_id,item_source,menu_name,quantity,unit_price,subtotal,notes,metadata,is_available,is_heavy',
-            'orderLocations:id,order_id,restaurant_id,location_role,label,contact_name,contact_phone,full_address,latitude,longitude,sequence_no',
+            'orderLocations:id,order_id,restaurant_id,location_role,label,contact_name,contact_phone,full_address,latitude,longitude,sequence_no,fulfillment_status,failed_attempt_count,failure_reason,failed_at,resolved_at',
             'orderLocations.restaurant:id,name,address,latitude,longitude,phone,merchant_type',
             'payments:id,order_id,payment_method,payment_status,amount,recorded_by_user_id,driver_id,paid_at',
             'statusHistories' => function (Relation $query): void {
@@ -131,6 +131,7 @@ class DriverOrderPayloadFactory
                     (int) $order->service_type_id
                 ),
                 'can_cancel_with_fee' => $canCancelShoppingWithFee,
+                'fee_breakdown' => $order->shoppingOrder?->fee_breakdown ?? [],
             ];
             $payload['has_pending_shopping_prices'] = $hasPendingShoppingPrices;
         }
@@ -495,6 +496,11 @@ class DriverOrderPayloadFactory
                 return [
                     'pickup_location_id' => $pickupId,
                     'sequence_no' => (int) $pickup->sequence_no,
+                    'fulfillment_status' => strtoupper((string) ($pickup->fulfillment_status ?? 'PENDING')),
+                    'failed_attempt_count' => (int) ($pickup->failed_attempt_count ?? 0),
+                    'failure_reason' => $pickup->failure_reason,
+                    'failed_at' => $pickup->failed_at?->toIso8601String(),
+                    'resolved_at' => $pickup->resolved_at?->toIso8601String(),
                     'merchant' => [
                         'id' => $restaurantId,
                         'name' => $pickup->restaurant?->name ?? $pickup->contact_name ?? $pickup->label,

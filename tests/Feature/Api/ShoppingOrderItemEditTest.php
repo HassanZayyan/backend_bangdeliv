@@ -386,6 +386,68 @@ class ShoppingOrderItemEditTest extends TestCase
             ->assertJsonPath('message', 'Item tidak bisa diubah pada status order saat ini.');
     }
 
+    public function test_customer_can_skip_failed_merchant_when_other_items_remain(): void
+    {
+        $customer = User::factory()->create(['role' => 'customer']);
+        $order = $this->createShoppingOrder($customer, 'ARRIVED_MERCHANT');
+        $failedPickup = $order->orderLocations()
+            ->where('location_role', 'PICKUP')
+            ->firstOrFail();
+        $failedPickup->update([
+            'fulfillment_status' => 'FAILED',
+            'failure_reason' => 'Merchant tutup saat driver tiba.',
+            'failed_at' => now(),
+        ]);
+        $order->items()->where('pickup_location_id', $failedPickup->id)->update([
+            'is_available' => false,
+            'unit_price' => 0,
+            'subtotal' => 0,
+        ]);
+
+        $secondMerchant = $this->createMerchant('Warung Pengganti Skip', 'warung-pengganti-skip', -7.006, 110.406, 'warung');
+        $secondPickup = $order->orderLocations()->create([
+            'restaurant_id' => $secondMerchant->id,
+            'location_role' => 'PICKUP',
+            'label' => 'Merchant',
+            'contact_name' => $secondMerchant->name,
+            'contact_phone' => $secondMerchant->phone,
+            'full_address' => $secondMerchant->address,
+            'latitude' => $secondMerchant->latitude,
+            'longitude' => $secondMerchant->longitude,
+            'sequence_no' => 2,
+        ]);
+        OrderItem::query()->create([
+            'order_id' => $order->id,
+            'pickup_location_id' => $secondPickup->id,
+            'item_source' => 'MANUAL',
+            'menu_name' => 'Beras 1 kg',
+            'quantity' => 1,
+            'unit_price' => 10000,
+            'subtotal' => 10000,
+            'is_available' => true,
+            'is_heavy' => false,
+        ]);
+
+        Sanctum::actingAs($customer);
+
+        $response = $this->postJson('/api/v1/orders/'.$order->id.'/shopping-stops/'.$failedPickup->id.'/skip');
+
+        $response->assertOk()
+            ->assertJsonPath('data.shopping_stops.0.fulfillment_status', 'SKIPPED')
+            ->assertJsonPath('data.total_price', '15000.00');
+
+        $this->assertDatabaseHas('order_locations', [
+            'id' => $failedPickup->id,
+            'fulfillment_status' => 'SKIPPED',
+        ]);
+
+        $this->assertDatabaseHas('order_payments', [
+            'order_id' => $order->id,
+            'payment_status' => 'PENDING',
+            'amount' => 15000,
+        ]);
+    }
+
     private function createShoppingOrder(User $customer, string $statusCode): Order
     {
         $shoppingTypeId = (int) ServiceType::query()->where('code', 'SHOPPING')->value('id');
