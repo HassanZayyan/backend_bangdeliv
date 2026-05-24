@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CartController;
 use App\Http\Controllers\Api\ChatbotController;
+use App\Http\Controllers\Api\DeviceTokenController;
 use App\Http\Controllers\Api\Driver\OrderExecutionController;
 use App\Http\Controllers\Api\DriverVerificationController;
 use App\Http\Controllers\Api\HomeController;
@@ -41,6 +42,8 @@ Route::prefix('v1')->group(function () {
     Route::get('/restaurants/{restaurantIdOrSlug}/menus', [RestaurantController::class, 'menus']);
 
     Route::middleware('auth:sanctum')->group(function () {
+        Route::post('/device-tokens', [DeviceTokenController::class, 'store']);
+        Route::delete('/device-tokens', [DeviceTokenController::class, 'destroy']);
         Route::get('/orders/{orderId}/chat/messages', [OrderChatController::class, 'index']);
         Route::get('/orders/{orderId}/chat/unread', [OrderChatController::class, 'unread']);
         Route::post('/orders/{orderId}/chat/read', [OrderChatController::class, 'markRead']);
