@@ -139,7 +139,9 @@ class AddressService
     private function resolveAddressForWrite(string $fullAddress, ?array $providedCoordinates): array
     {
         if ($providedCoordinates === null) {
-            return $this->validateAddress($fullAddress);
+            $validated = $this->validateAddress($fullAddress);
+            $validated['formatted_address'] = $fullAddress;
+            return $validated;
         }
 
         $resolvedAddress = $this->tryResolveAddress($fullAddress);
@@ -147,7 +149,7 @@ class AddressService
         return [
             'latitude' => $providedCoordinates['latitude'],
             'longitude' => $providedCoordinates['longitude'],
-            'formatted_address' => trim((string) ($resolvedAddress['formatted_address'] ?? $fullAddress)),
+            'formatted_address' => $fullAddress,
         ];
     }
 
