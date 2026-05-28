@@ -12,7 +12,10 @@ use Illuminate\Database\Eloquent\Builder;
 
 class OrderChatService
 {
-    public function __construct(private readonly OrderRealtimeBroadcaster $realtimeBroadcaster) {}
+    public function __construct(
+        private readonly OrderRealtimeBroadcaster $realtimeBroadcaster,
+        private readonly ChatPushNotificationService $chatPushNotificationService,
+    ) {}
 
     /**
      * @param  array<string, mixed>  $filters
@@ -120,6 +123,14 @@ class OrderChatService
                 'body' => $body,
                 'client_message_id' => null,
             ]);
+        }
+
+        if ($message->wasRecentlyCreated) {
+            $this->chatPushNotificationService->sendOrderChatNotification(
+                $order,
+                $actor,
+                $message,
+            );
         }
 
         $serialized = $this->serializeMessage($message);

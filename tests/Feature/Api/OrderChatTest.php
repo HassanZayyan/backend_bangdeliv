@@ -3,6 +3,7 @@
 namespace Tests\Feature\Api;
 
 use App\Events\OrderChatMessageSent;
+use App\Models\DeviceToken;
 use App\Models\Driver;
 use App\Models\Order;
 use App\Models\OrderStatus;
@@ -14,7 +15,13 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Event;
+use Kreait\Firebase\Contract\Messaging;
+use Kreait\Firebase\Exception\Messaging\NotFound;
+use Kreait\Firebase\Messaging\MessageTarget;
+use Kreait\Firebase\Messaging\MulticastSendReport;
+use Kreait\Firebase\Messaging\SendReport;
 use Laravel\Sanctum\Sanctum;
+use Mockery;
 use Tests\TestCase;
 
 class OrderChatTest extends TestCase
@@ -205,6 +212,188 @@ class OrderChatTest extends TestCase
         $this->assertDatabaseCount('order_chat_messages', 1);
     }
 
+    public function test_customer_chat_sends_push_notification_to_assigned_driver_only(): void
+    {
+        [$customer, $driverUser, , $order] = $this->createAssignedOrder();
+        DeviceToken::query()->create([
+            'user_id' => $customer->id,
+            'token' => 'customer-token',
+            'device_type' => 'android',
+            'is_active' => true,
+        ]);
+        DeviceToken::query()->create([
+            'user_id' => $driverUser->id,
+            'token' => 'driver-token',
+            'device_type' => 'android',
+            'is_active' => true,
+        ]);
+
+        $messaging = Mockery::mock(Messaging::class);
+        $messaging
+            ->shouldReceive('sendMulticast')
+            ->once()
+            ->withArgs(function ($message, $tokens) use ($customer, $order): bool {
+                $payload = json_decode(json_encode($message), true);
+
+                return $tokens === ['driver-token']
+                    && $payload['notification']['title'] === 'Pesan dari Customer '.$customer->name
+                    && $payload['notification']['body'] === 'Saya sudah menunggu di lobi.'
+                    && $payload['data']['type'] === 'order_chat_message'
+                    && $payload['data']['order_id'] === (string) $order->id
+                    && $payload['data']['sender_user_id'] === (string) $customer->id
+                    && $payload['data']['sender_role'] === 'customer'
+                    && $payload['data']['route'] === "/orders/{$order->id}/chat";
+            })
+            ->andReturn($this->successfulReport(['driver-token']));
+        $this->app->instance(Messaging::class, $messaging);
+
+        Sanctum::actingAs($customer);
+
+        $this->postJson("/api/v1/orders/{$order->id}/chat/messages", [
+            'body' => 'Saya sudah menunggu di lobi.',
+            'client_message_id' => 'push-customer-1',
+        ])->assertCreated()
+            ->assertJsonPath('success', true);
+    }
+
+    public function test_driver_chat_sends_push_notification_to_customer_only(): void
+    {
+        [$customer, $driverUser, , $order] = $this->createAssignedOrder();
+        DeviceToken::query()->create([
+            'user_id' => $customer->id,
+            'token' => 'customer-token',
+            'device_type' => 'android',
+            'is_active' => true,
+        ]);
+        DeviceToken::query()->create([
+            'user_id' => $driverUser->id,
+            'token' => 'driver-token',
+            'device_type' => 'android',
+            'is_active' => true,
+        ]);
+
+        $messaging = Mockery::mock(Messaging::class);
+        $messaging
+            ->shouldReceive('sendMulticast')
+            ->once()
+            ->withArgs(function ($message, $tokens) use ($driverUser, $order): bool {
+                $payload = json_decode(json_encode($message), true);
+
+                return $tokens === ['customer-token']
+                    && $payload['notification']['title'] === 'Pesan dari Driver '.$driverUser->name
+                    && $payload['data']['type'] === 'order_chat_message'
+                    && $payload['data']['order_id'] === (string) $order->id
+                    && $payload['data']['sender_user_id'] === (string) $driverUser->id
+                    && $payload['data']['sender_role'] === 'driver'
+                    && $payload['data']['route'] === "/orders/{$order->id}/chat";
+            })
+            ->andReturn($this->successfulReport(['customer-token']));
+        $this->app->instance(Messaging::class, $messaging);
+
+        Sanctum::actingAs($driverUser);
+
+        $this->postJson("/api/v1/orders/{$order->id}/chat/messages", [
+            'body' => 'Saya sudah sampai di titik jemput.',
+            'client_message_id' => 'push-driver-1',
+        ])->assertCreated()
+            ->assertJsonPath('success', true);
+    }
+
+    public function test_duplicate_client_message_id_does_not_send_push_twice(): void
+    {
+        [$customer, $driverUser, , $order] = $this->createAssignedOrder();
+        DeviceToken::query()->create([
+            'user_id' => $driverUser->id,
+            'token' => 'driver-token',
+            'device_type' => 'android',
+            'is_active' => true,
+        ]);
+
+        $messaging = Mockery::mock(Messaging::class);
+        $messaging
+            ->shouldReceive('sendMulticast')
+            ->once()
+            ->andReturn($this->successfulReport(['driver-token']));
+        $this->app->instance(Messaging::class, $messaging);
+
+        Sanctum::actingAs($customer);
+
+        $payload = [
+            'body' => 'Pesan ini tidak boleh push dua kali.',
+            'client_message_id' => 'dedupe-push-1',
+        ];
+
+        $this->postJson("/api/v1/orders/{$order->id}/chat/messages", $payload)
+            ->assertCreated();
+        $this->postJson("/api/v1/orders/{$order->id}/chat/messages", $payload)
+            ->assertCreated();
+    }
+
+    public function test_invalid_fcm_token_is_deactivated_without_failing_chat_send(): void
+    {
+        [$customer, $driverUser, , $order] = $this->createAssignedOrder();
+        DeviceToken::query()->create([
+            'user_id' => $driverUser->id,
+            'token' => 'unknown-driver-token',
+            'device_type' => 'android',
+            'is_active' => true,
+        ]);
+
+        $messaging = Mockery::mock(Messaging::class);
+        $messaging
+            ->shouldReceive('sendMulticast')
+            ->once()
+            ->andReturn($this->unknownTokenReport(['unknown-driver-token']));
+        $this->app->instance(Messaging::class, $messaging);
+
+        Sanctum::actingAs($customer);
+
+        $this->postJson("/api/v1/orders/{$order->id}/chat/messages", [
+            'body' => 'Token tujuan sudah mati tapi chat tetap harus masuk.',
+            'client_message_id' => 'invalid-token-push-1',
+        ])->assertCreated()
+            ->assertJsonPath('success', true);
+
+        $this->assertDatabaseHas('device_tokens', [
+            'user_id' => $driverUser->id,
+            'token' => 'unknown-driver-token',
+            'is_active' => false,
+        ]);
+    }
+
+    public function test_fcm_exception_does_not_fail_chat_send(): void
+    {
+        [$customer, $driverUser, , $order] = $this->createAssignedOrder();
+        DeviceToken::query()->create([
+            'user_id' => $driverUser->id,
+            'token' => 'driver-token',
+            'device_type' => 'android',
+            'is_active' => true,
+        ]);
+
+        $messaging = Mockery::mock(Messaging::class);
+        $messaging
+            ->shouldReceive('sendMulticast')
+            ->once()
+            ->andThrow(new \RuntimeException('Firebase sedang tidak tersedia.'));
+        $this->app->instance(Messaging::class, $messaging);
+
+        Sanctum::actingAs($customer);
+
+        $this->postJson("/api/v1/orders/{$order->id}/chat/messages", [
+            'body' => 'Chat harus tetap tersimpan walau FCM error.',
+            'client_message_id' => 'fcm-error-1',
+        ])->assertCreated()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.message.body', 'Chat harus tetap tersimpan walau FCM error.');
+
+        $this->assertDatabaseHas('order_chat_messages', [
+            'order_id' => $order->id,
+            'sender_user_id' => $customer->id,
+            'body' => 'Chat harus tetap tersimpan walau FCM error.',
+        ]);
+    }
+
     public function test_chat_send_still_persists_when_realtime_broadcast_fails(): void
     {
         $this->useFailingBroadcaster();
@@ -307,5 +496,33 @@ class OrderChatTest extends TestCase
             Config::set('broadcasting.default', $previousDefault);
             Broadcast::forgetDrivers();
         });
+    }
+
+    /**
+     * @param  list<string>  $tokens
+     */
+    private function successfulReport(array $tokens): MulticastSendReport
+    {
+        return MulticastSendReport::withItems(array_map(
+            fn (string $token): SendReport => SendReport::success(
+                MessageTarget::with(MessageTarget::TOKEN, $token),
+                ['name' => 'projects/test/messages/'.md5($token)],
+            ),
+            $tokens,
+        ));
+    }
+
+    /**
+     * @param  list<string>  $tokens
+     */
+    private function unknownTokenReport(array $tokens): MulticastSendReport
+    {
+        return MulticastSendReport::withItems(array_map(
+            fn (string $token): SendReport => SendReport::failure(
+                MessageTarget::with(MessageTarget::TOKEN, $token),
+                NotFound::becauseTokenNotFound($token),
+            ),
+            $tokens,
+        ));
     }
 }
