@@ -899,7 +899,7 @@ class ChatbotRideOrderService
         $buffer .= "Nomor order: {$order->order_number}\n";
         $buffer .= 'Jemput: '.(string) $draft['pickup_address']."\n";
         $buffer .= 'Tujuan: '.(string) $draft['destination_address']."\n";
-        $buffer .= "Ongkir: Rp {$deliveryFee}.";
+        $buffer .= "Estimasi ongkir sementara: Rp {$deliveryFee}.";
 
         return $buffer;
     }

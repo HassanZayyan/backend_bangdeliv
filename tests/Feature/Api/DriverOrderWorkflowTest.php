@@ -9,6 +9,7 @@ use App\Models\Address;
 use App\Models\CourierOrder;
 use App\Models\Driver;
 use App\Models\Order;
+use App\Models\OrderEvidence;
 use App\Models\OrderItem;
 use App\Models\OrderLog;
 use App\Models\OrderPayment;
@@ -404,6 +405,7 @@ class DriverOrderWorkflowTest extends TestCase
                 'recorded_by_user_id' => $driverUser->id,
                 'paid_at' => now(),
             ]);
+        $this->createOrderProof($order, $driver, 'DELIVERY_PHOTO');
 
         Sanctum::actingAs($driverUser);
 
@@ -622,14 +624,14 @@ class DriverOrderWorkflowTest extends TestCase
             ->assertJsonPath('data.payment_status', 'unpaid')
             ->assertJsonPath('data.available_actions.0.action_code', 'COMPLETE_ORDER')
             ->assertJsonPath('data.available_actions.0.blocked', true)
-            ->assertJsonPath('data.available_actions.0.blocked_reason', 'Pembayaran COD belum dicatat.')
+            ->assertJsonPath('data.available_actions.0.blocked_reason', 'Pembayaran belum dicatat.')
             ->assertJsonPath('data.available_actions.1.action_code', 'COLLECT_COD');
 
         $this->postJson('/api/v1/driver/orders/'.$order->id.'/status-transition', [
             'action_code' => 'COMPLETE_ORDER',
             'target_status_code' => 'COMPLETED',
         ])->assertStatus(409)
-            ->assertJsonPath('message', 'Pembayaran COD belum dicatat.');
+            ->assertJsonPath('message', 'Pembayaran belum dicatat.');
 
         $this->postJson('/api/v1/orders/'.$order->id.'/payment/collect-cod', [
             'amount' => 25000,
@@ -683,7 +685,7 @@ class DriverOrderWorkflowTest extends TestCase
             'action_code' => 'CONFIRM_PICKED_UP',
             'target_status_code' => 'PICKED_UP',
         ])->assertStatus(409)
-            ->assertJsonPath('message', 'Pembayaran COD belum dicatat.');
+            ->assertJsonPath('message', 'Pembayaran belum dicatat.');
     }
 
     public function test_driver_can_collect_courier_cod_at_pickup_then_pickup_package(): void
@@ -707,9 +709,18 @@ class DriverOrderWorkflowTest extends TestCase
         $paidDetailResponse->assertOk()
             ->assertJsonPath('data.payment_status', 'paid')
             ->assertJsonPath('data.available_actions.0.action_code', 'CONFIRM_PICKED_UP')
+            ->assertJsonPath('data.available_actions.0.blocked', true)
+            ->assertJsonPath('data.available_actions.0.blocked_reason', 'Bukti foto pickup belum diupload.');
+
+        $this->createOrderProof($order, $driver, 'PICKUP_PHOTO');
+        $proofedDetailResponse = $this->getJson('/api/v1/driver/orders/'.$order->id);
+
+        $proofedDetailResponse->assertOk()
+            ->assertJsonPath('data.payment_status', 'paid')
+            ->assertJsonPath('data.available_actions.0.action_code', 'CONFIRM_PICKED_UP')
             ->assertJsonPath('data.available_actions.0.blocked', false);
 
-        $actionCodes = collect($paidDetailResponse->json('data.available_actions'))
+        $actionCodes = collect($proofedDetailResponse->json('data.available_actions'))
             ->pluck('action_code')
             ->all();
         $this->assertNotContains('COLLECT_COD', $actionCodes);
@@ -965,7 +976,7 @@ class DriverOrderWorkflowTest extends TestCase
 
         $response->assertStatus(409)
             ->assertJsonPath('success', false)
-            ->assertJsonPath('message', 'Harga nota untuk item manual belum lengkap.');
+            ->assertJsonPath('message', 'Total belanja di struk belum diisi.');
     }
 
     public function test_driver_bulk_updates_shopping_receipt_prices_and_recalculates_cod(): void
@@ -1170,19 +1181,21 @@ class DriverOrderWorkflowTest extends TestCase
         $cancelResponse->assertOk()
             ->assertJsonPath('data.status_code', 'CANCELLED_WITH_FEE')
             ->assertJsonPath('data.pricing.cancellation_penalty', 3000)
-            ->assertJsonPath('data.pricing.total_price', 9000);
+            ->assertJsonPath('data.pricing.delivery_fee', 0)
+            ->assertJsonPath('data.pricing.total_price', 3000);
 
         $this->assertDatabaseHas('orders', [
             'id' => $order->id,
+            'delivery_fee' => 0,
             'service_fee' => 3000,
-            'total_price' => 9000,
+            'total_price' => 3000,
             'cancelled_by' => 'driver',
         ]);
 
         $this->assertDatabaseHas('order_payments', [
             'order_id' => $order->id,
             'payment_status' => 'PENDING',
-            'amount' => 9000,
+            'amount' => 3000,
         ]);
     }
 
@@ -1281,6 +1294,19 @@ class DriverOrderWorkflowTest extends TestCase
         ]);
 
         return $order;
+    }
+
+    private function createOrderProof(Order $order, Driver $driver, string $evidenceType): OrderEvidence
+    {
+        return OrderEvidence::query()->create([
+            'order_id' => $order->id,
+            'driver_id' => $driver->id,
+            'evidence_type' => $evidenceType,
+            'file_url' => 'http://localhost/storage/test-proof.jpg',
+            'verification_mode' => 'AUTO_24H',
+            'verification_status' => 'PENDING',
+            'uploaded_at' => now(),
+        ]);
     }
 
     private function useFailingBroadcaster(): void

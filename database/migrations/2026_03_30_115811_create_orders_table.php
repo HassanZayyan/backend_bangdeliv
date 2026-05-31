@@ -22,6 +22,10 @@ return new class extends Migration
             // Pricing
             $table->decimal('subtotal', 12, 2);
             $table->decimal('delivery_fee', 12, 2)->default(0);
+            $table->string('delivery_fee_source', 20)->default('system');
+            $table->decimal('manual_delivery_fee', 12, 2)->nullable();
+            $table->text('manual_delivery_fee_reason')->nullable();
+            $table->boolean('careful_carry_required')->default(false);
             $table->decimal('service_fee', 12, 2)->default(0);
             $table->decimal('delivery_distance_km', 8, 2)->nullable();
             $table->string('delivery_distance_text', 50)->nullable();

@@ -114,6 +114,7 @@ class ChatPushNotificationService
             ->withAndroidConfig([
                 'priority' => 'high',
                 'notification' => [
+                    'channel_id' => 'bangdeliv_chat_high',
                     'sound' => 'default',
                     'click_action' => 'FLUTTER_NOTIFICATION_CLICK',
                 ],

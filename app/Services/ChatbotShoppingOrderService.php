@@ -317,6 +317,7 @@ class ChatbotShoppingOrderService
         if ($ready) {
             $nextActions[] = 'CONFIRM_DRAFT';
         }
+        $deliveryActionLabel = $ready ? 'Ganti Titik Antar' : 'Pilih Titik Antar';
 
         $merchantPayload = $merchant === null ? [
             'id' => null,
@@ -348,7 +349,7 @@ class ChatbotShoppingOrderService
                 ],
                 'OPEN_MAP_PICKER_DELIVERY' => [
                     'target' => 'delivery',
-                    'label' => 'Pilih Titik Antar',
+                    'label' => $deliveryActionLabel,
                     'initial_latitude' => $delivery['latitude'],
                     'initial_longitude' => $delivery['longitude'],
                 ],
@@ -692,7 +693,8 @@ class ChatbotShoppingOrderService
             'id' => (int) $order->id,
             'order_number' => $order->order_number,
         ];
-        $pendingPayload['assistant_text'] = 'Order titip belanja berhasil dibuat. Driver akan segera mengambil order ini.';
+        $deliveryFee = number_format((float) data_get($pendingPayload, 'pricing.delivery_fee', $order->delivery_fee), 0, ',', '.');
+        $pendingPayload['assistant_text'] = "Order titip belanja berhasil dibuat.\nEstimasi ongkir sementara: Rp {$deliveryFee}.\nDriver akan segera mengambil order ini.";
 
         return $pendingPayload;
     }
@@ -812,9 +814,18 @@ class ChatbotShoppingOrderService
             return 'Draft titip belanja belum lengkap. Lengkapi: '.$missing.'.';
         }
 
-        $lines = ['Siap, draft titip belanja sudah lengkap:'];
-        $lines[] = 'Merchant: '.(string) ($merchant['name'] ?? '-');
-        $lines[] = 'Antar ke: '.(string) ($delivery['address'] ?? '-');
+        $lines = [
+            'Siap, draft titip belanja sudah lengkap:',
+            '',
+            'Merchant',
+            (string) ($merchant['name'] ?? '-'),
+            '',
+            'Alamat antar',
+            (string) ($delivery['address'] ?? '-'),
+            '',
+            'Daftar belanja',
+        ];
+        $itemNumber = 1;
         foreach ($items as $item) {
             if (! is_array($item)) {
                 continue;
@@ -822,9 +833,13 @@ class ChatbotShoppingOrderService
             $priceText = ((string) ($item['item_source'] ?? '')) === 'MANUAL'
                 ? 'harga menyusul dari nota'
                 : 'Rp'.number_format((float) ($item['unit_price'] ?? 0), 0, ',', '.');
-            $lines[] = '- '.max(1, (int) ($item['quantity'] ?? 1)).'x '.(string) ($item['name'] ?? $item['menu_name'] ?? 'Item').' ('.$priceText.')';
+            $lines[] = $itemNumber.'. '.max(1, (int) ($item['quantity'] ?? 1)).'x '.(string) ($item['name'] ?? $item['menu_name'] ?? 'Item').' ('.$priceText.')';
+            $itemNumber++;
         }
-        $lines[] = 'Estimasi total sementara: Rp'.number_format((float) data_get($payload, 'pricing.total_price', 0), 0, ',', '.');
+        $lines[] = '';
+        $lines[] = 'Estimasi ongkir sementara: Rp '.number_format((float) data_get($payload, 'pricing.delivery_fee', 0), 0, ',', '.');
+        $lines[] = 'Estimasi total sementara: Rp '.number_format((float) data_get($payload, 'pricing.total_price', 0), 0, ',', '.');
+        $lines[] = '';
         $lines[] = 'Ketik "konfirmasi" kalau sudah oke.';
 
         return implode("\n", $lines);

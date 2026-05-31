@@ -4,6 +4,7 @@ namespace Tests\Feature\Api;
 
 use App\Models\Address;
 use App\Models\Menu;
+use App\Models\Order;
 use App\Models\Restaurant;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -137,6 +138,19 @@ class CatalogAndCartFlowTest extends TestCase
         ]);
 
         Http::fake([
+            'https://routes.googleapis.com/*' => Http::response([
+                'routes' => [[
+                    'distanceMeters' => 3000,
+                    'duration' => '540s',
+                    'polyline' => [
+                        'encodedPolyline' => '_p~iF~ps|U_ulLnnqC_mqNvxq`@',
+                    ],
+                    'legs' => [[
+                        'distanceMeters' => 3000,
+                        'duration' => '540s',
+                    ]],
+                ]],
+            ], 200),
             'https://maps.googleapis.com/maps/api/distancematrix/json*' => Http::response([
                 'status' => 'OK',
                 'rows' => [[
@@ -222,5 +236,8 @@ class CatalogAndCartFlowTest extends TestCase
             'payment_method' => 'COD',
             'payment_status' => 'PENDING',
         ]);
+
+        $routeSnapshot = Order::query()->findOrFail($orderId)->route_snapshot;
+        $this->assertSame('_p~iF~ps|U_ulLnnqC_mqNvxq`@', $routeSnapshot['encoded_polyline'] ?? null);
     }
 }

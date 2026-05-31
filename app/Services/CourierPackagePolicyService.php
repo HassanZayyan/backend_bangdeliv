@@ -41,12 +41,12 @@ class CourierPackagePolicyService
 
         foreach ($this->matchedKeywords($text, $this->oversizeKeywords()) as $flag => $keyword) {
             $flags[] = $flag;
-            $reasons[] = 'Barang terindikasi terlalu besar/berat untuk layanan motor: '.$keyword.'.';
+            $reasons[] = 'Barang terindikasi besar/berat: '.$keyword.'. Driver dapat menyesuaikan ongkir atau memakai bantuan 2 orang.';
         }
 
         if ($weightKg !== null && $weightKg > self::MAX_WEIGHT_KG) {
             $flags[] = 'OVER_WEIGHT';
-            $reasons[] = sprintf('Estimasi berat %.1f kg melebihi batas %.0f kg untuk motor.', $weightKg, self::MAX_WEIGHT_KG);
+            $reasons[] = sprintf('Estimasi berat %.1f kg perlu penanganan ekstra; driver dapat menyesuaikan ongkir atau memakai bantuan 2 orang.', $weightKg);
         }
 
         $dimensionValues = array_filter([
@@ -57,7 +57,7 @@ class CourierPackagePolicyService
 
         if ($dimensionValues !== [] && max($dimensionValues) > self::MAX_DIMENSION_CM) {
             $flags[] = 'OVER_DIMENSION';
-            $reasons[] = sprintf('Ukuran paket melebihi batas %dx%dx%d cm untuk motor.', self::MAX_DIMENSION_CM, self::MAX_DIMENSION_CM, self::MAX_DIMENSION_CM);
+            $reasons[] = 'Ukuran paket perlu penanganan ekstra; driver dapat menyesuaikan ongkir atau memakai bantuan 2 orang.';
         }
 
         foreach ($this->matchedKeywords($text, $this->clarificationKeywords()) as $flag => $keyword) {
@@ -87,7 +87,7 @@ class CourierPackagePolicyService
             'safety_status' => $status,
             'safety_flags' => $flags,
             'safety_reason' => $reasons === [] ? 'Paket aman untuk layanan kurir motor.' : implode(' ', array_values(array_unique($reasons))),
-            'size_class' => $this->resolveSizeClass($weightKg, $dimensions),
+            'size_class' => $this->resolveSizeClass($weightKg, $dimensions, $flags),
             'estimated_weight_kg' => $weightKg,
             'package_length_cm' => $dimensions['length_cm'],
             'package_width_cm' => $dimensions['width_cm'],
@@ -278,15 +278,9 @@ class CourierPackagePolicyService
             }
         }
 
-        foreach ($flags as $flag) {
-            if (str_starts_with($flag, 'OVERSIZE_') || $flag === 'OVER_WEIGHT' || $flag === 'OVER_DIMENSION') {
-                return self::STATUS_OVERSIZE;
-            }
-        }
-
         $blockingFlags = array_values(array_filter(
             $flags,
-            fn (string $flag): bool => ! in_array($flag, ['SIZE_INFERRED_SMALL'], true)
+            fn (string $flag): bool => $flag === 'GENERIC_DESCRIPTION'
         ));
 
         return $blockingFlags === [] ? self::STATUS_ALLOWED : self::STATUS_NEEDS_CLARIFICATION;
@@ -294,8 +288,9 @@ class CourierPackagePolicyService
 
     /**
      * @param  array{length_cm: ?int, width_cm: ?int, height_cm: ?int}  $dimensions
+     * @param  array<int, string>  $flags
      */
-    private function resolveSizeClass(?float $weightKg, array $dimensions): string
+    private function resolveSizeClass(?float $weightKg, array $dimensions, array $flags): string
     {
         $maxDimension = max(array_filter([
             $dimensions['length_cm'],
@@ -303,6 +298,12 @@ class CourierPackagePolicyService
             $dimensions['height_cm'],
             0,
         ], fn (?int $value): bool => $value !== null));
+
+        foreach ($flags as $flag) {
+            if (str_starts_with($flag, 'OVERSIZE_')) {
+                return 'OVERSIZE';
+            }
+        }
 
         if (($weightKg !== null && $weightKg > self::MAX_WEIGHT_KG) || $maxDimension > self::MAX_DIMENSION_CM) {
             return 'OVERSIZE';

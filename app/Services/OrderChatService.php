@@ -7,8 +7,11 @@ use App\Models\Driver;
 use App\Models\Order;
 use App\Models\OrderChatMessage;
 use App\Models\OrderChatRead;
+use App\Models\OrderEvidence;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 
 class OrderChatService
 {
@@ -92,12 +95,16 @@ class OrderChatService
         }
 
         $body = trim((string) ($payload['body'] ?? ''));
-        if ($body === '') {
+        $attachment = $payload['attachment'] ?? null;
+        if ($body === '' && ! $attachment instanceof UploadedFile) {
             throw new ApiException('Pesan tidak boleh kosong.', 422, [
                 'body' => ['Pesan tidak boleh kosong.'],
             ]);
         }
 
+        $attachmentAttributes = $attachment instanceof UploadedFile
+            ? $this->storeAttachment($attachment, $order->id, (string) ($payload['attachment_type'] ?? 'image'))
+            : [];
         $clientMessageId = $this->normalizeClientMessageId($payload['client_message_id'] ?? null);
         $senderRole = $this->resolveSenderRole($actor, $order);
 
@@ -112,6 +119,7 @@ class OrderChatService
                     'sender_role' => $senderRole,
                     'sender_name_snapshot' => $actor->name,
                     'body' => $body,
+                    ...$attachmentAttributes,
                 ],
             );
         } else {
@@ -122,21 +130,23 @@ class OrderChatService
                 'sender_name_snapshot' => $actor->name,
                 'body' => $body,
                 'client_message_id' => null,
+                ...$attachmentAttributes,
             ]);
-        }
-
-        if ($message->wasRecentlyCreated) {
-            $this->chatPushNotificationService->sendOrderChatNotification(
-                $order,
-                $actor,
-                $message,
-            );
         }
 
         $serialized = $this->serializeMessage($message);
 
         $broadcasted = ! $message->wasRecentlyCreated
             || $this->realtimeBroadcaster->orderChatMessageSent($order->id, $serialized);
+
+        if ($message->wasRecentlyCreated) {
+            $this->recordPaymentTransferEvidence($order, $message);
+            $this->chatPushNotificationService->sendOrderChatNotification(
+                $order,
+                $actor,
+                $message,
+            );
+        }
 
         return [
             'message' => $serialized,
@@ -281,9 +291,60 @@ class OrderChatService
             'sender_name' => $message->sender_name_snapshot,
             'body' => $message->body,
             'client_message_id' => $message->client_message_id,
+            'attachment_type' => $message->attachment_type,
+            'attachment_url' => $message->attachment_url,
+            'attachment_mime_type' => $message->attachment_mime_type,
+            'attachment_size' => $message->attachment_size !== null ? (int) $message->attachment_size : null,
+            'attachment' => $message->attachment_url !== null ? [
+                'type' => $message->attachment_type,
+                'url' => $message->attachment_url,
+                'mime_type' => $message->attachment_mime_type,
+                'size' => $message->attachment_size !== null ? (int) $message->attachment_size : null,
+            ] : null,
             'created_at' => $createdAt?->toIso8601String(),
             'created_at_ms' => $createdAt !== null ? ((int) $createdAt->getTimestamp()) * 1000 : null,
         ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function storeAttachment(UploadedFile $attachment, int $orderId, string $type): array
+    {
+        $path = $attachment->store('orders/'.$orderId.'/chat', 'public');
+        if (! is_string($path) || $path === '') {
+            throw new ApiException('Lampiran gagal disimpan.', 500);
+        }
+
+        return [
+            'attachment_type' => strtolower(str_replace('-', '_', trim($type))) ?: 'image',
+            'attachment_url' => Storage::disk('public')->url($path),
+            'attachment_mime_type' => $attachment->getMimeType(),
+            'attachment_size' => $attachment->getSize(),
+        ];
+    }
+
+    private function recordPaymentTransferEvidence(Order $order, OrderChatMessage $message): void
+    {
+        if ($message->attachment_url === null) {
+            return;
+        }
+
+        $attachmentType = strtolower(str_replace('-', '_', (string) $message->attachment_type));
+        if ($attachmentType !== 'payment_transfer') {
+            return;
+        }
+
+        OrderEvidence::query()->create([
+            'order_id' => $order->id,
+            'driver_id' => $message->sender_role === 'driver' ? $order->driver_id : null,
+            'evidence_type' => 'PAYMENT_TRANSFER_PHOTO',
+            'file_url' => $message->attachment_url,
+            'verification_mode' => 'MANUAL',
+            'verification_status' => 'PENDING',
+            'uploaded_at' => now(),
+            'notes' => $message->body !== '' ? $message->body : 'Bukti transfer dari chat order.',
+        ]);
     }
 
     private function positiveIntOrNull(mixed $value): ?int

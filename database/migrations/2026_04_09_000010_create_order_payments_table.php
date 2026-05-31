@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::create('order_payments', function (Blueprint $table) {
             $table->id();
             $table->foreignId('order_id')->constrained()->cascadeOnDelete();
-            $table->enum('payment_method', ['COD'])->default('COD');
+            $table->enum('payment_method', ['COD', 'TRANSFER'])->default('COD');
             $table->enum('payment_status', ['PENDING', 'PAID', 'VOID'])->default('PENDING');
             $table->decimal('amount', 12, 2);
             $table->foreignId('recorded_by_user_id')->nullable()->constrained('users')->nullOnDelete();

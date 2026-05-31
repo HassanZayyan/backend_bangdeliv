@@ -72,9 +72,12 @@ class OrderChatController extends Controller
     public function store(Request $request, int $orderId): JsonResponse
     {
         $validated = $request->validate([
-            'body' => ['required', 'string', 'max:2000'],
+            'body' => ['nullable', 'string', 'max:2000', 'required_without:attachment'],
             'client_message_id' => ['nullable', 'string', 'max:80'],
+            'attachment' => ['nullable', 'image', 'max:5120'],
+            'attachment_type' => ['nullable', 'string', 'max:40'],
         ]);
+        $validated['attachment'] = $request->file('attachment');
 
         try {
             $payload = $this->orderChatService->sendMessage(

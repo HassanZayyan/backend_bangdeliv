@@ -1597,7 +1597,7 @@ class ChatbotCourierOrderService
         $buffer .= 'Tujuan: '.(string) $parsed['dropoff_address']."\n";
         $buffer .= 'Barang: '.(string) $parsed['package_description']."\n";
         $buffer .= 'Ukuran/Berat: '.$this->formatPackageSizeLine($parsed)."\n";
-        $buffer .= "Ongkir: Rp {$deliveryFee}.\n";
+        $buffer .= "Estimasi ongkir sementara: Rp {$deliveryFee}.\n";
         $buffer .= 'Bayar tunai ke driver saat menyerahkan barang di titik ambil.';
 
         return $buffer;

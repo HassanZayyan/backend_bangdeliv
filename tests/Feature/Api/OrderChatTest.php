@@ -12,9 +12,11 @@ use App\Models\User;
 use Illuminate\Broadcasting\BroadcastException;
 use Illuminate\Contracts\Broadcasting\Broadcaster as BroadcasterContract;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Storage;
 use Kreait\Firebase\Contract\Messaging;
 use Kreait\Firebase\Exception\Messaging\NotFound;
 use Kreait\Firebase\Messaging\MessageTarget;
@@ -210,6 +212,55 @@ class OrderChatTest extends TestCase
             $second->json('data.message.id'),
         );
         $this->assertDatabaseCount('order_chat_messages', 1);
+    }
+
+    public function test_payment_transfer_chat_attachment_is_recorded_as_order_proof(): void
+    {
+        Storage::fake('public');
+        [$customer, , , $order] = $this->createAssignedOrder();
+
+        Sanctum::actingAs($customer);
+
+        $this->post("/api/v1/orders/{$order->id}/chat/messages", [
+            'body' => 'Bukti transfer customer.',
+            'attachment_type' => 'payment_transfer',
+            'attachment' => UploadedFile::fake()->image('transfer.jpg', 640, 480),
+            'client_message_id' => 'transfer-proof-1',
+        ], ['Accept' => 'application/json'])
+            ->assertCreated()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.message.attachment_type', 'payment_transfer');
+
+        $this->assertDatabaseHas('order_evidence', [
+            'order_id' => $order->id,
+            'driver_id' => null,
+            'evidence_type' => 'PAYMENT_TRANSFER_PHOTO',
+            'verification_mode' => 'MANUAL',
+            'verification_status' => 'PENDING',
+        ]);
+    }
+
+    public function test_regular_chat_photo_is_not_recorded_as_payment_transfer_proof(): void
+    {
+        Storage::fake('public');
+        [$customer, , , $order] = $this->createAssignedOrder();
+
+        Sanctum::actingAs($customer);
+
+        $this->post("/api/v1/orders/{$order->id}/chat/messages", [
+            'body' => 'Foto order.',
+            'attachment_type' => 'image',
+            'attachment' => UploadedFile::fake()->image('order-photo.jpg', 640, 480),
+            'client_message_id' => 'chat-image-1',
+        ], ['Accept' => 'application/json'])
+            ->assertCreated()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.message.attachment_type', 'image');
+
+        $this->assertDatabaseMissing('order_evidence', [
+            'order_id' => $order->id,
+            'evidence_type' => 'PAYMENT_TRANSFER_PHOTO',
+        ]);
     }
 
     public function test_customer_chat_sends_push_notification_to_assigned_driver_only(): void

@@ -83,11 +83,15 @@ Route::prefix('v1')->group(function () {
             Route::post('/driver/orders/{orderId}/accept', [OrderController::class, 'acceptByDriver']);
             Route::post('/driver/orders/{orderId}/reject', [OrderController::class, 'rejectByDriver']);
             Route::patch('/driver/orders/{orderId}/shopping-items', [OrderController::class, 'updateDriverShoppingItems']);
+            Route::patch('/driver/orders/{orderId}/shopping-checkout', [OrderController::class, 'updateShoppingCheckout']);
+            Route::post('/driver/orders/{orderId}/delivery-fee-override', [OrderController::class, 'updateDeliveryFeeOverride']);
+            Route::post('/driver/orders/{orderId}/proofs', [OrderController::class, 'uploadDriverProof']);
             Route::post('/driver/orders/{orderId}/status-transition', [OrderController::class, 'transitionStatusByDriver']);
             Route::patch('/driver/orders/{orderId}/status', [OrderExecutionController::class, 'updateStatus']);
             Route::post('/driver/orders/{orderId}/location', [OrderExecutionController::class, 'updateLocation']);
             Route::post('/orders/{orderId}/attempt-failed', [OrderController::class, 'recordFailedAttemptByDriver']);
             Route::post('/orders/{orderId}/payment/collect-cod', [OrderController::class, 'recordCodCollectionByDriver']);
+            Route::post('/orders/{orderId}/payment/transfer/confirm', [OrderController::class, 'recordTransferPaymentByDriver']);
         });
     });
 

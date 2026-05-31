@@ -147,7 +147,7 @@ class ShoppingOrderItemEditTest extends TestCase
         $response->assertOk()
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.delivery_fee', '5000.00')
-            ->assertJsonPath('data.total_price', '25000.00')
+            ->assertJsonPath('data.total_price', '27000.00')
             ->assertJsonCount(1, 'data.shopping_stops');
 
         $this->assertSame(4, OrderItem::query()->where('order_id', $order->id)->count());
@@ -193,8 +193,8 @@ class ShoppingOrderItemEditTest extends TestCase
 
         $response->assertOk()
             ->assertJsonPath('success', true)
-            ->assertJsonPath('data.delivery_fee', '21000.00')
-            ->assertJsonPath('data.total_price', '41000.00')
+            ->assertJsonPath('data.delivery_fee', '19000.00')
+            ->assertJsonPath('data.total_price', '39000.00')
             ->assertJsonCount(3, 'data.shopping_stops');
 
         $this->assertDatabaseHas('order_locations', [
@@ -219,7 +219,7 @@ class ShoppingOrderItemEditTest extends TestCase
         $this->assertDatabaseHas('order_payments', [
             'order_id' => $order->id,
             'payment_status' => 'PENDING',
-            'amount' => 41000,
+            'amount' => 39000,
         ]);
     }
 
@@ -492,8 +492,8 @@ class ShoppingOrderItemEditTest extends TestCase
 
         $response->assertOk()
             ->assertJsonPath('success', true)
-            ->assertJsonPath('data.delivery_fee', '11000.00')
-            ->assertJsonPath('data.total_price', '11000.00');
+            ->assertJsonPath('data.delivery_fee', '9000.00')
+            ->assertJsonPath('data.total_price', '9000.00');
 
         $stops = collect($response->json('data.shopping_stops'));
         $failedStop = $stops->firstWhere('pickup_location_id', $failedPickup->id);
@@ -527,7 +527,7 @@ class ShoppingOrderItemEditTest extends TestCase
         $this->assertDatabaseHas('order_payments', [
             'order_id' => $order->id,
             'payment_status' => 'PENDING',
-            'amount' => 11000,
+            'amount' => 9000,
         ]);
     }
 

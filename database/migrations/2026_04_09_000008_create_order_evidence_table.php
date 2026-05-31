@@ -19,6 +19,10 @@ return new class extends Migration
                 'COURIER_DELIVERY_PHOTO',
                 'COURIER_RECEIVER_PHOTO',
                 'SHOPPING_RECEIPT',
+                'PICKUP_PHOTO',
+                'DELIVERY_PHOTO',
+                'STORE_CLOSED_PHOTO',
+                'PAYMENT_TRANSFER_PHOTO',
             ]);
             $table->string('file_url');
             $table->enum('verification_mode', ['AUTO_24H', 'MANUAL'])->default('AUTO_24H');

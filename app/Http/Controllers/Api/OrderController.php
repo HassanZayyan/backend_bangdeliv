@@ -202,6 +202,85 @@ class OrderController extends Controller
         }
     }
 
+    public function updateDeliveryFeeOverride(Request $request, int $orderId): JsonResponse
+    {
+        $validated = $request->validate([
+            'amount' => ['nullable', 'numeric', 'min:1', 'max:99999999'],
+            'reason' => ['nullable', 'string', 'max:1000', 'required_with:amount'],
+            'careful_carry_required' => ['nullable', 'boolean'],
+        ]);
+
+        try {
+            $payload = $this->orderService->updateDeliveryFeeOverride(
+                $request->user(),
+                $orderId,
+                $validated
+            );
+
+            return $this->success($payload, 'Ongkir order berhasil diperbarui.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
+    public function uploadDriverProof(Request $request, int $orderId): JsonResponse
+    {
+        $validated = $request->validate([
+            'type' => ['required', 'string', 'in:pickup,delivery,receipt,store_closed,payment_transfer'],
+            'photo' => ['required', 'image', 'max:5120'],
+            'note' => ['nullable', 'string', 'max:1000'],
+            'pickup_location_id' => ['nullable', 'integer', 'min:1'],
+        ]);
+        $validated['photo'] = $request->file('photo');
+
+        try {
+            $payload = $this->orderService->uploadProof(
+                $request->user(),
+                $orderId,
+                $validated
+            );
+
+            return $this->success($payload, 'Bukti foto berhasil diupload.', 201);
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
+    public function updateShoppingCheckout(Request $request, int $orderId): JsonResponse
+    {
+        $validated = $request->validate([
+            'shopping_total_amount' => ['nullable', 'numeric', 'min:1', 'max:99999999'],
+            'delivery_fee_override' => ['nullable', 'numeric', 'min:1', 'max:99999999'],
+            'receipt_note' => ['nullable', 'string', 'max:1000'],
+            'receipt_photo' => ['nullable', 'image', 'max:5120'],
+            'items' => ['nullable'],
+        ]);
+
+        $items = $request->input('items', []);
+        if (is_string($items)) {
+            $decodedItems = json_decode($items, true);
+            $items = is_array($decodedItems) ? $decodedItems : [];
+        }
+        if (! is_array($items)) {
+            $items = [];
+        }
+
+        $validated['items'] = $items;
+        $validated['receipt_photo'] = $request->file('receipt_photo');
+
+        try {
+            $payload = $this->orderService->updateShoppingCheckout(
+                $request->user(),
+                $orderId,
+                $validated
+            );
+
+            return $this->success($payload, 'Checkout nitip berhasil disimpan.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
     public function driverHistory(Request $request): JsonResponse
     {
         try {
@@ -367,6 +446,27 @@ class OrderController extends Controller
             $order = $this->orderService->recordCodPaymentByDriver($request->user(), $orderId, $request->validated());
 
             return $this->success($order, 'Pembayaran COD berhasil dicatat.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
+    public function recordTransferPaymentByDriver(Request $request, int $orderId): JsonResponse
+    {
+        $validated = $request->validate([
+            'amount' => ['required', 'numeric', 'min:1', 'max:99999999'],
+            'note' => ['nullable', 'string', 'max:1000'],
+            'paid_at' => ['nullable', 'date'],
+        ]);
+
+        try {
+            $payload = $this->orderService->confirmTransferPaymentByDriver(
+                $request->user(),
+                $orderId,
+                $validated
+            );
+
+            return $this->success($payload, 'Pembayaran transfer berhasil dicatat.');
         } catch (ApiException $exception) {
             return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
         }

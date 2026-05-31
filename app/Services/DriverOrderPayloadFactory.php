@@ -27,6 +27,7 @@ class DriverOrderPayloadFactory
             'orderLocations:id,order_id,restaurant_id,location_role,label,contact_name,contact_phone,full_address,latitude,longitude,sequence_no,fulfillment_status,failed_attempt_count,failure_reason,failed_at,resolved_at',
             'orderLocations.restaurant:id,name,address,latitude,longitude,phone,merchant_type',
             'payments:id,order_id,payment_method,payment_status,amount,recorded_by_user_id,driver_id,paid_at',
+            'evidences:id,order_id,driver_id,evidence_type,file_url,verification_status,uploaded_at,notes,created_at',
             'statusHistories' => function (Relation $query): void {
                 $query
                     ->with('statusRef:id,code,display_name')
@@ -46,6 +47,9 @@ class DriverOrderPayloadFactory
 
         $pickup = $this->resolvePickupPoint($order, $serviceCode);
         $dropoff = $this->resolveDropoffPoint($order);
+        $proofs = $this->serializeProofs($order);
+        $proofStatus = $this->proofStatus($proofs);
+        $hasDriverShoppingTotal = $serviceCode === 'SHOPPING' && $this->shoppingPricingService->hasDriverShoppingTotal($order);
         $hasPendingShoppingPrices = $serviceCode === 'SHOPPING' && $this->hasPendingManualShoppingPrices($order);
         $canCancelShoppingWithFee = $serviceCode === 'SHOPPING' && $order->shoppingOrder !== null
             && $this->shoppingPricingService->isCancellationPenaltyEligible($order, $order->shoppingOrder);
@@ -54,7 +58,9 @@ class DriverOrderPayloadFactory
             $statusCode,
             $paymentStatus,
             $hasPendingShoppingPrices,
+            $hasDriverShoppingTotal,
             $canCancelShoppingWithFee,
+            $proofStatus,
         );
 
         $acceptedAt = $order->statusHistories
@@ -64,6 +70,9 @@ class DriverOrderPayloadFactory
         if ($itemCount < 1) {
             $itemCount = 1;
         }
+
+        $pricingSnapshot = $this->pricingSnapshot($order);
+        $deliveryFee = round((float) $order->delivery_fee, 2);
 
         $payload = [
             'id' => (string) $order->id,
@@ -78,7 +87,17 @@ class DriverOrderPayloadFactory
             'dropoff_address' => $dropoff['address'],
             'dropoff_latitude' => $dropoff['latitude'],
             'dropoff_longitude' => $dropoff['longitude'],
-            'fee' => (int) round((float) $order->delivery_fee),
+            'fee' => (int) round($deliveryFee),
+            'delivery_distance_km' => $order->delivery_distance_km !== null ? round((float) $order->delivery_distance_km, 2) : null,
+            'delivery_distance_text' => $order->delivery_distance_text,
+            'delivery_fee' => $deliveryFee,
+            'delivery_fee_source' => $order->delivery_fee_source ?: 'system',
+            'manual_delivery_fee' => $order->manual_delivery_fee !== null ? round((float) $order->manual_delivery_fee, 2) : null,
+            'manual_delivery_fee_reason' => $order->manual_delivery_fee_reason,
+            'careful_carry_required' => (bool) ($order->careful_carry_required ?? false),
+            'pricing_snapshot' => $pricingSnapshot,
+            'fee_breakdown' => $this->feeBreakdown($order, $pricingSnapshot),
+            'proofs' => $proofs,
             'total_price' => round((float) $order->total_price, 2),
             'item_count' => $itemCount,
             'eta_minutes' => $this->estimateEtaMinutes($order),
@@ -160,6 +179,146 @@ class DriverOrderPayloadFactory
     /**
      * @return array<int, array<string, mixed>>
      */
+    private function serializeProofs(Order $order): array
+    {
+        $order->loadMissing('evidences');
+
+        return $order->evidences
+            ->sortByDesc(fn ($evidence): int => $evidence->uploaded_at?->getTimestamp() ?? $evidence->created_at?->getTimestamp() ?? 0)
+            ->map(function ($evidence): array {
+                $type = $this->canonicalProofType((string) $evidence->evidence_type);
+
+                return [
+                    'id' => (int) $evidence->id,
+                    'type' => $type,
+                    'evidence_type' => strtoupper((string) $evidence->evidence_type),
+                    'photo_url' => $evidence->file_url,
+                    'file_url' => $evidence->file_url,
+                    'status' => strtolower((string) ($evidence->verification_status ?? 'pending')),
+                    'uploaded_at' => $evidence->uploaded_at?->toIso8601String() ?? $evidence->created_at?->toIso8601String(),
+                    'note' => $evidence->notes,
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $proofs
+     * @return array<string, bool>
+     */
+    private function proofStatus(array $proofs): array
+    {
+        $status = [
+            'pickup' => false,
+            'delivery' => false,
+            'receipt' => false,
+            'store_closed' => false,
+            'payment_transfer' => false,
+        ];
+
+        foreach ($proofs as $proof) {
+            $type = (string) ($proof['type'] ?? '');
+            if (array_key_exists($type, $status)) {
+                $status[$type] = true;
+            }
+        }
+
+        return $status;
+    }
+
+    private function canonicalProofType(string $evidenceType): string
+    {
+        return match (strtoupper($evidenceType)) {
+            'PICKUP_PHOTO' => 'pickup',
+            'DELIVERY_PHOTO', 'COURIER_DELIVERY_PHOTO', 'COURIER_RECEIVER_PHOTO' => 'delivery',
+            'SHOPPING_RECEIPT' => 'receipt',
+            'STORE_CLOSED_PHOTO' => 'store_closed',
+            'PAYMENT_TRANSFER_PHOTO' => 'payment_transfer',
+            default => strtolower($evidenceType),
+        };
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function pricingSnapshot(Order $order): array
+    {
+        $route = $this->orderRouteSnapshot($order);
+        $deliveryPricing = is_array($route) && is_array($route['delivery_pricing'] ?? null)
+            ? $route['delivery_pricing']
+            : [];
+
+        return [
+            'delivery_pricing' => $deliveryPricing,
+            'delivery_fee' => round((float) $order->delivery_fee, 2),
+            'delivery_fee_source' => $order->delivery_fee_source ?: 'system',
+            'manual_delivery_fee' => $order->manual_delivery_fee !== null ? round((float) $order->manual_delivery_fee, 2) : null,
+            'manual_delivery_fee_reason' => $order->manual_delivery_fee_reason,
+            'careful_carry_required' => (bool) ($order->careful_carry_required ?? false),
+            'route' => $route,
+            'shopping_pricing' => $order->shoppingOrder?->pricing_snapshot,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $pricingSnapshot
+     * @return array<int, array<string, mixed>>
+     */
+    private function feeBreakdown(Order $order, array $pricingSnapshot): array
+    {
+        $breakdown = [];
+        $deliveryPricing = $pricingSnapshot['delivery_pricing'] ?? [];
+        if (is_array($deliveryPricing) && is_array($deliveryPricing['fee_breakdown'] ?? null)) {
+            $breakdown = $deliveryPricing['fee_breakdown'];
+        }
+
+        $serviceFee = round((float) $order->service_fee, 2);
+        if ($serviceFee > 0) {
+            $breakdown[] = [
+                'code' => 'service_fee',
+                'label' => 'Biaya layanan',
+                'amount' => $serviceFee,
+            ];
+        }
+
+        if ((bool) ($order->careful_carry_required ?? false)) {
+            $breakdown[] = [
+                'code' => 'careful_carry',
+                'label' => 'Bawa hati-hati',
+                'amount' => $this->carefulCarrySurchargeFromOrder($order),
+            ];
+        }
+
+        if (($order->delivery_fee_source ?: 'system') === 'manual') {
+            $breakdown[] = [
+                'code' => 'manual_override',
+                'label' => 'Ongkir manual driver',
+                'amount' => round((float) ($order->manual_delivery_fee ?? $order->delivery_fee), 2),
+                'reason' => $order->manual_delivery_fee_reason,
+            ];
+        }
+
+        return array_values($breakdown);
+    }
+
+    private function carefulCarrySurchargeFromOrder(Order $order): float
+    {
+        if (($order->delivery_fee_source ?: 'system') === 'manual' && $order->manual_delivery_fee !== null) {
+            return round(max(0.0, (float) $order->manual_delivery_fee) * 0.5, 2);
+        }
+
+        $route = $this->orderRouteSnapshot($order);
+        $systemFee = is_array($route)
+            ? (float) data_get($route, 'delivery_pricing.total_fee', $order->delivery_fee)
+            : (float) $order->delivery_fee;
+
+        return round($systemFee * 0.5, 2);
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
     private function serializeStatusTimeline(Order $order): array
     {
         return $order->statusHistories
@@ -228,11 +387,12 @@ class DriverOrderPayloadFactory
         string $statusCode,
         string $paymentStatus,
         bool $hasPendingShoppingPrices = false,
+        bool $hasDriverShoppingTotal = false,
         bool $canCancelShoppingWithFee = false,
+        array $proofStatus = [],
     ): array {
         $actions = [];
         $rules = $this->driverActionRules($serviceCode);
-
         foreach ($rules as $actionCode => $rule) {
             if (! in_array($statusCode, (array) $rule['from'], true)) {
                 continue;
@@ -244,12 +404,50 @@ class DriverOrderPayloadFactory
                 continue;
             }
 
-            $blocked = $requiresPaid && $paymentStatus !== 'paid';
-            $blockedReason = $blocked ? 'Pembayaran COD belum dicatat.' : null;
+            $blockedReasons = [];
+            if ($requiresPaid && $paymentStatus !== 'paid') {
+                $blockedReasons[] = 'Pembayaran belum dicatat.';
+            }
 
-            if ($serviceCode === 'SHOPPING' && $actionCode === 'CONFIRM_PICKED_UP' && $hasPendingShoppingPrices) {
-                $blocked = true;
-                $blockedReason = 'Harga nota untuk item manual belum lengkap.';
+            if (
+                $this->supportsDriverProofType($serviceCode, 'pickup') &&
+                in_array($actionCode, ['BOARD_PASSENGER', 'CONFIRM_PICKED_UP'], true) &&
+                ! (bool) ($proofStatus['pickup'] ?? false)
+            ) {
+                $blockedReasons[] = 'Bukti foto pickup belum diupload.';
+            }
+
+            if (
+                $serviceCode === 'SHOPPING' &&
+                $actionCode === 'CONFIRM_PICKED_UP' &&
+                ! $hasDriverShoppingTotal
+            ) {
+                $blockedReasons[] = 'Total belanja di struk belum diisi.';
+            }
+
+            if (
+                $this->supportsDriverProofType($serviceCode, 'receipt') &&
+                $actionCode === 'CONFIRM_PICKED_UP' &&
+                ! (bool) ($proofStatus['receipt'] ?? false)
+            ) {
+                $blockedReasons[] = 'Foto struk belanja belum diupload.';
+            }
+
+            if (
+                $this->supportsDriverProofType($serviceCode, 'delivery') &&
+                $actionCode === 'COMPLETE_ORDER' &&
+                ! (bool) ($proofStatus['delivery'] ?? false)
+            ) {
+                $blockedReasons[] = 'Bukti foto selesai pengantaran belum diupload.';
+            }
+
+            if (
+                $serviceCode === 'SHOPPING' &&
+                $actionCode === 'CONFIRM_PICKED_UP' &&
+                $hasPendingShoppingPrices &&
+                ! $hasDriverShoppingTotal
+            ) {
+                $blockedReasons[] = 'Harga nota untuk item manual belum lengkap.';
             }
 
             if ($serviceCode === 'SHOPPING' && ($rule['requires_failed_attempt_threshold'] ?? false) && ! $canCancelShoppingWithFee) {
@@ -260,8 +458,8 @@ class DriverOrderPayloadFactory
                 'action_code' => $actionCode,
                 'label' => $rule['label'],
                 'target_status_code' => $rule['to'],
-                'blocked' => $blocked,
-                'blocked_reason' => $blockedReason,
+                'blocked' => $blockedReasons !== [],
+                'blocked_reason' => $blockedReasons !== [] ? implode(' ', $blockedReasons) : null,
             ];
         }
 
@@ -285,6 +483,15 @@ class DriverOrderPayloadFactory
         }
 
         return $actions;
+    }
+
+    private function supportsDriverProofType(string $serviceCode, string $type): bool
+    {
+        return match (strtoupper($serviceCode)) {
+            'COURIER' => in_array($type, ['pickup', 'delivery'], true),
+            'SHOPPING' => in_array($type, ['receipt', 'store_closed'], true),
+            default => false,
+        };
     }
 
     /**
@@ -448,9 +655,7 @@ class DriverOrderPayloadFactory
                     'notes' => $item->notes,
                     'is_available' => $isAvailable,
                     'is_heavy' => (bool) $item->is_heavy,
-                    'price_status' => $isManual && $isAvailable && $unitPrice <= 0
-                        ? 'PENDING_DRIVER_INPUT'
-                        : (string) data_get($item->metadata, 'price_status', 'CONFIRMED'),
+                    'price_status' => $this->shoppingItemPriceStatus($item, $isManual, $isAvailable, $unitPrice),
                 ];
             })
             ->values()
@@ -572,14 +777,28 @@ class DriverOrderPayloadFactory
             'notes' => $item->notes,
             'is_available' => $isAvailable,
             'is_heavy' => (bool) $item->is_heavy,
-            'price_status' => $isManual && $isAvailable && $unitPrice <= 0
-                ? 'PENDING_DRIVER_INPUT'
-                : (string) data_get($item->metadata, 'price_status', 'CONFIRMED'),
+            'price_status' => $this->shoppingItemPriceStatus($item, $isManual, $isAvailable, $unitPrice),
         ];
+    }
+
+    private function shoppingItemPriceStatus($item, bool $isManual, bool $isAvailable, float $unitPrice): string
+    {
+        $metadataStatus = (string) data_get($item->metadata, 'price_status', '');
+        if ($metadataStatus !== '') {
+            return $metadataStatus;
+        }
+
+        return $isManual && $isAvailable && $unitPrice <= 0
+            ? 'PENDING_DRIVER_INPUT'
+            : 'CONFIRMED';
     }
 
     private function hasPendingManualShoppingPrices(Order $order): bool
     {
+        if ($this->shoppingPricingService->hasDriverShoppingTotal($order)) {
+            return false;
+        }
+
         return $order->items->contains(function ($item): bool {
             return strtoupper((string) $item->item_source) === 'MANUAL'
                 && (bool) $item->is_available

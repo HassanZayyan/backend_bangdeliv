@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Exceptions\ApiException;
 use App\Models\Driver;
 use App\Models\Order;
+use App\Models\OrderEvidence;
 use App\Models\OrderLocation;
 use App\Models\OrderLog;
 use App\Models\OrderPayment;
@@ -15,8 +16,10 @@ use App\Models\ShoppingOrder;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 
 class OrderService
 {
@@ -60,7 +63,7 @@ class OrderService
 
         $query = Order::query()
             ->where('user_id', $user->id)
-            ->with(['restaurant', 'items', 'orderLocations.restaurant', 'payments', 'statusRef', 'serviceType', 'courierOrder', 'shoppingOrder'])
+            ->with(['restaurant', 'items', 'orderLocations.restaurant', 'payments', 'evidences', 'statusRef', 'serviceType', 'courierOrder', 'shoppingOrder'])
             ->latest('id');
 
         if (! empty($filters['status'])) {
@@ -73,14 +76,15 @@ class OrderService
     public function customerOrderDetail(User $user, int $orderId): Order
     {
         $order = Order::query()
-            ->with(['restaurant', 'driver.user', 'items', 'orderLocations.restaurant', 'payments', 'statusRef', 'statusHistories.statusRef', 'serviceType', 'courierOrder', 'shoppingOrder'])
+            ->with(['restaurant', 'driver.user', 'items', 'orderLocations.restaurant', 'payments', 'evidences', 'statusRef', 'statusHistories.statusRef', 'serviceType', 'courierOrder', 'shoppingOrder'])
             ->find($orderId);
 
         if (! $order || $order->user_id !== $user->id) {
             throw new ApiException('Order tidak ditemukan.', 404);
         }
 
-        return $order;
+        return $this->ensureDisplayRoutePolyline($order)
+            ->fresh(['restaurant', 'driver.user', 'items', 'orderLocations.restaurant', 'payments', 'evidences', 'statusRef', 'statusHistories.statusRef', 'serviceType', 'courierOrder', 'shoppingOrder']);
     }
 
     public function cancelByCustomer(User $user, int $orderId, string $reason): Order
@@ -511,11 +515,11 @@ class OrderService
 
         return [
             'incoming_orders' => $incoming
-                ->map(fn (Order $order): array => $this->driverOrderPayloadFactory->serialize($order))
+                ->map(fn (Order $order): array => $this->serializeDriverOrderForDisplay($order))
                 ->values()
                 ->all(),
             'running_orders' => $running
-                ->map(fn (Order $order): array => $this->driverOrderPayloadFactory->serialize($order))
+                ->map(fn (Order $order): array => $this->serializeDriverOrderForDisplay($order))
                 ->values()
                 ->all(),
         ];
@@ -590,7 +594,43 @@ class OrderService
             throw new ApiException('Order tidak ditemukan.', 404);
         }
 
-        return $this->driverOrderPayloadFactory->serialize($order, includeTimeline: true);
+        return $this->serializeDriverOrderForDisplay($order, includeTimeline: true);
+    }
+
+    private function serializeDriverOrderForDisplay(Order $order, bool $includeTimeline = false): array
+    {
+        $order = $this->ensureDisplayRoutePolyline($order)
+            ->fresh($this->driverOrderPayloadFactory->relations());
+
+        return $this->driverOrderPayloadFactory->serialize($order, includeTimeline: $includeTimeline);
+    }
+
+    private function ensureDisplayRoutePolyline(Order $order): Order
+    {
+        $order->loadMissing(['serviceType', 'orderLocations.restaurant', 'items', 'shoppingOrder']);
+
+        if (strtoupper((string) ($order->serviceType->code ?? '')) !== 'SHOPPING') {
+            return $order;
+        }
+
+        $routeSnapshot = is_array($order->route_snapshot) ? $order->route_snapshot : [];
+        $encodedPolyline = trim((string) ($routeSnapshot['encoded_polyline'] ?? ''));
+        if ($encodedPolyline !== '') {
+            return $order;
+        }
+
+        try {
+            $this->shoppingRouteService->backfillRouteSnapshot($order);
+        } catch (\Throwable $exception) {
+            Log::warning('Failed to backfill order route polyline.', [
+                'order_id' => $order->id,
+                'message' => $exception->getMessage(),
+            ]);
+
+            return $order;
+        }
+
+        return $order->refresh()->load(['serviceType', 'orderLocations.restaurant', 'items', 'shoppingOrder']);
     }
 
     /**
@@ -789,7 +829,7 @@ class OrderService
             &$statusChangeEventPayload,
         ): Order {
             $order = Order::query()
-                ->with(['statusRef', 'serviceType', 'rideOrder', 'shoppingOrder'])
+                ->with(['statusRef', 'serviceType', 'rideOrder', 'shoppingOrder', 'evidences'])
                 ->lockForUpdate()
                 ->find($orderId);
 
@@ -823,20 +863,44 @@ class OrderService
                 throw new ApiException('target_status_code tidak sesuai dengan action_code.', 422);
             }
 
-            if (($rule['requires_paid'] ?? false) && ! $this->orderHasPaidCodPayment($order)) {
-                throw new ApiException('Pembayaran COD belum dicatat.', 409);
+            if (($rule['requires_paid'] ?? false) && ! $this->orderHasPaidPayment($order)) {
+                throw new ApiException('Pembayaran belum dicatat.', 409);
             }
 
-            if (($rule['requires_unpaid'] ?? false) && $this->orderHasPaidCodPayment($order)) {
-                throw new ApiException('Aksi ini hanya tersedia sebelum pembayaran COD dicatat.', 409);
+            if (($rule['requires_unpaid'] ?? false) && $this->orderHasPaidPayment($order)) {
+                throw new ApiException('Aksi ini hanya tersedia sebelum pembayaran dicatat.', 409);
             }
 
             if (
                 strtoupper((string) $serviceCode) === 'SHOPPING' &&
                 $normalizedActionCode === 'CONFIRM_PICKED_UP' &&
-                $this->shoppingPricingService->hasPendingManualPrices($order)
+                ! $this->shoppingPricingService->hasDriverShoppingTotal($order)
             ) {
-                throw new ApiException('Harga nota untuk item manual belum lengkap.', 409);
+                throw new ApiException('Total belanja di struk belum diisi.', 409);
+            }
+
+            if (
+                $this->supportsDriverProofType($serviceCode, 'pickup') &&
+                in_array($normalizedActionCode, ['BOARD_PASSENGER', 'CONFIRM_PICKED_UP'], true) &&
+                ! $this->orderHasProof($order, 'pickup')
+            ) {
+                throw new ApiException('Bukti foto pickup belum diupload.', 409);
+            }
+
+            if (
+                strtoupper((string) $serviceCode) === 'SHOPPING' &&
+                $normalizedActionCode === 'CONFIRM_PICKED_UP' &&
+                ! $this->orderHasProof($order, 'receipt')
+            ) {
+                throw new ApiException('Foto struk belanja belum diupload.', 409);
+            }
+
+            if (
+                $this->supportsDriverProofType($serviceCode, 'delivery') &&
+                $normalizedActionCode === 'COMPLETE_ORDER' &&
+                ! $this->orderHasProof($order, 'delivery')
+            ) {
+                throw new ApiException('Bukti foto selesai pengantaran belum diupload.', 409);
             }
 
             $shoppingCancellationPenalty = null;
@@ -912,9 +976,16 @@ class OrderService
             );
 
             if ($shoppingCancellationPenalty !== null) {
-                $order->shoppingOrder?->update([
-                    'cancellation_penalty' => round($shoppingCancellationPenalty, 2),
-                ]);
+                if ($order->shoppingOrder instanceof ShoppingOrder) {
+                    $snapshot = is_array($order->shoppingOrder->pricing_snapshot)
+                        ? $order->shoppingOrder->pricing_snapshot
+                        : [];
+                    $snapshot['penalty_base_delivery_fee'] = round((float) $order->delivery_fee, 2);
+                    $order->shoppingOrder->update([
+                        'cancellation_penalty' => round($shoppingCancellationPenalty, 2),
+                        'pricing_snapshot' => $snapshot,
+                    ]);
+                }
 
                 $order = $this->shoppingPricingService->recalculate(
                     $order->refresh()->load(['items', 'shoppingOrder', 'statusRef', 'serviceType']),
@@ -1301,6 +1372,311 @@ class OrderService
                 true,
                 $receiptNote !== '' ? $receiptNote : 'Driver memperbarui harga nota belanja.'
             );
+        });
+
+        return $this->driverOrderPayloadFactory->serialize(
+            $order->fresh($this->driverOrderPayloadFactory->relations()),
+            includeTimeline: true,
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    public function updateDeliveryFeeOverride(User $actor, int $orderId, array $payload): array
+    {
+        $driver = $this->resolveActiveDriverProfile($actor);
+
+        $order = DB::transaction(function () use ($actor, $driver, $orderId, $payload): Order {
+            $order = $this->lockedAssignedDriverOrder($orderId, $driver->id, ['statusRef', 'serviceType', 'shoppingOrder', 'items']);
+
+            $manualAmount = array_key_exists('amount', $payload) && $payload['amount'] !== null
+                ? round(max(0.0, (float) $payload['amount']), 2)
+                : null;
+            $reason = trim((string) ($payload['reason'] ?? ''));
+            $carefulCarryRequired = array_key_exists('careful_carry_required', $payload)
+                ? (bool) $payload['careful_carry_required']
+                : (bool) ($order->careful_carry_required ?? false);
+            $serviceCode = (string) ($order->serviceType->code ?? '');
+
+            if (! $this->supportsCarefulCarry($serviceCode)) {
+                if (array_key_exists('careful_carry_required', $payload) && (bool) $payload['careful_carry_required']) {
+                    throw new ApiException('Perlu 2 orang hanya tersedia untuk order kurir dan titip belanja.', 422);
+                }
+
+                $carefulCarryRequired = false;
+            }
+
+            if ($manualAmount !== null && $manualAmount <= 0) {
+                throw new ApiException('Nominal ongkir manual harus lebih dari 0.', 422);
+            }
+
+            if ($manualAmount !== null && $reason === '') {
+                throw new ApiException('Alasan edit ongkir wajib diisi.', 422);
+            }
+
+            $nextDeliveryFee = $manualAmount !== null
+                ? $this->deliveryFeeWithCarefulCarry($manualAmount, $carefulCarryRequired)
+                : $this->systemDeliveryFeeWithCarefulCarry($order, $carefulCarryRequired);
+            $oldDeliveryFee = (float) $order->delivery_fee;
+            $oldTotalPrice = (float) $order->total_price;
+
+            $order->update([
+                'delivery_fee' => $nextDeliveryFee,
+                'delivery_fee_source' => $manualAmount !== null ? 'manual' : 'system',
+                'manual_delivery_fee' => $manualAmount,
+                'manual_delivery_fee_reason' => $manualAmount !== null ? $reason : null,
+                'careful_carry_required' => $carefulCarryRequired,
+            ]);
+
+            $order = $this->refreshTotalsAfterDeliveryFeeChange(
+                $order->refresh(),
+                $actor->id,
+                'DRIVER_DELIVERY_FEE_OVERRIDE',
+                $reason !== '' ? $reason : 'Driver memperbarui ongkir.',
+                $oldDeliveryFee,
+                $oldTotalPrice,
+            );
+
+            return $order;
+        });
+
+        return $this->driverOrderPayloadFactory->serialize(
+            $order->fresh($this->driverOrderPayloadFactory->relations()),
+            includeTimeline: true,
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    public function uploadProof(User $actor, int $orderId, array $payload): array
+    {
+        $driver = $this->resolveActiveDriverProfile($actor);
+
+        $order = DB::transaction(function () use ($actor, $driver, $orderId, $payload): Order {
+            $order = $this->lockedAssignedDriverOrder($orderId, $driver->id, ['statusRef', 'serviceType']);
+            $photo = $payload['photo'] ?? null;
+            if (! $photo instanceof UploadedFile) {
+                throw new ApiException('Foto bukti wajib diupload.', 422);
+            }
+
+            $type = $this->normalizeProofType((string) ($payload['type'] ?? ''));
+            $serviceCode = (string) ($order->serviceType->code ?? '');
+            if ($this->isLifecycleProofType($type) && ! $this->supportsDriverProofType($serviceCode, $type)) {
+                throw new ApiException($this->unsupportedProofMessage($type, $serviceCode), 422);
+            }
+
+            $evidenceType = $this->evidenceTypeForProof($type);
+            $fileUrl = $this->storeOrderPhoto($photo, $order->id, 'proofs');
+
+            OrderEvidence::query()->create([
+                'order_id' => $order->id,
+                'driver_id' => $driver->id,
+                'evidence_type' => $evidenceType,
+                'file_url' => $fileUrl,
+                'verification_mode' => 'AUTO_24H',
+                'verification_status' => 'PENDING',
+                'uploaded_at' => now(),
+                'notes' => $payload['note'] ?? null,
+            ]);
+
+            OrderLog::query()->create([
+                'order_id' => $order->id,
+                'log_type' => 'SYSTEM_EVENT',
+                'trigger_type' => 'ORDER_PROOF_UPLOADED',
+                'changed_by_user_id' => $actor->id,
+                'note' => 'Driver upload bukti '.$type.'.',
+                'metadata' => [
+                    'proof_type' => $type,
+                    'evidence_type' => $evidenceType,
+                    'pickup_location_id' => $payload['pickup_location_id'] ?? null,
+                ],
+            ]);
+
+            return $order->refresh();
+        });
+
+        return $this->driverOrderPayloadFactory->serialize(
+            $order->fresh($this->driverOrderPayloadFactory->relations()),
+            includeTimeline: true,
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    public function updateShoppingCheckout(User $actor, int $orderId, array $payload): array
+    {
+        $itemUpdatePayload = [
+            'items' => $payload['items'] ?? [],
+            'receipt_note' => $payload['receipt_note'] ?? null,
+        ];
+
+        $this->updateShoppingItemsByDriver($actor, $orderId, $itemUpdatePayload);
+        $driver = $this->resolveActiveDriverProfile($actor);
+
+        $order = DB::transaction(function () use ($actor, $driver, $orderId, $payload): Order {
+            $order = $this->lockedAssignedDriverOrder(
+                $orderId,
+                $driver->id,
+                ['statusRef', 'serviceType', 'shoppingOrder', 'items']
+            );
+
+            if (($order->serviceType->code ?? null) !== 'SHOPPING') {
+                throw new ApiException('Checkout nitip hanya tersedia untuk order SHOPPING.', 409);
+            }
+
+            $oldDeliveryFee = (float) $order->delivery_fee;
+            $oldTotalPrice = (float) $order->total_price;
+
+            if (array_key_exists('delivery_fee_override', $payload) && $payload['delivery_fee_override'] !== null) {
+                $manualDeliveryFee = round(max(0.0, (float) $payload['delivery_fee_override']), 2);
+                if ($manualDeliveryFee <= 0) {
+                    throw new ApiException('Ongkir checkout harus lebih dari 0.', 422);
+                }
+
+                $order->update([
+                    'delivery_fee' => $this->deliveryFeeWithCarefulCarry(
+                        $manualDeliveryFee,
+                        (bool) ($order->careful_carry_required ?? false)
+                    ),
+                    'delivery_fee_source' => 'manual',
+                    'manual_delivery_fee' => $manualDeliveryFee,
+                    'manual_delivery_fee_reason' => 'Ongkir diedit saat checkout nitip.',
+                ]);
+
+                $order = $this->refreshTotalsAfterDeliveryFeeChange(
+                    $order->refresh(),
+                    $actor->id,
+                    'DRIVER_SHOPPING_CHECKOUT_DELIVERY_FEE',
+                    'Driver mengubah ongkir saat checkout nitip.',
+                    $oldDeliveryFee,
+                    $oldTotalPrice,
+                );
+            }
+
+            if (array_key_exists('shopping_total_amount', $payload) && $payload['shopping_total_amount'] !== null) {
+                $shoppingTotal = round(max(0.0, (float) $payload['shopping_total_amount']), 2);
+                if ($shoppingTotal <= 0) {
+                    throw new ApiException('Total belanja harus lebih dari 0.', 422);
+                }
+
+                $totalPrice = round($shoppingTotal + (float) $order->delivery_fee + (float) $order->service_fee, 2);
+                $order->update([
+                    'subtotal' => $shoppingTotal,
+                    'total_price' => $totalPrice,
+                ]);
+
+                if ($order->shoppingOrder instanceof ShoppingOrder) {
+                    $snapshot = is_array($order->shoppingOrder->pricing_snapshot)
+                        ? $order->shoppingOrder->pricing_snapshot
+                        : [];
+                    $snapshot['subtotal'] = $shoppingTotal;
+                    $snapshot['total_price'] = $totalPrice;
+                    $snapshot['driver_shopping_total_amount'] = $shoppingTotal;
+                    $order->shoppingOrder->update([
+                        'pricing_snapshot' => $snapshot,
+                    ]);
+                }
+
+                $this->markShoppingItemsConfirmedByReceiptTotal($order);
+
+                $this->syncPendingPaymentAmount($order->refresh());
+            }
+
+            $receiptPhoto = $payload['receipt_photo'] ?? null;
+            if ($receiptPhoto instanceof UploadedFile) {
+                $fileUrl = $this->storeOrderPhoto($receiptPhoto, $order->id, 'receipts');
+                OrderEvidence::query()->create([
+                    'order_id' => $order->id,
+                    'driver_id' => $driver->id,
+                    'evidence_type' => 'SHOPPING_RECEIPT',
+                    'file_url' => $fileUrl,
+                    'verification_mode' => 'AUTO_24H',
+                    'verification_status' => 'PENDING',
+                    'uploaded_at' => now(),
+                    'notes' => $payload['receipt_note'] ?? null,
+                ]);
+            }
+
+            return $order->refresh();
+        });
+
+        return $this->driverOrderPayloadFactory->serialize(
+            $order->fresh($this->driverOrderPayloadFactory->relations()),
+            includeTimeline: true,
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    public function confirmTransferPaymentByDriver(User $actor, int $orderId, array $payload): array
+    {
+        $driver = $this->resolveActiveDriverProfile($actor);
+
+        $order = DB::transaction(function () use ($actor, $driver, $orderId, $payload): Order {
+            $order = $this->lockedAssignedDriverOrder($orderId, $driver->id, ['statusRef', 'serviceType']);
+            $amount = round((float) ($payload['amount'] ?? $order->total_price), 2);
+            $expectedAmount = round((float) $order->total_price, 2);
+
+            if ($amount <= 0) {
+                throw new ApiException('Nominal transfer harus lebih dari 0.', 422);
+            }
+
+            $paidAt = isset($payload['paid_at'])
+                ? Carbon::parse((string) $payload['paid_at'])
+                : now();
+
+            OrderPayment::query()->updateOrCreate(
+                ['order_id' => $order->id],
+                [
+                    'payment_method' => 'TRANSFER',
+                    'payment_status' => 'PAID',
+                    'amount' => $amount,
+                    'recorded_by_user_id' => $actor->id,
+                    'driver_id' => $driver->id,
+                    'paid_at' => $paidAt,
+                    'note' => $payload['note'] ?? null,
+                    'metadata' => [
+                        'recorded_by_role' => $actor->role,
+                        'source' => 'DRIVER_TRANSFER_CONFIRMATION',
+                        'expected_amount' => $expectedAmount,
+                    ],
+                ],
+            );
+
+            OrderLog::query()->create([
+                'order_id' => $order->id,
+                'log_type' => 'PAYMENT_UPDATE',
+                'trigger_type' => 'TRANSFER_PAYMENT_RECORDED_BY_DRIVER',
+                'changed_by_user_id' => $actor->id,
+                'note' => $payload['note'] ?? 'Pencatatan pembayaran transfer.',
+                'metadata' => [
+                    'paid_amount' => $amount,
+                    'expected_amount' => $expectedAmount,
+                ],
+            ]);
+
+            OrderStatusHistory::query()->create([
+                'order_id' => $order->id,
+                'status_id' => $order->status_id,
+                'event_type' => 'PAYMENT_UPDATE',
+                'changed_by_user_id' => $actor->id,
+                'note' => 'Pembayaran transfer berhasil dicatat.',
+                'price_snapshot' => [
+                    'paid_amount' => $amount,
+                    'payment_status' => 'paid',
+                    'payment_method' => 'TRANSFER',
+                ],
+            ]);
+
+            return $order->refresh();
         });
 
         return $this->driverOrderPayloadFactory->serialize(
@@ -1745,6 +2121,268 @@ class OrderService
         $order->update([
             'restaurant_id' => $firstPickup?->restaurant_id,
         ]);
+    }
+
+    /**
+     * @param  array<int, string>  $relations
+     */
+    private function lockedAssignedDriverOrder(int $orderId, int $driverId, array $relations = []): Order
+    {
+        $order = Order::query()
+            ->with($relations)
+            ->lockForUpdate()
+            ->find($orderId);
+
+        if (! $order) {
+            throw new ApiException('Order tidak ditemukan.', 404);
+        }
+
+        if ((int) ($order->driver_id ?? 0) !== $driverId) {
+            throw new ApiException('Order ini tidak ditugaskan kepada driver saat ini.', 403);
+        }
+
+        return $order;
+    }
+
+    private function refreshTotalsAfterDeliveryFeeChange(
+        Order $order,
+        int $actorId,
+        string $triggerType,
+        string $note,
+        float $oldDeliveryFee,
+        float $oldTotalPrice,
+    ): Order {
+        $order->loadMissing(['serviceType', 'shoppingOrder', 'items']);
+
+        OrderLog::query()->create([
+            'order_id' => $order->id,
+            'log_type' => 'PRICE_RECALCULATION',
+            'trigger_type' => $triggerType,
+            'old_delivery_fee' => round($oldDeliveryFee, 2),
+            'new_delivery_fee' => round((float) $order->delivery_fee, 2),
+            'old_total_price' => round($oldTotalPrice, 2),
+            'new_total_price' => round((float) $order->total_price, 2),
+            'delta_total_price' => round(((float) $order->delivery_fee) - $oldDeliveryFee, 2),
+            'changed_by_user_id' => $actorId,
+            'note' => $note,
+            'metadata' => [
+                'delivery_fee_source' => $order->delivery_fee_source ?: 'system',
+                'manual_delivery_fee' => $order->manual_delivery_fee,
+                'manual_delivery_fee_reason' => $order->manual_delivery_fee_reason,
+                'careful_carry_required' => (bool) ($order->careful_carry_required ?? false),
+            ],
+        ]);
+
+        if (($order->serviceType->code ?? null) === 'SHOPPING' && $order->shoppingOrder instanceof ShoppingOrder) {
+            return $this->shoppingPricingService->recalculate(
+                $order->refresh()->load(['items', 'shoppingOrder', 'statusRef', 'serviceType']),
+                $actorId,
+                $triggerType,
+                true,
+                $note
+            );
+        }
+
+        $nextTotalPrice = round((float) $order->subtotal + (float) $order->delivery_fee + (float) $order->service_fee, 2);
+        $order->update([
+            'total_price' => $nextTotalPrice,
+        ]);
+
+        $this->syncPendingPaymentAmount($order->refresh());
+
+        OrderStatusHistory::query()->create([
+            'order_id' => $order->id,
+            'status_id' => $order->status_id,
+            'event_type' => 'PRICE_UPDATE',
+            'changed_by_user_id' => $actorId,
+            'note' => $note,
+            'price_snapshot' => [
+                'delivery_fee' => round((float) $order->delivery_fee, 2),
+                'delivery_fee_source' => $order->delivery_fee_source ?: 'system',
+                'total_price' => $nextTotalPrice,
+            ],
+        ]);
+
+        $this->broadcastContentUpdatedAfterCommit((int) $order->id, $triggerType, [
+            'delivery_fee' => round((float) $order->delivery_fee, 2),
+            'delivery_fee_source' => $order->delivery_fee_source ?: 'system',
+            'manual_delivery_fee' => $order->manual_delivery_fee !== null
+                ? round((float) $order->manual_delivery_fee, 2)
+                : null,
+            'manual_delivery_fee_reason' => $order->manual_delivery_fee_reason,
+            'careful_carry_required' => (bool) ($order->careful_carry_required ?? false),
+            'total_price' => $nextTotalPrice,
+        ]);
+
+        return $order->refresh();
+    }
+
+    /**
+     * @param  array<string, mixed>  $pricing
+     */
+    private function broadcastContentUpdatedAfterCommit(int $orderId, string $triggerType, array $pricing): void
+    {
+        $broadcast = fn (): bool => $this->realtimeBroadcaster->orderContentUpdated($orderId, $triggerType, $pricing);
+
+        if (DB::transactionLevel() > 0) {
+            DB::afterCommit($broadcast);
+            return;
+        }
+
+        $broadcast();
+    }
+
+    private function syncPendingPaymentAmount(Order $order): void
+    {
+        OrderPayment::query()
+            ->where('order_id', $order->id)
+            ->where('payment_status', 'PENDING')
+            ->update([
+                'amount' => round((float) $order->total_price, 2),
+            ]);
+    }
+
+    private function systemDeliveryFeeWithCarefulCarry(Order $order, bool $carefulCarryRequired): float
+    {
+        $route = $order->route_snapshot;
+        $systemFee = is_array($route) && is_numeric(data_get($route, 'delivery_pricing.total_fee'))
+            ? (float) data_get($route, 'delivery_pricing.total_fee')
+            : (float) $order->delivery_fee;
+
+        return $this->deliveryFeeWithCarefulCarry($systemFee, $carefulCarryRequired);
+    }
+
+    private function deliveryFeeWithCarefulCarry(float $baseDeliveryFee, bool $carefulCarryRequired): float
+    {
+        $baseDeliveryFee = max(0.0, $baseDeliveryFee);
+
+        if (! $carefulCarryRequired) {
+            return round($baseDeliveryFee, 2);
+        }
+
+        return round($baseDeliveryFee + ($baseDeliveryFee * 0.5), 2);
+    }
+
+    private function supportsCarefulCarry(string $serviceCode): bool
+    {
+        return in_array(strtoupper($serviceCode), ['COURIER', 'SHOPPING'], true);
+    }
+
+    private function supportsDriverProofType(string $serviceCode, string $type): bool
+    {
+        return match (strtoupper($serviceCode)) {
+            'COURIER' => in_array($type, ['pickup', 'delivery'], true),
+            'SHOPPING' => in_array($type, ['receipt', 'store_closed'], true),
+            default => false,
+        };
+    }
+
+    private function unsupportedProofMessage(string $type, string $serviceCode): string
+    {
+        $service = strtoupper($serviceCode);
+
+        if ($service === 'SHOPPING' && in_array($type, ['pickup', 'delivery'], true)) {
+            return 'Bukti pengambilan dan diterima hanya tersedia untuk order kurir.';
+        }
+
+        if ($service === 'COURIER' && in_array($type, ['receipt', 'store_closed'], true)) {
+            return 'Bukti struk dan toko tutup hanya tersedia untuk order titip belanja.';
+        }
+
+        return 'Bukti foto order tidak tersedia untuk layanan ini.';
+    }
+
+    private function isLifecycleProofType(string $type): bool
+    {
+        return in_array($type, ['pickup', 'delivery', 'receipt', 'store_closed'], true);
+    }
+
+    private function storeOrderPhoto(UploadedFile $photo, int $orderId, string $folder): string
+    {
+        $path = $photo->store('orders/'.$orderId.'/'.$folder, 'public');
+        if (! is_string($path) || $path === '') {
+            throw new ApiException('Upload foto gagal disimpan.', 500);
+        }
+
+        return Storage::disk('public')->url($path);
+    }
+
+    private function normalizeProofType(string $type): string
+    {
+        $normalized = strtolower(str_replace('-', '_', trim($type)));
+        $allowed = ['pickup', 'delivery', 'receipt', 'store_closed', 'payment_transfer'];
+
+        if (! in_array($normalized, $allowed, true)) {
+            throw new ApiException('Tipe bukti tidak valid.', 422);
+        }
+
+        return $normalized;
+    }
+
+    private function evidenceTypeForProof(string $type): string
+    {
+        return match ($type) {
+            'pickup' => 'PICKUP_PHOTO',
+            'delivery' => 'DELIVERY_PHOTO',
+            'receipt' => 'SHOPPING_RECEIPT',
+            'store_closed' => 'STORE_CLOSED_PHOTO',
+            'payment_transfer' => 'PAYMENT_TRANSFER_PHOTO',
+            default => throw new ApiException('Tipe bukti tidak valid.', 422),
+        };
+    }
+
+    private function orderHasProof(Order $order, string $type): bool
+    {
+        $evidenceTypes = match ($type) {
+            'pickup' => ['PICKUP_PHOTO'],
+            'delivery' => ['DELIVERY_PHOTO', 'COURIER_DELIVERY_PHOTO', 'COURIER_RECEIVER_PHOTO'],
+            'receipt' => ['SHOPPING_RECEIPT'],
+            'store_closed' => ['STORE_CLOSED_PHOTO'],
+            'payment_transfer' => ['PAYMENT_TRANSFER_PHOTO'],
+            default => [],
+        };
+
+        if ($evidenceTypes === []) {
+            return false;
+        }
+
+        if ($order->relationLoaded('evidences')) {
+            return $order->evidences->contains(
+                fn (OrderEvidence $evidence): bool => in_array(strtoupper((string) $evidence->evidence_type), $evidenceTypes, true)
+            );
+        }
+
+        return $order->evidences()
+            ->whereIn('evidence_type', $evidenceTypes)
+            ->exists();
+    }
+
+    private function markShoppingItemsConfirmedByReceiptTotal(Order $order): void
+    {
+        $order->loadMissing('items');
+
+        foreach ($order->items as $item) {
+            if (strtoupper((string) $item->item_source) !== 'MANUAL' || ! (bool) $item->is_available) {
+                continue;
+            }
+
+            $metadata = is_array($item->metadata) ? $item->metadata : [];
+            $metadata['price_status'] = 'RECEIPT_TOTAL_CONFIRMED';
+            $item->update(['metadata' => $metadata]);
+        }
+    }
+
+    private function orderHasPaidPayment(Order $order): bool
+    {
+        if ($order->relationLoaded('payments')) {
+            return $order->payments->contains(
+                fn (OrderPayment $payment): bool => strtoupper((string) $payment->payment_status) === 'PAID'
+            );
+        }
+
+        return $order->payments()
+            ->where('payment_status', 'PAID')
+            ->exists();
     }
 
     /**

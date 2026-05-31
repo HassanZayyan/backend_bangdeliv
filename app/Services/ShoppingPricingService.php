@@ -27,6 +27,8 @@ class ShoppingPricingService
         iterable $items,
         float $deliveryFee,
         float $cancellationPenalty = 0.0,
+        ?float $subtotalOverride = null,
+        bool $penaltyOnly = false,
     ): array {
         $itemBlockRule = $this->getRuleConfig($serviceTypeId, 'ITEM_BLOCK_SURCHARGE');
         $overweightRule = $this->getRuleConfig($serviceTypeId, 'OVERWEIGHT_FLAT_SURCHARGE');
@@ -55,6 +57,19 @@ class ShoppingPricingService
         $subtotal = round($subtotal, 2);
         $itemSurcharge = $this->calculateItemSurcharge($totalItemQuantity, $itemBlockRule);
         $overweightSurcharge = $hasOverweightItem ? (float) ($overweightRule['surcharge'] ?? 0) : 0.0;
+
+        if ($subtotalOverride !== null && $subtotalOverride > 0) {
+            $subtotal = round($subtotalOverride, 2);
+        }
+
+        if ($penaltyOnly && $cancellationPenalty > 0) {
+            $subtotal = 0.0;
+            $deliveryFee = 0.0;
+            $itemSurcharge = 0.0;
+            $overweightSurcharge = 0.0;
+            $hasOverweightItem = false;
+        }
+
         $serviceFee = round($itemSurcharge + $overweightSurcharge + $cancellationPenalty, 2);
         $totalPrice = round($subtotal + $deliveryFee + $serviceFee, 2);
         $feeBreakdown = $this->feeBreakdown(
@@ -103,12 +118,17 @@ class ShoppingPricingService
         $oldTotalPrice = (float) $order->total_price;
         $deliveryFee = (float) $order->delivery_fee;
         $cancellationPenalty = (float) $shoppingOrder->cancellation_penalty;
+        $statusCode = strtoupper((string) ($order->statusRef?->code ?? ''));
+        $penaltyOnly = $cancellationPenalty > 0 && $statusCode === 'CANCELLED_WITH_FEE';
+        $subtotalOverride = $penaltyOnly ? null : $this->driverShoppingTotalAmountFromSnapshot($shoppingOrder);
 
         $pricing = $this->calculateForItems(
             (int) $order->service_type_id,
             $order->items,
             $deliveryFee,
             $cancellationPenalty,
+            $subtotalOverride,
+            $penaltyOnly,
         );
 
         $nextVersion = (int) $shoppingOrder->recalculation_version + 1;
@@ -118,6 +138,17 @@ class ShoppingPricingService
         ];
         if (isset($previousSnapshot['shopping_route'])) {
             $pricingSnapshot['shopping_route'] = $previousSnapshot['shopping_route'];
+        }
+        if ($subtotalOverride !== null && $subtotalOverride > 0) {
+            $pricingSnapshot['driver_shopping_total_amount'] = round($subtotalOverride, 2);
+        }
+        if ($cancellationPenalty > 0) {
+            $pricingSnapshot['penalty_base_delivery_fee'] = round(
+                is_numeric($previousSnapshot['penalty_base_delivery_fee'] ?? null)
+                    ? (float) $previousSnapshot['penalty_base_delivery_fee']
+                    : $oldDeliveryFee,
+                2
+            );
         }
 
         $shoppingOrder->update([
@@ -129,11 +160,17 @@ class ShoppingPricingService
             'pricing_snapshot' => $pricingSnapshot,
         ]);
 
-        $order->update([
+        $orderUpdates = [
             'subtotal' => $pricing['subtotal'],
             'service_fee' => $pricing['service_fee'],
             'total_price' => $pricing['total_price'],
-        ]);
+        ];
+
+        if ($penaltyOnly) {
+            $orderUpdates['delivery_fee'] = 0;
+        }
+
+        $order->update($orderUpdates);
 
         $this->orderPaymentService->syncPendingCodAmount($order->refresh());
 
@@ -190,6 +227,12 @@ class ShoppingPricingService
         $this->broadcastContentUpdatedAfterCommit((int) $freshOrder->id, $triggerType, [
             ...$pricing,
             'recalculation_version' => $nextVersion,
+            'delivery_fee_source' => $freshOrder->delivery_fee_source ?: 'system',
+            'manual_delivery_fee' => $freshOrder->manual_delivery_fee !== null
+                ? round((float) $freshOrder->manual_delivery_fee, 2)
+                : null,
+            'manual_delivery_fee_reason' => $freshOrder->manual_delivery_fee_reason,
+            'careful_carry_required' => (bool) ($freshOrder->careful_carry_required ?? false),
         ]);
 
         return $freshOrder;
@@ -206,7 +249,9 @@ class ShoppingPricingService
             return 0.0;
         }
 
-        $deliveryFee = (float) $order->delivery_fee;
+        $snapshot = is_array($shoppingOrder->pricing_snapshot) ? $shoppingOrder->pricing_snapshot : [];
+        $baseDeliveryFee = $snapshot['penalty_base_delivery_fee'] ?? null;
+        $deliveryFee = is_numeric($baseDeliveryFee) ? (float) $baseDeliveryFee : (float) $order->delivery_fee;
 
         return round($deliveryFee * ($percent / 100), 2);
     }
@@ -227,6 +272,10 @@ class ShoppingPricingService
 
     public function hasPendingManualPrices(Order $order): bool
     {
+        if ($this->hasDriverShoppingTotal($order)) {
+            return false;
+        }
+
         $order->loadMissing('items');
 
         return $order->items->contains(function (OrderItem $item): bool {
@@ -234,6 +283,26 @@ class ShoppingPricingService
                 && (bool) $item->is_available
                 && (float) $item->unit_price <= 0;
         });
+    }
+
+    public function hasDriverShoppingTotal(Order $order): bool
+    {
+        $order->loadMissing('shoppingOrder');
+
+        return $order->shoppingOrder instanceof ShoppingOrder
+            && $this->driverShoppingTotalAmountFromSnapshot($order->shoppingOrder) !== null;
+    }
+
+    private function driverShoppingTotalAmountFromSnapshot(ShoppingOrder $shoppingOrder): ?float
+    {
+        $snapshot = is_array($shoppingOrder->pricing_snapshot) ? $shoppingOrder->pricing_snapshot : [];
+        $amount = $snapshot['driver_shopping_total_amount'] ?? null;
+
+        if (! is_numeric($amount) || (float) $amount <= 0) {
+            return null;
+        }
+
+        return round((float) $amount, 2);
     }
 
     /**

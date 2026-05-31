@@ -60,6 +60,11 @@ class ShoppingRouteService
         $segments = [];
         $totalDistanceMeters = 0;
         $totalDurationSeconds = 0;
+        $encodedPolyline = null;
+        $routeProvider = 'distance_matrix';
+        $routingPreference = null;
+        $travelMode = null;
+        $routeStatus = 'OK';
 
         for ($index = 0; $index < count($points) - 1; $index++) {
             $from = $points[$index];
@@ -75,6 +80,13 @@ class ShoppingRouteService
             $durationSeconds = (int) ($route['duration_seconds'] ?? 0);
             $totalDistanceMeters += max(0, $distanceMeters);
             $totalDurationSeconds += max(0, $durationSeconds);
+            $routeProvider = (string) ($route['route_provider'] ?? $routeProvider);
+            $routingPreference = $route['routing_preference'] ?? $routingPreference;
+            $travelMode = $route['travel_mode'] ?? $travelMode;
+            $routeStatus = (string) ($route['route_status'] ?? $routeStatus);
+            if (count($points) === 2 && is_string($route['encoded_polyline'] ?? null) && trim((string) $route['encoded_polyline']) !== '') {
+                $encodedPolyline = (string) $route['encoded_polyline'];
+            }
 
             $segments[] = [
                 'from_label' => $from['label'],
@@ -102,8 +114,11 @@ class ShoppingRouteService
             'delivery_pricing' => $deliveryPricing,
             'segments' => $segments,
             'ordered_pickup_location_ids' => $orderedPickupLocationIds,
-            'encoded_polyline' => null,
-            'route_provider' => 'distance_matrix',
+            'encoded_polyline' => $encodedPolyline,
+            'route_provider' => $routeProvider,
+            'routing_preference' => $routingPreference,
+            'travel_mode' => $travelMode,
+            'route_status' => $routeStatus,
         ];
     }
 
@@ -144,6 +159,30 @@ class ShoppingRouteService
             'delivery_distance_text' => (string) $route['distance_text'],
             'estimated_delivery' => now()->addMinutes($prepMinutes + $routeMinutes),
         ]);
+
+        $this->storeRouteSnapshot($order, $route);
+
+        return $route;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function backfillRouteSnapshot(Order $order): ?array
+    {
+        $order->refresh()->load(['orderLocations.restaurant', 'items', 'shoppingOrder']);
+
+        if ($this->activePickupLocations($order)->isEmpty()) {
+            return null;
+        }
+
+        $route = $this->calculateForOrder($order);
+        $route['delivery_fee'] = round((float) $order->delivery_fee, 2);
+
+        $existingRoute = is_array($order->route_snapshot) ? $order->route_snapshot : [];
+        if (is_array($existingRoute['delivery_pricing'] ?? null)) {
+            $route['delivery_pricing'] = $existingRoute['delivery_pricing'];
+        }
 
         $this->storeRouteSnapshot($order, $route);
 

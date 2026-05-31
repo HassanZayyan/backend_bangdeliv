@@ -16,6 +16,10 @@ return new class extends Migration
             $table->string('sender_name_snapshot');
             $table->text('body');
             $table->string('client_message_id', 80)->nullable();
+            $table->string('attachment_type', 40)->nullable();
+            $table->string('attachment_url')->nullable();
+            $table->string('attachment_mime_type', 120)->nullable();
+            $table->unsignedBigInteger('attachment_size')->nullable();
             $table->timestamps();
 
             $table->index(['order_id', 'id'], 'order_chat_messages_order_id_idx');

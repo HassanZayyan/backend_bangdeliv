@@ -16,10 +16,12 @@ class ShoppingServiceFeeRulesTest extends TestCase
         $service = app(ShoppingPricingService::class);
         $serviceTypeId = (int) ServiceType::query()->where('code', 'SHOPPING')->value('id');
 
-        $this->assertSame(0.0, $service->calculateForItems($serviceTypeId, $this->items(11), 0)['item_surcharge']);
+        $this->assertSame(0.0, $service->calculateForItems($serviceTypeId, $this->items(6), 0)['item_surcharge']);
+        $this->assertSame(2000.0, $service->calculateForItems($serviceTypeId, $this->items(7), 0)['item_surcharge']);
         $this->assertSame(2000.0, $service->calculateForItems($serviceTypeId, $this->items(12), 0)['item_surcharge']);
+        $this->assertSame(4000.0, $service->calculateForItems($serviceTypeId, $this->items(13), 0)['item_surcharge']);
         $this->assertSame(4000.0, $service->calculateForItems($serviceTypeId, $this->items(18), 0)['item_surcharge']);
-        $this->assertSame(6000.0, $service->calculateForItems($serviceTypeId, $this->items(24), 0)['item_surcharge']);
+        $this->assertSame(6000.0, $service->calculateForItems($serviceTypeId, $this->items(19), 0)['item_surcharge']);
     }
 
     public function test_overweight_surcharge_is_applied_once_per_order(): void

@@ -35,8 +35,8 @@ return new class extends Migration
                     'service_type_id' => $shoppingServiceTypeId,
                     'rule_code' => 'ITEM_BLOCK_SURCHARGE',
                     'rule_config' => json_encode([
-                        'free_until_item_count' => 11,
-                        'first_surcharge_item_count' => 12,
+                        'free_until_item_count' => 6,
+                        'first_surcharge_item_count' => 7,
                         'block_size' => 6,
                         'surcharge_per_block' => 2000,
                     ]),

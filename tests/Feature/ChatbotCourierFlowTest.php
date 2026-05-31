@@ -129,7 +129,7 @@ class ChatbotCourierFlowTest extends TestCase
         $this->assertStringContainsString('Ambil:', $finalMessage);
         $this->assertStringContainsString('Tujuan:', $finalMessage);
         $this->assertStringContainsString('Barang:', $finalMessage);
-        $this->assertStringContainsString('Ongkir:', $finalMessage);
+        $this->assertStringContainsString('Estimasi ongkir sementara:', $finalMessage);
     }
 
     public function test_chatbot_kurir_requests_profile_address_when_missing(): void
@@ -489,7 +489,7 @@ class ChatbotCourierFlowTest extends TestCase
         $this->assertDatabaseCount('courier_orders', 0);
     }
 
-    public function test_chatbot_kurir_rejects_oversize_package(): void
+    public function test_chatbot_kurir_allows_oversize_package_with_warning_flags(): void
     {
         $this->fakeGeocoding();
 
@@ -514,14 +514,13 @@ class ChatbotCourierFlowTest extends TestCase
 
         $response
             ->assertOk()
-            ->assertJsonPath('data.validation.is_valid_order', false)
-            ->assertJsonPath('data.courier.safety_status', 'OVERSIZE')
+            ->assertJsonPath('data.validation.is_valid_order', true)
+            ->assertJsonPath('data.courier.safety_status', 'ALLOWED')
+            ->assertJsonPath('data.courier.size_class', 'OVERSIZE')
+            ->assertJsonPath('data.courier.ready_to_confirm', true)
             ->assertJsonPath('data.order.created', false);
 
-        $this->assertStringContainsString(
-            'terlalu besar',
-            (string) $response->json('data.assistant_text')
-        );
+        $this->assertContains('OVERSIZE_FURNITURE', $response->json('data.courier.safety_flags'));
         $this->assertDatabaseCount('orders', 0);
         $this->assertDatabaseCount('courier_orders', 0);
     }

@@ -75,8 +75,11 @@ return [
     |
     */
     'base_delivery_fee'    => env('BASE_DELIVERY_FEE', 5000),         // Rp 5.000
-    'delivery_rate_per_km' => env('DELIVERY_RATE_PER_KM', 2000),      // Rp 2.000 per km tertagih
-    'max_delivery_distance' => env('MAX_DELIVERY_DISTANCE', 15),      // 15 km
+    'delivery_rate_per_km' => env('DELIVERY_RATE_PER_KM', 2000),      // Legacy fallback
+    'delivery_rate_0_10_per_km' => env('DELIVERY_RATE_0_10_PER_KM', 2000),
+    'delivery_rate_10_25_per_km' => env('DELIVERY_RATE_10_25_PER_KM', 2500),
+    'delivery_rate_25_50_per_km' => env('DELIVERY_RATE_25_50_PER_KM', 3000),
+    'max_delivery_distance' => env('MAX_DELIVERY_DISTANCE', 50),      // 50 km
 
     /*
     |--------------------------------------------------------------------------

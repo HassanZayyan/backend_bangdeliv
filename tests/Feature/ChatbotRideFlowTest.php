@@ -76,6 +76,10 @@ class ChatbotRideFlowTest extends TestCase
             'Nomor order:',
             (string) $confirmResponse->json('data.assistant_text')
         );
+        $this->assertStringContainsString(
+            'Estimasi ongkir sementara:',
+            (string) $confirmResponse->json('data.assistant_text')
+        );
 
         $this->assertDatabaseCount('orders', 1);
     }

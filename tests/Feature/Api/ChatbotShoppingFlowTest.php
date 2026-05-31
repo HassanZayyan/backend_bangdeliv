@@ -198,7 +198,12 @@ class ChatbotShoppingFlowTest extends TestCase
             ->assertJsonPath('data.shopping.items.0.item_source', 'MANUAL')
             ->assertJsonPath('data.shopping.items.0.menu_id', null)
             ->assertJsonPath('data.shopping.items.0.unit_price', 0)
-            ->assertJsonPath('data.shopping.items.0.metadata.price_status', 'PENDING_DRIVER_INPUT');
+            ->assertJsonPath('data.shopping.items.0.metadata.price_status', 'PENDING_DRIVER_INPUT')
+            ->assertJsonPath('data.action_payloads.OPEN_MAP_PICKER_DELIVERY.label', 'Ganti Titik Antar');
+        $this->assertStringContainsString(
+            'Estimasi ongkir sementara:',
+            (string) $draftResponse->json('data.assistant_text')
+        );
 
         $confirmResponse = $this->postJson('/api/chatbot/process', [
             'session_id' => $sessionId,
@@ -209,6 +214,10 @@ class ChatbotShoppingFlowTest extends TestCase
         $confirmResponse->assertOk()
             ->assertJsonPath('data.order.created', true)
             ->assertJsonPath('data.intent', 'shopping_order');
+        $this->assertStringContainsString(
+            'Estimasi ongkir sementara:',
+            (string) $confirmResponse->json('data.assistant_text')
+        );
 
         $orderId = (int) $confirmResponse->json('data.order.id');
         $this->assertDatabaseHas('orders', [
@@ -233,6 +242,9 @@ class ChatbotShoppingFlowTest extends TestCase
             'location_role' => 'PICKUP',
             'sequence_no' => 1,
         ]);
+
+        $routeSnapshot = Order::query()->findOrFail($orderId)->route_snapshot;
+        $this->assertSame('_p~iF~ps|U_ulLnnqC_mqNvxq`@', $routeSnapshot['encoded_polyline'] ?? null);
     }
 
     public function test_chatbot_shopping_for_warung_creates_manual_pending_price_item(): void
@@ -332,6 +344,19 @@ class ChatbotShoppingFlowTest extends TestCase
                         ],
                     ],
                 ],
+            ], 200),
+            'https://routes.googleapis.com/*' => Http::response([
+                'routes' => [[
+                    'distanceMeters' => 2500,
+                    'duration' => '600s',
+                    'polyline' => [
+                        'encodedPolyline' => '_p~iF~ps|U_ulLnnqC_mqNvxq`@',
+                    ],
+                    'legs' => [[
+                        'distanceMeters' => 2500,
+                        'duration' => '600s',
+                    ]],
+                ]],
             ], 200),
             'https://maps.googleapis.com/maps/api/distancematrix/*' => Http::response([
                 'status' => 'OK',

@@ -20,6 +20,10 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property string|null $delivery_longitude
  * @property string|null $subtotal
  * @property string $delivery_fee
+ * @property string|null $delivery_fee_source
+ * @property string|null $manual_delivery_fee
+ * @property string|null $manual_delivery_fee_reason
+ * @property bool $careful_carry_required
  * @property string|null $service_fee
  * @property float|null $delivery_distance_km
  * @property string|null $delivery_distance_text
@@ -70,6 +74,10 @@ class Order extends Model
         'driver_id',
         'subtotal',
         'delivery_fee',
+        'delivery_fee_source',
+        'manual_delivery_fee',
+        'manual_delivery_fee_reason',
+        'careful_carry_required',
         'service_fee',
         'delivery_distance_km',
         'delivery_distance_text',
@@ -98,6 +106,9 @@ class Order extends Model
         'shopping_stops',
         'route',
         'shopping_route',
+        'pricing_snapshot',
+        'fee_breakdown',
+        'proofs',
     ];
 
     protected function casts(): array
@@ -105,6 +116,8 @@ class Order extends Model
         return [
             'subtotal' => 'decimal:2',
             'delivery_fee' => 'decimal:2',
+            'manual_delivery_fee' => 'decimal:2',
+            'careful_carry_required' => 'boolean',
             'service_fee' => 'decimal:2',
             'delivery_distance_km' => 'float',
             'route_snapshot' => 'array',
@@ -364,6 +377,111 @@ class Order extends Model
     }
 
     /**
+     * @return array<string, mixed>
+     */
+    public function getPricingSnapshotAttribute(): array
+    {
+        $route = $this->route;
+        $deliveryPricing = is_array($route) && is_array($route['delivery_pricing'] ?? null)
+            ? $route['delivery_pricing']
+            : [];
+
+        return [
+            'delivery_pricing' => $deliveryPricing,
+            'delivery_fee' => round((float) ($this->attributes['delivery_fee'] ?? 0), 2),
+            'delivery_fee_source' => $this->attributes['delivery_fee_source'] ?? 'system',
+            'manual_delivery_fee' => isset($this->attributes['manual_delivery_fee'])
+                ? round((float) $this->attributes['manual_delivery_fee'], 2)
+                : null,
+            'manual_delivery_fee_reason' => $this->attributes['manual_delivery_fee_reason'] ?? null,
+            'careful_carry_required' => (bool) ($this->attributes['careful_carry_required'] ?? false),
+            'route' => $route,
+            'shopping_pricing' => $this->shoppingOrder?->pricing_snapshot,
+        ];
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    public function getFeeBreakdownAttribute(): array
+    {
+        $pricing = $this->pricing_snapshot;
+        $deliveryPricing = $pricing['delivery_pricing'] ?? [];
+        $breakdown = is_array($deliveryPricing) && is_array($deliveryPricing['fee_breakdown'] ?? null)
+            ? $deliveryPricing['fee_breakdown']
+            : [];
+
+        $serviceFee = round((float) ($this->attributes['service_fee'] ?? 0), 2);
+        if ($serviceFee > 0) {
+            $breakdown[] = [
+                'code' => 'service_fee',
+                'label' => 'Biaya layanan',
+                'amount' => $serviceFee,
+            ];
+        }
+
+        if ((bool) ($this->attributes['careful_carry_required'] ?? false)) {
+            $breakdown[] = [
+                'code' => 'careful_carry',
+                'label' => 'Bawa hati-hati',
+                'amount' => $this->carefulCarrySurchargeAmount(),
+            ];
+        }
+
+        if (($this->attributes['delivery_fee_source'] ?? 'system') === 'manual') {
+            $breakdown[] = [
+                'code' => 'manual_override',
+                'label' => 'Ongkir manual driver',
+                'amount' => round((float) ($this->attributes['manual_delivery_fee'] ?? $this->attributes['delivery_fee'] ?? 0), 2),
+                'reason' => $this->attributes['manual_delivery_fee_reason'] ?? null,
+            ];
+        }
+
+        return array_values($breakdown);
+    }
+
+    private function carefulCarrySurchargeAmount(): float
+    {
+        if (($this->attributes['delivery_fee_source'] ?? 'system') === 'manual' && isset($this->attributes['manual_delivery_fee'])) {
+            return round(max(0.0, (float) $this->attributes['manual_delivery_fee']) * 0.5, 2);
+        }
+
+        $route = $this->route;
+        $systemFee = is_array($route) && is_numeric(data_get($route, 'delivery_pricing.total_fee'))
+            ? (float) data_get($route, 'delivery_pricing.total_fee')
+            : (float) ($this->attributes['delivery_fee'] ?? 0);
+
+        return round(max(0.0, $systemFee) * 0.5, 2);
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    public function getProofsAttribute(): array
+    {
+        if (! $this->relationLoaded('evidences')) {
+            $this->setRelation('evidences', $this->evidences()->get());
+        }
+
+        return $this->evidences
+            ->sortByDesc(fn (OrderEvidence $evidence): int => $evidence->uploaded_at?->getTimestamp() ?? $evidence->created_at?->getTimestamp() ?? 0)
+            ->map(function (OrderEvidence $evidence): array {
+                return [
+                    'id' => (int) $evidence->id,
+                    'type' => $this->canonicalProofType((string) $evidence->evidence_type),
+                    'evidence_type' => strtoupper((string) $evidence->evidence_type),
+                    'photo_url' => $evidence->file_url,
+                    'file_url' => $evidence->file_url,
+                    'status' => strtolower((string) ($evidence->verification_status ?? 'pending')),
+                    'uploaded_at' => $evidence->uploaded_at?->toIso8601String() ?? $evidence->created_at?->toIso8601String(),
+                    'note' => $evidence->notes,
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
+    /**
      * @return array<string, mixed>|null
      */
     private function legacyShoppingRouteSnapshot(): ?array
@@ -380,6 +498,18 @@ class Order extends Model
         $route = $snapshot['shopping_route'] ?? null;
 
         return is_array($route) ? $route : null;
+    }
+
+    private function canonicalProofType(string $evidenceType): string
+    {
+        return match (strtoupper($evidenceType)) {
+            'PICKUP_PHOTO' => 'pickup',
+            'DELIVERY_PHOTO', 'COURIER_DELIVERY_PHOTO', 'COURIER_RECEIVER_PHOTO' => 'delivery',
+            'SHOPPING_RECEIPT' => 'receipt',
+            'STORE_CLOSED_PHOTO' => 'store_closed',
+            'PAYMENT_TRANSFER_PHOTO' => 'payment_transfer',
+            default => strtolower($evidenceType),
+        };
     }
 
     private function resolvedDropoffLocation(): ?OrderLocation
@@ -441,9 +571,19 @@ class Order extends Model
             'notes' => $item->notes,
             'is_available' => $isAvailable,
             'is_heavy' => (bool) $item->is_heavy,
-            'price_status' => $isManual && $isAvailable && $unitPrice <= 0
-                ? 'PENDING_DRIVER_INPUT'
-                : (string) data_get($item->metadata, 'price_status', 'CONFIRMED'),
+            'price_status' => $this->shoppingItemPriceStatus($item, $isManual, $isAvailable, $unitPrice),
         ];
+    }
+
+    private function shoppingItemPriceStatus(OrderItem $item, bool $isManual, bool $isAvailable, float $unitPrice): string
+    {
+        $metadataStatus = (string) data_get($item->metadata, 'price_status', '');
+        if ($metadataStatus !== '') {
+            return $metadataStatus;
+        }
+
+        return $isManual && $isAvailable && $unitPrice <= 0
+            ? 'PENDING_DRIVER_INPUT'
+            : 'CONFIRMED';
     }
 }
