@@ -28,7 +28,8 @@ class OrderService
         private readonly ShoppingPricingService $shoppingPricingService,
         private readonly ShoppingRouteService $shoppingRouteService,
         private readonly DriverOrderPayloadFactory $driverOrderPayloadFactory,
-        private readonly DriverOrderRealtimeService $driverOrderRealtimeService
+        private readonly DriverOrderRealtimeService $driverOrderRealtimeService,
+        private readonly OrderStatusPushNotificationService $orderStatusPushNotificationService
     ) {}
 
     /**
@@ -710,6 +711,7 @@ class OrderService
         });
 
         $this->broadcastOrderStatusChanged($statusChangeEventPayload);
+        $this->sendOrderStatusPushNotification($order, $statusChangeEventPayload);
         $this->driverOrderRealtimeService->broadcastOrderRemoved($order->id, 'accepted');
 
         return $this->driverOrderPayloadFactory->serialize(
@@ -1000,6 +1002,7 @@ class OrderService
         });
 
         $this->broadcastOrderStatusChanged($statusChangeEventPayload);
+        $this->sendOrderStatusPushNotification($order, $statusChangeEventPayload);
 
         return $this->driverOrderPayloadFactory->serialize(
             $order->fresh($this->driverOrderPayloadFactory->relations()),
@@ -1052,6 +1055,18 @@ class OrderService
             isset($payload['status_label']) ? (string) $payload['status_label'] : null,
             isset($payload['is_terminal']) ? (bool) $payload['is_terminal'] : null,
         );
+    }
+
+    /**
+     * @param  array<string, bool|int|string|null>|null  $payload
+     */
+    private function sendOrderStatusPushNotification(Order $order, ?array $payload): void
+    {
+        if ($payload === null) {
+            return;
+        }
+
+        $this->orderStatusPushNotificationService->sendOrderStatusNotification($order, $payload);
     }
 
     private function resolveActiveDriverProfile(User $actor): Driver

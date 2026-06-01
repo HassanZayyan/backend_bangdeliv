@@ -57,7 +57,7 @@ class CourierPackagePolicyService
 
         if ($dimensionValues !== [] && max($dimensionValues) > self::MAX_DIMENSION_CM) {
             $flags[] = 'OVER_DIMENSION';
-            $reasons[] = 'Ukuran paket perlu penanganan ekstra; driver dapat menyesuaikan ongkir atau memakai bantuan 2 orang.';
+            $reasons[] = 'Barang besar perlu penanganan ekstra; driver dapat menyesuaikan ongkir atau memakai bantuan 2 orang.';
         }
 
         foreach ($this->matchedKeywords($text, $this->clarificationKeywords()) as $flag => $keyword) {
@@ -77,7 +77,7 @@ class CourierPackagePolicyService
 
         if ($this->needsSizeClarification($description, $weightKg, $dimensions)) {
             $flags[] = 'SIZE_UNCLEAR';
-            $reasons[] = 'Estimasi berat atau ukuran paket belum jelas.';
+            $reasons[] = 'Detail barang belum jelas.';
         }
 
         $flags = array_values(array_unique($flags));

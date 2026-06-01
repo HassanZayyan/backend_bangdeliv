@@ -1549,8 +1549,8 @@ class ChatbotCourierOrderService
                 return $reason.' Contoh: kacamata, dokumen, kunci, atau charger.';
             }
 
-            if ($reason === 'Estimasi berat atau ukuran paket belum jelas.') {
-                return 'Barang ini perlu sedikit klarifikasi. Sebutkan jenis barangnya atau perkiraan ukurannya supaya driver tidak salah ambil.';
+            if ($reason === 'Detail barang belum jelas.') {
+                return 'Barang ini perlu sedikit klarifikasi. Sebutkan jenis barangnya supaya driver tidak salah ambil.';
             }
         }
 
@@ -1576,7 +1576,6 @@ class ChatbotCourierOrderService
         $buffer .= 'Ambil: '.(string) $parsed['pickup_address']."\n";
         $buffer .= 'Tujuan: '.(string) $parsed['dropoff_address']."\n";
         $buffer .= 'Barang: '.(string) $parsed['package_description']."\n";
-        $buffer .= 'Ukuran/Berat: '.$this->formatPackageSizeLine($parsed)."\n";
         $buffer .= 'Status barang: '.(string) ($parsed['safety_reason'] ?? 'Paket aman untuk layanan kurir motor.')."\n";
         $buffer .= "Estimasi ongkir sementara: Rp {$deliveryFee} (kalkulasi detail menyusul).\n";
         $buffer .= 'Ketik "Konfirmasi" untuk lanjut. Pembayaran dilakukan tunai saat driver tiba dan mengecek barang di titik ambil.';
@@ -1596,7 +1595,6 @@ class ChatbotCourierOrderService
         $buffer .= 'Ambil: '.(string) $parsed['pickup_address']."\n";
         $buffer .= 'Tujuan: '.(string) $parsed['dropoff_address']."\n";
         $buffer .= 'Barang: '.(string) $parsed['package_description']."\n";
-        $buffer .= 'Ukuran/Berat: '.$this->formatPackageSizeLine($parsed)."\n";
         $buffer .= "Estimasi ongkir sementara: Rp {$deliveryFee}.\n";
         $buffer .= 'Bayar tunai ke driver saat menyerahkan barang di titik ambil.';
 

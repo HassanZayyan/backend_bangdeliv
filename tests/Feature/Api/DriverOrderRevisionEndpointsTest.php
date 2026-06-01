@@ -4,6 +4,8 @@ namespace Tests\Feature\Api;
 
 use App\Models\Driver;
 use App\Models\Order;
+use App\Models\OrderEvidence;
+use App\Models\OrderItem;
 use App\Models\OrderPayment;
 use App\Models\OrderStatus;
 use App\Models\ServiceType;
@@ -276,6 +278,147 @@ class DriverOrderRevisionEndpointsTest extends TestCase
             'payment_status' => 'PENDING',
             'amount' => 5000,
         ]);
+    }
+
+    public function test_shopping_can_confirm_picked_up_after_receipt_total_and_proof_are_ready(): void
+    {
+        [$driverUser, $driver] = $this->createDriver();
+        $order = $this->createAssignedOrder($driver, 'SHOPPING', 'ARRIVED_MERCHANT', 6000);
+
+        ShoppingOrder::query()->create([
+            'order_id' => $order->id,
+            'failed_attempt_count' => 0,
+            'item_surcharge' => 0,
+            'overweight_surcharge' => 0,
+            'cancellation_penalty' => 0,
+            'has_overweight_item' => false,
+            'recalculation_version' => 0,
+            'pricing_snapshot' => [
+                'driver_shopping_total_amount' => 25000,
+            ],
+        ]);
+
+        OrderItem::query()->create([
+            'order_id' => $order->id,
+            'item_source' => 'MANUAL',
+            'menu_name' => 'Telur 1 kg',
+            'quantity' => 1,
+            'unit_price' => 0,
+            'subtotal' => 0,
+            'is_available' => true,
+            'is_heavy' => false,
+        ]);
+
+        OrderEvidence::query()->create([
+            'order_id' => $order->id,
+            'driver_id' => $driver->id,
+            'evidence_type' => 'SHOPPING_RECEIPT',
+            'file_url' => 'http://localhost/storage/orders/'.$order->id.'/receipts/receipt.jpg',
+            'verification_mode' => 'AUTO_24H',
+            'verification_status' => 'PENDING',
+            'uploaded_at' => now(),
+        ]);
+
+        Sanctum::actingAs($driverUser);
+
+        $response = $this->postJson('/api/v1/driver/orders/'.$order->id.'/status-transition', [
+            'action_code' => 'CONFIRM_PICKED_UP',
+            'target_status_code' => 'PICKED_UP',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.status_code', 'PICKED_UP');
+    }
+
+    public function test_shopping_checkout_uses_existing_receipt_proof_and_receipt_total(): void
+    {
+        Storage::fake('public');
+        [$driverUser, $driver] = $this->createDriver();
+        $order = $this->createAssignedOrder($driver, 'SHOPPING', 'ARRIVED_MERCHANT', 5000);
+
+        ShoppingOrder::query()->create([
+            'order_id' => $order->id,
+            'failed_attempt_count' => 0,
+            'item_surcharge' => 0,
+            'overweight_surcharge' => 0,
+            'cancellation_penalty' => 0,
+            'has_overweight_item' => false,
+            'recalculation_version' => 0,
+        ]);
+
+        $item = OrderItem::query()->create([
+            'order_id' => $order->id,
+            'item_source' => 'MANUAL',
+            'menu_name' => 'Sepatu',
+            'quantity' => 1,
+            'unit_price' => 0,
+            'subtotal' => 0,
+            'is_available' => true,
+            'is_heavy' => false,
+            'metadata' => ['price_status' => 'PENDING_DRIVER_INPUT'],
+        ]);
+
+        Sanctum::actingAs($driverUser);
+
+        $proofResponse = $this->post('/api/v1/driver/orders/'.$order->id.'/proofs', [
+            'type' => 'receipt',
+            'photo' => UploadedFile::fake()->image('receipt.jpg', 800, 600),
+        ], ['Accept' => 'application/json']);
+
+        $proofResponse->assertCreated()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.proofs.0.type', 'receipt');
+
+        $checkoutResponse = $this->patchJson('/api/v1/driver/orders/'.$order->id.'/shopping-checkout', [
+            'shopping_total_amount' => 56000,
+            'receipt_note' => 'item kosong',
+            'items' => [
+                [
+                    'id' => $item->id,
+                    'quantity' => 1,
+                    'is_available' => true,
+                    'is_heavy' => false,
+                ],
+            ],
+        ]);
+
+        $checkoutResponse->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.pricing.subtotal', 56000)
+            ->assertJsonPath('data.pricing.has_pending_manual_prices', false)
+            ->assertJsonPath('data.has_pending_shopping_prices', false);
+
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
+            'subtotal' => 56000,
+            'total_price' => 61000,
+        ]);
+        $this->assertDatabaseHas('shopping_orders', [
+            'order_id' => $order->id,
+        ]);
+
+        $shoppingOrder = ShoppingOrder::query()->where('order_id', $order->id)->firstOrFail();
+        $this->assertSame(56000.0, (float) $shoppingOrder->pricing_snapshot['driver_shopping_total_amount']);
+
+        $actions = collect($checkoutResponse->json('data.available_actions'));
+        $confirmAction = $actions->firstWhere('action_code', 'CONFIRM_PICKED_UP');
+        $this->assertIsArray($confirmAction);
+        $this->assertFalse((bool) ($confirmAction['blocked'] ?? true));
+        $this->assertSame('', (string) ($confirmAction['blocked_reason'] ?? ''));
+
+        $detailResponse = $this->getJson('/api/v1/driver/orders/'.$order->id);
+
+        $detailResponse->assertOk()
+            ->assertJsonPath('data.pricing.subtotal', 56000)
+            ->assertJsonPath('data.pricing.has_pending_manual_prices', false)
+            ->assertJsonPath('data.has_pending_shopping_prices', false);
+
+        $detailAction = collect($detailResponse->json('data.available_actions'))
+            ->firstWhere('action_code', 'CONFIRM_PICKED_UP');
+        $this->assertIsArray($detailAction);
+        $this->assertFalse((bool) ($detailAction['blocked'] ?? true));
+        $this->assertSame('', (string) ($detailAction['blocked_reason'] ?? ''));
     }
 
     public function test_ride_rejects_careful_carry_delivery_fee_flag(): void
