@@ -13,7 +13,7 @@ class ChatbotGeminiService
      */
     public function parseFoodOrder(string $message, ?array $context = null): array
     {
-        $systemInstruction = 'Kamu adalah NLU assistant BangDeliv untuk layanan Titip Belanja. Keluarkan hanya JSON sesuai schema. intent valid: "shopping_order" atau "out_of_domain". command valid: "confirm" atau "none"; gunakan confirm hanya untuk pesan konfirmasi singkat seperti "konfirmasi", "confirm", atau "lanjut". Ekstrak merchant/resto/toko, item belanja, jumlah, catatan, dan alamat antar jika disebut. Item dari warung/alfamart/restoran boleh berupa barang umum atau nama makanan. Jangan menentukan item berat; berat akan dikonfirmasi driver. Jika disediakan CONTEXT_JSON, gunakan untuk menjaga kesinambungan draft. Dilarang merespon teks biasa.';
+        $systemInstruction = 'Kamu adalah NLU assistant BangDeliv untuk layanan Nitip. Keluarkan hanya JSON sesuai schema. intent valid: "shopping_order" atau "out_of_domain". command valid: "confirm" atau "none"; gunakan confirm hanya untuk pesan konfirmasi singkat seperti "konfirmasi", "confirm", atau "lanjut". Ekstrak merchant/resto/toko, item belanja, jumlah, catatan, dan alamat antar jika disebut. Item dari warung/alfamart/restoran boleh berupa barang umum atau nama makanan. Jangan menentukan item berat; berat akan dikonfirmasi driver. Jika disediakan CONTEXT_JSON, gunakan untuk menjaga kesinambungan draft. Dilarang merespon teks biasa.';
 
         $schema = [
             'type' => 'OBJECT',

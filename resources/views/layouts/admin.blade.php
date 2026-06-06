@@ -15,7 +15,7 @@
     --}}
     <script>
         (function() {
-            var saved = localStorage.getItem('theme') || 'dark';
+            var saved = localStorage.getItem('theme') || 'light';
             document.documentElement.setAttribute('data-theme', saved);
         })();
     </script>
@@ -47,10 +47,12 @@
             @endphp
             <div class="sidebar-header">
                 <div class="sidebar-logo">
-                    <i class='bx bx-store-alt'></i>
+                    <img src="{{ asset('images/logo.jpg') }}" alt="BangDeliv">
                 </div>
-                <span>BangDeliv</span>
-                <small style="color:var(--text-muted); font-size:10px; margin-top:2px;">Admin Panel</small>
+                <div style="display:flex; flex-direction:column; line-height:1.1;">
+                    <span>BangDeliv</span>
+                    <small style="color:var(--text-muted); font-size:10px; margin-top:2px;">Admin Panel</small>
+                </div>
             </div>
 
             <div class="sidebar-menu">
@@ -189,7 +191,7 @@
 
         // Sinkronkan ikon saat halaman selesai dimuat
         document.addEventListener('DOMContentLoaded', () => {
-            const saved = localStorage.getItem('theme') || 'dark';
+            const saved = localStorage.getItem('theme') || 'light';
             updateThemeIcon(saved);
 
             // Auto-submit search forms

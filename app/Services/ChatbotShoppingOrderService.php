@@ -94,11 +94,11 @@ class ChatbotShoppingOrderService
         $user->refresh();
 
         if ($user->role !== 'customer') {
-            throw new ApiException('Hanya customer yang dapat membuat order titip belanja dari chatbot.', 403);
+            throw new ApiException('Hanya customer yang dapat membuat order Nitip dari chatbot.', 403);
         }
 
         if (! $user->is_active || $user->is_blacklisted) {
-            throw new ApiException('Akun tidak memenuhi syarat untuk membuat order titip belanja.', 403);
+            throw new ApiException('Akun tidak memenuhi syarat untuk membuat order Nitip.', 403);
         }
     }
 
@@ -354,7 +354,7 @@ class ChatbotShoppingOrderService
                     'initial_longitude' => $delivery['longitude'],
                 ],
                 'CONFIRM_DRAFT' => [
-                    'label' => 'Konfirmasi Titip Belanja',
+                    'label' => 'Konfirmasi Nitip',
                 ],
             ],
             'order' => [
@@ -364,7 +364,7 @@ class ChatbotShoppingOrderService
             ],
         ];
 
-        $payload['assistant_text'] = $this->buildAssistantText($payload);
+        $payload['assistant_text'] = $this->buildAssistantText($payload, (string) $user->name);
 
         return $payload;
     }
@@ -533,7 +533,7 @@ class ChatbotShoppingOrderService
                 'pricing' => $this->emptyPricing(),
                 'validation' => [
                     'is_valid_order' => false,
-                    'rejection_reasons' => ['Draft titip belanja belum lengkap.'],
+                    'rejection_reasons' => ['Draft Nitip belum lengkap.'],
                     'missing_fields' => ['draft'],
                     'next_actions' => ['OPEN_MAP_PICKER_DELIVERY'],
                 ],
@@ -542,7 +542,7 @@ class ChatbotShoppingOrderService
                     'id' => null,
                     'order_number' => null,
                 ],
-                'assistant_text' => 'Draft titip belanja belum lengkap. Tulis merchant dan itemnya dulu, lalu pilih titik antar.',
+                'assistant_text' => 'Draft Nitip belum lengkap. Tulis merchant dan itemnya dulu, lalu pilih titik antar.',
             ];
         }
 
@@ -675,7 +675,7 @@ class ChatbotShoppingOrderService
                 'status_id' => $pendingStatusId,
                 'event_type' => 'STATUS_CHANGE',
                 'changed_by_user_id' => $user->id,
-                'note' => 'Order titip belanja dibuat melalui chatbot.',
+                'note' => 'Order Nitip dibuat melalui chatbot.',
             ]);
 
             $this->orderPaymentService->ensurePendingCodPayment($order);
@@ -694,7 +694,7 @@ class ChatbotShoppingOrderService
             'order_number' => $order->order_number,
         ];
         $deliveryFee = number_format((float) data_get($pendingPayload, 'pricing.delivery_fee', $order->delivery_fee), 0, ',', '.');
-        $pendingPayload['assistant_text'] = "Order titip belanja berhasil dibuat.\nEstimasi ongkir sementara: Rp {$deliveryFee}.\nDriver akan segera mengambil order ini.";
+        $pendingPayload['assistant_text'] = "Order Nitip berhasil dibuat.\nEstimasi ongkir sementara: Rp {$deliveryFee}.\nDriver akan segera mengambil order ini.";
 
         return $pendingPayload;
     }
@@ -800,7 +800,7 @@ class ChatbotShoppingOrderService
     /**
      * @param  array<string, mixed>  $payload
      */
-    private function buildAssistantText(array $payload): string
+    private function buildAssistantText(array $payload, string $userName): string
     {
         $shopping = is_array($payload['shopping'] ?? null) ? $payload['shopping'] : [];
         $merchant = is_array($shopping['merchant'] ?? null) ? $shopping['merchant'] : [];
@@ -811,11 +811,13 @@ class ChatbotShoppingOrderService
         if (($validation['is_valid_order'] ?? false) !== true) {
             $missing = implode(', ', $validation['missing_fields'] ?? []);
 
-            return 'Draft titip belanja belum lengkap. Lengkapi: '.$missing.'.';
+            return 'Draft Nitip belum lengkap. Lengkapi: '.$missing.'.';
         }
 
+        $name = trim($userName) === '' ? 'Kak' : trim($userName);
+
         $lines = [
-            'Siap, draft titip belanja sudah lengkap:',
+            "Baik {$name}, saya sudah siapkan draft Nitip.",
             '',
             'Merchant',
             (string) ($merchant['name'] ?? '-'),

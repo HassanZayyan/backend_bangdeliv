@@ -76,7 +76,7 @@
                         </td>
                         <td class="td-action">
                             <div style="display:flex; gap: 8px;">
-                                <a href="{{ route('admin.restaurants.menus.index', $restaurant) }}" class="btn-action detail" style="width:auto; padding:0 12px; font-size:13px; font-weight:600; color:var(--color-primary); background:rgba(255,119,0,0.1); text-decoration:none; display:inline-flex; align-items:center;" title="Kelola Katalog Menu"><i class='bx bx-food-menu' style="margin-right:5px;"></i> Kelola Menu</a>
+                                <a href="{{ route('admin.restaurants.menus.index', $restaurant) }}" class="btn-action detail" style="width:auto; padding:0 12px; font-size:13px; font-weight:600; color:var(--color-primary); background:rgba(240,91,36,0.1); text-decoration:none; display:inline-flex; align-items:center;" title="Kelola Katalog Menu"><i class='bx bx-food-menu' style="margin-right:5px;"></i> Kelola Menu</a>
                                 <a href="{{ route('admin.restaurants.edit', $restaurant) }}" class="btn-action" style="background: rgba(59,130,246,.1); color: #3b82f6; text-decoration:none;" title="Edit Restoran"><i class='bx bx-edit'></i></a>
                                 <form action="{{ route('admin.restaurants.toggle-status', $restaurant) }}" method="POST">
                                     @csrf

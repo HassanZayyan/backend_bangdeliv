@@ -12,9 +12,7 @@ class HomeController extends Controller
 {
     use ApiResponse;
 
-    public function __construct(private readonly HomeService $homeService)
-    {
-    }
+    public function __construct(private readonly HomeService $homeService) {}
 
     public function index(Request $request): JsonResponse
     {
@@ -23,6 +21,8 @@ class HomeController extends Controller
             'limit_merchants' => ['nullable', 'integer', 'min:1', 'max:20'],
             'limit_menus' => ['nullable', 'integer', 'min:1', 'max:20'],
             'limit_categories' => ['nullable', 'integer', 'min:1', 'max:20'],
+            'latitude' => ['nullable', 'numeric', 'between:-90,90'],
+            'longitude' => ['nullable', 'numeric', 'between:-180,180'],
         ]);
 
         return $this->success(

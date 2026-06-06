@@ -582,7 +582,7 @@ class DriverOrderPayloadFactory
     }
 
     /**
-     * SHOPPING - Titip Belanja (5 active steps).
+     * SHOPPING - Nitip (5 active steps).
      * Uses ARRIVED_MERCHANT instead of ARRIVED_PICKUP for the first arrival.
      *
      * @return array<string, array<string, mixed>>
