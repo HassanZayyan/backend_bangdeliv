@@ -570,7 +570,7 @@ class AuthProfileTest extends TestCase
             'user_id' => $user->id,
             'label' => 'Kos',
             'phone' => '081233330000',
-            'full_address' => 'Jl. Kenanga No. 7, Salatiga, Jawa Tengah, Indonesia',
+            'full_address' => 'Jl. Kenanga No. 7, Salatiga',
             'latitude' => -7.33165000,
             'longitude' => 110.49950000,
             'is_default' => true,
@@ -633,7 +633,7 @@ class AuthProfileTest extends TestCase
             ->assertJsonPath('message', 'Alamat berhasil diperbarui.')
             ->assertJsonPath('data.label', 'Kantor')
             ->assertJsonPath('data.phone', '081200099901')
-            ->assertJsonPath('data.full_address', 'Alamat Baru, Kota Semarang, Jawa Tengah, Indonesia')
+            ->assertJsonPath('data.full_address', 'Alamat Baru')
             ->assertJsonPath('data.latitude', '-6.97030000')
             ->assertJsonPath('data.longitude', '110.42570000')
             ->assertJsonPath('data.is_default', true);
@@ -643,7 +643,7 @@ class AuthProfileTest extends TestCase
             'label' => 'Kantor',
             'recipient_name' => 'Edit Alamat Baru',
             'phone' => '081200099901',
-            'full_address' => 'Alamat Baru, Kota Semarang, Jawa Tengah, Indonesia',
+            'full_address' => 'Alamat Baru',
             'detail' => 'Belakang minimarket',
             'latitude' => -6.97030000,
             'longitude' => 110.42570000,
@@ -752,14 +752,14 @@ class AuthProfileTest extends TestCase
 
         $response->assertOk()
             ->assertJsonPath('message', 'Alamat berhasil diperbarui.')
-            ->assertJsonPath('data.full_address', 'Alamat Baru Geocoded, Kota Bandung, Jawa Barat, Indonesia')
+            ->assertJsonPath('data.full_address', 'Alamat Baru Input Pengguna')
             ->assertJsonPath('data.latitude', '-6.93456789')
             ->assertJsonPath('data.longitude', '107.65432109');
 
         $this->assertDatabaseHas('addresses', [
             'id' => $address->id,
             'label' => 'Rumah Baru',
-            'full_address' => 'Alamat Baru Geocoded, Kota Bandung, Jawa Barat, Indonesia',
+            'full_address' => 'Alamat Baru Input Pengguna',
             'latitude' => -6.93456789,
             'longitude' => 107.65432109,
         ]);

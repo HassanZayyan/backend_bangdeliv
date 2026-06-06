@@ -12,7 +12,7 @@
     <div class="panel">
         <div class="panel-header">
             <div style="display: flex; align-items: center; gap: 12px;">
-                <div style="width: 38px; height: 38px; border-radius: 10px; background: rgba(255,119,0,0.1); color: var(--color-primary); display: flex; align-items: center; justify-content: center; font-size: 20px;">
+                <div style="width: 38px; height: 38px; border-radius: 10px; background: rgba(240,91,36,0.1); color: var(--color-primary); display: flex; align-items: center; justify-content: center; font-size: 20px;">
                     <i class='bx bx-money-withdraw'></i>
                 </div>
                 <div>

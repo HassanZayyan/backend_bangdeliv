@@ -40,8 +40,8 @@ return new class extends Migration
             ],
             [
                 'code' => 'SHOPPING',
-                'display_name' => 'Titip Belanja',
-                'description' => 'Layanan titip belanja dengan dukungan item dari database maupun input manual.',
+                'display_name' => 'Nitip',
+                'description' => 'Layanan nitip dengan dukungan item dari database maupun input manual.',
                 'sort_order' => 3,
                 'created_at' => now(),
                 'updated_at' => now(),

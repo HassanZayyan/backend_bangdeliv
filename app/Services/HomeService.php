@@ -17,8 +17,11 @@ class HomeService
         $limitMerchants = (int) ($filters['limit_merchants'] ?? 10);
         $limitMenus = (int) ($filters['limit_menus'] ?? 8);
         $limitCategories = (int) ($filters['limit_categories'] ?? 8);
+        $latitude = isset($filters['latitude']) ? (float) $filters['latitude'] : null;
+        $longitude = isset($filters['longitude']) ? (float) $filters['longitude'] : null;
+        $hasLocation = $latitude !== null && $longitude !== null;
 
-        $restaurants = Restaurant::query()
+        $restaurantsQuery = Restaurant::query()
             ->where('status', 'active')
             ->when($search !== '', function (Builder $query) use ($search): void {
                 $query->where(function (Builder $inner) use ($search): void {
@@ -39,10 +42,27 @@ class HomeService
                         ->orderBy('sort_order')
                         ->orderBy('id');
                 },
-            ])
-            ->orderByDesc('avg_rating')
-            ->orderByDesc('total_reviews')
-            ->limit(max($limitMerchants, 12))
+            ]);
+
+        if ($hasLocation) {
+            $restaurantsQuery
+                ->select('restaurants.*')
+                ->selectRaw(
+                    '((latitude - ?) * (latitude - ?) + (longitude - ?) * (longitude - ?)) as distance_sort',
+                    [$latitude, $latitude, $longitude, $longitude]
+                )
+                ->whereNotNull('latitude')
+                ->whereNotNull('longitude')
+                ->orderBy('distance_sort')
+                ->orderByDesc('avg_rating');
+        } else {
+            $restaurantsQuery
+                ->orderByDesc('avg_rating')
+                ->orderByDesc('total_reviews');
+        }
+
+        $restaurants = $restaurantsQuery
+            ->limit(max($limitMerchants, 5))
             ->get();
 
         $nearbyMerchants = $restaurants
@@ -56,7 +76,7 @@ class HomeService
                 'avg_rating' => (float) $restaurant->avg_rating,
                 'total_reviews' => (int) $restaurant->total_reviews,
                 'estimated_prep_time' => (int) $restaurant->estimated_prep_time,
-                'distance_km' => null,
+                'distance_km' => $this->distanceKm($restaurant, $latitude, $longitude),
             ])
             ->values()
             ->all();
@@ -108,5 +128,35 @@ class HomeService
             'popular_menus' => $popularMenus,
             'nearby_merchants' => $nearbyMerchants,
         ];
+    }
+
+    private function distanceKm(Restaurant $restaurant, ?float $latitude, ?float $longitude): ?float
+    {
+        if ($latitude === null || $longitude === null) {
+            return null;
+        }
+
+        $restaurantLatitude = (float) $restaurant->latitude;
+        $restaurantLongitude = (float) $restaurant->longitude;
+
+        if ($restaurantLatitude === 0.0 && $restaurantLongitude === 0.0) {
+            return null;
+        }
+
+        $earthRadiusKm = 6371;
+        $latFrom = deg2rad($latitude);
+        $lonFrom = deg2rad($longitude);
+        $latTo = deg2rad($restaurantLatitude);
+        $lonTo = deg2rad($restaurantLongitude);
+
+        $latDelta = $latTo - $latFrom;
+        $lonDelta = $lonTo - $lonFrom;
+
+        $angle = 2 * asin(sqrt(
+            pow(sin($latDelta / 2), 2) +
+                cos($latFrom) * cos($latTo) * pow(sin($lonDelta / 2), 2)
+        ));
+
+        return round($earthRadiusKm * $angle, 2);
     }
 }

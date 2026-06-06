@@ -1560,7 +1560,7 @@ class OrderService
 
             if (! $this->supportsCarefulCarry($serviceCode)) {
                 if (array_key_exists('careful_carry_required', $payload) && (bool) $payload['careful_carry_required']) {
-                    throw new ApiException('Perlu 2 orang hanya tersedia untuk order kurir dan titip belanja.', 422);
+                    throw new ApiException('Perlu 2 orang hanya tersedia untuk order kurir dan Nitip.', 422);
                 }
 
                 $carefulCarryRequired = false;
@@ -2444,7 +2444,7 @@ class OrderService
         }
 
         if ($service === 'COURIER' && in_array($type, ['receipt', 'store_closed'], true)) {
-            return 'Bukti struk dan toko tutup hanya tersedia untuk order titip belanja.';
+            return 'Bukti struk dan toko tutup hanya tersedia untuk order Nitip.';
         }
 
         return 'Bukti foto order tidak tersedia untuk layanan ini.';

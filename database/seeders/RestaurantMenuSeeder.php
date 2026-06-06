@@ -16,7 +16,7 @@ class RestaurantMenuSeeder extends Seeder
             [
                 'name' => 'Resto Taman Kedai Satu',
                 'slug' => 'resto-taman-kedai-satu',
-                'description' => 'Resto dummy lokal untuk layanan titip belanja BangDeliv.',
+                'description' => 'Resto dummy lokal untuk layanan Nitip BangDeliv.',
                 'merchant_type' => 'restaurant',
                 'address' => 'Area merchant dummy -7.0549432, 110.4347394',
                 'latitude' => -7.0549432,
@@ -160,7 +160,7 @@ class RestaurantMenuSeeder extends Seeder
             [
                 'name' => 'Alfamart BangDeliv Point',
                 'slug' => 'alfamart-bangdeliv-point',
-                'description' => 'Minimarket dummy untuk simulasi titip belanja.',
+                'description' => 'Minimarket dummy untuk simulasi Nitip.',
                 'merchant_type' => 'convenience_store',
                 'address' => 'Area merchant dummy -7.0561494, 110.4384112',
                 'latitude' => -7.0561494,
