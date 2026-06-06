@@ -120,6 +120,9 @@ class RideOrderService
 
         $pricing = $this->deliveryPricingService->calculateFromDistanceMeters($distanceMeters);
         $estimatedMinutes = $this->estimateTravelMinutes((int) $route['duration_seconds']);
+        $paymentMethod = $this->orderPaymentService->normalizePaymentMethod(
+            isset($payload['payment_method']) ? (string) $payload['payment_method'] : null
+        );
 
         $subtotal = 0.0;
         $deliveryFee = (float) $pricing['total_fee'];
@@ -149,7 +152,8 @@ class RideOrderService
             $estimatedMinutes,
             $pickupAddressText,
             $pickupLatitude,
-            $pickupLongitude
+            $pickupLongitude,
+            $paymentMethod
         ): Order {
             $order = Order::query()->create([
                 'order_number' => $this->generateOrderNumber(),
@@ -167,7 +171,7 @@ class RideOrderService
                 'estimated_delivery' => Carbon::now()->addMinutes($estimatedMinutes),
             ]);
 
-            $this->orderPaymentService->ensurePendingCodPayment($order);
+            $this->orderPaymentService->ensurePendingPayment($order, $paymentMethod);
 
             OrderStatusHistory::query()->create([
                 'order_id' => $order->id,

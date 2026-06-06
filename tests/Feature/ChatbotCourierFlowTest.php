@@ -76,6 +76,16 @@ class ChatbotCourierFlowTest extends TestCase
         $this->assertDatabaseCount('orders', 0);
         $this->assertDatabaseCount('courier_orders', 0);
 
+        $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/process', [
+                'message' => 'COD',
+                'service_type' => 'kurir',
+                'session_id' => 'sess-kurir-01',
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.courier.payment_method', 'COD');
+
         $driverUser = User::factory()->create([
             'role' => 'driver',
             'is_active' => true,
@@ -407,6 +417,7 @@ class ChatbotCourierFlowTest extends TestCase
                     'ready_to_confirm' => true,
                     'used_default_pickup' => false,
                     'pickup_address_id' => null,
+                    'payment_method' => 'COD',
                 ],
                 'validation' => [
                     'is_valid_order' => true,
@@ -419,6 +430,7 @@ class ChatbotCourierFlowTest extends TestCase
                     'id' => null,
                     'order_number' => null,
                     'delivery_fee' => 5000,
+                    'payment_method' => 'COD',
                 ],
                 'assistant_text' => 'Ketik "Konfirmasi" untuk membuat order.',
             ],
@@ -649,7 +661,7 @@ class ChatbotCourierFlowTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.validation.is_valid_order', true)
             ->assertJsonPath('data.courier.ready_to_confirm', true)
-            ->assertJsonPath('data.validation.next_actions.0', 'CONFIRM_DRAFT');
+            ->assertJsonPath('data.validation.next_actions.0', 'SET_PAYMENT_COD');
     }
 
     public function test_chatbot_kurir_can_build_draft_from_map_pins_before_chat(): void
@@ -709,6 +721,16 @@ class ChatbotCourierFlowTest extends TestCase
             ->assertJsonPath('data.courier.package_description', 'kunci')
             ->assertJsonPath('data.courier.pickup_latitude', -7.3289)
             ->assertJsonPath('data.courier.dropoff_latitude', -7.3312);
+
+        $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/process', [
+                'message' => 'COD',
+                'service_type' => 'kurir',
+                'session_id' => $sessionId,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.courier.payment_method', 'COD');
 
         $confirmResponse = $this
             ->withHeader('Authorization', 'Bearer '.$token)
@@ -798,6 +820,16 @@ class ChatbotCourierFlowTest extends TestCase
             ->assertJsonPath('data.courier.package_description', 'sabun')
             ->assertJsonPath('data.courier.pickup_latitude', -7.3289)
             ->assertJsonPath('data.courier.dropoff_latitude', -7.3312);
+
+        $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/process', [
+                'message' => 'COD',
+                'service_type' => 'kurir',
+                'session_id' => $sessionId,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.courier.payment_method', 'COD');
 
         $confirmResponse = $this
             ->withHeader('Authorization', 'Bearer '.$token)

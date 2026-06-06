@@ -29,7 +29,9 @@ class OrderService
         private readonly ShoppingRouteService $shoppingRouteService,
         private readonly DriverOrderPayloadFactory $driverOrderPayloadFactory,
         private readonly DriverOrderRealtimeService $driverOrderRealtimeService,
-        private readonly OrderStatusPushNotificationService $orderStatusPushNotificationService
+        private readonly OrderStatusPushNotificationService $orderStatusPushNotificationService,
+        private readonly OrderPaymentService $orderPaymentService,
+        private readonly OrderTransferEvidenceService $transferEvidenceService
     ) {}
 
     /**
@@ -181,6 +183,137 @@ class OrderService
         }
 
         return $order;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    public function updatePaymentMethodByCustomer(User $user, int $orderId, array $payload): Order
+    {
+        $method = $this->orderPaymentService->normalizePaymentMethod((string) ($payload['payment_method'] ?? ''));
+
+        $order = DB::transaction(function () use ($user, $orderId, $method): Order {
+            $order = Order::query()
+                ->with(['statusRef', 'payments'])
+                ->lockForUpdate()
+                ->find($orderId);
+
+            if (! $order || (int) $order->user_id !== (int) $user->id) {
+                throw new ApiException('Order tidak ditemukan.', 404);
+            }
+
+            if ($order->statusRef?->is_terminal === true) {
+                throw new ApiException('Metode pembayaran tidak bisa diubah setelah order selesai atau dibatalkan.', 409);
+            }
+
+            if ($this->orderHasPaidPayment($order)) {
+                throw new ApiException('Metode pembayaran tidak bisa diubah setelah pembayaran lunas.', 409);
+            }
+
+            $payment = $this->orderPaymentService->ensurePendingPayment($order, $method);
+
+            OrderLog::query()->create([
+                'order_id' => $order->id,
+                'log_type' => 'PAYMENT_UPDATE',
+                'trigger_type' => 'CUSTOMER_PAYMENT_METHOD_CHANGED',
+                'changed_by_user_id' => $user->id,
+                'note' => 'Customer mengubah metode pembayaran menjadi '.$method.'.',
+                'metadata' => [
+                    'payment_method' => $method,
+                    'amount' => round((float) $payment->amount, 2),
+                ],
+            ]);
+
+            return $order->refresh();
+        });
+
+        $this->broadcastContentUpdatedAfterCommit((int) $order->id, 'PAYMENT_METHOD_UPDATED', [
+            'total_price' => round((float) $order->total_price, 2),
+            'payment_method' => $method,
+            'payment_status' => 'unpaid',
+        ]);
+
+        return $order->fresh([
+            'restaurant',
+            'driver.user',
+            'items',
+            'orderLocations.restaurant',
+            'payments',
+            'evidences',
+            'statusRef',
+            'statusHistories.statusRef',
+            'serviceType',
+            'courierOrder',
+            'shoppingOrder',
+        ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    public function uploadTransferEvidenceByCustomer(User $user, int $orderId, array $payload): Order
+    {
+        $order = DB::transaction(function () use ($user, $orderId, $payload): Order {
+            $order = Order::query()
+                ->with(['payments', 'statusRef'])
+                ->lockForUpdate()
+                ->find($orderId);
+
+            if (! $order || (int) $order->user_id !== (int) $user->id) {
+                throw new ApiException('Order tidak ditemukan.', 404);
+            }
+
+            if ($this->orderHasPaidPayment($order)) {
+                throw new ApiException('Pembayaran order sudah lunas.', 409);
+            }
+
+            $photo = $payload['photo'] ?? null;
+            if (! $photo instanceof UploadedFile) {
+                throw new ApiException('Foto bukti transfer wajib diupload.', 422);
+            }
+
+            $this->orderPaymentService->ensurePendingPayment($order, OrderPaymentService::METHOD_TRANSFER);
+            $this->transferEvidenceService->storeAndRecord(
+                $order,
+                $photo,
+                null,
+                $payload['note'] ?? 'Bukti transfer dari customer.'
+            );
+
+            OrderLog::query()->create([
+                'order_id' => $order->id,
+                'log_type' => 'PAYMENT_UPDATE',
+                'trigger_type' => 'CUSTOMER_TRANSFER_EVIDENCE_UPLOADED',
+                'changed_by_user_id' => $user->id,
+                'note' => 'Customer upload bukti transfer.',
+                'metadata' => [
+                    'payment_method' => OrderPaymentService::METHOD_TRANSFER,
+                    'verification_status' => 'PENDING',
+                ],
+            ]);
+
+            return $order->refresh();
+        });
+
+        $this->broadcastContentUpdatedAfterCommit((int) $order->id, 'TRANSFER_EVIDENCE_UPLOADED', [
+            'total_price' => round((float) $order->total_price, 2),
+            'payment_method' => OrderPaymentService::METHOD_TRANSFER,
+            'payment_status' => 'unpaid',
+        ]);
+
+        return $order->fresh([
+            'restaurant',
+            'driver.user',
+            'items',
+            'orderLocations.restaurant',
+            'payments',
+            'evidences',
+            'statusRef',
+            'statusHistories.statusRef',
+            'serviceType',
+            'courierOrder',
+            'shoppingOrder',
+        ]);
     }
 
     public function recordFailedAttempt(
@@ -916,6 +1049,10 @@ class OrderService
                     throw new ApiException('Order belum memenuhi batas failed attempt untuk dibatalkan dengan fee.', 409);
                 }
 
+                if ($this->orderHasPaidPayment($order)) {
+                    throw new ApiException('Order sudah memiliki pembayaran lunas dan tidak bisa dibatalkan dengan fee.', 409);
+                }
+
                 $shoppingCancellationPenalty = $this->shoppingPricingService->calculateCancellationPenalty($order, $shoppingOrder);
                 if ($shoppingCancellationPenalty <= 0) {
                     throw new ApiException('Penalty pembatalan belum dapat dihitung.', 409);
@@ -995,6 +1132,12 @@ class OrderService
                     'DRIVER_CANCEL_WITH_FEE',
                     false,
                     $eventNote
+                );
+
+                $this->orderPaymentService->setPendingTransferPayment(
+                    $order->refresh(),
+                    (float) $order->total_price,
+                    'DRIVER_CANCEL_WITH_FEE'
                 );
             }
 
@@ -2415,8 +2558,12 @@ class OrderService
                 throw new ApiException('Order tidak ditemukan.', 404);
             }
 
-            if ($this->orderHasPaidCodPayment($order)) {
+            if ($this->orderHasPaidPayment($order)) {
                 throw new ApiException('Pembayaran order ini sudah tercatat.', 409);
+            }
+
+            if (strtoupper((string) ($order->payment_method ?? 'COD')) === OrderPaymentService::METHOD_TRANSFER) {
+                throw new ApiException('Order ini menggunakan pembayaran transfer. Gunakan pencatatan transfer.', 409);
             }
 
             $serviceCode = strtoupper((string) ($order->serviceType->code ?? ''));
@@ -2515,18 +2662,4 @@ class OrderService
         });
     }
 
-    private function orderHasPaidCodPayment(Order $order): bool
-    {
-        if ($order->relationLoaded('payments')) {
-            return $order->payments->contains(
-                fn (OrderPayment $payment): bool => strtoupper((string) $payment->payment_method) === 'COD'
-                    && strtoupper((string) $payment->payment_status) === 'PAID'
-            );
-        }
-
-        return $order->payments()
-            ->where('payment_method', 'COD')
-            ->where('payment_status', 'PAID')
-            ->exists();
-    }
 }

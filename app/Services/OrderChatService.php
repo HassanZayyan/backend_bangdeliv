@@ -7,7 +7,6 @@ use App\Models\Driver;
 use App\Models\Order;
 use App\Models\OrderChatMessage;
 use App\Models\OrderChatRead;
-use App\Models\OrderEvidence;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\UploadedFile;
@@ -18,6 +17,7 @@ class OrderChatService
     public function __construct(
         private readonly OrderRealtimeBroadcaster $realtimeBroadcaster,
         private readonly ChatPushNotificationService $chatPushNotificationService,
+        private readonly OrderTransferEvidenceService $transferEvidenceService,
     ) {}
 
     /**
@@ -335,16 +335,12 @@ class OrderChatService
             return;
         }
 
-        OrderEvidence::query()->create([
-            'order_id' => $order->id,
-            'driver_id' => $message->sender_role === 'driver' ? $order->driver_id : null,
-            'evidence_type' => 'PAYMENT_TRANSFER_PHOTO',
-            'file_url' => $message->attachment_url,
-            'verification_mode' => 'MANUAL',
-            'verification_status' => 'PENDING',
-            'uploaded_at' => now(),
-            'notes' => $message->body !== '' ? $message->body : 'Bukti transfer dari chat order.',
-        ]);
+        $this->transferEvidenceService->recordFromUrl(
+            $order,
+            $message->attachment_url,
+            $message->sender_role === 'driver' ? $order->driver_id : null,
+            $message->body !== '' ? $message->body : 'Bukti transfer dari chat order.',
+        );
     }
 
     private function positiveIntOrNull(mixed $value): ?int

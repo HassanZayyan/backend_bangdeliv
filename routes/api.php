@@ -63,6 +63,8 @@ Route::prefix('v1')->group(function () {
         Route::get('/orders', [OrderController::class, 'index']);
         Route::get('/orders/{orderId}', [OrderController::class, 'show']);
         Route::post('/orders/{orderId}/cancel', [OrderController::class, 'cancel']);
+        Route::patch('/orders/{orderId}/payment-method', [OrderController::class, 'updatePaymentMethod']);
+        Route::post('/orders/{orderId}/payment/transfer/evidence', [OrderController::class, 'uploadTransferEvidence']);
         Route::post('/orders/{orderId}/items', [OrderController::class, 'addShoppingItem']);
         Route::post('/orders/{orderId}/items/bulk', [OrderController::class, 'addShoppingItems']);
         Route::patch('/orders/{orderId}/items/{itemId}', [OrderController::class, 'updateShoppingItem']);

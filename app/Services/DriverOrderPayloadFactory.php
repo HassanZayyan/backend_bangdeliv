@@ -44,6 +44,7 @@ class DriverOrderPayloadFactory
         $serviceCode = strtoupper((string) ($order->serviceType->code ?? ''));
         $statusCode = strtoupper((string) ($order->statusRef->code ?? ''));
         $paymentStatus = strtolower((string) ($order->payment_status ?? 'unpaid'));
+        $paymentMethod = strtoupper((string) ($order->payment_method ?? 'COD'));
 
         $pickup = $this->resolvePickupPoint($order, $serviceCode);
         $dropoff = $this->resolveDropoffPoint($order);
@@ -57,6 +58,7 @@ class DriverOrderPayloadFactory
             $serviceCode,
             $statusCode,
             $paymentStatus,
+            $paymentMethod,
             $hasPendingShoppingPrices,
             $hasDriverShoppingTotal,
             $canCancelShoppingWithFee,
@@ -386,6 +388,7 @@ class DriverOrderPayloadFactory
         string $serviceCode,
         string $statusCode,
         string $paymentStatus,
+        string $paymentMethod,
         bool $hasPendingShoppingPrices = false,
         bool $hasDriverShoppingTotal = false,
         bool $canCancelShoppingWithFee = false,
@@ -465,10 +468,12 @@ class DriverOrderPayloadFactory
 
         $shouldCollectCourierAtPickup = $serviceCode === 'COURIER' &&
             $statusCode === 'ARRIVED_PICKUP' &&
-            $paymentStatus !== 'paid';
+            $paymentStatus !== 'paid' &&
+            $paymentMethod === 'COD';
         $shouldCollectAtDelivered = $serviceCode !== 'COURIER' &&
             $statusCode === 'DELIVERED' &&
-            $paymentStatus !== 'paid';
+            $paymentStatus !== 'paid' &&
+            $paymentMethod === 'COD';
 
         if ($shouldCollectCourierAtPickup || $shouldCollectAtDelivered) {
             $actions[] = [

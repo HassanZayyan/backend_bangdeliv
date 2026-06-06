@@ -118,6 +118,9 @@ class CheckoutService
             'delivery_fee' => round($deliveryFee, 2),
             'delivery_pricing' => $pricing,
         ];
+        $paymentMethod = $this->orderPaymentService->normalizePaymentMethod(
+            isset($payload['payment_method']) ? (string) $payload['payment_method'] : null
+        );
 
         $order = DB::transaction(function () use (
             $user,
@@ -135,6 +138,7 @@ class CheckoutService
             $routeMinutes,
             $shoppingPricing,
             $routeSnapshot,
+            $paymentMethod,
         ): Order {
             $order = Order::query()->create([
                 'order_number' => $this->generateOrderNumber(),
@@ -152,7 +156,7 @@ class CheckoutService
                 'estimated_delivery' => Carbon::now()->addMinutes((int) $restaurant->estimated_prep_time + $routeMinutes),
             ]);
 
-            $this->orderPaymentService->ensurePendingCodPayment($order);
+            $this->orderPaymentService->ensurePendingPayment($order, $paymentMethod);
 
             $pickupLocation = $order->orderLocations()->create([
                 'restaurant_id' => $restaurant->id,

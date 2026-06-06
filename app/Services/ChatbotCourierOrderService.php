@@ -141,10 +141,13 @@ class ChatbotCourierOrderService
         }
 
         $defaultPickupAddress = $this->resolveDefaultPickupAddress($user);
-        $incomingSeed = $this->mergeCourierDraftSeed(
-            $this->buildDraftSeedFromNlu($nluPayload) ?? [],
-            $this->extractCourierPayload($normalizedMessage)
-        );
+        $paymentMethod = $this->extractPaymentMethod($normalizedMessage);
+        $incomingSeed = $this->isPaymentMethodOnlyMessage($normalizedMessage, $paymentMethod)
+            ? ['payment_method' => $paymentMethod]
+            : $this->mergeCourierDraftSeed(
+                $this->buildDraftSeedFromNlu($nluPayload) ?? [],
+                $this->extractCourierPayload($normalizedMessage)
+            );
 
         if (
             $this->isAwaitingPackageOnly($latestDraftSeed) &&
@@ -364,6 +367,12 @@ class ChatbotCourierOrderService
             ];
         }
 
+        if ($this->normalizePaymentMethodOrNull($pendingDraft['payment_method'] ?? null) === null) {
+            $payload = $this->buildDraftPayload($pendingDraft, $user->name);
+            $payload['assistant_text'] .= "\n\nPilih COD atau Transfer dulu sebelum konfirmasi.";
+            return $payload;
+        }
+
         $profilePickupAddress = null;
         $pickupAddressId = $pendingDraft['pickup_address_id'] ?? null;
         if ($pickupAddressId !== null) {
@@ -384,6 +393,7 @@ class ChatbotCourierOrderService
                 'package_description' => $pendingDraft['package_description'],
                 'used_default_pickup' => (bool) $pendingDraft['used_default_pickup'],
                 'ready_to_confirm' => false,
+                'payment_method' => $pendingDraft['payment_method'] ?? OrderPaymentService::METHOD_COD,
             ],
             'validation' => [
                 'is_valid_order' => true,
@@ -454,6 +464,31 @@ class ChatbotCourierOrderService
      */
     private function buildDraftPayload(array $draft, string $userName): array
     {
+        $paymentMethod = $this->normalizePaymentMethodOrNull($draft['payment_method'] ?? null);
+        $nextActions = $paymentMethod === null
+            ? ['SET_PAYMENT_COD', 'SET_PAYMENT_TRANSFER', 'RESET_DESTINATION', 'CHANGE_PICKUP']
+            : ['CONFIRM_DRAFT', 'RESET_DESTINATION', 'CHANGE_PICKUP'];
+        $actionPayloads = [
+            'RESET_DESTINATION' => [
+                'label' => 'Ubah Tujuan',
+                'message' => 'Ubah Tujuan',
+            ],
+            'SET_PAYMENT_COD' => [
+                'label' => 'COD',
+                'message' => 'COD',
+            ],
+            'SET_PAYMENT_TRANSFER' => [
+                'label' => 'Transfer',
+                'message' => 'Transfer',
+            ],
+        ];
+        if ($paymentMethod !== null) {
+            $actionPayloads['CONFIRM_DRAFT'] = [
+                'label' => 'Konfirmasi',
+                'message' => 'Konfirmasi',
+            ];
+        }
+
         return [
             'intent' => 'courier_order',
             'service_type' => 'kurir',
@@ -469,29 +504,22 @@ class ChatbotCourierOrderService
                 'dropoff_latitude' => $draft['dropoff_latitude'],
                 'dropoff_longitude' => $draft['dropoff_longitude'],
                 'distance_km' => $draft['distance_km'],
+                'payment_method' => $paymentMethod,
                 ...$this->packagePolicyPayload($draft),
             ],
             'validation' => [
                 'is_valid_order' => true,
                 'rejection_reasons' => [],
                 'missing_fields' => [],
-                'next_actions' => ['CONFIRM_DRAFT', 'RESET_DESTINATION', 'CHANGE_PICKUP'],
+                'next_actions' => $nextActions,
             ],
-            'action_payloads' => [
-                'CONFIRM_DRAFT' => [
-                    'label' => 'Konfirmasi',
-                    'message' => 'Konfirmasi',
-                ],
-                'RESET_DESTINATION' => [
-                    'label' => 'Ubah Tujuan',
-                    'message' => 'Ubah Tujuan',
-                ],
-            ],
+            'action_payloads' => $actionPayloads,
             'order' => [
                 'created' => false,
                 'id' => null,
                 'order_number' => null,
                 'delivery_fee' => $draft['delivery_fee'],
+                'payment_method' => $paymentMethod,
             ],
             'assistant_text' => $this->buildDraftMessage($draft, $userName),
         ];
@@ -699,6 +727,8 @@ class ChatbotCourierOrderService
             'distance_km' => $distanceKm,
             'delivery_fee' => $deliveryFee,
             'used_default_pickup' => $usedDefaultPickup,
+            'payment_method' => $this->normalizePaymentMethodOrNull($extracted['payment_method'] ?? null)
+                ?? $this->extractPaymentMethod($message),
             ...$this->packagePolicyPayload($packagePolicy),
             'validation' => [
                 'is_valid_order' => $reasons === [] &&
@@ -776,6 +806,7 @@ class ChatbotCourierOrderService
             'pickup_address' => $pickupAddress,
             'dropoff_address' => $dropoffAddress,
             'package_description' => $packageDescription,
+            'payment_method' => $this->extractPaymentMethod($message),
         ];
     }
 
@@ -888,6 +919,8 @@ class ChatbotCourierOrderService
             'delivery_fee' => round($deliveryFee, 2),
             'delivery_pricing' => $pricing,
         ];
+        $paymentMethod = $this->normalizePaymentMethodOrNull($parsed['payment_method'] ?? null)
+            ?? OrderPaymentService::METHOD_COD;
 
         $estimatedMinutes = $this->estimateDeliveryMinutes((int) $route['duration_seconds']);
 
@@ -910,7 +943,8 @@ class ChatbotCourierOrderService
             $route,
             $packageDescription,
             $packagePolicy,
-            $estimatedMinutes
+            $estimatedMinutes,
+            $paymentMethod
         ): Order {
             $order = Order::query()->create([
                 'order_number' => $this->generateOrderNumber(),
@@ -930,7 +964,7 @@ class ChatbotCourierOrderService
                 'estimated_delivery' => Carbon::now()->addMinutes($estimatedMinutes),
             ]);
 
-            $this->orderPaymentService->ensurePendingCodPayment($order);
+            $this->orderPaymentService->ensurePendingPayment($order, $paymentMethod);
 
             CourierOrder::query()->create([
                 'order_id' => $order->id,
@@ -1232,6 +1266,7 @@ class ChatbotCourierOrderService
         $packageWidthCm = $this->nullablePositiveInt($nluPayload['package_width_cm'] ?? null);
         $packageHeightCm = $this->nullablePositiveInt($nluPayload['package_height_cm'] ?? null);
         $packingNote = $this->sanitizeAddressFragment(isset($nluPayload['packing_note']) ? (string) $nluPayload['packing_note'] : null);
+        $paymentMethod = $this->normalizePaymentMethodOrNull($nluPayload['payment_method'] ?? null);
 
         if (
             $pickupAddress === null &&
@@ -1241,7 +1276,8 @@ class ChatbotCourierOrderService
             $packageLengthCm === null &&
             $packageWidthCm === null &&
             $packageHeightCm === null &&
-            $packingNote === null
+            $packingNote === null &&
+            $paymentMethod === null
         ) {
             return null;
         }
@@ -1255,6 +1291,7 @@ class ChatbotCourierOrderService
             'package_width_cm' => $packageWidthCm,
             'package_height_cm' => $packageHeightCm,
             'packing_note' => $packingNote,
+            'payment_method' => $paymentMethod,
         ];
     }
 
@@ -1306,6 +1343,7 @@ class ChatbotCourierOrderService
             'safety_flags' => is_array($courier['safety_flags'] ?? null) ? $courier['safety_flags'] : [],
             'safety_reason' => $courier['safety_reason'] ?? null,
             'size_class' => $courier['size_class'] ?? null,
+            'payment_method' => $this->normalizePaymentMethodOrNull($courier['payment_method'] ?? ($order['payment_method'] ?? null)),
         ];
     }
 
@@ -1352,6 +1390,13 @@ class ChatbotCourierOrderService
             $value = $this->normalizeOptionalString($incoming[$field]);
             if ($value !== null) {
                 $merged[$field] = $value;
+            }
+        }
+
+        if (array_key_exists('payment_method', $incoming)) {
+            $paymentMethod = $this->normalizePaymentMethodOrNull($incoming['payment_method']);
+            if ($paymentMethod !== null) {
+                $merged['payment_method'] = $paymentMethod;
             }
         }
 
@@ -1578,7 +1623,13 @@ class ChatbotCourierOrderService
         $buffer .= 'Barang: '.(string) $parsed['package_description']."\n";
         $buffer .= 'Status barang: '.(string) ($parsed['safety_reason'] ?? 'Paket aman untuk layanan kurir motor.')."\n";
         $buffer .= "Estimasi ongkir sementara: Rp {$deliveryFee} (kalkulasi detail menyusul).\n";
-        $buffer .= 'Ketik "Konfirmasi" untuk lanjut. Pembayaran dilakukan tunai saat driver tiba dan mengecek barang di titik ambil.';
+        $paymentMethod = $this->normalizePaymentMethodOrNull($parsed['payment_method'] ?? null);
+        if ($paymentMethod === null) {
+            $buffer .= "Pilih metode pembayaran dulu: COD atau Transfer.\n";
+        } else {
+            $buffer .= 'Metode pembayaran: '.$this->paymentMethodLabel($paymentMethod)."\n";
+        }
+        $buffer .= 'Ketik "Konfirmasi" untuk lanjut.';
 
         return $buffer;
     }
@@ -1595,8 +1646,11 @@ class ChatbotCourierOrderService
         $buffer .= 'Ambil: '.(string) $parsed['pickup_address']."\n";
         $buffer .= 'Tujuan: '.(string) $parsed['dropoff_address']."\n";
         $buffer .= 'Barang: '.(string) $parsed['package_description']."\n";
+        $buffer .= 'Metode pembayaran: '.$this->paymentMethodLabel($parsed['payment_method'] ?? OrderPaymentService::METHOD_COD)."\n";
         $buffer .= "Estimasi ongkir sementara: Rp {$deliveryFee}.\n";
-        $buffer .= 'Bayar tunai ke driver saat menyerahkan barang di titik ambil.';
+        $buffer .= $this->normalizePaymentMethodOrNull($parsed['payment_method'] ?? null) === OrderPaymentService::METHOD_TRANSFER
+            ? 'Upload bukti transfer dari halaman tracking setelah order aktif.'
+            : 'Bayar tunai ke driver saat menyerahkan barang di titik ambil.';
 
         return $buffer;
     }
@@ -1688,6 +1742,63 @@ class ChatbotCourierOrderService
             'package_width_cm' => isset($courier['package_width_cm']) && is_numeric($courier['package_width_cm']) ? (int) $courier['package_width_cm'] : null,
             'package_height_cm' => isset($courier['package_height_cm']) && is_numeric($courier['package_height_cm']) ? (int) $courier['package_height_cm'] : null,
             'packing_note' => $courier['packing_note'] ?? null,
+            'payment_method' => $this->normalizePaymentMethodOrNull($courier['payment_method'] ?? ($order['payment_method'] ?? null)),
         ];
+    }
+
+    private function extractPaymentMethod(string $message): ?string
+    {
+        $normalized = strtolower($this->normalizeWhitespace((string) preg_replace('/[^\p{L}\p{N}\s]+/u', '', $message)));
+        if (preg_match('/\b(?:transfer|tf|bank|qris|non tunai|nontunai)\b/u', $normalized) === 1) {
+            return OrderPaymentService::METHOD_TRANSFER;
+        }
+
+        if (preg_match('/\b(?:cod|cash|tunai)\b/u', $normalized) === 1) {
+            return OrderPaymentService::METHOD_COD;
+        }
+
+        return null;
+    }
+
+    private function isPaymentMethodOnlyMessage(string $message, ?string $paymentMethod): bool
+    {
+        if ($paymentMethod === null) {
+            return false;
+        }
+
+        $normalized = strtolower(trim((string) preg_replace('/[^\p{L}\p{N}\s]+/u', ' ', $message)));
+        $normalized = $this->normalizeWhitespace($normalized);
+
+        return in_array($normalized, [
+            'cod',
+            'cash',
+            'tunai',
+            'transfer',
+            'tf',
+            'bank',
+            'qris',
+            'non tunai',
+            'nontunai',
+        ], true);
+    }
+
+    private function normalizePaymentMethodOrNull(mixed $value): ?string
+    {
+        $normalized = strtoupper(trim((string) ($value ?? '')));
+        if ($normalized === OrderPaymentService::METHOD_TRANSFER) {
+            return OrderPaymentService::METHOD_TRANSFER;
+        }
+        if ($normalized === OrderPaymentService::METHOD_COD) {
+            return OrderPaymentService::METHOD_COD;
+        }
+
+        return null;
+    }
+
+    private function paymentMethodLabel(mixed $value): string
+    {
+        return $this->normalizePaymentMethodOrNull($value) === OrderPaymentService::METHOD_TRANSFER
+            ? 'Transfer'
+            : 'COD';
     }
 }

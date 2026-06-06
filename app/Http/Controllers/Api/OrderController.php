@@ -116,6 +116,46 @@ class OrderController extends Controller
         }
     }
 
+    public function updatePaymentMethod(Request $request, int $orderId): JsonResponse
+    {
+        $validated = $request->validate([
+            'payment_method' => ['required', 'string', 'in:COD,TRANSFER,cod,transfer'],
+        ]);
+
+        try {
+            $order = $this->orderService->updatePaymentMethodByCustomer(
+                $request->user(),
+                $orderId,
+                $validated
+            );
+
+            return $this->success($order, 'Metode pembayaran berhasil diperbarui.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
+    public function uploadTransferEvidence(Request $request, int $orderId): JsonResponse
+    {
+        $validated = $request->validate([
+            'photo' => ['required', 'image', 'max:5120'],
+            'note' => ['nullable', 'string', 'max:1000'],
+        ]);
+        $validated['photo'] = $request->file('photo');
+
+        try {
+            $order = $this->orderService->uploadTransferEvidenceByCustomer(
+                $request->user(),
+                $orderId,
+                $validated
+            );
+
+            return $this->success($order, 'Bukti transfer berhasil diupload.', 201);
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
     public function addShoppingItem(AddShoppingOrderItemRequest $request, int $orderId): JsonResponse
     {
         try {

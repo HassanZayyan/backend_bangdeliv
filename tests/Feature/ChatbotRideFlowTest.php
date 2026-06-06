@@ -59,6 +59,16 @@ class ChatbotRideFlowTest extends TestCase
 
         $this->assertDatabaseCount('orders', 0);
 
+        $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/process', [
+                'message' => 'COD',
+                'service_type' => 'antar_jemput',
+                'session_id' => 'sess-ride-01',
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.ride.payment_method', 'COD');
+
         $confirmResponse = $this
             ->withHeader('Authorization', 'Bearer '.$token)
             ->postJson('/api/chatbot/process', [
@@ -225,6 +235,16 @@ class ChatbotRideFlowTest extends TestCase
             ->assertJsonPath('data.ride.ready_to_confirm', true)
             ->assertJsonPath('data.ride.destination_latitude', -7.052301)
             ->assertJsonPath('data.ride.destination_longitude', 110.435601);
+
+        $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/process', [
+                'message' => 'COD',
+                'service_type' => 'antar_jemput',
+                'session_id' => 'sess-ride-04',
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.ride.payment_method', 'COD');
 
         $confirmResponse = $this
             ->withHeader('Authorization', 'Bearer '.$token)

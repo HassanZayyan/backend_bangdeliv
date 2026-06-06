@@ -18,6 +18,7 @@ class CheckoutOrderRequest extends FormRequest
     {
         return [
             'address_id' => ['required', 'integer', 'exists:addresses,id'],
+            'payment_method' => ['nullable', 'string', 'in:COD,TRANSFER,cod,transfer'],
         ];
     }
 }

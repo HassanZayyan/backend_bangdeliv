@@ -31,6 +31,7 @@ class CreateRideOrderRequest extends FormRequest
                 'between:-180,180',
                 'required_with:destination_latitude',
             ],
+            'payment_method' => ['nullable', 'string', 'in:COD,TRANSFER,cod,transfer'],
         ];
     }
 }

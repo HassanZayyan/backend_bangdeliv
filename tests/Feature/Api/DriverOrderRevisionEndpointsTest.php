@@ -275,8 +275,86 @@ class DriverOrderRevisionEndpointsTest extends TestCase
 
         $this->assertDatabaseHas('order_payments', [
             'order_id' => $order->id,
+            'payment_method' => 'TRANSFER',
             'payment_status' => 'PENDING',
             'amount' => 5000,
+        ]);
+    }
+
+    public function test_cancel_with_fee_is_rejected_after_payment_paid(): void
+    {
+        [$driverUser, $driver] = $this->createDriver();
+        $order = $this->createAssignedOrder($driver, 'SHOPPING', 'ARRIVED_MERCHANT', 10000);
+        OrderPayment::query()
+            ->where('order_id', $order->id)
+            ->update([
+                'payment_method' => 'TRANSFER',
+                'payment_status' => 'PAID',
+                'amount' => 10000,
+                'paid_at' => now(),
+            ]);
+
+        ShoppingOrder::query()->create([
+            'order_id' => $order->id,
+            'failed_attempt_count' => 3,
+            'item_surcharge' => 0,
+            'overweight_surcharge' => 0,
+            'cancellation_penalty' => 0,
+            'has_overweight_item' => false,
+            'recalculation_version' => 0,
+        ]);
+
+        Sanctum::actingAs($driverUser);
+
+        $response = $this->postJson('/api/v1/driver/orders/'.$order->id.'/status-transition', [
+            'action_code' => 'CANCEL_WITH_FEE',
+            'target_status_code' => 'CANCELLED_WITH_FEE',
+            'note' => 'Merchant gagal tiga kali.',
+        ]);
+
+        $response->assertConflict()
+            ->assertJsonPath('success', false);
+    }
+
+    public function test_customer_can_change_payment_method_and_upload_transfer_evidence(): void
+    {
+        Storage::fake('public');
+        [, $driver] = $this->createDriver();
+        $order = $this->createAssignedOrder($driver, 'RIDE', 'DRIVER_ASSIGNED', 18000);
+        $customer = User::query()->findOrFail($order->user_id);
+
+        Sanctum::actingAs($customer);
+
+        $methodResponse = $this->patchJson('/api/v1/orders/'.$order->id.'/payment-method', [
+            'payment_method' => 'TRANSFER',
+        ]);
+
+        $methodResponse->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.payment_method', 'TRANSFER')
+            ->assertJsonPath('data.payment_status', 'unpaid');
+
+        $uploadResponse = $this->post('/api/v1/orders/'.$order->id.'/payment/transfer/evidence', [
+            'photo' => UploadedFile::fake()->image('transfer.jpg', 800, 600),
+            'note' => 'Transfer manual.',
+        ], ['Accept' => 'application/json']);
+
+        $uploadResponse->assertCreated()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.payment_method', 'TRANSFER')
+            ->assertJsonPath('data.payment_status', 'unpaid');
+
+        $this->assertDatabaseHas('order_evidence', [
+            'order_id' => $order->id,
+            'evidence_type' => 'PAYMENT_TRANSFER_PHOTO',
+            'verification_mode' => 'MANUAL',
+            'verification_status' => 'PENDING',
+        ]);
+        $this->assertDatabaseHas('order_payments', [
+            'order_id' => $order->id,
+            'payment_method' => 'TRANSFER',
+            'payment_status' => 'PENDING',
+            'amount' => 18000,
         ]);
     }
 

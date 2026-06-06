@@ -205,6 +205,13 @@ class ChatbotShoppingFlowTest extends TestCase
             (string) $draftResponse->json('data.assistant_text')
         );
 
+        $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'COD',
+        ])->assertOk()
+            ->assertJsonPath('data.shopping.payment_method', 'COD');
+
         $confirmResponse = $this->postJson('/api/chatbot/process', [
             'session_id' => $sessionId,
             'service_type' => 'nitip',
@@ -306,6 +313,13 @@ class ChatbotShoppingFlowTest extends TestCase
             ->assertJsonPath('data.shopping.merchant.merchant_type', 'warung')
             ->assertJsonPath('data.shopping.items.0.item_source', 'MANUAL')
             ->assertJsonPath('data.shopping.items.0.unit_price', 0);
+
+        $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'COD',
+        ])->assertOk()
+            ->assertJsonPath('data.shopping.payment_method', 'COD');
 
         $confirmResponse = $this->postJson('/api/chatbot/process', [
             'session_id' => $sessionId,

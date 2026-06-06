@@ -108,9 +108,17 @@ class ChatbotShoppingOrderService
      */
     private function buildIncomingDraftSeed(string $message, ?array $nluPayload): array
     {
+        $nluPayload ??= [];
+        $paymentMethod = $this->normalizePaymentMethodOrNull($nluPayload['payment_method'] ?? null)
+            ?? $this->extractPaymentMethod($message);
+        if ($this->isPaymentMethodOnlyMessage($message, $paymentMethod)) {
+            return ['payment_method' => $paymentMethod];
+        }
+
         $seed = [
             'merchant_name' => $this->normalizeOptionalString($nluPayload['merchant'] ?? $nluPayload['resto'] ?? null),
             'items' => $this->normalizeIncomingItems($nluPayload['items'] ?? []),
+            'payment_method' => $paymentMethod,
         ];
 
         $deliveryAddress = $this->normalizeOptionalString($nluPayload['delivery_address'] ?? null);
@@ -121,7 +129,7 @@ class ChatbotShoppingOrderService
             ];
         }
 
-        if ($seed['items'] === []) {
+        if ($seed['items'] === [] && ! $this->isPaymentMethodOnlyMessage($message, $paymentMethod)) {
             $seed['items'] = $this->extractItemsFromMessage($message);
         }
 
@@ -232,6 +240,13 @@ class ChatbotShoppingOrderService
             );
         }
 
+        if (array_key_exists('payment_method', $incoming)) {
+            $paymentMethod = $this->normalizePaymentMethodOrNull($incoming['payment_method']);
+            if ($paymentMethod !== null) {
+                $merged['payment_method'] = $paymentMethod;
+            }
+        }
+
         return $merged;
     }
 
@@ -314,7 +329,11 @@ class ChatbotShoppingOrderService
         $needsAddressBook = in_array('delivery_address', $missingFields, true)
             && ! $this->addressReadinessService->hasUsableSavedAddress($user);
         $nextActions[] = $needsAddressBook ? 'OPEN_ADDRESSES' : 'OPEN_MAP_PICKER_DELIVERY';
-        if ($ready) {
+        $paymentMethod = $this->normalizePaymentMethodOrNull($draftSeed['payment_method'] ?? null);
+        if ($ready && $paymentMethod === null) {
+            $nextActions[] = 'SET_PAYMENT_COD';
+            $nextActions[] = 'SET_PAYMENT_TRANSFER';
+        } elseif ($ready) {
             $nextActions[] = 'CONFIRM_DRAFT';
         }
         $deliveryActionLabel = $ready ? 'Ganti Titik Antar' : 'Pilih Titik Antar';
@@ -334,6 +353,7 @@ class ChatbotShoppingOrderService
                 'items' => $items,
                 'route' => $route,
                 'ready_to_confirm' => $ready,
+                'payment_method' => $paymentMethod,
             ],
             'delivery' => $delivery,
             'pricing' => $pricing,
@@ -355,12 +375,22 @@ class ChatbotShoppingOrderService
                 ],
                 'CONFIRM_DRAFT' => [
                     'label' => 'Konfirmasi Titip Belanja',
+                    'message' => 'Konfirmasi',
+                ],
+                'SET_PAYMENT_COD' => [
+                    'label' => 'COD',
+                    'message' => 'COD',
+                ],
+                'SET_PAYMENT_TRANSFER' => [
+                    'label' => 'Transfer',
+                    'message' => 'Transfer',
                 ],
             ],
             'order' => [
                 'created' => false,
                 'id' => null,
                 'order_number' => null,
+                'payment_method' => $paymentMethod,
             ],
         ];
 
@@ -552,6 +582,23 @@ class ChatbotShoppingOrderService
         $items = $shopping['items'];
         $pricing = $pendingPayload['pricing'];
         $route = is_array($shopping['route'] ?? null) ? $shopping['route'] : [];
+        $paymentMethod = $this->normalizePaymentMethodOrNull($shopping['payment_method'] ?? ($pendingPayload['order']['payment_method'] ?? null));
+
+        if ($paymentMethod === null) {
+            $pendingPayload['validation']['next_actions'] = ['SET_PAYMENT_COD', 'SET_PAYMENT_TRANSFER'];
+            $pendingPayload['action_payloads']['SET_PAYMENT_COD'] = [
+                'label' => 'COD',
+                'message' => 'COD',
+            ];
+            $pendingPayload['action_payloads']['SET_PAYMENT_TRANSFER'] = [
+                'label' => 'Transfer',
+                'message' => 'Transfer',
+            ];
+            $pendingPayload['assistant_text'] = $this->buildAssistantText($pendingPayload)
+                ."\n\nPilih COD atau Transfer dulu sebelum konfirmasi.";
+
+            return $pendingPayload;
+        }
 
         $merchant = Restaurant::query()
             ->where('status', 'active')
@@ -582,6 +629,7 @@ class ChatbotShoppingOrderService
             $pendingStatusId,
             $routeMinutes,
             $routeSnapshot,
+            $paymentMethod,
         ): Order {
             $order = Order::query()->create([
                 'order_number' => $this->generateOrderNumber(),
@@ -678,7 +726,7 @@ class ChatbotShoppingOrderService
                 'note' => 'Order titip belanja dibuat melalui chatbot.',
             ]);
 
-            $this->orderPaymentService->ensurePendingCodPayment($order);
+            $this->orderPaymentService->ensurePendingPayment($order, $paymentMethod);
 
             return $order->fresh(['restaurant', 'orderLocations.restaurant', 'items', 'payments', 'statusRef', 'statusHistories.statusRef', 'shoppingOrder', 'serviceType']);
         });
@@ -760,6 +808,7 @@ class ChatbotShoppingOrderService
                 'notes' => $item['notes'] ?? null,
                 'is_heavy' => false,
             ], $items),
+            'payment_method' => $this->normalizePaymentMethodOrNull($shopping['payment_method'] ?? ($payload['order']['payment_method'] ?? null)),
         ];
     }
 
@@ -839,6 +888,10 @@ class ChatbotShoppingOrderService
         $lines[] = '';
         $lines[] = 'Estimasi ongkir sementara: Rp '.number_format((float) data_get($payload, 'pricing.delivery_fee', 0), 0, ',', '.');
         $lines[] = 'Estimasi total sementara: Rp '.number_format((float) data_get($payload, 'pricing.total_price', 0), 0, ',', '.');
+        $paymentMethod = $this->normalizePaymentMethodOrNull(data_get($payload, 'shopping.payment_method'));
+        $lines[] = $paymentMethod === null
+            ? 'Metode pembayaran: pilih COD atau Transfer.'
+            : 'Metode pembayaran: '.$this->paymentMethodLabel($paymentMethod).'.';
         $lines[] = '';
         $lines[] = 'Ketik "konfirmasi" kalau sudah oke.';
 
@@ -855,6 +908,63 @@ class ChatbotShoppingOrderService
         $normalized = strtolower(trim((string) preg_replace('/\s+/', ' ', $message)));
 
         return in_array($normalized, $this->confirmCommands, true) ? 'confirm' : 'none';
+    }
+
+    private function extractPaymentMethod(string $message): ?string
+    {
+        $normalized = strtolower(trim((string) preg_replace('/[^\p{L}\p{N}\s]+/u', ' ', $message)));
+        $normalized = $this->normalizeWhitespace($normalized);
+        if (preg_match('/\b(?:transfer|tf|bank|qris|non tunai|nontunai)\b/u', $normalized) === 1) {
+            return OrderPaymentService::METHOD_TRANSFER;
+        }
+
+        if (preg_match('/\b(?:cod|cash|tunai)\b/u', $normalized) === 1) {
+            return OrderPaymentService::METHOD_COD;
+        }
+
+        return null;
+    }
+
+    private function normalizePaymentMethodOrNull(mixed $value): ?string
+    {
+        $normalized = strtoupper(trim((string) ($value ?? '')));
+        if ($normalized === OrderPaymentService::METHOD_TRANSFER) {
+            return OrderPaymentService::METHOD_TRANSFER;
+        }
+        if ($normalized === OrderPaymentService::METHOD_COD) {
+            return OrderPaymentService::METHOD_COD;
+        }
+
+        return null;
+    }
+
+    private function paymentMethodLabel(mixed $value): string
+    {
+        return $this->normalizePaymentMethodOrNull($value) === OrderPaymentService::METHOD_TRANSFER
+            ? 'Transfer'
+            : 'COD';
+    }
+
+    private function isPaymentMethodOnlyMessage(string $message, ?string $paymentMethod): bool
+    {
+        if ($paymentMethod === null) {
+            return false;
+        }
+
+        $normalized = strtolower(trim((string) preg_replace('/[^\p{L}\p{N}\s]+/u', ' ', $message)));
+        $normalized = $this->normalizeWhitespace($normalized);
+
+        return in_array($normalized, [
+            'cod',
+            'cash',
+            'tunai',
+            'transfer',
+            'tf',
+            'bank',
+            'qris',
+            'non tunai',
+            'nontunai',
+        ], true);
     }
 
     private function resolveServiceTypeId(): int
