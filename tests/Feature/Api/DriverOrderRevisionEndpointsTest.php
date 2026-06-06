@@ -358,6 +358,50 @@ class DriverOrderRevisionEndpointsTest extends TestCase
         ]);
     }
 
+    public function test_driver_detail_includes_customer_transfer_evidence_for_all_service_types(): void
+    {
+        Storage::fake('public');
+        [$driverUser, $driver] = $this->createDriver();
+
+        foreach (['RIDE', 'COURIER', 'SHOPPING'] as $serviceCode) {
+            $order = $this->createAssignedOrder(
+                $driver,
+                $serviceCode,
+                'DRIVER_ASSIGNED',
+                18000,
+            );
+            $customer = User::query()->findOrFail($order->user_id);
+
+            Sanctum::actingAs($customer);
+
+            $this->patchJson('/api/v1/orders/'.$order->id.'/payment-method', [
+                'payment_method' => 'TRANSFER',
+            ])->assertOk();
+
+            $this->post('/api/v1/orders/'.$order->id.'/payment/transfer/evidence', [
+                'photo' => UploadedFile::fake()->image(
+                    strtolower($serviceCode).'-transfer.jpg',
+                    800,
+                    600,
+                ),
+                'note' => 'Transfer '.$serviceCode,
+            ], ['Accept' => 'application/json'])->assertCreated();
+
+            Sanctum::actingAs($driverUser);
+
+            $detailResponse = $this->getJson('/api/v1/driver/orders/'.$order->id);
+
+            $detailResponse->assertOk()
+                ->assertJsonPath('data.payment_method', 'TRANSFER')
+                ->assertJsonPath('data.proofs.0.type', 'payment_transfer')
+                ->assertJsonPath('data.proofs.0.status', 'pending')
+                ->assertJsonPath('data.proofs.0.note', 'Transfer '.$serviceCode);
+
+            $this->assertNotEmpty($detailResponse->json('data.proofs.0.photo_url'));
+            $this->assertNotEmpty($detailResponse->json('data.proofs.0.uploaded_at'));
+        }
+    }
+
     public function test_shopping_can_confirm_picked_up_after_receipt_total_and_proof_are_ready(): void
     {
         [$driverUser, $driver] = $this->createDriver();
