@@ -2,8 +2,10 @@
 
 namespace Tests\Feature\Api;
 
+use App\Models\Order;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -152,5 +154,83 @@ class ChatbotAccessTest extends TestCase
         $response->assertOk()
             ->assertJsonPath('service_context.service_type', 'nitip')
             ->assertJsonPath('service_context.service_code', 'SHOPPING');
+    }
+
+    public function test_clear_chatbot_session_archives_without_deleting_logs(): void
+    {
+        $user = User::factory()->create([
+            'role' => 'customer',
+            'phone' => '081277777777',
+        ]);
+        $sessionId = 'chat-archive-test';
+        $now = now();
+
+        $order = Order::query()->create([
+            'order_number' => 'BD-CHAT-ARCH-1',
+            'user_id' => $user->id,
+            'service_type_id' => DB::table('service_types')->where('code', 'RIDE')->value('id'),
+            'status_id' => DB::table('order_statuses')->where('code', 'PENDING')->value('id'),
+            'subtotal' => 0,
+            'delivery_fee' => 5000,
+            'service_fee' => 0,
+            'total_price' => 5000,
+        ]);
+
+        DB::table('ai_chat_sessions')->insert([
+            'user_id' => $user->id,
+            'session_id' => $sessionId,
+            'last_message_at' => $now,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+
+        $userMessageId = DB::table('ai_chat_messages')->insertGetId([
+            'user_id' => $user->id,
+            'session_id' => $sessionId,
+            'role' => 'user',
+            'message' => 'antar saya',
+            'created_at' => $now,
+        ]);
+        $assistantMessageId = DB::table('ai_chat_messages')->insertGetId([
+            'user_id' => $user->id,
+            'session_id' => $sessionId,
+            'role' => 'assistant',
+            'message' => 'Order dibuat.',
+            'created_at' => $now,
+        ]);
+        DB::table('ai_message_details')->insert([
+            'chat_message_id' => $assistantMessageId,
+            'ai_response' => json_encode(['order' => ['id' => $order->id]]),
+            'model_used' => 'deterministic-command',
+            'intent' => 'ride_order',
+            'order_id' => $order->id,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $response = $this->deleteJson('/api/chatbot/sessions/'.$sessionId);
+
+        $response->assertOk()
+            ->assertJsonPath('status', 'success')
+            ->assertJsonPath('archived', true)
+            ->assertJsonPath('message_count', 2)
+            ->assertJsonPath('completed_order_id', $order->id);
+
+        $this->assertDatabaseHas('ai_chat_messages', ['id' => $userMessageId]);
+        $this->assertDatabaseHas('ai_chat_messages', ['id' => $assistantMessageId]);
+        $this->assertDatabaseHas('ai_message_details', [
+            'chat_message_id' => $assistantMessageId,
+            'order_id' => $order->id,
+        ]);
+        $this->assertNotNull(DB::table('ai_chat_sessions')
+            ->where('user_id', $user->id)
+            ->where('session_id', $sessionId)
+            ->value('completed_at'));
+
+        $this->getJson('/api/chatbot/sessions')
+            ->assertOk()
+            ->assertJsonPath('data', []);
     }
 }

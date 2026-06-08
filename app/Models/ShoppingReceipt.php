@@ -7,6 +7,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ShoppingReceipt extends Model
 {
+    protected $table = 'shopping_order_receipts';
+
     protected $fillable = [
         'order_id',
         'total_amount',

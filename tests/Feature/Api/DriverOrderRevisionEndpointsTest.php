@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Api;
 
+use App\Models\CourierOrder;
 use App\Models\Driver;
 use App\Models\Order;
 use App\Models\OrderEvidence;
@@ -161,29 +162,39 @@ class DriverOrderRevisionEndpointsTest extends TestCase
         $response->assertOk()
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.delivery_fee', 22000)
-            ->assertJsonPath('data.delivery_fee_source', 'manual')
-            ->assertJsonPath('data.manual_delivery_fee_reason', 'Rute sistem kurang akurat.')
+            ->assertJsonPath('data.delivery_fee_source', 'driver_manual')
             ->assertJsonPath('data.careful_carry_required', false);
+        $this->assertArrayNotHasKey('manual_delivery_fee_reason', $response->json('data'));
 
-        $this->assertDatabaseHas('order_pricings', [
-            'order_id' => $order->id,
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
             'delivery_fee' => 22000,
             'total_price' => 22000,
-        ]);
-        $this->assertDatabaseHas('order_delivery_fee_overrides', [
-            'order_id' => $order->id,
-            'amount' => 22000,
-            'reason' => 'Rute sistem kurang akurat.',
-            'changed_by_user_id' => $driverUser->id,
+            'delivery_fee_source' => 'driver_manual',
         ]);
         $this->assertDatabaseHas('order_payments', [
             'order_id' => $order->id,
             'payment_status' => 'PENDING',
             'amount' => 22000,
         ]);
+        $event = \App\Models\OrderLog::query()
+            ->where('order_id', $order->id)
+            ->where('trigger_type', 'DRIVER_DELIVERY_FEE_OVERRIDE')
+            ->firstOrFail();
+        $this->assertSame('Rute sistem kurang akurat.', $event->metadata['reason'] ?? null);
+        $this->assertSame('driver', $event->metadata['changed_by_role'] ?? null);
+        $this->assertArrayNotHasKey('recalculation_version', $event->getAttributes());
+
+        Sanctum::actingAs(User::query()->findOrFail($order->user_id));
+
+        $this->getJson('/api/v1/orders/'.$order->id)
+            ->assertOk()
+            ->assertJsonPath('data.delivery_fee', '22000.00')
+            ->assertJsonPath('data.delivery_fee_source', 'driver_manual')
+            ->assertJsonPath('data.delivery_fee_change_note', 'Rute sistem kurang akurat.');
     }
 
-    public function test_courier_careful_carry_uses_manual_fee_as_surcharge_base(): void
+    public function test_courier_manual_delivery_fee_is_final_current_fee(): void
     {
         [$driverUser, $driver] = $this->createDriver();
         $order = $this->createAssignedOrder($driver, 'COURIER', 'DRIVER_ASSIGNED', 5000);
@@ -198,34 +209,32 @@ class DriverOrderRevisionEndpointsTest extends TestCase
 
         $response->assertOk()
             ->assertJsonPath('success', true)
-            ->assertJsonPath('data.delivery_fee', 12000)
-            ->assertJsonPath('data.delivery_fee_source', 'manual')
-            ->assertJsonPath('data.manual_delivery_fee', 8000)
+            ->assertJsonPath('data.delivery_fee', 8000)
+            ->assertJsonPath('data.delivery_fee_source', 'driver_manual')
             ->assertJsonPath('data.careful_carry_required', true);
 
-        $this->assertDatabaseHas('order_pricings', [
-            'order_id' => $order->id,
-            'delivery_fee' => 12000,
-            'total_price' => 12000,
-        ]);
-        $this->assertDatabaseHas('order_delivery_fee_overrides', [
-            'order_id' => $order->id,
-            'amount' => 8000,
-            'reason' => 'Barang besar dan perlu bantuan.',
-            'changed_by_user_id' => $driverUser->id,
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
+            'delivery_fee' => 8000,
+            'total_price' => 8000,
+            'delivery_fee_source' => 'driver_manual',
         ]);
         $this->assertDatabaseHas('order_payments', [
             'order_id' => $order->id,
             'payment_status' => 'PENDING',
-            'amount' => 12000,
+            'amount' => 8000,
+        ]);
+        $this->assertDatabaseHas('courier_order_details', [
+            'order_id' => $order->id,
+            'careful_carry_required' => true,
         ]);
 
         $breakdown = collect($response->json('data.fee_breakdown'));
-        $this->assertSame(4000.0, (float) $breakdown->firstWhere('code', 'careful_carry')['amount']);
         $this->assertSame(8000.0, (float) $breakdown->firstWhere('code', 'manual_override')['amount']);
+        $this->assertNull($breakdown->firstWhere('code', 'careful_carry'));
     }
 
-    public function test_shopping_can_enable_careful_carry_delivery_fee(): void
+    public function test_shopping_rejects_careful_carry_delivery_fee(): void
     {
         [$driverUser, $driver] = $this->createDriver();
         $order = $this->createAssignedOrder($driver, 'SHOPPING', 'DRIVER_ASSIGNED', 15000);
@@ -238,20 +247,16 @@ class DriverOrderRevisionEndpointsTest extends TestCase
             'careful_carry_required' => true,
         ]);
 
-        $response->assertOk()
-            ->assertJsonPath('success', true)
-            ->assertJsonPath('data.delivery_fee', 33750)
-            ->assertJsonPath('data.careful_carry_required', true);
+        $response->assertUnprocessable()
+            ->assertJsonPath('success', false);
     }
 
-    public function test_shopping_cancel_with_fee_uses_current_manual_delivery_fee_as_penalty_base(): void
+    public function test_shopping_cancel_with_fee_uses_current_delivery_fee_as_penalty_base(): void
     {
         [$driverUser, $driver] = $this->createDriver();
         $order = $this->createAssignedOrder($driver, 'SHOPPING', 'ARRIVED_MERCHANT', 10000);
         $order->update([
-            'delivery_fee_source' => 'manual',
-            'manual_delivery_fee' => 10000,
-            'manual_delivery_fee_reason' => 'Ongkir sudah diedit driver.',
+            'delivery_fee_source' => 'driver_manual',
         ]);
 
         $this->createFailedPickup($order, 3);
@@ -554,12 +559,12 @@ class DriverOrderRevisionEndpointsTest extends TestCase
             ->assertJsonPath('data.pricing.has_pending_manual_prices', false)
             ->assertJsonPath('data.has_pending_shopping_prices', false);
 
-        $this->assertDatabaseHas('order_pricings', [
-            'order_id' => $order->id,
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
             'subtotal' => 56000,
             'total_price' => 61000,
         ]);
-        $this->assertDatabaseHas('shopping_receipts', [
+        $this->assertDatabaseHas('shopping_order_receipts', [
             'order_id' => $order->id,
             'total_amount' => 56000,
             'recorded_by_user_id' => $driverUser->id,
@@ -668,8 +673,7 @@ class DriverOrderRevisionEndpointsTest extends TestCase
         string $statusCode,
         int $amount,
         string $paymentMethod = 'COD',
-    ): Order
-    {
+    ): Order {
         $customer = User::factory()->create(['role' => 'customer']);
         $serviceTypeId = (int) ServiceType::query()->where('code', $serviceCode)->value('id');
         $statusId = (int) OrderStatus::query()->where('code', $statusCode)->value('id');
@@ -693,6 +697,13 @@ class DriverOrderRevisionEndpointsTest extends TestCase
             'payment_status' => 'PENDING',
             'amount' => $amount,
         ]);
+
+        if ($serviceCode === 'COURIER') {
+            CourierOrder::query()->create([
+                'order_id' => $order->id,
+                'package_description' => 'Paket test',
+            ]);
+        }
 
         return $order;
     }

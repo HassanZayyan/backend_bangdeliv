@@ -39,8 +39,9 @@
         ->filter(fn ($location) => strtoupper((string) $location->location_role) === 'PICKUP')
         ->sum(fn ($location) => (int) ($location->failed_attempt_count ?? 0));
     $shoppingRecalculationVersion = (int) $order->logs
-        ->where('log_type', 'PRICE_RECALCULATION')
-        ->max('recalculation_version');
+        ->where('event_type', 'PRICE_RECALCULATION')
+        ->map(fn ($log) => (int) data_get($log->metadata ?? [], 'recalculation_version', 0))
+        ->max();
     $payments = $order->payments
         ->sortByDesc(fn ($payment) => $payment->paid_at?->getTimestamp() ?? $payment->created_at?->getTimestamp() ?? 0)
         ->values();

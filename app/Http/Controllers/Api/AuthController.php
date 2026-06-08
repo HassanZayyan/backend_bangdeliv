@@ -448,7 +448,7 @@ class AuthController extends Controller
                         $query->where('code', 'COMPLETED');
                     });
 
-                $completed = (clone $completedDriverOrders)->with('pricing')->get();
+                $completed = (clone $completedDriverOrders)->get();
                 $totalOrders = $completed->count();
                 $totalPaid = (float) $completed->sum(fn ($order): float => (float) $order->delivery_fee);
             }

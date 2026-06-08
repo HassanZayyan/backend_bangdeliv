@@ -20,9 +20,6 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property string|null $subtotal
  * @property string $delivery_fee
  * @property string|null $delivery_fee_source
- * @property string|null $manual_delivery_fee
- * @property string|null $manual_delivery_fee_reason
- * @property bool $careful_carry_required
  * @property string|null $service_fee
  * @property float|null $delivery_distance_km
  * @property string|null $delivery_distance_text
@@ -48,11 +45,6 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property-read \App\Models\Address|null $address
  * @property-read \App\Models\OrderStatus|null $statusRef
  * @property-read \App\Models\User|null $paidBy
- * @property-read \App\Models\OrderPricing|null $pricing
- * @property-read \App\Models\OrderDeliveryFeeOverride|null $deliveryFeeOverride
- * @property-read \App\Models\OrderRoute|null $routeInfo
- * @property-read \App\Models\OrderAssignment|null $assignment
- * @property-read \App\Models\OrderCancellation|null $cancellation
  * @property-read \Illuminate\Database\Eloquent\Collection<int, \App\Models\OrderFeeLine> $feeLines
  * @property-read \Illuminate\Database\Eloquent\Collection<int, \App\Models\OrderItem> $items
  * @property-read \Illuminate\Database\Eloquent\Collection<int, \App\Models\OrderStatusHistory> $statusHistories
@@ -60,6 +52,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property-read \Illuminate\Database\Eloquent\Collection<int, \App\Models\OrderLocation> $locations
  * @property-read \Illuminate\Database\Eloquent\Collection<int, \App\Models\OrderEvidence> $evidences
  * @property-read \Illuminate\Database\Eloquent\Collection<int, \App\Models\OrderLog> $logs
+ * @property-read \App\Models\OrderPayment|null $payment
  * @property-read \Illuminate\Database\Eloquent\Collection<int, \App\Models\OrderPayment> $payments
  * @property-read \Illuminate\Database\Eloquent\Collection<int, \App\Models\OrderChatMessage> $chatMessages
  * @property-read \App\Models\RideOrder|null $rideOrder
@@ -70,43 +63,16 @@ class Order extends Model
 {
     use SoftDeletes;
 
-    /**
-     * @var array<string, mixed>
-     */
-    private array $pendingPricingAttributes = [];
-
-    /**
-     * @var array<string, mixed>
-     */
-    private array $pendingDeliveryFeeOverrideAttributes = [];
-
-    /**
-     * @var array<string, mixed>
-     */
-    private array $pendingRouteAttributes = [];
-
-    /**
-     * @var array<string, mixed>
-     */
-    private array $pendingAssignmentAttributes = [];
-
-    /**
-     * @var array<string, mixed>
-     */
-    private array $pendingCancellationAttributes = [];
-
     protected $fillable = [
         'order_number',
         'user_id',
         'restaurant_id',
         'service_type_id',
         'driver_id',
+        'assigned_at',
         'subtotal',
         'delivery_fee',
         'delivery_fee_source',
-        'manual_delivery_fee',
-        'manual_delivery_fee_reason',
-        'careful_carry_required',
         'service_fee',
         'delivery_distance_km',
         'delivery_distance_text',
@@ -115,6 +81,7 @@ class Order extends Model
         'status_id',
         'cancellation_reason',
         'cancelled_by',
+        'cancelled_at',
         'estimated_delivery',
         'delivered_at',
     ];
@@ -125,21 +92,6 @@ class Order extends Model
 
     protected $appends = [
         'restaurant_id',
-        'driver_id',
-        'subtotal',
-        'delivery_fee',
-        'delivery_fee_source',
-        'manual_delivery_fee',
-        'manual_delivery_fee_reason',
-        'careful_carry_required',
-        'service_fee',
-        'delivery_distance_km',
-        'delivery_distance_text',
-        'total_price',
-        'estimated_delivery',
-        'cancellation_reason',
-        'cancelled_by',
-        'delivered_at',
         'delivery_address',
         'delivery_latitude',
         'delivery_longitude',
@@ -153,81 +105,33 @@ class Order extends Model
         'shopping_route',
         'pricing_snapshot',
         'fee_breakdown',
+        'delivery_fee_change_note',
         'proofs',
     ];
 
     protected function casts(): array
     {
         return [
+            'assigned_at' => 'datetime',
+            'subtotal' => 'decimal:2',
+            'delivery_fee' => 'decimal:2',
+            'service_fee' => 'decimal:2',
+            'delivery_distance_km' => 'float',
+            'route_snapshot' => 'array',
+            'total_price' => 'decimal:2',
+            'cancelled_at' => 'datetime',
+            'estimated_delivery' => 'datetime',
+            'delivered_at' => 'datetime',
         ];
     }
 
     public function setAttribute($key, $value)
     {
-        if (in_array($key, [
-            'subtotal',
-            'delivery_fee',
-            'careful_carry_required',
-            'total_price',
-        ], true)) {
-            $this->pendingPricingAttributes[$key] = $value;
-            return $this;
-        }
-
-        if (in_array($key, [
-            'delivery_fee_source',
-            'manual_delivery_fee',
-            'manual_delivery_fee_reason',
-        ], true)) {
-            $this->pendingDeliveryFeeOverrideAttributes[$key] = $value;
-            return $this;
-        }
-
-        if ($key === 'service_fee') {
-            return $this;
-        }
-
-        if (in_array($key, [
-            'delivery_distance_km',
-            'delivery_distance_text',
-            'route_snapshot',
-            'estimated_delivery',
-        ], true)) {
-            $this->pendingRouteAttributes[$key] = $value;
-            return $this;
-        }
-
-        if ($key === 'driver_id') {
-            $this->pendingAssignmentAttributes[$key] = $value;
-            return $this;
-        }
-
-        if ($key === 'cancellation_reason') {
-            $this->pendingCancellationAttributes['reason'] = $value;
-            return $this;
-        }
-
-        if ($key === 'cancelled_by') {
-            $this->pendingCancellationAttributes['cancelled_by'] = $value;
-            return $this;
-        }
-
-        if (in_array($key, ['restaurant_id', 'delivered_at'], true)) {
+        if ($key === 'restaurant_id') {
             return $this;
         }
 
         return parent::setAttribute($key, $value);
-    }
-
-    public function save(array $options = []): bool
-    {
-        $saved = parent::save($options);
-
-        if ($saved && $this->exists) {
-            $this->persistPendingDetailAttributes();
-        }
-
-        return $saved;
     }
 
     public function user(): BelongsTo
@@ -255,16 +159,9 @@ class Order extends Model
         return $this->belongsTo(ServiceType::class);
     }
 
-    public function driver(): HasOneThrough
+    public function driver(): BelongsTo
     {
-        return $this->hasOneThrough(
-            Driver::class,
-            OrderAssignment::class,
-            'order_id',
-            'id',
-            'id',
-            'driver_id'
-        );
+        return $this->belongsTo(Driver::class);
     }
 
     public function statusRef(): BelongsTo
@@ -272,34 +169,9 @@ class Order extends Model
         return $this->belongsTo(OrderStatus::class, 'status_id');
     }
 
-    public function pricing(): HasOne
-    {
-        return $this->hasOne(OrderPricing::class);
-    }
-
-    public function deliveryFeeOverride(): HasOne
-    {
-        return $this->hasOne(OrderDeliveryFeeOverride::class);
-    }
-
     public function feeLines(): HasMany
     {
         return $this->hasMany(OrderFeeLine::class);
-    }
-
-    public function routeInfo(): HasOne
-    {
-        return $this->hasOne(OrderRoute::class);
-    }
-
-    public function assignment(): HasOne
-    {
-        return $this->hasOne(OrderAssignment::class);
-    }
-
-    public function cancellation(): HasOne
-    {
-        return $this->hasOne(OrderCancellation::class);
     }
 
     public function items(): HasMany
@@ -330,6 +202,11 @@ class Order extends Model
     public function logs(): HasMany
     {
         return $this->hasMany(OrderLog::class);
+    }
+
+    public function payment(): HasOne
+    {
+        return $this->hasOne(OrderPayment::class);
     }
 
     public function payments(): HasMany
@@ -376,87 +253,134 @@ class Order extends Model
         return $pickup?->restaurant_id !== null ? (int) $pickup->restaurant_id : null;
     }
 
-    public function getDriverIdAttribute(): ?int
+    public function getDriverIdAttribute(mixed $value = null): ?int
     {
-        $assignment = $this->resolvedAssignment();
+        $driverId = $value ?? ($this->attributes['driver_id'] ?? null);
 
-        return $assignment?->driver_id !== null
-            ? (int) $assignment->driver_id
+        return $driverId !== null
+            ? (int) $driverId
             : null;
     }
 
-    public function getSubtotalAttribute(): string
+    public function getSubtotalAttribute(mixed $value = null): string
     {
-        return (string) ($this->resolvedPricing()?->subtotal ?? '0.00');
+        return number_format((float) ($value ?? $this->attributes['subtotal'] ?? 0), 2, '.', '');
     }
 
-    public function getDeliveryFeeAttribute(): string
+    public function getDeliveryFeeAttribute(mixed $value = null): string
     {
-        return (string) ($this->resolvedPricing()?->delivery_fee ?? '0.00');
+        return number_format((float) ($value ?? $this->attributes['delivery_fee'] ?? 0), 2, '.', '');
     }
 
-    public function getDeliveryFeeSourceAttribute(): string
+    public function getDeliveryFeeSourceAttribute(mixed $value = null): string
     {
-        return $this->resolvedDeliveryFeeOverride() !== null ? 'manual' : 'system';
+        $source = strtolower((string) ($value ?? $this->attributes['delivery_fee_source'] ?? 'system'));
+
+        return $source === 'manual' ? 'driver_manual' : $source;
     }
 
-    public function getManualDeliveryFeeAttribute(): ?string
+    public function getDeliveryFeeChangeNoteAttribute(): ?string
     {
-        return $this->resolvedDeliveryFeeOverride()?->amount;
+        if ($this->delivery_fee_source !== 'driver_manual') {
+            return null;
+        }
+
+        $event = $this->logs()
+            ->whereIn('event_type', ['PRICE_RECALCULATION', 'PRICE_UPDATE'])
+            ->whereIn('trigger_type', ['DRIVER_DELIVERY_FEE_OVERRIDE', 'DRIVER_SHOPPING_CHECKOUT_DELIVERY_FEE'])
+            ->latest('created_at')
+            ->latest('id')
+            ->first();
+
+        if (! $event) {
+            return null;
+        }
+
+        $reason = trim((string) data_get($event->metadata ?? [], 'reason', ''));
+        if ($reason !== '') {
+            return $reason;
+        }
+
+        $note = trim((string) ($event->note ?? ''));
+
+        return $note !== '' ? $note : null;
     }
 
-    public function getManualDeliveryFeeReasonAttribute(): ?string
+    public function getCarefulCarryRequiredAttribute(mixed $value = null): bool
     {
-        return $this->resolvedDeliveryFeeOverride()?->reason;
+        if ($value !== null || array_key_exists('careful_carry_required', $this->attributes)) {
+            return (bool) ($value ?? $this->attributes['careful_carry_required'] ?? false);
+        }
+
+        if (! $this->relationLoaded('courierOrder')) {
+            $this->setRelation('courierOrder', $this->courierOrder()->first());
+        }
+
+        return (bool) ($this->courierOrder?->careful_carry_required ?? false);
     }
 
-    public function getCarefulCarryRequiredAttribute(): bool
+    public function getServiceFeeAttribute(mixed $value = null): string
     {
-        return (bool) ($this->resolvedPricing()?->careful_carry_required ?? false);
+        return number_format((float) ($value ?? $this->attributes['service_fee'] ?? 0), 2, '.', '');
     }
 
-    public function getServiceFeeAttribute(): string
+    public function getTotalPriceAttribute(mixed $value = null): string
     {
-        return number_format($this->resolvedServiceFee(), 2, '.', '');
+        return number_format((float) ($value ?? $this->attributes['total_price'] ?? 0), 2, '.', '');
     }
 
-    public function getTotalPriceAttribute(): string
+    public function getDeliveryDistanceKmAttribute(mixed $value = null): ?float
     {
-        return (string) ($this->resolvedPricing()?->total_price ?? '0.00');
+        $distance = $value ?? ($this->attributes['delivery_distance_km'] ?? null);
+
+        return $distance !== null ? (float) $distance : null;
     }
 
-    public function getDeliveryDistanceKmAttribute(): ?float
+    public function getDeliveryDistanceTextAttribute(mixed $value = null): ?string
     {
-        return $this->resolvedRouteInfo()?->delivery_distance_km;
+        return $value ?? ($this->attributes['delivery_distance_text'] ?? null);
     }
 
-    public function getDeliveryDistanceTextAttribute(): ?string
+    public function getRouteSnapshotAttribute(mixed $value = null): ?array
     {
-        return $this->resolvedRouteInfo()?->delivery_distance_text;
+        $snapshot = $value ?? ($this->attributes['route_snapshot'] ?? null);
+
+        if (is_array($snapshot)) {
+            return $snapshot;
+        }
+
+        if (is_string($snapshot) && $snapshot !== '') {
+            $decoded = json_decode($snapshot, true);
+
+            return is_array($decoded) ? $decoded : null;
+        }
+
+        return null;
     }
 
-    public function getRouteSnapshotAttribute(): ?array
+    public function getEstimatedDeliveryAttribute(mixed $value = null): mixed
     {
-        return $this->resolvedRouteInfo()?->route_snapshot;
+        $timestamp = $value ?? ($this->attributes['estimated_delivery'] ?? null);
+
+        return $timestamp !== null ? $this->asDateTime($timestamp) : null;
     }
 
-    public function getEstimatedDeliveryAttribute(): mixed
+    public function getCancellationReasonAttribute(mixed $value = null): ?string
     {
-        return $this->resolvedRouteInfo()?->estimated_delivery;
+        return $value ?? ($this->attributes['cancellation_reason'] ?? null);
     }
 
-    public function getCancellationReasonAttribute(): ?string
+    public function getCancelledByAttribute(mixed $value = null): ?string
     {
-        return $this->resolvedCancellation()?->reason;
+        return $value ?? ($this->attributes['cancelled_by'] ?? null);
     }
 
-    public function getCancelledByAttribute(): ?string
+    public function getDeliveredAtAttribute(mixed $value = null): mixed
     {
-        return $this->resolvedCancellation()?->cancelled_by;
-    }
+        if ($value !== null || ($this->attributes['delivered_at'] ?? null) !== null) {
+            return $this->asDateTime($value ?? $this->attributes['delivered_at']);
+        }
 
-    public function getDeliveredAtAttribute(): mixed
-    {
         if (! $this->relationLoaded('statusHistories')) {
             $this->setRelation('statusHistories', $this->statusHistories()->with('statusRef')->orderBy('created_at')->get());
         } else {
@@ -635,10 +559,6 @@ class Order extends Model
             'delivery_pricing' => $deliveryPricing,
             'delivery_fee' => round((float) $this->delivery_fee, 2),
             'delivery_fee_source' => $this->delivery_fee_source,
-            'manual_delivery_fee' => $this->manual_delivery_fee !== null
-                ? round((float) $this->manual_delivery_fee, 2)
-                : null,
-            'manual_delivery_fee_reason' => $this->manual_delivery_fee_reason,
             'careful_carry_required' => (bool) $this->careful_carry_required,
             'route' => $route,
             'shopping_pricing' => [
@@ -666,7 +586,7 @@ class Order extends Model
             array_push($breakdown, ...$this->shoppingFeeBreakdown());
         }
 
-        if ((bool) $this->careful_carry_required) {
+        if ((bool) $this->careful_carry_required && $this->delivery_fee_source !== 'driver_manual') {
             $breakdown[] = [
                 'code' => 'careful_carry',
                 'label' => 'Bawa hati-hati',
@@ -674,12 +594,11 @@ class Order extends Model
             ];
         }
 
-        if ($this->delivery_fee_source === 'manual') {
+        if ($this->delivery_fee_source === 'driver_manual') {
             $breakdown[] = [
                 'code' => 'manual_override',
                 'label' => 'Ongkir manual driver',
-                'amount' => round((float) ($this->manual_delivery_fee ?? $this->delivery_fee), 2),
-                'reason' => $this->manual_delivery_fee_reason,
+                'amount' => round((float) $this->delivery_fee, 2),
             ];
         }
 
@@ -688,10 +607,6 @@ class Order extends Model
 
     private function carefulCarrySurchargeAmount(): float
     {
-        if ($this->delivery_fee_source === 'manual' && $this->manual_delivery_fee !== null) {
-            return round(max(0.0, (float) $this->manual_delivery_fee) * 0.5, 2);
-        }
-
         $route = $this->route;
         $systemFee = is_array($route) && is_numeric(data_get($route, 'delivery_pricing.total_fee'))
             ? (float) data_get($route, 'delivery_pricing.total_fee')
@@ -760,52 +675,46 @@ class Order extends Model
 
     private function resolvedLatestPayment(): ?OrderPayment
     {
-        if (! $this->relationLoaded('payments')) {
-            $this->setRelation('payments', $this->payments()->get());
+        if ($this->relationLoaded('payment')) {
+            return $this->payment;
         }
 
-        return $this->payments
-            ->sortByDesc(fn (OrderPayment $payment): int => $payment->paid_at?->getTimestamp() ?? 0)
-            ->first();
+        if ($this->relationLoaded('payments')) {
+            return $this->payments
+                ->sortByDesc(fn (OrderPayment $payment): int => $payment->paid_at?->getTimestamp() ?? 0)
+                ->first();
+        }
+
+        $payment = $this->payment()->first();
+        $this->setRelation('payment', $payment);
+
+        return $payment;
     }
 
     private function resolvedPaidPayment(): ?OrderPayment
     {
-        if (! $this->relationLoaded('payments')) {
-            $this->setRelation('payments', $this->payments()->get());
+        if ($this->relationLoaded('payment')) {
+            return strtoupper((string) $this->payment?->payment_status) === 'PAID'
+                ? $this->payment
+                : null;
         }
 
-        return $this->payments
+        if ($this->relationLoaded('payments')) {
+            return $this->payments
+                ->where('payment_status', 'PAID')
+                ->sortByDesc(fn (OrderPayment $payment): int => $payment->paid_at?->getTimestamp() ?? 0)
+                ->first();
+        }
+
+        $payment = $this->payment()
             ->where('payment_status', 'PAID')
-            ->sortByDesc(fn (OrderPayment $payment): int => $payment->paid_at?->getTimestamp() ?? 0)
             ->first();
-    }
 
-    private function resolvedPricing(): ?OrderPricing
-    {
-        if (! $this->relationLoaded('pricing')) {
-            $this->setRelation('pricing', $this->pricing()->first());
+        if ($payment !== null) {
+            $this->setRelation('payment', $payment);
         }
 
-        return $this->getRelation('pricing');
-    }
-
-    private function resolvedDeliveryFeeOverride(): ?OrderDeliveryFeeOverride
-    {
-        if (! $this->relationLoaded('deliveryFeeOverride')) {
-            $this->setRelation('deliveryFeeOverride', $this->deliveryFeeOverride()->first());
-        }
-
-        return $this->getRelation('deliveryFeeOverride');
-    }
-
-    private function resolvedServiceFee(): float
-    {
-        if (! $this->relationLoaded('feeLines')) {
-            $this->setRelation('feeLines', $this->feeLines()->get());
-        }
-
-        return round((float) $this->feeLines->sum(fn (OrderFeeLine $line): float => (float) $line->amount), 2);
+        return $payment;
     }
 
     /**
@@ -837,113 +746,6 @@ class Order extends Model
             'CANCELLATION_PENALTY_AFTER_FAILED_ATTEMPTS' => '50% ongkir setelah batas percobaan gagal',
             default => '',
         };
-    }
-
-    private function resolvedRouteInfo(): ?OrderRoute
-    {
-        if (! $this->relationLoaded('routeInfo')) {
-            $this->setRelation('routeInfo', $this->routeInfo()->first());
-        }
-
-        return $this->getRelation('routeInfo');
-    }
-
-    private function resolvedAssignment(): ?OrderAssignment
-    {
-        if (! $this->relationLoaded('assignment')) {
-            $this->setRelation('assignment', $this->assignment()->first());
-        }
-
-        return $this->getRelation('assignment');
-    }
-
-    private function resolvedCancellation(): ?OrderCancellation
-    {
-        if (! $this->relationLoaded('cancellation')) {
-            $this->setRelation('cancellation', $this->cancellation()->first());
-        }
-
-        return $this->getRelation('cancellation');
-    }
-
-    private function persistPendingDetailAttributes(): void
-    {
-        if ($this->pendingPricingAttributes !== []) {
-            $pricing = $this->pricing()->updateOrCreate(
-                ['order_id' => $this->id],
-                $this->pendingPricingAttributes
-            );
-            $this->setRelation('pricing', $pricing);
-            $this->pendingPricingAttributes = [];
-        }
-
-        if ($this->pendingDeliveryFeeOverrideAttributes !== []) {
-            $source = (string) ($this->pendingDeliveryFeeOverrideAttributes['delivery_fee_source'] ?? $this->delivery_fee_source);
-            $manualAmount = $this->pendingDeliveryFeeOverrideAttributes['manual_delivery_fee'] ?? $this->manual_delivery_fee;
-            $reason = trim((string) ($this->pendingDeliveryFeeOverrideAttributes['manual_delivery_fee_reason'] ?? $this->manual_delivery_fee_reason ?? ''));
-
-            if ($source === 'manual' && $manualAmount !== null && $manualAmount !== '') {
-                $override = $this->deliveryFeeOverride()->updateOrCreate(
-                    ['order_id' => $this->id],
-                    [
-                        'amount' => round((float) $manualAmount, 2),
-                        'reason' => $reason !== '' ? $reason : 'Ongkir manual driver.',
-                    ]
-                );
-                $this->setRelation('deliveryFeeOverride', $override);
-            } else {
-                $this->deliveryFeeOverride()->delete();
-                $this->unsetRelation('deliveryFeeOverride');
-            }
-
-            $this->pendingDeliveryFeeOverrideAttributes = [];
-        }
-
-        if ($this->pendingRouteAttributes !== []) {
-            $route = $this->routeInfo()->updateOrCreate(
-                ['order_id' => $this->id],
-                $this->pendingRouteAttributes
-            );
-            $this->setRelation('routeInfo', $route);
-            $this->pendingRouteAttributes = [];
-        }
-
-        if (array_key_exists('driver_id', $this->pendingAssignmentAttributes)) {
-            $driverId = $this->pendingAssignmentAttributes['driver_id'];
-            if ($driverId === null || $driverId === '') {
-                $this->assignment()->delete();
-                $this->unsetRelation('assignment');
-            } else {
-                $assignment = $this->assignment()->updateOrCreate(
-                    ['order_id' => $this->id],
-                    [
-                        'driver_id' => (int) $driverId,
-                        'assigned_at' => $this->resolvedAssignment()?->assigned_at ?? now(),
-                    ]
-                );
-                $this->setRelation('assignment', $assignment);
-            }
-
-            $this->pendingAssignmentAttributes = [];
-        }
-
-        if ($this->pendingCancellationAttributes !== []) {
-            $reason = trim((string) ($this->pendingCancellationAttributes['reason'] ?? $this->cancellation_reason ?? ''));
-            $cancelledBy = trim((string) ($this->pendingCancellationAttributes['cancelled_by'] ?? $this->cancelled_by ?? ''));
-            if ($reason !== '' && $cancelledBy !== '') {
-                $cancellation = $this->cancellation()->updateOrCreate(
-                    ['order_id' => $this->id],
-                    [
-                        'reason' => $reason,
-                        'cancelled_by' => $cancelledBy,
-                        'cancelled_at' => $this->resolvedCancellation()?->cancelled_at ?? now(),
-                    ]
-                );
-                $this->setRelation('cancellation', $cancellation);
-            }
-
-            $this->pendingCancellationAttributes = [];
-        }
     }
 
     /**

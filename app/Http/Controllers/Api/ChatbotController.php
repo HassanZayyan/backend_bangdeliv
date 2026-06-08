@@ -64,8 +64,7 @@ class ChatbotController extends Controller
         private readonly ChatbotShoppingOrderService $shoppingOrderService,
         private readonly ChatbotGeminiService $geminiService,
         private readonly GoogleMapsGeocodingService $geocodingService,
-    ) {
-    }
+    ) {}
 
     public function processChat(Request $request)
     {
@@ -112,9 +111,26 @@ class ChatbotController extends Controller
             ? (string) $validated['service_type']
             : null;
 
+        $activeSessionIds = DB::table('ai_chat_sessions')
+            ->where('user_id', $user->id)
+            ->whereNull('completed_at')
+            ->pluck('session_id')
+            ->filter(static fn (mixed $value): bool => is_string($value) && trim($value) !== '')
+            ->unique()
+            ->values()
+            ->all();
+
+        if ($activeSessionIds === []) {
+            return response()->json([
+                'status' => 'success',
+                'data' => [],
+            ], 200);
+        }
+
         $latestAssistantLogIds = AiChatLog::query()
             ->selectRaw('MAX(id) as id')
             ->where('user_id', $user->id)
+            ->whereIn('session_id', $activeSessionIds)
             ->where('role', 'assistant')
             ->groupBy('session_id');
 
@@ -449,22 +465,22 @@ class ChatbotController extends Controller
     {
         $normalizedAddress = trim($providedAddress);
 
-        if ($normalizedAddress !== '' && !$this->isPinPlaceholderAddress($normalizedAddress)) {
+        if ($normalizedAddress !== '' && ! $this->isPinPlaceholderAddress($normalizedAddress)) {
             return $normalizedAddress;
         }
 
         try {
             $resolved = $this->geocodingService->reverseGeocodeWithPlaceName($latitude, $longitude);
             $formattedAddress = trim((string) ($resolved['formatted_address'] ?? ''));
-            if ($formattedAddress !== '' && !$this->isPinPlaceholderAddress($formattedAddress)) {
+            if ($formattedAddress !== '' && ! $this->isPinPlaceholderAddress($formattedAddress)) {
                 return $formattedAddress;
             }
         } catch (ApiException $exception) {
             Log::warning('Reverse geocoding map pin failed.', [
-                'latitude'  => $latitude,
+                'latitude' => $latitude,
                 'longitude' => $longitude,
-                'message'   => $exception->getMessage(),
-                'status'    => $exception->status(),
+                'message' => $exception->getMessage(),
+                'status' => $exception->status(),
             ]);
         }
 
@@ -486,20 +502,41 @@ class ChatbotController extends Controller
             ], 422);
         }
 
-        $deleted = AiChatLog::query()
+        $messageCount = AiChatLog::query()
             ->where('user_id', $request->user()->id)
             ->where('session_id', $normalizedSessionId)
-            ->delete();
+            ->count();
 
-        DB::table('chat_sessions')
-            ->where('user_id', $request->user()->id)
-            ->where('session_id', $normalizedSessionId)
-            ->delete();
+        $completedOrderId = DB::table('ai_chat_messages')
+            ->join('ai_message_details', 'ai_chat_messages.id', '=', 'ai_message_details.chat_message_id')
+            ->where('ai_chat_messages.user_id', $request->user()->id)
+            ->where('ai_chat_messages.session_id', $normalizedSessionId)
+            ->where('ai_chat_messages.role', 'assistant')
+            ->whereNotNull('ai_message_details.order_id')
+            ->orderByDesc('ai_chat_messages.id')
+            ->value('ai_message_details.order_id');
+
+        $now = now();
+        DB::table('ai_chat_sessions')->updateOrInsert(
+            [
+                'user_id' => $request->user()->id,
+                'session_id' => $normalizedSessionId,
+            ],
+            [
+                'last_message_at' => $now,
+                'completed_at' => $now,
+                'completed_order_id' => $completedOrderId,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ],
+        );
 
         return response()->json([
             'status' => 'success',
             'session_id' => $normalizedSessionId,
-            'deleted' => $deleted,
+            'archived' => true,
+            'message_count' => $messageCount,
+            'completed_order_id' => $completedOrderId,
         ], 200);
     }
 
@@ -655,7 +692,7 @@ class ChatbotController extends Controller
                 orderId: $orderId
             );
         } catch (\Throwable $exception) {
-            Log::warning('Gagal menyimpan ai_chat_logs: '.$exception->getMessage());
+            Log::warning('Gagal menyimpan ai_chat_messages: '.$exception->getMessage());
         }
     }
 
@@ -673,17 +710,21 @@ class ChatbotController extends Controller
         ?int $orderId = null,
     ): AiChatLog {
         $now = now();
-        DB::table('chat_sessions')->upsert([
+        DB::table('ai_chat_sessions')->upsert([
             [
                 'session_id' => $sessionId,
                 'user_id' => $user->id,
                 'last_message_at' => $now,
+                'completed_at' => null,
+                'completed_order_id' => null,
                 'created_at' => $now,
                 'updated_at' => $now,
             ],
         ], ['user_id', 'session_id'], [
             'user_id',
             'last_message_at',
+            'completed_at',
+            'completed_order_id',
             'updated_at',
         ]);
 
@@ -713,7 +754,7 @@ class ChatbotController extends Controller
     private function resolveOrderId(array $assistantPayload): ?int
     {
         $order = $assistantPayload['order'] ?? null;
-        if (!is_array($order)) {
+        if (! is_array($order)) {
             return null;
         }
 
@@ -908,7 +949,7 @@ class ChatbotController extends Controller
      */
     private function normalizeStringList(mixed $values): array
     {
-        if (!is_array($values)) {
+        if (! is_array($values)) {
             return [];
         }
 
@@ -925,7 +966,7 @@ class ChatbotController extends Controller
 
     private function normalizeOptionalContextString(mixed $value): ?string
     {
-        if (!is_string($value)) {
+        if (! is_string($value)) {
             return null;
         }
 
@@ -1172,7 +1213,7 @@ class ChatbotController extends Controller
 
         if (in_array('RESET_DESTINATION', $nextActions, true)) {
             $actionPayloads['RESET_DESTINATION'] = [
-                'label'   => 'Ubah Tujuan',
+                'label' => 'Ubah Tujuan',
                 'message' => 'Ubah Tujuan',
             ];
         }
@@ -1182,17 +1223,17 @@ class ChatbotController extends Controller
             if ($serviceType === 'antar_jemput') {
                 $ride = is_array($payload['ride'] ?? null) ? $payload['ride'] : [];
                 $actionPayloads['CHANGE_PICKUP'] = [
-                    'target'            => 'pickup',
-                    'label'             => 'Ubah Titik Jemput',
-                    'initial_latitude'  => $ride['pickup_latitude'] ?? null,
+                    'target' => 'pickup',
+                    'label' => 'Ubah Titik Jemput',
+                    'initial_latitude' => $ride['pickup_latitude'] ?? null,
                     'initial_longitude' => $ride['pickup_longitude'] ?? null,
                 ];
             } elseif ($serviceType === 'kurir') {
                 $courier = is_array($payload['courier'] ?? null) ? $payload['courier'] : [];
                 $actionPayloads['CHANGE_PICKUP'] = [
-                    'target'            => 'pickup',
-                    'label'             => 'Ubah Titik Ambil',
-                    'initial_latitude'  => $courier['pickup_latitude'] ?? null,
+                    'target' => 'pickup',
+                    'label' => 'Ubah Titik Ambil',
+                    'initial_latitude' => $courier['pickup_latitude'] ?? null,
                     'initial_longitude' => $courier['pickup_longitude'] ?? null,
                 ];
             }
@@ -1247,12 +1288,11 @@ class ChatbotController extends Controller
         }
 
         foreach ($nextActions as $action) {
-            if (!in_array($action, $ordered, true)) {
+            if (! in_array($action, $ordered, true)) {
                 $ordered[] = $action;
             }
         }
 
         return $ordered;
     }
-
 }

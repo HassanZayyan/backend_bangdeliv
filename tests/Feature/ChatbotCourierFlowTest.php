@@ -74,7 +74,7 @@ class ChatbotCourierFlowTest extends TestCase
         $this->assertStringContainsString('Ketik "Konfirmasi"', $draftMessage);
 
         $this->assertDatabaseCount('orders', 0);
-        $this->assertDatabaseCount('courier_orders', 0);
+        $this->assertDatabaseCount('courier_order_details', 0);
 
         $this
             ->withHeader('Authorization', 'Bearer '.$token)
@@ -124,7 +124,7 @@ class ChatbotCourierFlowTest extends TestCase
             'id' => $orderId,
             'user_id' => $user->id,
         ]);
-        $this->assertDatabaseHas('courier_orders', [
+        $this->assertDatabaseHas('courier_order_details', [
             'order_id' => $orderId,
             'package_description' => 'ijazah',
         ]);
@@ -248,7 +248,7 @@ class ChatbotCourierFlowTest extends TestCase
         $this->assertStringNotContainsStringIgnoringCase('rumah', $pickup);
 
         $this->assertDatabaseCount('orders', 0);
-        $this->assertDatabaseCount('courier_orders', 0);
+        $this->assertDatabaseCount('courier_order_details', 0);
     }
 
     public function test_chatbot_kurir_resolves_named_locations_to_full_addresses(): void
@@ -300,7 +300,7 @@ class ChatbotCourierFlowTest extends TestCase
         $this->assertStringContainsString('Indonesia', $dropoff);
 
         $this->assertDatabaseCount('orders', 0);
-        $this->assertDatabaseCount('courier_orders', 0);
+        $this->assertDatabaseCount('courier_order_details', 0);
     }
 
     public function test_chatbot_kurir_reset_destination_invalidates_previous_draft(): void
@@ -363,7 +363,7 @@ class ChatbotCourierFlowTest extends TestCase
         );
 
         $this->assertDatabaseCount('orders', 0);
-        $this->assertDatabaseCount('courier_orders', 0);
+        $this->assertDatabaseCount('courier_order_details', 0);
     }
 
     public function test_chatbot_kurir_confirm_uses_fast_path_without_gemini_call(): void
@@ -456,7 +456,7 @@ class ChatbotCourierFlowTest extends TestCase
             ->assertJsonPath('model_used', 'deterministic-command');
 
         $this->assertDatabaseCount('orders', 1);
-        $this->assertDatabaseCount('courier_orders', 1);
+        $this->assertDatabaseCount('courier_order_details', 1);
         $order = Order::query()->firstOrFail();
         $this->assertIsArray($order->route_snapshot);
         $this->assertSame('distance_matrix', $order->route_snapshot['route_provider'] ?? null);
@@ -498,7 +498,7 @@ class ChatbotCourierFlowTest extends TestCase
             (string) $response->json('data.assistant_text')
         );
         $this->assertDatabaseCount('orders', 0);
-        $this->assertDatabaseCount('courier_orders', 0);
+        $this->assertDatabaseCount('courier_order_details', 0);
     }
 
     public function test_chatbot_kurir_allows_oversize_package_with_warning_flags(): void
@@ -534,7 +534,7 @@ class ChatbotCourierFlowTest extends TestCase
 
         $this->assertContains('OVERSIZE_FURNITURE', $response->json('data.courier.safety_flags'));
         $this->assertDatabaseCount('orders', 0);
-        $this->assertDatabaseCount('courier_orders', 0);
+        $this->assertDatabaseCount('courier_order_details', 0);
     }
 
     public function test_chatbot_kurir_requires_clarification_for_ambiguous_package(): void
@@ -571,7 +571,7 @@ class ChatbotCourierFlowTest extends TestCase
             (string) $response->json('data.assistant_text')
         );
         $this->assertDatabaseCount('orders', 0);
-        $this->assertDatabaseCount('courier_orders', 0);
+        $this->assertDatabaseCount('courier_order_details', 0);
     }
 
     public function test_chatbot_kurir_allows_small_common_item_without_weight_or_size(): void
@@ -836,6 +836,54 @@ class ChatbotCourierFlowTest extends TestCase
         $confirmResponse
             ->assertOk()
             ->assertJsonPath('data.order.created', true);
+    }
+
+    public function test_chatbot_kurir_bulk_route_patch_rejects_overlapping_points(): void
+    {
+        $this->fakeGeocoding();
+
+        $user = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+            'phone' => '089333333335',
+        ]);
+
+        $token = $user->createToken('test-chatbot')->plainTextToken;
+        $sessionId = 'sess-kurir-route-too-close';
+
+        $response = $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/sessions/'.$sessionId.'/locations', [
+                'service_type' => 'kurir',
+                'locations' => [
+                    [
+                        'target' => 'pickup',
+                        'latitude' => -7.328900,
+                        'longitude' => 110.500100,
+                        'address' => 'Ramayan Salatiga',
+                    ],
+                    [
+                        'target' => 'dropoff',
+                        'latitude' => -7.328900,
+                        'longitude' => 110.500100,
+                        'address' => 'Ramayan Salatiga',
+                    ],
+                ],
+            ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('model_used', 'map-route-action')
+            ->assertJsonPath('data.validation.is_valid_order', false)
+            ->assertJsonPath('data.courier.ready_to_confirm', false);
+
+        $this->assertContains(
+            'Titik tujuan terlalu dekat dengan titik jemput. Pilih titik tujuan yang berbeda.',
+            $response->json('data.validation.rejection_reasons')
+        );
+
+        $this->assertDatabaseCount('orders', 0);
     }
 
     public function test_chatbot_kurir_short_package_completion_after_route_patch_is_ready(): void

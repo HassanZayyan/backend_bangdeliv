@@ -13,6 +13,8 @@ class ShoppingRouteService
 {
     private const DEFAULT_PREP_MINUTES = 10;
 
+    private const MINIMUM_ROUTE_DISTANCE_METERS = 20;
+
     public function __construct(
         private readonly GoogleMapsDistanceMatrixService $distanceMatrixService,
         private readonly DeliveryPricingService $deliveryPricingService,
@@ -59,6 +61,10 @@ class ShoppingRouteService
             array_slice($points, 0, -1)
         )));
 
+        if (count($points) === 2) {
+            $this->assertSingleShoppingRouteSeparated($points[0], $points[1]);
+        }
+
         $segments = [];
         $totalDistanceMeters = 0;
         $totalDurationSeconds = 0;
@@ -99,6 +105,10 @@ class ShoppingRouteService
                 'duration_seconds' => max(0, $durationSeconds),
                 'duration_text' => (string) ($route['duration_text'] ?? ''),
             ];
+        }
+
+        if (count($points) > 2) {
+            $this->assertTotalRouteDistanceNotTooShort($totalDistanceMeters);
         }
 
         $this->assertRouteWithinServiceDistance($totalDistanceMeters);
@@ -220,9 +230,11 @@ class ShoppingRouteService
                     (int) config('bangdeliv.routes.shopping_route_max_origin_candidates', 8)
                 );
 
-                $this->assertRouteWithinServiceDistance((int) ($route['distance_meters'] ?? 0));
+                $routeDistanceMeters = (int) ($route['distance_meters'] ?? 0);
+                $this->assertTotalRouteDistanceNotTooShort($routeDistanceMeters);
+                $this->assertRouteWithinServiceDistance($routeDistanceMeters);
                 $route['delivery_pricing'] = $this->deliveryPricingService->calculateFromDistanceMeters(
-                    (float) ($route['distance_meters'] ?? 0)
+                    (float) $routeDistanceMeters
                 );
                 $route['delivery_fee'] = (float) $route['delivery_pricing']['total_fee'];
 
@@ -334,6 +346,54 @@ class ShoppingRouteService
                 $this->deliveryPricingService->getMaxDistanceKm()
             ), 422);
         }
+    }
+
+    /**
+     * @param  array{label: string, latitude: float, longitude: float}  $pickupPoint
+     * @param  array{label: string, latitude: float, longitude: float}  $dropoffPoint
+     */
+    private function assertSingleShoppingRouteSeparated(array $pickupPoint, array $dropoffPoint): void
+    {
+        if ($this->roughDistanceMeters(
+            $pickupPoint['latitude'],
+            $pickupPoint['longitude'],
+            $dropoffPoint['latitude'],
+            $dropoffPoint['longitude']
+        ) < self::MINIMUM_ROUTE_DISTANCE_METERS) {
+            throw new ApiException(
+                'Titik antar terlalu dekat dengan merchant. Pilih titik antar yang berbeda.',
+                422
+            );
+        }
+    }
+
+    private function assertTotalRouteDistanceNotTooShort(int $totalDistanceMeters): void
+    {
+        if ($totalDistanceMeters < self::MINIMUM_ROUTE_DISTANCE_METERS) {
+            throw new ApiException(
+                'Titik rute terlalu dekat. Pilih titik antar yang berbeda.',
+                422
+            );
+        }
+    }
+
+    private function roughDistanceMeters(
+        float $originLatitude,
+        float $originLongitude,
+        float $destinationLatitude,
+        float $destinationLongitude
+    ): float {
+        $earthRadiusMeters = 6371000.0;
+        $originLatitudeRad = deg2rad($originLatitude);
+        $destinationLatitudeRad = deg2rad($destinationLatitude);
+        $deltaLatitudeRad = deg2rad($destinationLatitude - $originLatitude);
+        $deltaLongitudeRad = deg2rad($destinationLongitude - $originLongitude);
+
+        $haversine = sin($deltaLatitudeRad / 2) ** 2
+            + cos($originLatitudeRad) * cos($destinationLatitudeRad) * sin($deltaLongitudeRad / 2) ** 2;
+        $safeHaversine = min(1.0, max(0.0, $haversine));
+
+        return $earthRadiusMeters * 2 * atan2(sqrt($safeHaversine), sqrt(1 - $safeHaversine));
     }
 
     /**

@@ -19,19 +19,15 @@ class DriverOrderPayloadFactory
             'user:id,name,phone',
             'serviceType:id,code,display_name',
             'statusRef:id,code,display_name',
-            'pricing',
-            'deliveryFeeOverride',
             'feeLines',
             'shoppingReceipt',
-            'routeInfo',
-            'assignment',
             'restaurant',
             'rideOrder:id,order_id,picked_up_at,arrived_at',
-            'courierOrder:id,order_id,package_description',
+            'courierOrder:id,order_id,package_description,careful_carry_required',
             'items:id,order_id,menu_id,pickup_location_id,item_source,menu_name,quantity,unit_price,subtotal,notes,metadata,is_available,is_heavy',
             'orderLocations:id,order_id,restaurant_id,location_role,label,contact_name,contact_phone,full_address,latitude,longitude,sequence_no,fulfillment_status,failed_attempt_count,failure_reason,failed_at,resolved_at',
             'orderLocations.restaurant:id,name,address,latitude,longitude,phone,merchant_type',
-            'payments:id,order_id,payment_method,payment_status,amount,recorded_by_user_id,driver_id,paid_at',
+            'payment:id,order_id,payment_method,payment_status,amount,recorded_by_user_id,driver_id,paid_at',
             'evidences:id,order_id,driver_id,evidence_type,file_url,uploaded_at,notes,created_at',
             'statusHistories' => function (Relation $query): void {
                 $query
@@ -70,8 +66,12 @@ class DriverOrderPayloadFactory
             $proofStatus,
         );
 
-        $acceptedAt = $order->statusHistories
-            ->first(fn (OrderStatusHistory $history): bool => strtoupper((string) ($history->statusRef->code ?? '')) === 'DRIVER_ASSIGNED');
+        $acceptedAt = $order->assigned_at;
+        if ($acceptedAt === null) {
+            $acceptedAt = $order->statusHistories
+                ->first(fn (OrderStatusHistory $history): bool => strtoupper((string) ($history->statusRef->code ?? '')) === 'DRIVER_ASSIGNED')
+                ?->created_at;
+        }
 
         $itemCount = (int) $order->items->sum('quantity');
         if ($itemCount < 1) {
@@ -80,6 +80,7 @@ class DriverOrderPayloadFactory
 
         $pricingSnapshot = $this->pricingSnapshot($order);
         $deliveryFee = round((float) $order->delivery_fee, 2);
+        $carefulCarryRequired = $this->carefulCarryRequired($order);
 
         $payload = [
             'id' => (string) $order->id,
@@ -99,16 +100,14 @@ class DriverOrderPayloadFactory
             'delivery_distance_text' => $order->delivery_distance_text,
             'delivery_fee' => $deliveryFee,
             'delivery_fee_source' => $order->delivery_fee_source ?: 'system',
-            'manual_delivery_fee' => $order->manual_delivery_fee !== null ? round((float) $order->manual_delivery_fee, 2) : null,
-            'manual_delivery_fee_reason' => $order->manual_delivery_fee_reason,
-            'careful_carry_required' => (bool) ($order->careful_carry_required ?? false),
+            'careful_carry_required' => $carefulCarryRequired,
             'pricing_snapshot' => $pricingSnapshot,
             'fee_breakdown' => $this->feeBreakdown($order, $pricingSnapshot),
             'proofs' => $proofs,
             'total_price' => round((float) $order->total_price, 2),
             'item_count' => $itemCount,
             'eta_minutes' => $this->estimateEtaMinutes($order),
-            'accepted_at' => $acceptedAt?->created_at?->format('H:i'),
+            'accepted_at' => $acceptedAt?->format('H:i'),
             'status_code' => $statusCode,
             'status_display_name' => $order->statusRef?->display_name,
             'payment_status' => $paymentStatus,
@@ -250,9 +249,7 @@ class DriverOrderPayloadFactory
             'delivery_pricing' => $deliveryPricing,
             'delivery_fee' => round((float) $order->delivery_fee, 2),
             'delivery_fee_source' => $order->delivery_fee_source ?: 'system',
-            'manual_delivery_fee' => $order->manual_delivery_fee !== null ? round((float) $order->manual_delivery_fee, 2) : null,
-            'manual_delivery_fee_reason' => $order->manual_delivery_fee_reason,
-            'careful_carry_required' => (bool) ($order->careful_carry_required ?? false),
+            'careful_carry_required' => $this->carefulCarryRequired($order),
             'route' => $route,
             'shopping_pricing' => [
                 'receipt_total_amount' => $order->shoppingReceipt?->total_amount !== null
@@ -284,7 +281,7 @@ class DriverOrderPayloadFactory
             ];
         }
 
-        if ((bool) ($order->careful_carry_required ?? false)) {
+        if ($this->carefulCarryRequired($order) && ($order->delivery_fee_source ?: 'system') !== 'driver_manual') {
             $breakdown[] = [
                 'code' => 'careful_carry',
                 'label' => 'Bawa hati-hati',
@@ -292,12 +289,11 @@ class DriverOrderPayloadFactory
             ];
         }
 
-        if (($order->delivery_fee_source ?: 'system') === 'manual') {
+        if (($order->delivery_fee_source ?: 'system') === 'driver_manual') {
             $breakdown[] = [
                 'code' => 'manual_override',
                 'label' => 'Ongkir manual driver',
-                'amount' => round((float) ($order->manual_delivery_fee ?? $order->delivery_fee), 2),
-                'reason' => $order->manual_delivery_fee_reason,
+                'amount' => round((float) $order->delivery_fee, 2),
             ];
         }
 
@@ -306,16 +302,18 @@ class DriverOrderPayloadFactory
 
     private function carefulCarrySurchargeFromOrder(Order $order): float
     {
-        if (($order->delivery_fee_source ?: 'system') === 'manual' && $order->manual_delivery_fee !== null) {
-            return round(max(0.0, (float) $order->manual_delivery_fee) * 0.5, 2);
-        }
-
         $route = $this->orderRouteSnapshot($order);
         $systemFee = is_array($route)
             ? (float) data_get($route, 'delivery_pricing.total_fee', $order->delivery_fee)
             : (float) $order->delivery_fee;
 
         return round($systemFee * 0.5, 2);
+    }
+
+    private function carefulCarryRequired(Order $order): bool
+    {
+        return strtoupper((string) ($order->serviceType?->code ?? '')) === 'COURIER'
+            && (bool) ($order->courierOrder?->careful_carry_required ?? false);
     }
 
     /**

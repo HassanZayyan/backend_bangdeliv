@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Exceptions\ApiException;
 use App\Models\Driver;
+use App\Models\Menu;
 use App\Models\Order;
 use App\Models\OrderEvidence;
 use App\Models\OrderLocation;
@@ -65,7 +66,7 @@ class OrderService
 
         $query = Order::query()
             ->where('user_id', $user->id)
-            ->with(['restaurant', 'items', 'orderLocations.restaurant', 'payments', 'evidences', 'statusRef', 'serviceType', 'courierOrder', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt'])
+            ->with(['restaurant', 'items', 'orderLocations.restaurant', 'payments', 'evidences', 'statusRef', 'serviceType', 'courierOrder', 'feeLines',  'shoppingReceipt'])
             ->latest('id');
 
         if (! empty($filters['status'])) {
@@ -78,7 +79,7 @@ class OrderService
     public function customerOrderDetail(User $user, int $orderId): Order
     {
         $order = Order::query()
-            ->with(['restaurant', 'driver.user', 'items', 'orderLocations.restaurant', 'payments', 'evidences', 'statusRef', 'statusHistories.statusRef', 'serviceType', 'courierOrder', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt'])
+            ->with(['restaurant', 'driver.user', 'items', 'orderLocations.restaurant', 'payments', 'evidences', 'statusRef', 'statusHistories.statusRef', 'serviceType', 'courierOrder', 'feeLines',  'shoppingReceipt'])
             ->find($orderId);
 
         if (! $order || $order->user_id !== $user->id) {
@@ -86,7 +87,7 @@ class OrderService
         }
 
         return $this->ensureDisplayRoutePolyline($order)
-            ->fresh(['restaurant', 'driver.user', 'items', 'orderLocations.restaurant', 'payments', 'evidences', 'statusRef', 'statusHistories.statusRef', 'serviceType', 'courierOrder', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt']);
+            ->fresh(['restaurant', 'driver.user', 'items', 'orderLocations.restaurant', 'payments', 'evidences', 'statusRef', 'statusHistories.statusRef', 'serviceType', 'courierOrder', 'feeLines',  'shoppingReceipt']);
     }
 
     public function cancelByCustomer(User $user, int $orderId, string $reason): Order
@@ -95,7 +96,7 @@ class OrderService
 
         $order = DB::transaction(function () use ($user, $orderId, $reason, &$shouldBroadcastDriverOrderRemoved): Order {
             $order = Order::query()
-                ->with(['statusRef', 'serviceType', 'orderLocations', 'feeLines', 'deliveryFeeOverride'])
+                ->with(['statusRef', 'serviceType', 'orderLocations', 'feeLines'])
                 ->lockForUpdate()
                 ->find($orderId);
 
@@ -152,14 +153,14 @@ class OrderService
 
             if ($isShopping) {
                 $order = $this->shoppingPricingService->recalculate(
-                    $order->refresh()->load(['items', 'statusRef', 'serviceType', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt']),
+                    $order->refresh()->load(['items', 'statusRef', 'serviceType', 'feeLines',  'shoppingReceipt']),
                     $user->id,
                     $cancellationPenalty > 0 ? 'CUSTOMER_CANCEL_WITH_FEE' : 'CUSTOMER_CANCEL',
                     false
                 );
             }
 
-            return $order->refresh()->load(['restaurant', 'items', 'statusRef', 'statusHistories.statusRef', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt']);
+            return $order->refresh()->load(['restaurant', 'items', 'statusRef', 'statusHistories.statusRef', 'feeLines',  'shoppingReceipt']);
         });
 
         if ($shouldBroadcastDriverOrderRemoved) {
@@ -269,7 +270,7 @@ class OrderService
             'serviceType',
             'courierOrder',
             'feeLines',
-            'deliveryFeeOverride',
+
             'shoppingReceipt',
         ]);
     }
@@ -280,8 +281,7 @@ class OrderService
         string $failureType,
         string $reason,
         ?int $pickupLocationId = null,
-    ): Order
-    {
+    ): Order {
         $normalizedFailureType = strtoupper(trim($failureType));
         $allowedFailureTypes = ['DRIVER_ASSIGNMENT', 'PICKUP', 'DELIVERY'];
 
@@ -295,7 +295,7 @@ class OrderService
 
         $order = DB::transaction(function () use ($actor, $orderId, $normalizedFailureType, $reason, $pickupLocationId): Order {
             $order = Order::query()
-                ->with(['statusRef', 'serviceType', 'orderLocations', 'items', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt'])
+                ->with(['statusRef', 'serviceType', 'orderLocations', 'items', 'feeLines',  'shoppingReceipt'])
                 ->lockForUpdate()
                 ->find($orderId);
 
@@ -371,7 +371,7 @@ class OrderService
                     });
             }
 
-            $order->refresh()->load(['orderLocations.restaurant', 'items', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt']);
+            $order->refresh()->load(['orderLocations.restaurant', 'items', 'feeLines',  'shoppingReceipt']);
             $nextFailedAttemptCount = $this->shoppingPricingService->failedAttemptCount($order);
 
             $this->shoppingRouteService->applyRouteToOrder($order);
@@ -394,19 +394,19 @@ class OrderService
                 'order_id' => $order->id,
                 'log_type' => 'SYSTEM_EVENT',
                 'trigger_type' => 'FAILED_ATTEMPT_'.$normalizedFailureType,
-                'recalculation_version' => $this->shoppingPricingService->latestRecalculationVersion($order),
                 'changed_by_user_id' => $actor->id,
                 'note' => $reason,
                 'metadata' => [
                     'failure_type' => $normalizedFailureType,
                     'failed_attempt_count' => $nextFailedAttemptCount,
+                    'recalculation_version' => $this->shoppingPricingService->latestRecalculationVersion($order),
                     'actor_role' => $actor->role,
                     'pickup_location_id' => $pickup?->id ?? $pickupLocationId,
                 ],
             ]);
 
             return $this->shoppingPricingService->recalculate(
-                $order->refresh()->load(['items', 'statusRef', 'serviceType', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt']),
+                $order->refresh()->load(['items', 'statusRef', 'serviceType', 'feeLines',  'shoppingReceipt']),
                 $actor->id,
                 'SHOPPING_FAILED_ATTEMPT',
                 false,
@@ -567,7 +567,7 @@ class OrderService
             ? Order::query()
                 ->with($this->driverOrderPayloadFactory->relations())
                 ->where('status_id', $pendingStatusId)
-                ->whereDoesntHave('assignment')
+                ->whereNull('driver_id')
                 ->whereDoesntHave('statusHistories', function ($query) use ($actor): void {
                     $query
                         ->where('event_type', 'DRIVER_REJECT')
@@ -580,9 +580,7 @@ class OrderService
 
         $running = Order::query()
             ->with($this->driverOrderPayloadFactory->relations())
-            ->whereHas('assignment', function ($query) use ($driver): void {
-                $query->where('driver_id', $driver->id);
-            })
+            ->where('driver_id', $driver->id)
             ->whereIn('status_id', $runningStatusIds)
             ->latest('id')
             ->limit(30)
@@ -613,10 +611,8 @@ class OrderService
         ]);
 
         $orders = Order::query()
-            ->with(['user:id,name', 'statusRef:id,code,display_name', 'pricing', 'statusHistories.statusRef'])
-            ->whereHas('assignment', function ($query) use ($driver): void {
-                $query->where('driver_id', $driver->id);
-            })
+            ->with(['user:id,name', 'statusRef:id,code,display_name',  'statusHistories.statusRef'])
+            ->where('driver_id', $driver->id)
             ->whereIn('status_id', $historyStatusIds)
             ->latest('id')
             ->limit(100)
@@ -684,7 +680,7 @@ class OrderService
 
     private function ensureDisplayRoutePolyline(Order $order): Order
     {
-        $order->loadMissing(['serviceType', 'orderLocations.restaurant', 'items', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt']);
+        $order->loadMissing(['serviceType', 'orderLocations.restaurant', 'items', 'feeLines',  'shoppingReceipt']);
 
         if (strtoupper((string) ($order->serviceType->code ?? '')) !== 'SHOPPING') {
             return $order;
@@ -707,7 +703,7 @@ class OrderService
             return $order;
         }
 
-        return $order->refresh()->load(['serviceType', 'orderLocations.restaurant', 'items', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt']);
+        return $order->refresh()->load(['serviceType', 'orderLocations.restaurant', 'items', 'feeLines',  'shoppingReceipt']);
     }
 
     /**
@@ -737,9 +733,13 @@ class OrderService
             $isAssignedToCurrentDriver = (int) ($order->driver_id ?? 0) === (int) $driver->id;
 
             if ($statusCode === 'DRIVER_ASSIGNED' && $isAssignedToCurrentDriver) {
+                if ($order->assigned_at === null) {
+                    $order->update(['assigned_at' => now()]);
+                }
+
                 $this->markDriverBusy($lockedDriver);
 
-                return $order;
+                return $order->refresh();
             }
 
             if ($statusCode !== 'PENDING') {
@@ -764,6 +764,7 @@ class OrderService
             $order->update([
                 'driver_id' => $driver->id,
                 'status_id' => $assignedStatusId,
+                'assigned_at' => now(),
             ]);
 
             $statusHistory = OrderStatusHistory::query()->create([
@@ -903,7 +904,7 @@ class OrderService
             &$statusChangeEventPayload,
         ): Order {
             $order = Order::query()
-                ->with(['statusRef', 'serviceType', 'rideOrder', 'evidences', 'orderLocations', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt'])
+                ->with(['statusRef', 'serviceType', 'rideOrder', 'evidences', 'orderLocations', 'feeLines',  'shoppingReceipt'])
                 ->lockForUpdate()
                 ->find($orderId);
 
@@ -1049,7 +1050,7 @@ class OrderService
                 ]]);
 
                 $order = $this->shoppingPricingService->recalculate(
-                    $order->refresh()->load(['items', 'statusRef', 'serviceType', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt']),
+                    $order->refresh()->load(['items', 'statusRef', 'serviceType', 'feeLines',  'shoppingReceipt']),
                     $actor->id,
                     'DRIVER_CANCEL_WITH_FEE',
                     false,
@@ -1181,9 +1182,7 @@ class OrderService
         }
 
         return Order::query()
-            ->whereHas('assignment', function ($query) use ($driverId): void {
-                $query->where('driver_id', $driverId);
-            })
+            ->where('driver_id', $driverId)
             ->whereIn('status_id', $runningStatusIds)
             ->exists();
     }
@@ -1372,7 +1371,7 @@ class OrderService
 
         $order = DB::transaction(function () use ($actor, $driver, $orderId, $payload): Order {
             $order = Order::query()
-                ->with(['statusRef', 'serviceType', 'items', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt'])
+                ->with(['statusRef', 'serviceType', 'items', 'feeLines',  'shoppingReceipt'])
                 ->lockForUpdate()
                 ->find($orderId);
 
@@ -1450,7 +1449,7 @@ class OrderService
             }
 
             return $this->shoppingPricingService->recalculate(
-                $order->refresh()->load(['items', 'statusRef', 'serviceType', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt']),
+                $order->refresh()->load(['items', 'statusRef', 'serviceType', 'feeLines',  'shoppingReceipt']),
                 $actor->id,
                 'DRIVER_RECEIPT_UPDATE',
                 true,
@@ -1473,7 +1472,7 @@ class OrderService
         $driver = $this->resolveActiveDriverProfile($actor);
 
         $order = DB::transaction(function () use ($actor, $driver, $orderId, $payload): Order {
-            $order = $this->lockedAssignedDriverOrder($orderId, $driver->id, ['statusRef', 'serviceType', 'items', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt']);
+            $order = $this->lockedAssignedDriverOrder($orderId, $driver->id, ['statusRef', 'serviceType', 'items', 'feeLines', 'shoppingReceipt', 'courierOrder']);
 
             $manualAmount = array_key_exists('amount', $payload) && $payload['amount'] !== null
                 ? round(max(0.0, (float) $payload['amount']), 2)
@@ -1481,12 +1480,12 @@ class OrderService
             $reason = trim((string) ($payload['reason'] ?? ''));
             $carefulCarryRequired = array_key_exists('careful_carry_required', $payload)
                 ? (bool) $payload['careful_carry_required']
-                : (bool) ($order->careful_carry_required ?? false);
+                : $this->carefulCarryRequired($order);
             $serviceCode = (string) ($order->serviceType->code ?? '');
 
             if (! $this->supportsCarefulCarry($serviceCode)) {
                 if (array_key_exists('careful_carry_required', $payload) && (bool) $payload['careful_carry_required']) {
-                    throw new ApiException('Perlu 2 orang hanya tersedia untuk order kurir dan Nitip.', 422);
+                    throw new ApiException('Perlu 2 orang hanya tersedia untuk order kurir.', 422);
                 }
 
                 $carefulCarryRequired = false;
@@ -1501,30 +1500,26 @@ class OrderService
             }
 
             $nextDeliveryFee = $manualAmount !== null
-                ? $this->deliveryFeeWithCarefulCarry($manualAmount, $carefulCarryRequired)
+                ? $manualAmount
                 : $this->systemDeliveryFeeWithCarefulCarry($order, $carefulCarryRequired);
             $oldDeliveryFee = (float) $order->delivery_fee;
             $oldTotalPrice = (float) $order->total_price;
 
             $order->update([
                 'delivery_fee' => $nextDeliveryFee,
-                'delivery_fee_source' => $manualAmount !== null ? 'manual' : 'system',
-                'manual_delivery_fee' => $manualAmount,
-                'manual_delivery_fee_reason' => $manualAmount !== null ? $reason : null,
-                'careful_carry_required' => $carefulCarryRequired,
+                'delivery_fee_source' => $manualAmount !== null ? 'driver_manual' : 'system',
             ]);
-            if ($manualAmount !== null) {
-                $order->deliveryFeeOverride()->update(['changed_by_user_id' => $actor->id]);
-                $order->unsetRelation('deliveryFeeOverride');
-            }
+            $this->setCourierCarefulCarryRequired($order->refresh(), $carefulCarryRequired);
 
             $order = $this->refreshTotalsAfterDeliveryFeeChange(
-                $order->refresh(),
+                $order->refresh()->loadMissing('courierOrder'),
                 $actor->id,
                 'DRIVER_DELIVERY_FEE_OVERRIDE',
                 $reason !== '' ? $reason : 'Driver memperbarui ongkir.',
                 $oldDeliveryFee,
                 $oldTotalPrice,
+                $reason !== '' ? $reason : null,
+                'driver',
             );
 
             return $order;
@@ -1609,7 +1604,7 @@ class OrderService
             $order = $this->lockedAssignedDriverOrder(
                 $orderId,
                 $driver->id,
-                ['statusRef', 'serviceType', 'items', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt']
+                ['statusRef', 'serviceType', 'items', 'feeLines',  'shoppingReceipt']
             );
 
             if (($order->serviceType->code ?? null) !== 'SHOPPING') {
@@ -1626,16 +1621,9 @@ class OrderService
                 }
 
                 $order->update([
-                    'delivery_fee' => $this->deliveryFeeWithCarefulCarry(
-                        $manualDeliveryFee,
-                        (bool) ($order->careful_carry_required ?? false)
-                    ),
-                    'delivery_fee_source' => 'manual',
-                    'manual_delivery_fee' => $manualDeliveryFee,
-                    'manual_delivery_fee_reason' => 'Ongkir diedit saat checkout nitip.',
+                    'delivery_fee' => $manualDeliveryFee,
+                    'delivery_fee_source' => 'driver_manual',
                 ]);
-                $order->deliveryFeeOverride()->update(['changed_by_user_id' => $actor->id]);
-                $order->unsetRelation('deliveryFeeOverride');
 
                 $order = $this->refreshTotalsAfterDeliveryFeeChange(
                     $order->refresh(),
@@ -1644,6 +1632,8 @@ class OrderService
                     'Driver mengubah ongkir saat checkout nitip.',
                     $oldDeliveryFee,
                     $oldTotalPrice,
+                    'Ongkir diedit saat checkout nitip.',
+                    'driver',
                 );
             }
 
@@ -1801,7 +1791,7 @@ class OrderService
                     continue;
                 }
 
-                $merchant = $this->resolveManualItemMerchant($order, $payload);
+                $merchant = $this->resolveShoppingItemMerchant($order, $payload);
                 $merchantId = (int) $merchant->id;
                 $pickupLocation = $pickupLocationsByMerchantId[$merchantId] ?? null;
 
@@ -1821,15 +1811,8 @@ class OrderService
                 $pickupLocationsByMerchantId[$merchantId] = $pickupLocation;
 
                 $order->items()->create([
-                    'menu_id' => null,
+                    ...$this->shoppingItemCreatePayload($merchant, $payload),
                     'pickup_location_id' => $pickupLocation->id,
-                    'item_source' => 'MANUAL',
-                    'menu_name' => (string) $payload['menu_name'],
-                    'quantity' => (int) $payload['quantity'],
-                    'unit_price' => 0,
-                    'subtotal' => 0,
-                    'notes' => isset($payload['notes']) ? (string) $payload['notes'] : null,
-                    'metadata' => ['price_status' => 'PENDING_DRIVER_INPUT'],
                     'is_available' => true,
                     'is_heavy' => false,
                 ]);
@@ -1863,7 +1846,7 @@ class OrderService
             }
 
             return $this->shoppingPricingService->recalculate(
-                $order->refresh()->load(['items', 'statusRef', 'serviceType', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt']),
+                $order->refresh()->load(['items', 'statusRef', 'serviceType', 'feeLines',  'shoppingReceipt']),
                 $user->id,
                 $routeChanged ? 'SHOPPING_ROUTE_UPDATED' : 'CUSTOMER_ADD_ITEM',
                 true,
@@ -1909,7 +1892,7 @@ class OrderService
             ]);
 
             return $this->shoppingPricingService->recalculate(
-                $order->refresh()->load(['items', 'statusRef', 'serviceType', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt']),
+                $order->refresh()->load(['items', 'statusRef', 'serviceType', 'feeLines',  'shoppingReceipt']),
                 $user->id,
                 'CUSTOMER_UPDATE_ITEM',
                 true,
@@ -1952,7 +1935,7 @@ class OrderService
             }
 
             return $this->shoppingPricingService->recalculate(
-                $order->refresh()->load(['items', 'statusRef', 'serviceType', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt']),
+                $order->refresh()->load(['items', 'statusRef', 'serviceType', 'feeLines',  'shoppingReceipt']),
                 $user->id,
                 $routeChanged ? 'SHOPPING_ROUTE_UPDATED' : 'CUSTOMER_REMOVE_ITEM',
                 true,
@@ -2006,7 +1989,7 @@ class OrderService
             ]);
 
             return $this->shoppingPricingService->recalculate(
-                $order->refresh()->load(['items', 'statusRef', 'serviceType', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt']),
+                $order->refresh()->load(['items', 'statusRef', 'serviceType', 'feeLines',  'shoppingReceipt']),
                 $user->id,
                 'CUSTOMER_SKIP_FAILED_MERCHANT',
                 false,
@@ -2043,7 +2026,7 @@ class OrderService
     private function getEditableShoppingOrder(User $user, int $orderId): Order
     {
         $order = Order::query()
-            ->with(['items', 'statusRef', 'serviceType', 'restaurant', 'orderLocations.restaurant', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt'])
+            ->with(['items', 'statusRef', 'serviceType', 'restaurant', 'orderLocations.restaurant', 'feeLines',  'shoppingReceipt'])
             ->find($orderId);
 
         if (! $order || $order->user_id !== $user->id) {
@@ -2065,7 +2048,7 @@ class OrderService
     /**
      * @param  array<string, mixed>  $payload
      */
-    private function resolveManualItemMerchant(Order $order, array $payload): Restaurant
+    private function resolveShoppingItemMerchant(Order $order, array $payload): Restaurant
     {
         if (isset($payload['merchant_id']) && is_numeric($payload['merchant_id'])) {
             $merchant = Restaurant::query()
@@ -2092,6 +2075,80 @@ class OrderService
         }
 
         throw new ApiException('Merchant wajib dipilih untuk item manual.', 422);
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    private function shoppingItemCreatePayload(Restaurant $merchant, array $payload): array
+    {
+        $itemSource = strtoupper((string) ($payload['item_source'] ?? 'MANUAL'));
+        $quantity = max(1, (int) ($payload['quantity'] ?? 1));
+        $notes = isset($payload['notes']) && trim((string) $payload['notes']) !== ''
+            ? trim((string) $payload['notes'])
+            : null;
+
+        if ($itemSource === 'MENU_DB') {
+            $menu = $this->resolveShoppingMenu($merchant, $payload);
+            $unitPrice = round((float) $menu->price, 2);
+
+            return [
+                'menu_id' => (int) $menu->id,
+                'item_source' => 'MENU_DB',
+                'menu_name' => (string) $menu->name,
+                'quantity' => $quantity,
+                'unit_price' => $unitPrice,
+                'subtotal' => round($unitPrice * $quantity, 2),
+                'notes' => $notes,
+                'metadata' => [
+                    'price_status' => 'CONFIRMED',
+                    'source' => 'CUSTOMER_MENU_DB',
+                ],
+            ];
+        }
+
+        $menuName = trim((string) ($payload['menu_name'] ?? ''));
+        if ($menuName === '') {
+            throw new ApiException('Nama item manual wajib diisi.', 422);
+        }
+
+        return [
+            'menu_id' => null,
+            'item_source' => 'MANUAL',
+            'menu_name' => $menuName,
+            'quantity' => $quantity,
+            'unit_price' => 0,
+            'subtotal' => 0,
+            'notes' => $notes,
+            'metadata' => ['price_status' => 'PENDING_DRIVER_INPUT'],
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function resolveShoppingMenu(Restaurant $merchant, array $payload): Menu
+    {
+        $menuId = isset($payload['menu_id']) && is_numeric($payload['menu_id'])
+            ? (int) $payload['menu_id']
+            : 0;
+
+        if ($menuId < 1) {
+            throw new ApiException('Menu wajib dipilih untuk item katalog.', 422);
+        }
+
+        $menu = Menu::query()
+            ->whereKey($menuId)
+            ->where('restaurant_id', $merchant->id)
+            ->where('is_available', true)
+            ->first();
+
+        if (! $menu) {
+            throw new ApiException('Menu tidak ditemukan, tidak aktif, atau tidak sesuai merchant.', 422);
+        }
+
+        return $menu;
     }
 
     private function resolveReplacementPickup(Order $order, int $pickupLocationId): OrderLocation
@@ -2158,9 +2215,6 @@ class OrderService
     private function createPickupLocationForMerchant(Order $order, Restaurant $merchant): OrderLocation
     {
         $maxSequence = (int) $order->orderLocations()->max('sequence_no');
-        if ($order->restaurant_id === null) {
-            $order->update(['restaurant_id' => $merchant->id]);
-        }
 
         return $order->orderLocations()->create([
             'restaurant_id' => $merchant->id,
@@ -2177,21 +2231,7 @@ class OrderService
 
     private function syncPrimaryRestaurantFromFirstPickup(Order $order): void
     {
-        $firstPickup = $order->orderLocations()
-            ->where('location_role', 'PICKUP')
-            ->whereNotNull('restaurant_id')
-            ->where(function ($query): void {
-                $query
-                    ->whereNull('fulfillment_status')
-                    ->orWhereNotIn('fulfillment_status', ['FAILED', 'SKIPPED', 'REPLACED']);
-            })
-            ->orderBy('sequence_no')
-            ->orderBy('id')
-            ->first();
-
-        $order->update([
-            'restaurant_id' => $firstPickup?->restaurant_id,
-        ]);
+        $order->unsetRelation('restaurant');
     }
 
     /**
@@ -2199,10 +2239,8 @@ class OrderService
      */
     private function lockedAssignedDriverOrder(int $orderId, int $driverId, array $relations = []): Order
     {
-        $relations = array_values(array_unique([...$relations, 'assignment']));
-
         $order = Order::query()
-            ->with($relations)
+            ->with(array_values(array_unique($relations)))
             ->lockForUpdate()
             ->find($orderId);
 
@@ -2224,9 +2262,27 @@ class OrderService
         string $note,
         float $oldDeliveryFee,
         float $oldTotalPrice,
+        ?string $reason = null,
+        ?string $changedByRole = null,
     ): Order {
-        $order->loadMissing(['serviceType', 'items', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt']);
+        $order->loadMissing(['serviceType', 'items', 'feeLines', 'shoppingReceipt', 'courierOrder']);
         $newProjectedTotal = round($oldTotalPrice + ((float) $order->delivery_fee - $oldDeliveryFee), 2);
+        $eventMetadata = [
+            'old_delivery_fee' => round($oldDeliveryFee, 2),
+            'new_delivery_fee' => round((float) $order->delivery_fee, 2),
+            'old_total_price' => round($oldTotalPrice, 2),
+            'new_total_price' => $newProjectedTotal,
+            'delivery_fee_source' => $order->delivery_fee_source ?: 'system',
+            'careful_carry_required' => $this->carefulCarryRequired($order),
+        ];
+
+        if ($reason !== null && trim($reason) !== '') {
+            $eventMetadata['reason'] = trim($reason);
+        }
+
+        if ($changedByRole !== null && trim($changedByRole) !== '') {
+            $eventMetadata['changed_by_role'] = trim($changedByRole);
+        }
 
         $event = OrderLog::query()->create([
             'order_id' => $order->id,
@@ -2234,12 +2290,7 @@ class OrderService
             'trigger_type' => $triggerType,
             'changed_by_user_id' => $actorId,
             'note' => $note,
-            'metadata' => [
-                'delivery_fee_source' => $order->delivery_fee_source ?: 'system',
-                'manual_delivery_fee' => $order->manual_delivery_fee,
-                'manual_delivery_fee_reason' => $order->manual_delivery_fee_reason,
-                'careful_carry_required' => (bool) ($order->careful_carry_required ?? false),
-            ],
+            'metadata' => $eventMetadata,
         ]);
 
         $this->shoppingPricingService->recordPriceChange($event, [
@@ -2256,7 +2307,7 @@ class OrderService
 
         if (($order->serviceType->code ?? null) === 'SHOPPING') {
             return $this->shoppingPricingService->recalculate(
-                $order->refresh()->load(['items', 'statusRef', 'serviceType', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt']),
+                $order->refresh()->load(['items', 'statusRef', 'serviceType', 'feeLines',  'shoppingReceipt']),
                 $actorId,
                 $triggerType,
                 true,
@@ -2281,17 +2332,15 @@ class OrderService
                 'delivery_fee' => round((float) $order->delivery_fee, 2),
                 'delivery_fee_source' => $order->delivery_fee_source ?: 'system',
                 'total_price' => $nextTotalPrice,
+                'reason' => $reason,
             ],
         ]);
 
         $this->broadcastContentUpdatedAfterCommit((int) $order->id, $triggerType, [
             'delivery_fee' => round((float) $order->delivery_fee, 2),
             'delivery_fee_source' => $order->delivery_fee_source ?: 'system',
-            'manual_delivery_fee' => $order->manual_delivery_fee !== null
-                ? round((float) $order->manual_delivery_fee, 2)
-                : null,
-            'manual_delivery_fee_reason' => $order->manual_delivery_fee_reason,
-            'careful_carry_required' => (bool) ($order->careful_carry_required ?? false),
+            'delivery_fee_change_note' => $eventMetadata['reason'] ?? null,
+            'careful_carry_required' => $this->carefulCarryRequired($order),
             'total_price' => $nextTotalPrice,
         ]);
 
@@ -2307,6 +2356,7 @@ class OrderService
 
         if (DB::transactionLevel() > 0) {
             DB::afterCommit($broadcast);
+
             return;
         }
 
@@ -2346,7 +2396,31 @@ class OrderService
 
     private function supportsCarefulCarry(string $serviceCode): bool
     {
-        return in_array(strtoupper($serviceCode), ['COURIER', 'SHOPPING'], true);
+        return strtoupper($serviceCode) === 'COURIER';
+    }
+
+    private function carefulCarryRequired(Order $order): bool
+    {
+        return strtoupper((string) ($order->serviceType?->code ?? '')) === 'COURIER'
+            && (bool) ($order->courierOrder?->careful_carry_required ?? false);
+    }
+
+    private function setCourierCarefulCarryRequired(Order $order, bool $required): void
+    {
+        if (strtoupper((string) ($order->serviceType?->code ?? '')) !== 'COURIER') {
+            return;
+        }
+
+        $order->loadMissing('courierOrder');
+
+        $order->courierOrder()->updateOrCreate(
+            ['order_id' => $order->id],
+            [
+                'package_description' => $order->courierOrder?->package_description ?? 'Paket kurir',
+                'careful_carry_required' => $required,
+            ],
+        );
+        $order->unsetRelation('courierOrder');
     }
 
     private function supportsDriverProofType(string $serviceCode, string $type): bool
@@ -2460,13 +2534,17 @@ class OrderService
 
     private function orderHasPaidPayment(Order $order): bool
     {
+        if ($order->relationLoaded('payment')) {
+            return strtoupper((string) $order->payment?->payment_status) === 'PAID';
+        }
+
         if ($order->relationLoaded('payments')) {
             return $order->payments->contains(
                 fn (OrderPayment $payment): bool => strtoupper((string) $payment->payment_status) === 'PAID'
             );
         }
 
-        return $order->payments()
+        return $order->payment()
             ->where('payment_status', 'PAID')
             ->exists();
     }
@@ -2585,11 +2663,10 @@ class OrderService
                 'statusRef',
                 'statusHistories.statusRef',
                 'feeLines',
-                'deliveryFeeOverride',
+
                 'shoppingReceipt',
                 'payments',
             ]);
         });
     }
-
 }

@@ -4,7 +4,6 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class OrderLog extends Model
 {
@@ -14,9 +13,10 @@ class OrderLog extends Model
 
     protected $fillable = [
         'order_id',
+        'event_type',
         'log_type',
+        'new_status_id',
         'trigger_type',
-        'recalculation_version',
         'changed_by_user_id',
         'note',
         'metadata',
@@ -26,10 +26,23 @@ class OrderLog extends Model
     protected function casts(): array
     {
         return [
-            'recalculation_version' => 'integer',
             'metadata' => 'array',
             'created_at' => 'datetime',
         ];
+    }
+
+    public function setAttribute($key, $value)
+    {
+        if ($key === 'log_type') {
+            $key = 'event_type';
+        }
+
+        return parent::setAttribute($key, $value);
+    }
+
+    public function getLogTypeAttribute(): ?string
+    {
+        return $this->event_type;
     }
 
     public function order(): BelongsTo
@@ -42,8 +55,8 @@ class OrderLog extends Model
         return $this->belongsTo(User::class, 'changed_by_user_id');
     }
 
-    public function priceChange(): HasOne
+    public function newStatus(): BelongsTo
     {
-        return $this->hasOne(OrderPriceChange::class, 'order_event_id');
+        return $this->belongsTo(OrderStatus::class, 'new_status_id');
     }
 }

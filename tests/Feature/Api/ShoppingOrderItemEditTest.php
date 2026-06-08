@@ -3,6 +3,7 @@
 namespace Tests\Feature\Api;
 
 use App\Events\OrderContentUpdated;
+use App\Models\Menu;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\OrderPayment;
@@ -38,7 +39,7 @@ class ShoppingOrderItemEditTest extends TestCase
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.total_price', '25000.00');
 
-        $this->assertDatabaseHas('order_items', [
+        $this->assertDatabaseHas('shopping_order_items', [
             'order_id' => $order->id,
             'item_source' => 'MANUAL',
             'menu_name' => 'Gula 1 kg',
@@ -94,7 +95,7 @@ class ShoppingOrderItemEditTest extends TestCase
         ]);
 
         $pickupId = (int) $response->json('data.shopping_stops.1.pickup_location_id');
-        $this->assertDatabaseHas('order_items', [
+        $this->assertDatabaseHas('shopping_order_items', [
             'order_id' => $order->id,
             'pickup_location_id' => $pickupId,
             'item_source' => 'MANUAL',
@@ -150,7 +151,7 @@ class ShoppingOrderItemEditTest extends TestCase
             ->assertJsonCount(1, 'data.shopping_stops');
 
         $this->assertSame(4, OrderItem::query()->where('order_id', $order->id)->count());
-        $this->assertDatabaseHas('order_items', [
+        $this->assertDatabaseHas('shopping_order_items', [
             'order_id' => $order->id,
             'menu_name' => 'Kopi sachet',
             'quantity' => 3,
@@ -208,7 +209,7 @@ class ShoppingOrderItemEditTest extends TestCase
             'location_role' => 'PICKUP',
             'sequence_no' => 3,
         ]);
-        $this->assertDatabaseHas('order_items', [
+        $this->assertDatabaseHas('shopping_order_items', [
             'order_id' => $order->id,
             'menu_name' => 'Susu UHT',
             'quantity' => 2,
@@ -249,7 +250,7 @@ class ShoppingOrderItemEditTest extends TestCase
             ->assertJsonPath('data.shopping_stops.1.items.0.item_source', 'MANUAL')
             ->assertJsonPath('data.shopping_stops.1.items.0.price_status', 'PENDING_DRIVER_INPUT');
 
-        $this->assertDatabaseHas('order_items', [
+        $this->assertDatabaseHas('shopping_order_items', [
             'order_id' => $order->id,
             'menu_id' => null,
             'item_source' => 'MANUAL',
@@ -263,6 +264,99 @@ class ShoppingOrderItemEditTest extends TestCase
             'payment_status' => 'PENDING',
             'amount' => 35000,
         ]);
+    }
+
+    public function test_customer_can_add_restaurant_menu_database_item_with_price_snapshot(): void
+    {
+        Config::set('bangdeliv.google_maps_api_key', 'test-key');
+        Http::fake();
+
+        $customer = User::factory()->create(['role' => 'customer']);
+        $order = $this->createShoppingOrder($customer, 'ARRIVED_MERCHANT');
+        $menu = Menu::query()->create([
+            'restaurant_id' => $order->restaurant_id,
+            'name' => 'Soto Ayam',
+            'price' => 18000,
+            'is_available' => true,
+        ]);
+
+        Sanctum::actingAs($customer);
+
+        $response = $this->postJson('/api/v1/orders/'.$order->id.'/items', [
+            'merchant_id' => $order->restaurant_id,
+            'item_source' => 'MENU_DB',
+            'menu_id' => $menu->id,
+            'quantity' => 2,
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.delivery_fee', '5000.00')
+            ->assertJsonPath('data.total_price', '61000.00')
+            ->assertJsonPath('data.shopping_stops.0.items.1.menu_id', $menu->id)
+            ->assertJsonPath('data.shopping_stops.0.items.1.item_source', 'MENU_DB')
+            ->assertJsonPath('data.shopping_stops.0.items.1.price_status', 'CONFIRMED');
+
+        $this->assertDatabaseHas('shopping_order_items', [
+            'order_id' => $order->id,
+            'menu_id' => $menu->id,
+            'item_source' => 'MENU_DB',
+            'menu_name' => 'Soto Ayam',
+            'quantity' => 2,
+            'unit_price' => 18000,
+            'subtotal' => 36000,
+        ]);
+
+        $this->assertDatabaseHas('order_payments', [
+            'order_id' => $order->id,
+            'payment_status' => 'PENDING',
+            'amount' => 61000,
+        ]);
+
+        Http::assertNothingSent();
+    }
+
+    public function test_customer_menu_database_item_requires_menu_id(): void
+    {
+        $customer = User::factory()->create(['role' => 'customer']);
+        $order = $this->createShoppingOrder($customer, 'ARRIVED_MERCHANT');
+
+        Sanctum::actingAs($customer);
+
+        $response = $this->postJson('/api/v1/orders/'.$order->id.'/items', [
+            'merchant_id' => $order->restaurant_id,
+            'item_source' => 'MENU_DB',
+            'quantity' => 1,
+        ]);
+
+        $response->assertUnprocessable()
+            ->assertJsonValidationErrors(['menu_id']);
+    }
+
+    public function test_customer_cannot_add_menu_database_item_from_different_merchant(): void
+    {
+        $customer = User::factory()->create(['role' => 'customer']);
+        $order = $this->createShoppingOrder($customer, 'ARRIVED_MERCHANT');
+        $otherRestaurant = $this->createMerchant('Resto Lain', 'resto-lain-menu-test', -7.009, 110.409);
+        $otherMenu = Menu::query()->create([
+            'restaurant_id' => $otherRestaurant->id,
+            'name' => 'Soto Beda Merchant',
+            'price' => 19000,
+            'is_available' => true,
+        ]);
+
+        Sanctum::actingAs($customer);
+
+        $response = $this->postJson('/api/v1/orders/'.$order->id.'/items', [
+            'merchant_id' => $order->restaurant_id,
+            'item_source' => 'MENU_DB',
+            'menu_id' => $otherMenu->id,
+            'quantity' => 1,
+        ]);
+
+        $response->assertUnprocessable()
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('message', 'Menu tidak ditemukan, tidak aktif, atau tidak sesuai merchant.');
     }
 
     public function test_customer_adds_manual_item_from_existing_restaurant_without_recalculating_delivery_fee(): void
@@ -360,7 +454,7 @@ class ShoppingOrderItemEditTest extends TestCase
         $response->assertOk()
             ->assertJsonPath('success', true);
 
-        $this->assertDatabaseHas('order_items', [
+        $this->assertDatabaseHas('shopping_order_items', [
             'id' => $item->id,
             'menu_name' => 'Telur 2 kg',
             'is_heavy' => false,
@@ -517,7 +611,7 @@ class ShoppingOrderItemEditTest extends TestCase
             'restaurant_id' => $replacementMerchant->id,
             'location_role' => 'PICKUP',
         ]);
-        $this->assertDatabaseHas('order_items', [
+        $this->assertDatabaseHas('shopping_order_items', [
             'order_id' => $order->id,
             'menu_name' => 'Beras 1 kg',
             'unit_price' => 0,

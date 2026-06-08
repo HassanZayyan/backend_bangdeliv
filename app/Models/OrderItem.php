@@ -21,13 +21,14 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property array<string, mixed>|null $metadata
  * @property bool $is_available
  * @property bool $is_heavy
- *
  * @property-read \App\Models\Order $order
  * @property-read \App\Models\Menu|null $menu
  * @property-read \App\Models\OrderLocation|null $pickupLocation
  */
 class OrderItem extends Model
 {
+    protected $table = 'shopping_order_items';
+
     protected $fillable = [
         'order_id',
         'menu_id',

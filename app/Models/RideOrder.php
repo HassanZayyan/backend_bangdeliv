@@ -14,6 +14,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class RideOrder extends Model
 {
+    protected $table = 'ride_order_details';
+
     protected $fillable = [
         'order_id',
         'picked_up_at',

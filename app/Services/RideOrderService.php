@@ -15,6 +15,8 @@ use Illuminate\Support\Facades\DB;
 
 class RideOrderService
 {
+    private const MINIMUM_ROUTE_DISTANCE_METERS = 20;
+
     public function __construct(
         private readonly GoogleMapsGeocodingService $geocodingService,
         private readonly GoogleMapsDistanceMatrixService $distanceMatrixService,
@@ -99,6 +101,13 @@ class RideOrderService
         if ($pickupAddressText === '') {
             $pickupAddressText = sprintf('Pin %.6f, %.6f', $pickupLatitude, $pickupLongitude);
         }
+
+        $this->assertRoutePointsSeparated(
+            $pickupLatitude,
+            $pickupLongitude,
+            $destinationLatitude,
+            $destinationLongitude
+        );
 
         $route = $this->distanceMatrixService->resolveRoute(
             $pickupLatitude,
@@ -310,5 +319,43 @@ class RideOrderService
         $minutes = (int) ceil(max(0, $durationSeconds) / 60);
 
         return max(20, min(180, $minutes + 10));
+    }
+
+    private function assertRoutePointsSeparated(
+        float $originLatitude,
+        float $originLongitude,
+        float $destinationLatitude,
+        float $destinationLongitude
+    ): void {
+        if ($this->roughDistanceMeters(
+            $originLatitude,
+            $originLongitude,
+            $destinationLatitude,
+            $destinationLongitude
+        ) < self::MINIMUM_ROUTE_DISTANCE_METERS) {
+            throw new ApiException(
+                'Titik tujuan terlalu dekat dengan titik jemput. Pilih titik tujuan yang berbeda.',
+                422
+            );
+        }
+    }
+
+    private function roughDistanceMeters(
+        float $originLatitude,
+        float $originLongitude,
+        float $destinationLatitude,
+        float $destinationLongitude
+    ): float {
+        $earthRadiusMeters = 6371000.0;
+        $originLatitudeRad = deg2rad($originLatitude);
+        $destinationLatitudeRad = deg2rad($destinationLatitude);
+        $deltaLatitudeRad = deg2rad($destinationLatitude - $originLatitude);
+        $deltaLongitudeRad = deg2rad($destinationLongitude - $originLongitude);
+
+        $haversine = sin($deltaLatitudeRad / 2) ** 2
+            + cos($originLatitudeRad) * cos($destinationLatitudeRad) * sin($deltaLongitudeRad / 2) ** 2;
+        $safeHaversine = min(1.0, max(0.0, $haversine));
+
+        return $earthRadiusMeters * 2 * atan2(sqrt($safeHaversine), sqrt(1 - $safeHaversine));
     }
 }

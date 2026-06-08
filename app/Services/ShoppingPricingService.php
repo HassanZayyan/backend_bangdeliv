@@ -13,7 +13,9 @@ use Illuminate\Support\Facades\DB;
 class ShoppingPricingService
 {
     private const ITEM_SURCHARGE = 'ITEM_BLOCK_SURCHARGE';
+
     private const OVERWEIGHT_SURCHARGE = 'OVERWEIGHT_FLAT_SURCHARGE';
+
     private const CANCELLATION_PENALTY = 'CANCELLATION_PENALTY_AFTER_FAILED_ATTEMPTS';
 
     /**
@@ -113,7 +115,7 @@ class ShoppingPricingService
         bool $writeHistory = true,
         ?string $historyNote = null,
     ): Order {
-        $order->loadMissing(['items', 'serviceType', 'statusRef', 'feeLines', 'shoppingReceipt', 'deliveryFeeOverride']);
+        $order->loadMissing(['items', 'serviceType', 'statusRef', 'feeLines', 'shoppingReceipt']);
 
         $oldAmounts = $this->pricingAmounts($order);
         $deliveryFee = (float) $order->delivery_fee;
@@ -146,14 +148,13 @@ class ShoppingPricingService
 
         $order->update($orderUpdates);
 
-        $freshForTotals = $order->refresh()->load(['feeLines', 'deliveryFeeOverride']);
+        $freshForTotals = $order->refresh()->load(['feeLines']);
         $this->orderPaymentService->syncPendingCodAmount($freshForTotals);
 
         $event = OrderLog::query()->create([
             'order_id' => $order->id,
             'log_type' => 'PRICE_RECALCULATION',
             'trigger_type' => $triggerType,
-            'recalculation_version' => $nextVersion,
             'changed_by_user_id' => $changedByUserId,
             'note' => $historyNote ?: 'Rekalkulasi harga order SHOPPING setelah perubahan item.',
             'metadata' => [
@@ -191,7 +192,7 @@ class ShoppingPricingService
             'statusHistories.statusRef',
             'serviceType',
             'feeLines',
-            'deliveryFeeOverride',
+
             'shoppingReceipt',
         ]);
 
@@ -199,11 +200,8 @@ class ShoppingPricingService
             ...$pricing,
             'recalculation_version' => $nextVersion,
             'delivery_fee_source' => $freshOrder->delivery_fee_source,
-            'manual_delivery_fee' => $freshOrder->manual_delivery_fee !== null
-                ? round((float) $freshOrder->manual_delivery_fee, 2)
-                : null,
-            'manual_delivery_fee_reason' => $freshOrder->manual_delivery_fee_reason,
-            'careful_carry_required' => (bool) ($freshOrder->careful_carry_required ?? false),
+            'delivery_fee_change_note' => $freshOrder->delivery_fee_change_note,
+            'careful_carry_required' => false,
         ]);
 
         return $freshOrder;
@@ -261,11 +259,7 @@ class ShoppingPricingService
             return 0.0;
         }
 
-        $baseDeliveryFee = $order->manual_delivery_fee !== null
-            ? (float) $order->manual_delivery_fee
-            : (float) $order->delivery_fee;
-
-        return round($baseDeliveryFee * ($percent / 100), 2);
+        return round((float) $order->delivery_fee * ($percent / 100), 2);
     }
 
     public function cancellationFailedAttemptThreshold(int $serviceTypeId): int
@@ -327,8 +321,10 @@ class ShoppingPricingService
     {
         return (int) OrderLog::query()
             ->where('order_id', $order->id)
-            ->where('log_type', 'PRICE_RECALCULATION')
-            ->max('recalculation_version');
+            ->where('event_type', 'PRICE_RECALCULATION')
+            ->get(['metadata'])
+            ->map(fn (OrderLog $event): int => (int) data_get($event->metadata ?? [], 'recalculation_version', 0))
+            ->max();
     }
 
     public function feeLineAmount(Order $order, string $code): float
@@ -366,19 +362,33 @@ class ShoppingPricingService
      */
     public function recordPriceChange(OrderLog $event, array $oldAmounts, array $newAmounts): void
     {
-        $priceChange = $event->priceChange()->create();
+        $changes = [];
 
         foreach (['SUBTOTAL', 'DELIVERY_FEE', 'SERVICE_FEE', 'TOTAL_PRICE'] as $component) {
             $oldAmount = round((float) ($oldAmounts[$component] ?? 0), 2);
             $newAmount = round((float) ($newAmounts[$component] ?? 0), 2);
+            $deltaAmount = round($newAmount - $oldAmount, 2);
 
-            $priceChange->lines()->create([
-                'component_code' => $component,
+            if ($deltaAmount == 0.0) {
+                continue;
+            }
+
+            $changes[$component] = [
                 'old_amount' => $oldAmount,
                 'new_amount' => $newAmount,
-                'delta_amount' => round($newAmount - $oldAmount, 2),
-            ]);
+                'delta_amount' => $deltaAmount,
+            ];
         }
+
+        if ($changes === []) {
+            $event->delete();
+
+            return;
+        }
+
+        $metadata = is_array($event->metadata) ? $event->metadata : [];
+        $metadata['price_changes'] = $changes;
+        $event->update(['metadata' => $metadata]);
     }
 
     /**
@@ -506,6 +516,7 @@ class ShoppingPricingService
 
         if (DB::transactionLevel() > 0) {
             DB::afterCommit($broadcast);
+
             return;
         }
 

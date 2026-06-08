@@ -5,7 +5,6 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
@@ -50,15 +49,8 @@ class Driver extends Model
         return $this->hasMany(DriverDocument::class);
     }
 
-    public function orders(): HasManyThrough
+    public function orders(): HasMany
     {
-        return $this->hasManyThrough(
-            Order::class,
-            OrderAssignment::class,
-            'driver_id',
-            'id',
-            'id',
-            'order_id'
-        );
+        return $this->hasMany(Order::class);
     }
 }

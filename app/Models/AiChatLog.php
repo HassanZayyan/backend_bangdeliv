@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Relations\HasOneThrough;
 
 class AiChatLog extends Model
 {
-    protected $table = 'chat_messages';
+    protected $table = 'ai_chat_messages';
 
     public $timestamps = false;
 

@@ -12,7 +12,7 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('order_items', function (Blueprint $table) {
+        Schema::create('shopping_order_items', function (Blueprint $table) {
             $table->id();
             $table->foreignId('order_id')->constrained()->cascadeOnDelete();
             $table->foreignId('menu_id')->nullable()->constrained()->nullOnDelete();
@@ -28,19 +28,19 @@ return new class extends Migration
             $table->boolean('is_heavy')->default(false);
             $table->timestamps();
 
-            $table->index(['order_id', 'item_source'], 'order_items_order_source_idx');
-            $table->index(['order_id', 'is_heavy'], 'order_items_order_heavy_idx');
-            $table->index(['order_id', 'pickup_location_id'], 'order_items_order_pickup_idx');
+            $table->index(['order_id', 'item_source'], 'shopping_order_items_order_source_idx');
+            $table->index(['order_id', 'is_heavy'], 'shopping_order_items_order_heavy_idx');
+            $table->index(['order_id', 'pickup_location_id'], 'shopping_order_items_order_pickup_idx');
         });
 
         if (DB::getDriverName() === 'mysql') {
-            DB::unprepared('DROP TRIGGER IF EXISTS trg_order_items_only_shopping_insert');
-            DB::unprepared('DROP TRIGGER IF EXISTS trg_order_items_only_shopping_update');
+            DB::unprepared('DROP TRIGGER IF EXISTS trg_shopping_order_items_only_shopping_insert');
+            DB::unprepared('DROP TRIGGER IF EXISTS trg_shopping_order_items_only_shopping_update');
 
             DB::unprepared(
                 <<<'SQL'
-                CREATE TRIGGER trg_order_items_only_shopping_insert
-                BEFORE INSERT ON order_items
+                CREATE TRIGGER trg_shopping_order_items_only_shopping_insert
+                BEFORE INSERT ON shopping_order_items
                 FOR EACH ROW
                 BEGIN
                     DECLARE v_service_code VARCHAR(30);
@@ -52,7 +52,7 @@ return new class extends Migration
                     LIMIT 1;
 
                     IF v_service_code IS NULL OR v_service_code <> 'SHOPPING' THEN
-                        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'order_items hanya diperbolehkan untuk service SHOPPING';
+                        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'shopping_order_items hanya diperbolehkan untuk service SHOPPING';
                     END IF;
                 END
                 SQL
@@ -60,8 +60,8 @@ return new class extends Migration
 
             DB::unprepared(
                 <<<'SQL'
-                CREATE TRIGGER trg_order_items_only_shopping_update
-                BEFORE UPDATE ON order_items
+                CREATE TRIGGER trg_shopping_order_items_only_shopping_update
+                BEFORE UPDATE ON shopping_order_items
                 FOR EACH ROW
                 BEGIN
                     DECLARE v_service_code VARCHAR(30);
@@ -73,7 +73,7 @@ return new class extends Migration
                     LIMIT 1;
 
                     IF v_service_code IS NULL OR v_service_code <> 'SHOPPING' THEN
-                        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'order_items hanya diperbolehkan untuk service SHOPPING';
+                        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'shopping_order_items hanya diperbolehkan untuk service SHOPPING';
                     END IF;
                 END
                 SQL
@@ -87,10 +87,10 @@ return new class extends Migration
     public function down(): void
     {
         if (DB::getDriverName() === 'mysql') {
-            DB::unprepared('DROP TRIGGER IF EXISTS trg_order_items_only_shopping_insert');
-            DB::unprepared('DROP TRIGGER IF EXISTS trg_order_items_only_shopping_update');
+            DB::unprepared('DROP TRIGGER IF EXISTS trg_shopping_order_items_only_shopping_insert');
+            DB::unprepared('DROP TRIGGER IF EXISTS trg_shopping_order_items_only_shopping_update');
         }
 
-        Schema::dropIfExists('order_items');
+        Schema::dropIfExists('shopping_order_items');
     }
 };

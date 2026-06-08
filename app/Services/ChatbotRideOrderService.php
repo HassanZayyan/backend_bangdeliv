@@ -10,6 +10,8 @@ use App\Models\User;
 
 class ChatbotRideOrderService
 {
+    private const MINIMUM_ROUTE_DISTANCE_METERS = 20;
+
     /**
      * @var array<int, string>
      */
@@ -125,6 +127,7 @@ class ChatbotRideOrderService
                     'pickup_address_id' => null,
                     'used_default_pickup' => false,
                 ]);
+
                 continue;
             }
 
@@ -134,6 +137,7 @@ class ChatbotRideOrderService
                     'destination_latitude' => $latitude,
                     'destination_longitude' => $longitude,
                 ]);
+
                 continue;
             }
 
@@ -237,6 +241,7 @@ class ChatbotRideOrderService
         if ($this->normalizePaymentMethodOrNull($pendingDraft['payment_method'] ?? null) === null) {
             $payload = $this->buildDraftPayload($pendingDraft, $user->name);
             $payload['assistant_text'] .= "\n\nPilih COD atau Transfer dulu sebelum konfirmasi.";
+
             return $payload;
         }
 
@@ -484,33 +489,44 @@ class ChatbotRideOrderService
             $destinationLatitude !== null &&
             $destinationLongitude !== null
         ) {
-            try {
-                $route = $this->distanceMatrixService->resolveRoute(
-                    $pickupLatitude,
-                    $pickupLongitude,
-                    $destinationLatitude,
-                    $destinationLongitude,
-                );
-
-                $distanceMeters = (float) $route['distance_meters'];
-                $distanceKm = (float) $route['distance_km'];
-
-                if (! $this->deliveryPricingService->isWithinMaxDistance($distanceMeters)) {
-                    $reasons[] = sprintf(
-                        'Jarak %.2f km melebihi batas layanan %.2f km.',
-                        $distanceKm,
-                        $this->deliveryPricingService->getMaxDistanceKm()
+            if ($this->routePointsAreTooClose(
+                $pickupLatitude,
+                $pickupLongitude,
+                $destinationLatitude,
+                $destinationLongitude
+            )) {
+                $reasons[] = 'Titik tujuan terlalu dekat dengan titik jemput. Pilih titik tujuan yang berbeda.';
+                $missingFields[] = 'destination_address';
+                $nextActions[] = 'OPEN_MAP_PICKER_DESTINATION';
+            } else {
+                try {
+                    $route = $this->distanceMatrixService->resolveRoute(
+                        $pickupLatitude,
+                        $pickupLongitude,
+                        $destinationLatitude,
+                        $destinationLongitude,
                     );
-                }
 
-                $deliveryFee = (float) $this->deliveryPricingService
-                    ->calculateFromDistanceMeters($distanceMeters)['total_fee'];
-            } catch (ApiException $exception) {
-                if ($exception->status() === 422) {
-                    $reasons[] = 'Rute jemput ke tujuan tidak ditemukan. Gunakan alamat yang lebih spesifik.';
-                    $missingFields[] = 'destination_address';
-                } else {
-                    throw $exception;
+                    $distanceMeters = (float) $route['distance_meters'];
+                    $distanceKm = (float) $route['distance_km'];
+
+                    if (! $this->deliveryPricingService->isWithinMaxDistance($distanceMeters)) {
+                        $reasons[] = sprintf(
+                            'Jarak %.2f km melebihi batas layanan %.2f km.',
+                            $distanceKm,
+                            $this->deliveryPricingService->getMaxDistanceKm()
+                        );
+                    }
+
+                    $deliveryFee = (float) $this->deliveryPricingService
+                        ->calculateFromDistanceMeters($distanceMeters)['total_fee'];
+                } catch (ApiException $exception) {
+                    if ($exception->status() === 422) {
+                        $reasons[] = 'Rute jemput ke tujuan tidak ditemukan. Gunakan alamat yang lebih spesifik.';
+                        $missingFields[] = 'destination_address';
+                    } else {
+                        throw $exception;
+                    }
                 }
             }
         }
@@ -696,6 +712,39 @@ class ChatbotRideOrderService
     {
         return $this->nullableCoordinate($source[$prefix.'_latitude'] ?? null) !== null
             && $this->nullableCoordinate($source[$prefix.'_longitude'] ?? null) !== null;
+    }
+
+    private function routePointsAreTooClose(
+        float $originLatitude,
+        float $originLongitude,
+        float $destinationLatitude,
+        float $destinationLongitude
+    ): bool {
+        return $this->roughDistanceMeters(
+            $originLatitude,
+            $originLongitude,
+            $destinationLatitude,
+            $destinationLongitude
+        ) < self::MINIMUM_ROUTE_DISTANCE_METERS;
+    }
+
+    private function roughDistanceMeters(
+        float $originLatitude,
+        float $originLongitude,
+        float $destinationLatitude,
+        float $destinationLongitude
+    ): float {
+        $earthRadiusMeters = 6371000.0;
+        $originLatitudeRad = deg2rad($originLatitude);
+        $destinationLatitudeRad = deg2rad($destinationLatitude);
+        $deltaLatitudeRad = deg2rad($destinationLatitude - $originLatitude);
+        $deltaLongitudeRad = deg2rad($destinationLongitude - $originLongitude);
+
+        $haversine = sin($deltaLatitudeRad / 2) ** 2
+            + cos($originLatitudeRad) * cos($destinationLatitudeRad) * sin($deltaLongitudeRad / 2) ** 2;
+        $safeHaversine = min(1.0, max(0.0, $haversine));
+
+        return $earthRadiusMeters * 2 * atan2(sqrt($safeHaversine), sqrt(1 - $safeHaversine));
     }
 
     private function normalizeWhitespace(string $text): string

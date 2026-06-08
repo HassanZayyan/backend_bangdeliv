@@ -12,7 +12,7 @@
     $activeStatusIds = collect(['PENDING', 'DRIVER_ASSIGNED', 'PICKED_UP', 'ON_THE_WAY'])->map(fn ($code) => $statusCodeToId[$code] ?? null)->filter()->values()->all();
     $cancelledStatusIds = collect(['CANCELLED', 'CANCELLED_WITH_FEE'])->map(fn ($code) => $statusCodeToId[$code] ?? null)->filter()->values()->all();
 
-    $gmvMonth = \App\Models\OrderPricing::whereHas('order', fn ($query) => $query->whereBetween('created_at', [$monthStart, $now]))->sum('total_price');
+    $gmvMonth = \App\Models\Order::whereBetween('created_at', [$monthStart, $now])->sum('total_price');
     $totalOrdersMonth = \App\Models\Order::whereBetween('created_at', [$monthStart, $now])->count();
     $cancelledOrdersMonth = \App\Models\Order::whereBetween('created_at', [$monthStart, $now])->whereIn('status_id', $cancelledStatusIds)->count();
     $newUsersMonth = \App\Models\User::whereBetween('created_at', [$monthStart, $now])->count();
@@ -41,7 +41,7 @@
         $dayEnd = now()->subDays($i)->endOfDay();
         $dailyLabels[] = $dayStart->translatedFormat('D');
         $dailyData[] = [
-            'revenue' => (float) \App\Models\OrderPricing::whereHas('order', fn ($query) => $query->whereBetween('created_at', [$dayStart, $dayEnd]))->sum('total_price'),
+            'revenue' => (float) \App\Models\Order::whereBetween('created_at', [$dayStart, $dayEnd])->sum('total_price'),
             'orders' => \App\Models\Order::whereBetween('created_at', [$dayStart, $dayEnd])->count(),
         ];
     }
@@ -114,8 +114,8 @@
         <div style="padding: 0;">
             @foreach($topRestaurants as $i => $resto)
             @php
-                $restoRevenue = \App\Models\OrderPricing::query()
-                    ->whereHas('order.orderLocations', fn ($query) => $query->where('restaurant_id', $resto->id))
+                $restoRevenue = \App\Models\Order::query()
+                    ->whereHas('orderLocations', fn ($query) => $query->where('restaurant_id', $resto->id))
                     ->sum('total_price');
                 $pct = (int) round(($resto->orders_count / $maxRestOrders) * 100);
             @endphp

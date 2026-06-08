@@ -37,16 +37,13 @@ autentikasi token mobile, dan Laravel Reverb untuk WebSocket realtime.
 | `drivers` | Profil driver yang terhubung 1:1 ke `users`. Menyimpan kendaraan, nomor SIM, status verifikasi (`pending`, `active`, `rejected`, `suspended`), status kerja (`available`, `busy`, `offline`), koordinat terakhir, rating, dan total delivery. |
 | `driver_documents` | Dokumen verifikasi driver seperti KTP, SIM, dan selfie. Mendukung status `pending`, `approved`, `rejected`, alasan penolakan, waktu verifikasi, dan admin verifier. |
 
-### 2.3 Restoran, Menu, dan Keranjang
+### 2.3 Restoran dan Menu
 
 | Tabel | Fungsi |
 | --- | --- |
 | `restaurants` | Data restoran/merchant: nama, slug, alamat, koordinat, nomor telepon, banner, status aktif, rating, dan estimasi persiapan. |
-| `restaurant_operating_hours` | Jadwal buka/tutup restoran per hari. |
 | `menu_categories` | Kategori menu per restoran. |
 | `menus` | Data menu: nama, deskripsi, harga, gambar, ketersediaan, kategori, dan urutan tampil. |
-| `carts` | Keranjang customer per restoran. Dibuat unik per kombinasi user dan restoran. |
-| `cart_items` | Item dalam keranjang, termasuk menu, kuantitas, dan catatan. |
 
 ### 2.4 Alamat dan Master Order
 
@@ -56,34 +53,33 @@ autentikasi token mobile, dan Laravel Reverb untuk WebSocket realtime.
 | `service_types` | Master jenis layanan: `RIDE`, `COURIER`, `SHOPPING`. |
 | `order_statuses` | Master status order: `PENDING`, `DRIVER_ASSIGNED`, `ARRIVED_PICKUP`, `PICKED_UP`, `ON_THE_WAY`, `DELIVERED`, `COMPLETED`, `CANCELLED`, dan status lain. |
 | `service_fee_rules` | Aturan biaya layanan berbasis JSON, misalnya surcharge titip belanja, surcharge barang berat, penalti pembatalan, dan auto-confirm bukti kurir. |
-| `orders` | Tabel induk semua order. Menyimpan nomor order, customer, restoran opsional, jenis layanan, driver opsional, subtotal, ongkir, service fee, jarak, total, status, alasan batal, estimasi, dan waktu selesai. |
+| `orders` | Tabel induk semua order. Menyimpan nomor order, customer, jenis layanan, driver opsional, subtotal, ongkir, service fee, jarak/rute, total, status, alasan batal, estimasi, dan waktu selesai. |
 | `order_locations` | Titik lokasi order, misalnya `PICKUP` dan `DROPOFF`, lengkap dengan alamat, kontak, koordinat, dan urutan. |
 
 ### 2.5 Detail Order per Jenis Layanan
 
 | Tabel | Fungsi |
 | --- | --- |
-| `ride_orders` | Detail khusus layanan antar jemput orang. Menyimpan waktu driver menjemput dan tiba. |
-| `courier_orders` | Detail khusus kurir barang: deskripsi paket, estimasi berat/dimensi, klasifikasi ukuran, status keamanan paket, catatan packing, deadline konfirmasi, komplain, dan auto-confirm. |
-| `shopping_orders` | Detail khusus titip belanja: jumlah gagal percobaan, surcharge item, surcharge berat, penalti pembatalan, versi rekalkulasi, dan snapshot harga. |
-| `order_items` | Item belanja untuk layanan `SHOPPING`, bisa dari menu database atau input manual. Menyimpan snapshot nama menu, harga, subtotal, service fee per item, ketersediaan, catatan, dan metadata. |
+| `ride_order_details` | Detail khusus layanan antar jemput orang. Menyimpan waktu driver menjemput dan tiba. |
+| `courier_order_details` | Detail khusus kurir barang: deskripsi paket, estimasi berat/dimensi, klasifikasi ukuran, status keamanan paket, catatan packing, deadline konfirmasi, komplain, dan auto-confirm. |
+| `shopping_order_items` | Item belanja untuk layanan `SHOPPING`, bisa dari menu database atau input manual. Menyimpan snapshot nama menu, harga, subtotal, service fee per item, ketersediaan, catatan, dan metadata. |
+| `shopping_order_receipts` | Ringkasan nota layanan `SHOPPING`, termasuk total nota, sumber total, catatan driver, dan waktu konfirmasi. |
 
 Catatan integritas:
 
-- Tabel `ride_orders`, `courier_orders`, `shopping_orders`, dan `order_items`
+- Tabel `ride_order_details`, `courier_order_details`, `shopping_order_items`, dan `shopping_order_receipts`
   memiliki trigger MySQL agar data hanya masuk ke service type yang sesuai.
-- `orders` menjadi pusat relasi, sedangkan tabel detail menjaga data spesifik
-  setiap jenis layanan tetap rapi.
+- `orders` menjadi pusat current-state. Tabel detail hanya dipakai untuk data
+  yang memang spesifik layanan atau berjumlah banyak.
 
 ### 2.6 Riwayat, Pembayaran, Bukti, dan Audit
 
 | Tabel | Fungsi |
 | --- | --- |
-| `order_status_histories` | Riwayat perubahan status order, termasuk user pengubah, catatan, snapshot harga, dan waktu perubahan. |
-| `order_logs` | Audit perubahan harga/item/payment/system event. Menyimpan nilai lama dan baru untuk subtotal, ongkir, service fee, total, delta, versi rekalkulasi, metadata, dan catatan. |
+| `order_events` | Timeline audit order untuk perubahan status, harga, item, payment, dan event sistem. Menyimpan status lama/baru, user pengubah, catatan, metadata delta harga, dan waktu perubahan. |
+| `order_fee_lines` | Rincian komponen biaya order, misalnya ongkir dasar, surcharge item, surcharge barang berat, atau komponen fee lain. |
 | `order_payments` | Pembayaran order, saat ini fokus COD. Menyimpan status `PENDING`, `PAID`, `VOID`, nominal, pencatat, driver, waktu bayar, dan metadata. |
 | `order_evidence` | Bukti foto untuk kurir/shopping, misalnya foto delivery, receiver, atau struk belanja. Ada status verifikasi manual atau auto approval. |
-| `reviews` | Review customer untuk order, restoran, dan/atau driver. |
 
 ### 2.7 Chat dan AI
 
@@ -91,7 +87,9 @@ Catatan integritas:
 | --- | --- |
 | `order_chat_messages` | Pesan chat antara customer dan driver di satu order. Menyimpan pengirim, role pengirim, snapshot nama, isi pesan, dan `client_message_id` untuk deduplikasi. |
 | `order_chat_reads` | Status baca chat per user per order. Menyimpan `last_read_message_id` dan `read_at`, dipakai untuk badge unread. |
-| `ai_chat_logs` | Log percakapan chatbot, session ID, role pesan, respons AI, model yang dipakai, intent, dan order terkait. |
+| `ai_chat_sessions` | Ringkasan session chatbot per user, termasuk session ID, judul, waktu pesan terakhir, dan status. |
+| `ai_chat_messages` | Pesan user/assistant chatbot, respons AI, model yang dipakai, intent, dan order terkait. |
+| `ai_message_details` | Detail tambahan untuk satu pesan AI, seperti request/response mentah, token usage, latency, dan metadata teknis. |
 
 ### 2.8 Tabel Sistem Laravel
 
@@ -104,13 +102,12 @@ Catatan integritas:
 
 - `users` 1:1 `drivers` untuk akun driver.
 - `drivers` 1:N `driver_documents`.
-- `users` 1:N `addresses`, `orders`, `device_tokens`, dan `ai_chat_logs`.
-- `restaurants` 1:N `menu_categories`, `menus`, `restaurant_operating_hours`, dan `orders`.
+- `users` 1:N `addresses`, `orders`, `device_tokens`, `ai_chat_sessions`, dan `ai_chat_messages`.
+- `restaurants` 1:N `menu_categories`, `menus`, dan `order_locations` sebagai titik pickup merchant.
 - `orders` N:1 `users`, N:1 `service_types`, N:1 `order_statuses`, N:1 `drivers`.
-- `orders` 1:N `order_locations`, `order_status_histories`, `order_logs`, `order_chat_messages`.
+- `orders` 1:N `order_locations`, `shopping_order_items`, `order_events`, `order_fee_lines`, `order_evidence`, dan `order_chat_messages`.
 - `orders` 1:1 `order_payments`.
-- `orders` 1:1 salah satu detail layanan: `ride_orders`, `courier_orders`, atau `shopping_orders`.
-- `shopping_orders` memakai `order_items` sebagai detail item belanja.
+- `orders` 1:1 detail layanan yang relevan: `ride_order_details`, `courier_order_details`, atau `shopping_order_receipts`.
 
 ## 4. Fitur Penting yang Sudah Dibangun
 
@@ -131,12 +128,13 @@ Catatan integritas:
 - Driver hanya dapat menerima order setelah `registration_status = active`.
 - Driver memiliki status kerja: `available`, `busy`, `offline`.
 
-### 4.3 Restoran, Menu, dan Cart
+### 4.3 Restoran dan Menu
 
 - Home API untuk data ringkas aplikasi.
 - List restoran, detail restoran, dan menu.
-- Cart customer: tambah item, ubah jumlah, hapus item, kosongkan cart.
-- Checkout order dari cart.
+- Menu restoran dipakai sebagai katalog resmi untuk layanan `SHOPPING`.
+- Item dari menu database disimpan sebagai snapshot di order agar histori harga
+  tidak berubah ketika master menu diedit.
 
 ### 4.4 Order Multi Layanan
 
@@ -155,7 +153,7 @@ Fitur order:
 - Assignment driver.
 - Driver accept/reject order.
 - Status transition sesuai alur layanan.
-- Riwayat status dan audit perubahan harga.
+- Riwayat status dan audit perubahan harga disatukan di `order_events`.
 - Cancel order dan failed attempt.
 
 ### 4.5 Realtime Order dan Tracking
@@ -211,7 +209,8 @@ Perbaikan realtime terakhir:
 - Chatbot membantu proses order dan validasi input.
 - Menggunakan Gemini untuk ekstraksi intent dan data order.
 - Mendukung konteks percakapan via `session_id`.
-- Log percakapan disimpan di `ai_chat_logs`.
+- Session disimpan di `ai_chat_sessions`, pesan di `ai_chat_messages`, dan detail
+  teknis AI di `ai_message_details`.
 
 ## 5. API Endpoint Penting
 
@@ -242,18 +241,13 @@ Perbaikan realtime terakhir:
 
 | Method | Endpoint | Fungsi |
 | --- | --- | --- |
-| GET | `/api/v1/cart` | Lihat keranjang. |
-| POST | `/api/v1/cart/items` | Tambah item cart. |
-| PATCH | `/api/v1/cart/items/{itemId}` | Ubah item cart. |
-| DELETE | `/api/v1/cart/items/{itemId}` | Hapus item cart. |
-| DELETE | `/api/v1/cart` | Kosongkan cart. |
-| POST | `/api/v1/orders/checkout` | Checkout order dari cart. |
 | POST | `/api/v1/orders/ride/validate-destination` | Validasi tujuan ride. |
 | POST | `/api/v1/orders/ride` | Buat order ride. |
 | GET | `/api/v1/orders` | List order customer. |
 | GET | `/api/v1/orders/{orderId}` | Detail order customer. |
 | POST | `/api/v1/orders/{orderId}/cancel` | Batalkan order. |
 | POST/PATCH/DELETE | `/api/v1/orders/{orderId}/items` | Kelola item shopping order. |
+| PATCH | `/api/v1/orders/{orderId}/payment-method` | Ubah metode pembayaran order. |
 
 ### 5.4 Chat Order
 
@@ -405,13 +399,18 @@ flutter test test\providers\driver_order_providers_test.dart test\providers\orde
 flutter run --dart-define-from-file=dart_defines.local.json --dart-define=REALTIME_DIAGNOSTICS=true
 ```
 
-Hasil verifikasi terakhir:
+Hasil verifikasi backend terakhir setelah penyederhanaan schema:
+
+- `php artisan migrate:fresh --seed`: berhasil.
+  Seeder juga membersihkan folder upload demo di `storage/app/public`
+  (`orders`, `avatars`, `driver-documents`, dan folder legacy dokumen) agar file
+  testing lama tidak menumpuk.
+- `vendor\bin\phpunit.bat --do-not-cache-result`: 170 tests, 1141 assertions, pass.
+
+Hasil verifikasi frontend sebelumnya:
 
 - Flutter analyze: no issues found.
 - Flutter provider tests: 23 tests passed.
-- `BroadcastAuthRouteTest`: 6 tests passed.
-- `OrderChatTest`: 9 tests passed.
-- `DriverOrderWorkflowTest`: 18 tests passed.
 
 ## 10. Poin yang Bisa Disampaikan Saat Bimbingan
 
@@ -419,8 +418,9 @@ Hasil verifikasi terakhir:
    induk, detail order per layanan, audit, payment, evidence, chat, dan AI log.
 2. Sistem order memakai satu tabel induk `orders` agar semua jenis layanan punya
    lifecycle yang konsisten.
-3. Detail layanan dipisah ke `ride_orders`, `courier_orders`, dan
-   `shopping_orders` agar schema tetap bersih.
+3. Detail layanan dipisah secukupnya: `ride_order_details` untuk ride,
+   `courier_order_details` untuk courier, sedangkan shopping memakai
+   `shopping_order_items` dan `shopping_order_receipts`.
 4. Realtime memakai Reverb private channel, bukan polling biasa.
 5. Bug realtime driver sudah diperbaiki dengan Sanctum broadcast auth, root app
    realtime bootstrap di Flutter, retry subscription, dan fallback sync.
@@ -428,4 +428,3 @@ Hasil verifikasi terakhir:
    di backend.
 7. Testing automated sudah mencakup broadcast auth, chat, workflow driver, dan
    provider realtime frontend.
-

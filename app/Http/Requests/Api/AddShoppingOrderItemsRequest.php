@@ -20,8 +20,9 @@ class AddShoppingOrderItemsRequest extends FormRequest
             'replacement_for_pickup_location_id' => ['nullable', 'integer', 'exists:order_locations,id'],
             'items' => ['required', 'array', 'min:1', 'max:30'],
             'items.*.merchant_id' => ['nullable', 'integer', 'exists:restaurants,id'],
-            'items.*.item_source' => ['required', 'in:MANUAL'],
-            'items.*.menu_name' => ['required', 'string', 'max:255'],
+            'items.*.item_source' => ['required', 'in:MANUAL,MENU_DB'],
+            'items.*.menu_id' => ['nullable', 'integer', 'exists:menus,id'],
+            'items.*.menu_name' => ['nullable', 'string', 'max:255'],
             'items.*.quantity' => ['required', 'integer', 'min:1', 'max:99'],
             'items.*.notes' => ['nullable', 'string', 'max:500'],
         ];

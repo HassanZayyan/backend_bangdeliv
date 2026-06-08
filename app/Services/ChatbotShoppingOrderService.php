@@ -528,6 +528,13 @@ class ChatbotShoppingOrderService
             return [];
         }
 
+        $menusByName = $merchant === null
+            ? collect()
+            : $merchant->menus()
+                ->where('is_available', true)
+                ->get(['id', 'name', 'price'])
+                ->keyBy(fn ($menu): string => Str::of((string) $menu->name)->lower()->squish()->toString());
+
         $items = [];
         foreach ($itemSeeds as $seed) {
             $name = $this->normalizeOptionalString($seed['name'] ?? $seed['menu_name'] ?? null);
@@ -537,6 +544,31 @@ class ChatbotShoppingOrderService
 
             $quantity = max(1, (int) ($seed['quantity'] ?? 1));
             $notes = $this->normalizeOptionalString($seed['notes'] ?? null);
+            $menu = $menusByName->get(Str::of($name)->lower()->squish()->toString());
+
+            if ($menu !== null) {
+                $unitPrice = round((float) $menu->price, 2);
+                $menuName = (string) $menu->name;
+
+                $items[] = [
+                    'menu_id' => (int) $menu->id,
+                    'item_source' => 'MENU_DB',
+                    'name' => $menuName,
+                    'menu_name' => $menuName,
+                    'quantity' => $quantity,
+                    'unit_price' => $unitPrice,
+                    'subtotal' => round($unitPrice * $quantity, 2),
+                    'notes' => $notes,
+                    'is_available' => true,
+                    'is_heavy' => false,
+                    'metadata' => [
+                        'price_status' => 'CONFIRMED',
+                        'source' => 'CHATBOT_MENU_MATCH',
+                    ],
+                ];
+
+                continue;
+            }
 
             $items[] = [
                 'menu_id' => null,
@@ -700,21 +732,33 @@ class ChatbotShoppingOrderService
                     continue;
                 }
 
+                $quantity = max(1, (int) ($item['quantity'] ?? 1));
+                $unitPrice = round((float) ($item['unit_price'] ?? 0), 2);
+                $subtotal = array_key_exists('subtotal', $item)
+                    ? round((float) $item['subtotal'], 2)
+                    : round($unitPrice * $quantity, 2);
+                $itemSource = strtoupper((string) ($item['item_source'] ?? 'MANUAL')) === 'MENU_DB'
+                    ? 'MENU_DB'
+                    : 'MANUAL';
+                $metadata = is_array($item['metadata'] ?? null)
+                    ? $item['metadata']
+                    : [
+                        'price_status' => $itemSource === 'MENU_DB' ? 'CONFIRMED' : 'PENDING_DRIVER_INPUT',
+                        'source' => $itemSource === 'MENU_DB' ? 'CHATBOT_MENU_MATCH' : 'CHATBOT_MANUAL_CONTEXT',
+                    ];
+
                 $order->items()->create([
-                    'menu_id' => null,
+                    'menu_id' => $itemSource === 'MENU_DB' ? ($item['menu_id'] ?? null) : null,
                     'pickup_location_id' => $pickupLocation->id,
-                    'item_source' => 'MANUAL',
+                    'item_source' => $itemSource,
                     'menu_name' => (string) ($item['menu_name'] ?? $item['name'] ?? 'Item belanja'),
-                    'quantity' => max(1, (int) ($item['quantity'] ?? 1)),
-                    'unit_price' => 0,
-                    'subtotal' => 0,
+                    'quantity' => $quantity,
+                    'unit_price' => $unitPrice,
+                    'subtotal' => $subtotal,
                     'notes' => $item['notes'] ?? null,
-                    'metadata' => [
-                        'price_status' => 'PENDING_DRIVER_INPUT',
-                        'source' => 'CHATBOT_MANUAL_CONTEXT',
-                    ],
+                    'metadata' => $metadata,
                     'is_available' => (bool) ($item['is_available'] ?? true),
-                    'is_heavy' => false,
+                    'is_heavy' => (bool) ($item['is_heavy'] ?? false),
                 ]);
             }
 
@@ -739,7 +783,7 @@ class ChatbotShoppingOrderService
                 'statusHistories.statusRef',
                 'serviceType',
                 'feeLines',
-                'deliveryFeeOverride',
+
                 'shoppingReceipt',
             ]);
         });

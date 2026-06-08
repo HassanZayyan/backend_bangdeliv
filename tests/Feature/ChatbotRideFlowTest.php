@@ -488,6 +488,50 @@ class ChatbotRideFlowTest extends TestCase
             ->assertJsonPath('data.ride.destination_address', 'Lapangan Pancasila Salatiga');
     }
 
+    public function test_chatbot_ride_bulk_route_patch_rejects_overlapping_points(): void
+    {
+        $this->fakeGeminiAndGeocoding();
+
+        $user = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+            'phone' => '089900000112',
+        ]);
+
+        $token = $user->createToken('test-chatbot-ride')->plainTextToken;
+        $sessionId = 'sess-ride-route-too-close';
+
+        $response = $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/sessions/'.$sessionId.'/locations', [
+                'service_type' => 'antar_jemput',
+                'locations' => [
+                    [
+                        'target' => 'pickup',
+                        'latitude' => -7.328900,
+                        'longitude' => 110.500100,
+                        'address' => 'Ramayan Salatiga',
+                    ],
+                    [
+                        'target' => 'destination',
+                        'latitude' => -7.328900,
+                        'longitude' => 110.500100,
+                        'address' => 'Ramayan Salatiga',
+                    ],
+                ],
+            ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('model_used', 'map-route-action')
+            ->assertJsonPath('data.validation.is_valid_order', false)
+            ->assertJsonPath('data.ride.ready_to_confirm', false)
+            ->assertJsonPath('data.validation.rejection_reasons.0', 'Titik tujuan terlalu dekat dengan titik jemput. Pilih titik tujuan yang berbeda.');
+
+        $this->assertDatabaseCount('orders', 0);
+    }
+
     public function test_chatbot_ride_bulk_route_patch_without_address_uses_reverse_geocoded_label(): void
     {
         Http::fake([

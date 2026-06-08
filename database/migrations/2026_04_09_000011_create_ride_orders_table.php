@@ -12,7 +12,7 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('ride_orders', function (Blueprint $table) {
+        Schema::create('ride_order_details', function (Blueprint $table) {
             $table->id();
             $table->foreignId('order_id')->unique()->constrained()->cascadeOnDelete();
             $table->timestamp('picked_up_at')->nullable();
@@ -21,13 +21,13 @@ return new class extends Migration
         });
 
         if (DB::getDriverName() === 'mysql') {
-            DB::unprepared('DROP TRIGGER IF EXISTS trg_ride_orders_only_ride_insert');
-            DB::unprepared('DROP TRIGGER IF EXISTS trg_ride_orders_only_ride_update');
+            DB::unprepared('DROP TRIGGER IF EXISTS trg_ride_order_details_only_ride_insert');
+            DB::unprepared('DROP TRIGGER IF EXISTS trg_ride_order_details_only_ride_update');
 
             DB::unprepared(
                 <<<'SQL'
-                CREATE TRIGGER trg_ride_orders_only_ride_insert
-                BEFORE INSERT ON ride_orders
+                CREATE TRIGGER trg_ride_order_details_only_ride_insert
+                BEFORE INSERT ON ride_order_details
                 FOR EACH ROW
                 BEGIN
                     DECLARE v_service_code VARCHAR(30);
@@ -39,7 +39,7 @@ return new class extends Migration
                     LIMIT 1;
 
                     IF v_service_code IS NULL OR v_service_code <> 'RIDE' THEN
-                        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'ride_orders hanya untuk service RIDE';
+                        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'ride_order_details hanya untuk service RIDE';
                     END IF;
                 END
                 SQL
@@ -47,8 +47,8 @@ return new class extends Migration
 
             DB::unprepared(
                 <<<'SQL'
-                CREATE TRIGGER trg_ride_orders_only_ride_update
-                BEFORE UPDATE ON ride_orders
+                CREATE TRIGGER trg_ride_order_details_only_ride_update
+                BEFORE UPDATE ON ride_order_details
                 FOR EACH ROW
                 BEGIN
                     DECLARE v_service_code VARCHAR(30);
@@ -60,7 +60,7 @@ return new class extends Migration
                     LIMIT 1;
 
                     IF v_service_code IS NULL OR v_service_code <> 'RIDE' THEN
-                        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'ride_orders hanya untuk service RIDE';
+                        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'ride_order_details hanya untuk service RIDE';
                     END IF;
                 END
                 SQL
@@ -74,10 +74,10 @@ return new class extends Migration
     public function down(): void
     {
         if (DB::getDriverName() === 'mysql') {
-            DB::unprepared('DROP TRIGGER IF EXISTS trg_ride_orders_only_ride_insert');
-            DB::unprepared('DROP TRIGGER IF EXISTS trg_ride_orders_only_ride_update');
+            DB::unprepared('DROP TRIGGER IF EXISTS trg_ride_order_details_only_ride_insert');
+            DB::unprepared('DROP TRIGGER IF EXISTS trg_ride_order_details_only_ride_update');
         }
 
-        Schema::dropIfExists('ride_orders');
+        Schema::dropIfExists('ride_order_details');
     }
 };

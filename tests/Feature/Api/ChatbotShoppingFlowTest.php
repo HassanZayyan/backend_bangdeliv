@@ -116,7 +116,7 @@ class ChatbotShoppingFlowTest extends TestCase
             ->assertJsonPath('data.validation.next_actions.0', 'OPEN_ADDRESSES');
     }
 
-    public function test_chatbot_shopping_creates_manual_restaurant_order_after_confirmation(): void
+    public function test_chatbot_shopping_creates_menu_database_restaurant_order_after_confirmation(): void
     {
         Config::set('bangdeliv.google_maps_api_key', 'test-key');
 
@@ -155,7 +155,7 @@ class ChatbotShoppingFlowTest extends TestCase
             'sort_order' => 1,
         ]);
 
-        Menu::query()->create([
+        $menu = Menu::query()->create([
             'restaurant_id' => $restaurant->id,
             'menu_category_id' => $category->id,
             'name' => 'Paket Geprek Original',
@@ -186,10 +186,11 @@ class ChatbotShoppingFlowTest extends TestCase
         $draftResponse->assertOk()
             ->assertJsonPath('data.intent', 'shopping_order')
             ->assertJsonPath('data.shopping.ready_to_confirm', true)
-            ->assertJsonPath('data.shopping.items.0.item_source', 'MANUAL')
-            ->assertJsonPath('data.shopping.items.0.menu_id', null)
-            ->assertJsonPath('data.shopping.items.0.unit_price', 0)
-            ->assertJsonPath('data.shopping.items.0.metadata.price_status', 'PENDING_DRIVER_INPUT')
+            ->assertJsonPath('data.shopping.items.0.item_source', 'MENU_DB')
+            ->assertJsonPath('data.shopping.items.0.menu_id', $menu->id)
+            ->assertJsonPath('data.shopping.items.0.unit_price', 22000)
+            ->assertJsonPath('data.shopping.items.0.subtotal', 44000)
+            ->assertJsonPath('data.shopping.items.0.metadata.price_status', 'CONFIRMED')
             ->assertJsonPath('data.action_payloads.OPEN_MAP_PICKER_DELIVERY.label', 'Ganti Titik Antar');
         $this->assertStringContainsString(
             'Estimasi ongkir sementara:',
@@ -247,19 +248,23 @@ class ChatbotShoppingFlowTest extends TestCase
             'user_id' => $customer->id,
         ]);
 
-        $this->assertDatabaseHas('order_pricings', [
-            'order_id' => $orderId,
-            'subtotal' => 0,
+        $this->assertDatabaseHas('orders', [
+            'id' => $orderId,
+            'subtotal' => 44000,
         ]);
 
-        $this->assertDatabaseHas('order_items', [
+        $this->assertDatabaseHas('shopping_order_items', [
             'order_id' => $orderId,
-            'menu_id' => null,
-            'item_source' => 'MANUAL',
+            'menu_id' => $menu->id,
+            'item_source' => 'MENU_DB',
             'quantity' => 2,
-            'unit_price' => 0,
+            'unit_price' => 22000,
+            'subtotal' => 44000,
             'is_heavy' => false,
         ]);
+
+        $item = OrderItem::query()->where('order_id', $orderId)->firstOrFail();
+        $this->assertSame('CONFIRMED', $item->metadata['price_status'] ?? null);
 
         $this->assertDatabaseHas('order_locations', [
             'order_id' => $orderId,

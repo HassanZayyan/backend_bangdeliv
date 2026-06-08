@@ -106,14 +106,15 @@ class DriverOrderWorkflowTest extends TestCase
             'id' => $order->id,
             'status_id' => $assignedStatusId,
         ]);
-        $this->assertDatabaseHas('order_assignments', [
-            'order_id' => $order->id,
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
             'driver_id' => $driver->id,
         ]);
+        $this->assertNotNull($order->fresh()->assigned_at);
 
-        $this->assertDatabaseHas('order_status_histories', [
+        $this->assertDatabaseHas('order_events', [
             'order_id' => $order->id,
-            'status_id' => $assignedStatusId,
+            'new_status_id' => $assignedStatusId,
             'event_type' => 'STATUS_CHANGE',
             'changed_by_user_id' => $driverUser->id,
         ]);
@@ -142,8 +143,9 @@ class DriverOrderWorkflowTest extends TestCase
         $this->assertCount(0, $response->json('data.incoming_orders'));
         $this->assertCount(1, $response->json('data.running_orders'));
         $this->assertSame((string) $runningOrder->id, (string) $response->json('data.running_orders.0.id'));
-        $this->assertDatabaseMissing('order_assignments', [
-            'order_id' => $pendingOrder->id,
+        $this->assertDatabaseMissing('orders', [
+            'id' => $pendingOrder->id,
+            'driver_id' => $driver->id,
         ]);
     }
 
@@ -277,8 +279,9 @@ class DriverOrderWorkflowTest extends TestCase
 
         app(DriverOrderRealtimeService::class)->broadcastOrderAvailable($order);
 
-        $this->assertDatabaseMissing('order_assignments', [
-            'order_id' => $order->id,
+        $this->assertDatabaseMissing('orders', [
+            'id' => $order->id,
+            'driver_id' => $driver->id,
         ]);
     }
 
@@ -379,8 +382,9 @@ class DriverOrderWorkflowTest extends TestCase
             ->assertJsonPath('success', false)
             ->assertJsonPath('message', 'Aktifkan status kerja sebelum menerima order.');
 
-        $this->assertDatabaseMissing('order_assignments', [
-            'order_id' => $order->id,
+        $this->assertDatabaseMissing('orders', [
+            'id' => $order->id,
+            'driver_id' => $driver->id,
         ]);
 
         $this->assertDatabaseHas('drivers', [
@@ -690,10 +694,10 @@ class DriverOrderWorkflowTest extends TestCase
         ])->assertOk()
             ->assertJsonPath('data.status_code', 'CANCELLED');
 
-        $this->assertDatabaseHas('order_cancellations', [
-            'order_id' => $order->id,
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
             'cancelled_by' => 'driver',
-            'reason' => 'Barang lebih besar dari deskripsi dan tidak muat motor.',
+            'cancellation_reason' => 'Barang lebih besar dari deskripsi dan tidak muat motor.',
         ]);
     }
 
@@ -945,7 +949,7 @@ class DriverOrderWorkflowTest extends TestCase
             ->assertJsonPath('data.pricing.total_price', 42000)
             ->assertJsonPath('data.has_pending_shopping_prices', false);
 
-        $this->assertDatabaseHas('order_items', [
+        $this->assertDatabaseHas('shopping_order_items', [
             'id' => $item->id,
             'quantity' => 2,
             'unit_price' => 15000,
@@ -953,8 +957,8 @@ class DriverOrderWorkflowTest extends TestCase
             'is_heavy' => true,
         ]);
 
-        $this->assertDatabaseHas('order_pricings', [
-            'order_id' => $order->id,
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
             'subtotal' => 30000,
             'total_price' => 42000,
         ]);
@@ -1056,7 +1060,7 @@ class DriverOrderWorkflowTest extends TestCase
             'fulfillment_status' => 'FAILED',
         ]);
 
-        $this->assertDatabaseHas('order_items', [
+        $this->assertDatabaseHas('shopping_order_items', [
             'order_id' => $order->id,
             'pickup_location_id' => $pickup->id,
             'is_available' => false,
@@ -1086,8 +1090,8 @@ class DriverOrderWorkflowTest extends TestCase
             ->assertJsonPath('data.pricing.delivery_fee', 0)
             ->assertJsonPath('data.pricing.total_price', 3000);
 
-        $this->assertDatabaseHas('order_pricings', [
-            'order_id' => $order->id,
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
             'delivery_fee' => 0,
             'total_price' => 3000,
         ]);
@@ -1096,8 +1100,8 @@ class DriverOrderWorkflowTest extends TestCase
             'code' => 'CANCELLATION_PENALTY_AFTER_FAILED_ATTEMPTS',
             'amount' => 3000,
         ]);
-        $this->assertDatabaseHas('order_cancellations', [
-            'order_id' => $order->id,
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
             'cancelled_by' => 'driver',
         ]);
 
