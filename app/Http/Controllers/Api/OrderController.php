@@ -424,6 +424,27 @@ class OrderController extends Controller
         }
     }
 
+    public function updateDriverLocation(Request $request, int $orderId): JsonResponse
+    {
+        $validated = $request->validate([
+            'latitude' => ['required', 'numeric', 'between:-90,90'],
+            'longitude' => ['required', 'numeric', 'between:-180,180'],
+            'updated_at' => ['nullable', 'date'],
+        ]);
+
+        try {
+            $payload = $this->orderService->updateDriverLocation(
+                $request->user(),
+                $orderId,
+                $validated
+            );
+
+            return $this->success($payload, 'Lokasi driver berhasil diperbarui.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
     public function recordFailedAttemptByDriver(RecordFailedAttemptRequest $request, int $orderId): JsonResponse
     {
         try {

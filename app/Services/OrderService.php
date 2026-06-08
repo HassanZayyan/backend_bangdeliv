@@ -55,6 +55,15 @@ class OrderService
         'ON_THE_WAY',
         'ARRIVED_DROPOFF',
         'DELIVERED',
+        'CANCELLED_WITH_FEE',
+    ];
+
+    private const DRIVER_LOCATION_TRACKABLE_STATUS_CODES = [
+        'DRIVER_ASSIGNED',
+        'ARRIVED_MERCHANT',
+        'ARRIVED_PICKUP',
+        'PICKED_UP',
+        'ON_THE_WAY',
     ];
 
     /**
@@ -607,7 +616,6 @@ class OrderService
         $historyStatusIds = $this->resolveStatusIds([
             'COMPLETED',
             'CANCELLED',
-            'CANCELLED_WITH_FEE',
         ]);
 
         $orders = Order::query()
@@ -795,6 +803,59 @@ class OrderService
             $order->fresh($this->driverOrderPayloadFactory->relations()),
             includeTimeline: true,
         );
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    public function updateDriverLocation(User $actor, int $orderId, array $payload): array
+    {
+        $driver = $this->resolveActiveDriverProfile($actor);
+
+        $order = Order::query()
+            ->with(['statusRef'])
+            ->find($orderId);
+
+        if (! $order) {
+            throw new ApiException('Order tidak ditemukan.', 404);
+        }
+
+        if ((int) ($order->driver_id ?? 0) !== (int) $driver->id) {
+            throw new ApiException('Order ini tidak ditugaskan kepada driver saat ini.', 403);
+        }
+
+        $statusCode = strtoupper((string) ($order->statusRef?->code ?? ''));
+        if (! in_array($statusCode, self::DRIVER_LOCATION_TRACKABLE_STATUS_CODES, true)) {
+            throw new ApiException('Lokasi driver tidak dapat dikirim pada status order saat ini.', 409);
+        }
+
+        $latitude = round((float) $payload['latitude'], 7);
+        $longitude = round((float) $payload['longitude'], 7);
+        $updatedAt = isset($payload['updated_at'])
+            ? Carbon::parse((string) $payload['updated_at'])
+            : now();
+
+        $driver->update([
+            'latitude' => $latitude,
+            'longitude' => $longitude,
+            'location_updated_at' => $updatedAt,
+        ]);
+
+        $updatedAtIso = $updatedAt->toIso8601String();
+        $this->realtimeBroadcaster->driverLocationUpdated(
+            (int) $order->id,
+            $latitude,
+            $longitude,
+            $updatedAtIso
+        );
+
+        return [
+            'order_id' => (int) $order->id,
+            'latitude' => $latitude,
+            'longitude' => $longitude,
+            'updated_at' => $updatedAtIso,
+        ];
     }
 
     /**

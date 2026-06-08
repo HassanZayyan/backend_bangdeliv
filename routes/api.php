@@ -79,6 +79,7 @@ Route::prefix('v1')->group(function () {
             Route::patch('/driver/orders/{orderId}/shopping-items', [OrderController::class, 'updateDriverShoppingItems']);
             Route::patch('/driver/orders/{orderId}/shopping-checkout', [OrderController::class, 'updateShoppingCheckout']);
             Route::post('/driver/orders/{orderId}/delivery-fee-override', [OrderController::class, 'updateDeliveryFeeOverride']);
+            Route::patch('/driver/orders/{orderId}/location', [OrderController::class, 'updateDriverLocation']);
             Route::post('/driver/orders/{orderId}/proofs', [OrderController::class, 'uploadDriverProof']);
             Route::post('/driver/orders/{orderId}/status-transition', [OrderController::class, 'transitionStatusByDriver']);
             Route::patch('/driver/orders/{orderId}/status', [OrderExecutionController::class, 'updateStatus']);

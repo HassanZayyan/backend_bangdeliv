@@ -18,19 +18,16 @@ class DriverLocationUpdated implements ShouldBroadcastNow
 
     public $longitude;
 
-    public $heading;
-
     public $updatedAt;
 
     /**
      * Create a new event instance.
      */
-    public function __construct($orderId, $latitude, $longitude, $heading, $updatedAt = null)
+    public function __construct($orderId, $latitude, $longitude, $updatedAt = null)
     {
         $this->orderId = $orderId;
         $this->latitude = $latitude;
         $this->longitude = $longitude;
-        $this->heading = $heading;
         $this->updatedAt = $updatedAt;
     }
 
@@ -57,7 +54,6 @@ class DriverLocationUpdated implements ShouldBroadcastNow
             'order_id' => $this->orderId,
             'latitude' => $this->latitude,
             'longitude' => $this->longitude,
-            'heading' => $this->heading,
             'updated_at' => $this->updatedAt ?? now()->toIso8601String(),
         ];
     }

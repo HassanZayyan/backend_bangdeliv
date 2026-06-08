@@ -29,11 +29,10 @@ class OrderRealtimeBroadcaster
         int $orderId,
         float $latitude,
         float $longitude,
-        float $heading,
         string $updatedAt,
     ): bool {
         return $this->safelyBroadcast(
-            new DriverLocationUpdated($orderId, $latitude, $longitude, $heading, $updatedAt),
+            new DriverLocationUpdated($orderId, $latitude, $longitude, $updatedAt),
             'DriverLocationUpdated',
             [
                 'order_id' => $orderId,

@@ -405,6 +405,15 @@ class DriverOrderPayloadFactory
                 continue;
             }
 
+            if (
+                $serviceCode === 'SHOPPING' &&
+                $statusCode === 'CANCELLED_WITH_FEE' &&
+                $requiresPaid &&
+                $paymentStatus !== 'paid'
+            ) {
+                continue;
+            }
+
             $blockedReasons = [];
             if ($requiresPaid && $paymentStatus !== 'paid') {
                 $blockedReasons[] = 'Pembayaran belum dicatat.';
@@ -620,7 +629,7 @@ class DriverOrderPayloadFactory
             ],
             'COMPLETE_ORDER' => [
                 'label' => 'Selesaikan Order',
-                'from' => ['DELIVERED'],
+                'from' => ['DELIVERED', 'CANCELLED_WITH_FEE'],
                 'to' => 'COMPLETED',
                 'requires_paid' => true,
             ],

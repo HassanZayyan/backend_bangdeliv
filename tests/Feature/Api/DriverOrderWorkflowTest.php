@@ -4,6 +4,7 @@ namespace Tests\Feature\Api;
 
 use App\Events\DriverOrderAvailable;
 use App\Events\DriverOrderRemoved;
+use App\Events\DriverLocationUpdated;
 use App\Events\OrderStatusChanged;
 use App\Models\Address;
 use App\Models\CourierOrder;
@@ -147,6 +148,94 @@ class DriverOrderWorkflowTest extends TestCase
             'id' => $pendingOrder->id,
             'driver_id' => $driver->id,
         ]);
+    }
+
+    public function test_assigned_driver_can_update_live_location_for_tracking(): void
+    {
+        [$driverUser, $driver] = $this->createActiveDriver('live-location');
+        $order = $this->createShoppingOrder($driver, 'DRIVER_ASSIGNED');
+
+        Event::fake([DriverLocationUpdated::class]);
+        Sanctum::actingAs($driverUser);
+
+        $response = $this->patchJson('/api/v1/driver/orders/'.$order->id.'/location', [
+            'latitude' => -7.0551234,
+            'longitude' => 110.4359876,
+            'updated_at' => '2026-06-08T14:10:00+07:00',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.order_id', $order->id)
+            ->assertJsonPath('data.latitude', -7.0551234)
+            ->assertJsonPath('data.longitude', 110.4359876)
+            ->assertJsonMissingPath('data.heading');
+
+        $this->assertDatabaseHas('drivers', [
+            'id' => $driver->id,
+            'latitude' => -7.0551234,
+            'longitude' => 110.4359876,
+        ]);
+
+        Event::assertDispatched(
+            DriverLocationUpdated::class,
+            fn (DriverLocationUpdated $event): bool => (int) $event->orderId === (int) $order->id
+                && (float) $event->latitude === -7.0551234
+                && (float) $event->longitude === 110.4359876
+        );
+    }
+
+    public function test_driver_location_update_rejects_other_driver_and_non_trackable_status(): void
+    {
+        [$driverUser, $driver] = $this->createActiveDriver('live-location-owner');
+        [$otherDriverUser] = $this->createActiveDriver('live-location-other');
+        $runningOrder = $this->createShoppingOrder($driver, 'DRIVER_ASSIGNED');
+        $pendingOrder = $this->createShoppingOrder(null, 'PENDING');
+
+        Sanctum::actingAs($otherDriverUser);
+
+        $this->patchJson('/api/v1/driver/orders/'.$runningOrder->id.'/location', [
+            'latitude' => -7.0551234,
+            'longitude' => 110.4359876,
+        ])
+            ->assertForbidden();
+
+        Sanctum::actingAs($driverUser);
+
+        $this->patchJson('/api/v1/driver/orders/'.$pendingOrder->id.'/location', [
+            'latitude' => -7.0551234,
+            'longitude' => 110.4359876,
+        ])
+            ->assertForbidden();
+
+        $deliveredOrder = $this->createShoppingOrder($driver, 'DELIVERED');
+
+        $this->patchJson('/api/v1/driver/orders/'.$deliveredOrder->id.'/location', [
+            'latitude' => -7.0551234,
+            'longitude' => 110.4359876,
+        ])
+            ->assertConflict();
+    }
+
+    public function test_customer_order_detail_includes_latest_driver_location(): void
+    {
+        [$driverUser, $driver] = $this->createActiveDriver('customer-location');
+        $order = $this->createShoppingOrder($driver, 'DRIVER_ASSIGNED');
+
+        Sanctum::actingAs($driverUser);
+
+        $this->patchJson('/api/v1/driver/orders/'.$order->id.'/location', [
+            'latitude' => -7.0560001,
+            'longitude' => 110.4320002,
+        ])->assertOk();
+
+        Sanctum::actingAs(User::query()->findOrFail($order->user_id));
+
+        $this->getJson('/api/v1/orders/'.$order->id)
+            ->assertOk()
+            ->assertJsonPath('data.driver.latitude', '-7.0560001')
+            ->assertJsonPath('data.driver.longitude', '110.4320002')
+            ->assertJsonMissingPath('data.driver.heading');
     }
 
     public function test_available_driver_receives_incoming_orders(): void
@@ -1115,6 +1204,63 @@ class DriverOrderWorkflowTest extends TestCase
             'order_id' => $order->id,
             'trigger_type' => 'SYSTEM_PAYMENT_METHOD_CHANGED_AFTER_FAILED_ATTEMPTS',
         ]);
+
+        $runningAfterCancel = $this->getJson('/api/v1/driver/orders');
+        $runningAfterCancel->assertOk();
+        $this->assertTrue(
+            collect($runningAfterCancel->json('data.running_orders'))
+                ->contains(fn (array $runningOrder): bool => (string) $runningOrder['id'] === (string) $order->id)
+        );
+
+        $cancelledDetailResponse = $this->getJson('/api/v1/driver/orders/'.$order->id);
+        $cancelledDetailResponse->assertOk()
+            ->assertJsonPath('data.status_code', 'CANCELLED_WITH_FEE')
+            ->assertJsonPath('data.payment_status', 'unpaid');
+        $this->assertNotContains(
+            'COMPLETE_ORDER',
+            collect($cancelledDetailResponse->json('data.available_actions'))->pluck('action_code')->all()
+        );
+
+        $this->postJson('/api/v1/driver/orders/'.$order->id.'/status-transition', [
+            'action_code' => 'COMPLETE_ORDER',
+            'target_status_code' => 'COMPLETED',
+        ])->assertStatus(409)
+            ->assertJsonPath('message', 'Pembayaran belum dicatat.');
+
+        $this->postJson('/api/v1/orders/'.$order->id.'/payment/transfer/confirm', [
+            'amount' => 3000,
+            'note' => 'Transfer penalty sudah diverifikasi.',
+        ])->assertOk()
+            ->assertJsonPath('data.payment_status', 'paid');
+
+        $paidDetailResponse = $this->getJson('/api/v1/driver/orders/'.$order->id);
+        $paidDetailResponse->assertOk()
+            ->assertJsonPath('data.payment_status', 'paid');
+        $this->assertContains(
+            'COMPLETE_ORDER',
+            collect($paidDetailResponse->json('data.available_actions'))->pluck('action_code')->all()
+        );
+
+        $this->postJson('/api/v1/driver/orders/'.$order->id.'/status-transition', [
+            'action_code' => 'COMPLETE_ORDER',
+            'target_status_code' => 'COMPLETED',
+            'note' => 'Penalty sudah dibayar customer.',
+        ])->assertOk()
+            ->assertJsonPath('data.status_code', 'COMPLETED');
+
+        $runningAfterComplete = $this->getJson('/api/v1/driver/orders');
+        $runningAfterComplete->assertOk();
+        $this->assertFalse(
+            collect($runningAfterComplete->json('data.running_orders'))
+                ->contains(fn (array $runningOrder): bool => (string) $runningOrder['id'] === (string) $order->id)
+        );
+
+        $historyResponse = $this->getJson('/api/v1/driver/history');
+        $historyResponse->assertOk();
+        $this->assertTrue(
+            collect($historyResponse->json('data.history_orders'))
+                ->contains(fn (array $historyOrder): bool => (string) $historyOrder['id'] === (string) ($order->order_number ?: $order->id))
+        );
     }
 
     /**

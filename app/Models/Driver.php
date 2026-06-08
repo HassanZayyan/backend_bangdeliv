@@ -17,6 +17,9 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property string|null $license_number
  * @property string $registration_status
  * @property string $status
+ * @property string|null $latitude
+ * @property string|null $longitude
+ * @property \Carbon\Carbon|null $location_updated_at
  * @property \Carbon\Carbon|null $created_at
  * @property \Carbon\Carbon|null $updated_at
  * @property \Carbon\Carbon|null $deleted_at
@@ -37,7 +40,19 @@ class Driver extends Model
         'license_number',
         'registration_status',
         'status',
+        'latitude',
+        'longitude',
+        'location_updated_at',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'latitude' => 'decimal:7',
+            'longitude' => 'decimal:7',
+            'location_updated_at' => 'datetime',
+        ];
+    }
 
     public function user(): BelongsTo
     {
