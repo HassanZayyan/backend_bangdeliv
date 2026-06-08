@@ -163,7 +163,8 @@ class ChatbotOrderValidationService
                     ->orWhereRaw('LOWER(slug) = ?', [strtolower($input)])
                     ->orWhere('slug', 'like', "%{$input}%");
             })
-            ->orderByDesc('avg_rating')
+            ->orderBy('name')
+            ->orderBy('id')
             ->first();
     }
 

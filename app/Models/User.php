@@ -19,8 +19,6 @@ use Laravel\Sanctum\HasApiTokens;
  * @property string|null $avatar
  * @property bool $is_active
  * @property bool $is_blacklisted
- * @property int $completed_orders_count
- * @property int $cancelled_orders_count
  * @property \Carbon\Carbon|null $email_verified_at
  * @property \Carbon\Carbon|null $phone_verified_at
  * @property \Carbon\Carbon|null $created_at
@@ -48,8 +46,6 @@ class User extends Authenticatable
         'avatar',
         'is_active',
         'is_blacklisted',
-        'completed_orders_count',
-        'cancelled_orders_count',
         'phone_verified_at',
     ];
 
@@ -97,16 +93,6 @@ class User extends Authenticatable
     public function orders()
     {
         return $this->hasMany(Order::class);
-    }
-
-    public function carts()
-    {
-        return $this->hasMany(Cart::class);
-    }
-
-    public function reviews()
-    {
-        return $this->hasMany(Review::class);
     }
 
     public function aiChatLogs()

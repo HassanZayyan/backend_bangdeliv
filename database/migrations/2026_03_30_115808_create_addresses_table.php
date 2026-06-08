@@ -18,7 +18,6 @@ return new class extends Migration
             $table->string('recipient_name');
             $table->string('phone', 20);
             $table->text('full_address');
-            $table->string('detail')->nullable(); // "Lantai 3, depan lift"
             $table->decimal('latitude', 10, 8);
             $table->decimal('longitude', 11, 8);
             $table->boolean('is_default')->default(false);

@@ -96,7 +96,7 @@
     $search = trim((string) request()->query('q', ''));
 
     $ordersQuery = \App\Models\Order::query()
-        ->with(['user', 'restaurant', 'driver.user', 'statusRef', 'serviceType', 'courierOrder', 'rideOrder', 'orderLocations', 'payments']);
+        ->with(['user', 'restaurant', 'driver.user', 'statusRef', 'serviceType', 'courierOrder', 'rideOrder', 'orderLocations', 'payments', 'evidences']);
 
     if ($selectedService !== 'all') {
         if ($selectedServiceTypeId) {
@@ -230,7 +230,7 @@
                         <th>Waktu</th>
                         <th>Pelanggan</th>
                         <th>Ringkasan Paket</th>
-                        <th>SLA Konfirmasi</th>
+                        <th>Bukti Foto</th>
                         <th>Total</th>
                         <th>Status</th>
                         <th>Aksi</th>
@@ -271,44 +271,15 @@
                         $statusConfig = $statusMap[$statusCode] ?? ['label' => $statusCode, 'class' => 'badge-info'];
                         $detailUrl = route('admin.orders.show', ['order' => $order->id, 'back' => url()->full()]);
 
-                        $requiresPhotoEvidence = $courierOrder?->requires_photo_evidence;
-                        if ($requiresPhotoEvidence === true) {
-                            $requiresPhotoLabel = 'Wajib';
+                        $courierEvidenceCount = $order->evidences
+                            ->filter(fn ($evidence) => in_array(strtoupper((string) $evidence->evidence_type), ['PICKUP_PHOTO', 'DELIVERY_PHOTO', 'COURIER_DELIVERY_PHOTO', 'COURIER_RECEIVER_PHOTO'], true))
+                            ->count();
+                        if ($courierEvidenceCount > 0) {
+                            $requiresPhotoLabel = $courierEvidenceCount.' bukti';
                             $requiresPhotoClass = 'badge-success';
-                        } elseif ($requiresPhotoEvidence === false) {
-                            $requiresPhotoLabel = 'Tidak Wajib';
-                            $requiresPhotoClass = 'badge-danger';
                         } else {
-                            $requiresPhotoLabel = '-';
+                            $requiresPhotoLabel = 'Belum ada';
                             $requiresPhotoClass = 'badge-info';
-                        }
-
-                        $confirmationDeadlineAt = $courierOrder?->confirmation_deadline_at;
-                        $autoConfirmedAt = $courierOrder?->auto_confirmed_at;
-                        if ($autoConfirmedAt) {
-                            $slaLabel = 'Auto Konfirmasi';
-                            $slaClass = 'badge-info';
-                            $slaSub = $autoConfirmedAt->format('d M Y, H:i');
-                        } elseif (!$confirmationDeadlineAt) {
-                            $slaLabel = 'Tanpa Batas';
-                            $slaClass = 'badge-success';
-                            $slaSub = '-';
-                        } else {
-                            $isPastDeadline = $confirmationDeadlineAt->isPast();
-                            $minutesToDeadline = now()->diffInMinutes($confirmationDeadlineAt, false);
-
-                            if ($isPastDeadline) {
-                                $slaLabel = 'Melewati SLA';
-                                $slaClass = 'badge-danger';
-                            } elseif ($minutesToDeadline <= 120) {
-                                $slaLabel = 'Mendesak';
-                                $slaClass = 'badge-warning';
-                            } else {
-                                $slaLabel = 'Aman';
-                                $slaClass = 'badge-success';
-                            }
-
-                            $slaSub = $confirmationDeadlineAt->format('d M Y, H:i');
                         }
 
                         if ($serviceCode === 'SHOPPING') {
@@ -350,13 +321,12 @@
                             <td>
                                 <div class="td-resto">
                                     <span class="td-strong">{{ \Illuminate\Support\Str::limit($courierOrder?->package_description ?? '-', 55) }}</span>
-                                    <span class="td-sub">Bukti Foto: <span class="badge {{ $requiresPhotoClass }}">{{ $requiresPhotoLabel }}</span></span>
+                                    <span class="td-sub">Detail bukti ada di order evidence.</span>
                                 </div>
                             </td>
                             <td>
                                 <div class="td-resto">
-                                    <span class="badge {{ $slaClass }}">{{ $slaLabel }}</span>
-                                    <span class="td-sub">{{ $slaSub }}</span>
+                                    <span class="badge {{ $requiresPhotoClass }}">{{ $requiresPhotoLabel }}</span>
                                 </div>
                             </td>
                             <td class="td-price">Rp {{ number_format((float) $order->total_price, 0, ',', '.') }}</td>

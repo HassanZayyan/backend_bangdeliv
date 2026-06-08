@@ -21,7 +21,7 @@ class ListRestaurantsRequest extends FormRequest
             'search' => ['nullable', 'string', 'max:100'],
             'page' => ['nullable', 'integer', 'min:1'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:50'],
-            'sort' => ['nullable', 'in:nearest,rating,newest'],
+            'sort' => ['nullable', 'in:nearest,rating,newest,name'],
             'merchant_type' => ['nullable', 'in:restaurant,warung,convenience_store,other'],
             'latitude' => ['nullable', 'numeric', 'between:-90,90'],
             'longitude' => ['nullable', 'numeric', 'between:-180,180'],

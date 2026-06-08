@@ -11,6 +11,8 @@ use Illuminate\Support\Facades\Log;
 
 class ShoppingRouteService
 {
+    private const DEFAULT_PREP_MINUTES = 10;
+
     public function __construct(
         private readonly GoogleMapsDistanceMatrixService $distanceMatrixService,
         private readonly DeliveryPricingService $deliveryPricingService,
@@ -170,7 +172,7 @@ class ShoppingRouteService
      */
     public function backfillRouteSnapshot(Order $order): ?array
     {
-        $order->refresh()->load(['orderLocations.restaurant', 'items', 'shoppingOrder']);
+        $order->refresh()->load(['orderLocations.restaurant', 'items']);
 
         if ($this->activePickupLocations($order)->isEmpty()) {
             return null;
@@ -283,10 +285,10 @@ class ShoppingRouteService
     {
         $max = $locations
             ->filter(fn (OrderLocation $location): bool => strtoupper((string) $location->location_role) === 'PICKUP')
-            ->map(fn (OrderLocation $location): int => max(0, (int) ($location->restaurant?->estimated_prep_time ?? 10)))
+            ->map(fn (): int => self::DEFAULT_PREP_MINUTES)
             ->max();
 
-        return max(10, (int) ($max ?? 10));
+        return max(self::DEFAULT_PREP_MINUTES, (int) ($max ?? self::DEFAULT_PREP_MINUTES));
     }
 
     /**
@@ -379,15 +381,6 @@ class ShoppingRouteService
      */
     private function storeRouteSnapshot(Order $order, array $route): void
     {
-        $shoppingOrder = $order->shoppingOrder;
-        if (! $shoppingOrder) {
-            return;
-        }
-
-        $snapshot = is_array($shoppingOrder->pricing_snapshot)
-            ? $shoppingOrder->pricing_snapshot
-            : [];
-
         $routeSnapshot = [
             'distance_meters' => $route['distance_meters'] ?? null,
             'distance_km' => $route['distance_km'] ?? null,
@@ -403,11 +396,8 @@ class ShoppingRouteService
             'travel_mode' => $route['travel_mode'] ?? null,
             'route_status' => $route['route_status'] ?? 'OK',
         ];
-        $snapshot['shopping_route'] = $routeSnapshot;
 
         $order->update(['route_snapshot' => $routeSnapshot]);
-        $shoppingOrder->update(['pricing_snapshot' => $snapshot]);
-        $order->setRelation('shoppingOrder', $shoppingOrder->refresh());
     }
 
     private function estimateTravelMinutes(int $durationSeconds): int

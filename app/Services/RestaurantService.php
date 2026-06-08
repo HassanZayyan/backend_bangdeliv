@@ -4,7 +4,6 @@ namespace App\Services;
 
 use App\Exceptions\ApiException;
 use App\Models\Restaurant;
-use Carbon\Carbon;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -16,8 +15,7 @@ class RestaurantService
     public function paginate(array $filters): LengthAwarePaginator
     {
         $query = Restaurant::query()
-            ->where('status', 'active')
-            ->with('operatingHours');
+            ->where('status', 'active');
 
         if (!empty($filters['search'])) {
             $search = trim((string) $filters['search']);
@@ -34,8 +32,8 @@ class RestaurantService
 
         $sort = (string) ($filters['sort'] ?? 'newest');
 
-        if ($sort === 'rating') {
-            $query->orderByDesc('avg_rating')->orderByDesc('total_reviews');
+        if ($sort === 'name') {
+            $query->orderBy('name')->orderBy('id');
         } else {
             $query->latest('id');
         }
@@ -54,9 +52,6 @@ class RestaurantService
                 'merchant_type' => $restaurant->merchant_type,
                 'address' => $restaurant->address,
                 'banner_image' => $restaurant->banner_image,
-                'avg_rating' => (float) $restaurant->avg_rating,
-                'total_reviews' => (int) $restaurant->total_reviews,
-                'estimated_prep_time' => (int) $restaurant->estimated_prep_time,
                 'is_open_now' => $this->isOpenNow($restaurant),
                 'distance_km' => $this->distanceKm($restaurant, $latitude, $longitude),
             ];
@@ -79,7 +74,7 @@ class RestaurantService
                 $query->where('id', $restaurantIdOrSlug)
                     ->orWhere('slug', $restaurantIdOrSlug);
             })
-            ->with(['operatingHours', 'menuCategories'])
+            ->with('menuCategories')
             ->first();
 
         if (!$restaurant) {
@@ -105,16 +100,8 @@ class RestaurantService
             'latitude' => (float) $restaurant->latitude,
             'longitude' => (float) $restaurant->longitude,
             'banner_image' => $restaurant->banner_image,
-            'avg_rating' => (float) $restaurant->avg_rating,
-            'total_reviews' => (int) $restaurant->total_reviews,
-            'estimated_prep_time' => (int) $restaurant->estimated_prep_time,
             'is_open_now' => $this->isOpenNow($restaurant),
-            'operating_hours' => $restaurant->operatingHours->map(fn ($item): array => [
-                'day_of_week' => (int) $item->day_of_week,
-                'open_time' => $item->open_time,
-                'close_time' => $item->close_time,
-                'is_closed' => (bool) $item->is_closed,
-            ])->values()->all(),
+            'operating_hours' => [],
             'total_categories' => $restaurant->menuCategories->count(),
             'total_menus' => $restaurant->menus()->count(),
         ];
@@ -171,18 +158,7 @@ class RestaurantService
 
     private function isOpenNow(Restaurant $restaurant): bool
     {
-        $today = (int) Carbon::now()->dayOfWeek;
-        $currentTime = Carbon::now()->format('H:i:s');
-
-        $schedule = $restaurant->operatingHours
-            ->where('day_of_week', $today)
-            ->first();
-
-        if (!$schedule || $schedule->is_closed) {
-            return false;
-        }
-
-        return $currentTime >= $schedule->open_time && $currentTime <= $schedule->close_time;
+        return $restaurant->status === 'active';
     }
 
     private function distanceKm(Restaurant $restaurant, ?float $latitude, ?float $longitude): ?float

@@ -7,7 +7,6 @@ use App\Models\Driver;
 use App\Models\Order;
 use App\Models\OrderStatus;
 use App\Models\Restaurant;
-use App\Models\Review;
 use App\Models\ServiceType;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -63,9 +62,6 @@ class AuthProfileTest extends TestCase
             'phone' => '081234567890',
             'banner_image' => null,
             'status' => 'active',
-            'avg_rating' => 4.50,
-            'total_reviews' => 10,
-            'estimated_prep_time' => 20,
         ]);
 
         $serviceType = ServiceType::query()->firstOrCreate(
@@ -112,15 +108,6 @@ class AuthProfileTest extends TestCase
             'paid_at' => now(),
         ]);
 
-        Review::query()->create([
-            'order_id' => $order->id,
-            'user_id' => $user->id,
-            'restaurant_id' => $restaurant->id,
-            'driver_id' => null,
-            'rating' => 5,
-            'comment' => null,
-        ]);
-
         Sanctum::actingAs($user);
 
         $response = $this->getJson('/api/user');
@@ -130,8 +117,9 @@ class AuthProfileTest extends TestCase
             ->assertJsonPath('data.address_count', 1)
             ->assertJsonPath('data.addresses.0.label', 'Rumah')
             ->assertJsonPath('data.stats.total_orders', 1)
-            ->assertJsonPath('data.stats.total_paid', 35000)
-            ->assertJsonPath('data.stats.rating', 5);
+            ->assertJsonPath('data.stats.total_paid', 35000);
+
+        $this->assertArrayNotHasKey('rating', $response->json('data.stats'));
     }
 
     public function test_driver_profile_uses_driver_based_stats(): void
@@ -150,8 +138,6 @@ class AuthProfileTest extends TestCase
             'license_number' => 'SIMC-8899123',
             'registration_status' => 'active',
             'status' => 'available',
-            'avg_rating' => 4.20,
-            'total_deliveries' => 99,
         ]));
 
         $customer = User::factory()->create([
@@ -168,9 +154,6 @@ class AuthProfileTest extends TestCase
             'phone' => '081234567890',
             'banner_image' => null,
             'status' => 'active',
-            'avg_rating' => 4.50,
-            'total_reviews' => 10,
-            'estimated_prep_time' => 20,
         ]);
 
         $serviceType = ServiceType::query()->firstOrCreate(
@@ -279,24 +262,6 @@ class AuthProfileTest extends TestCase
             'delivered_at' => now(),
         ]);
 
-        Review::query()->create([
-            'order_id' => $completedOrderOne->id,
-            'user_id' => $customer->id,
-            'restaurant_id' => $restaurant->id,
-            'driver_id' => $driver->id,
-            'rating' => 4,
-            'comment' => null,
-        ]);
-
-        Review::query()->create([
-            'order_id' => $completedOrderTwo->id,
-            'user_id' => $customer->id,
-            'restaurant_id' => $restaurant->id,
-            'driver_id' => $driver->id,
-            'rating' => 5,
-            'comment' => null,
-        ]);
-
         Sanctum::actingAs($driverUser);
 
         $response = $this->getJson('/api/user');
@@ -304,12 +269,13 @@ class AuthProfileTest extends TestCase
         $response->assertOk()
             ->assertJsonPath('data.stats.total_orders', 2)
             ->assertJsonPath('data.stats.total_paid', 20000)
-            ->assertJsonPath('data.stats.rating', 4.5)
             ->assertJsonPath('data.driver_profile.vehicle_type', 'Motor Matic')
             ->assertJsonPath('data.driver_profile.vehicle_brand', 'Honda')
             ->assertJsonPath('data.driver_profile.vehicle_model', 'Beat')
             ->assertJsonPath('data.driver_profile.vehicle_plate', 'B 1234 XYZ')
             ->assertJsonPath('data.driver_profile.registration_status', 'active');
+
+        $this->assertArrayNotHasKey('rating', $response->json('data.stats'));
     }
 
     public function test_authenticated_user_can_update_profile(): void
@@ -644,7 +610,6 @@ class AuthProfileTest extends TestCase
             'recipient_name' => 'Edit Alamat Baru',
             'phone' => '081200099901',
             'full_address' => 'Alamat Baru',
-            'detail' => 'Belakang minimarket',
             'latitude' => -6.97030000,
             'longitude' => 110.42570000,
             'is_default' => true,

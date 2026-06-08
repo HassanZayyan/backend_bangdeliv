@@ -969,17 +969,6 @@ class ChatbotCourierOrderService
             CourierOrder::query()->create([
                 'order_id' => $order->id,
                 'package_description' => $packageDescription,
-                'estimated_weight_kg' => $packagePolicy['estimated_weight_kg'] ?? null,
-                'package_length_cm' => $packagePolicy['package_length_cm'] ?? null,
-                'package_width_cm' => $packagePolicy['package_width_cm'] ?? null,
-                'package_height_cm' => $packagePolicy['package_height_cm'] ?? null,
-                'package_size_class' => $packagePolicy['size_class'] ?? null,
-                'package_safety_status' => $packagePolicy['safety_status'] ?? null,
-                'package_safety_flags' => $packagePolicy['safety_flags'] ?? [],
-                'package_safety_reason' => $packagePolicy['safety_reason'] ?? null,
-                'package_packing_note' => $packagePolicy['packing_note'] ?? null,
-                'requires_photo_evidence' => true,
-                'confirmation_deadline_at' => Carbon::now()->addHours(24),
             ]);
 
             $order->orderLocations()->createMany([
@@ -1301,6 +1290,7 @@ class ChatbotCourierOrderService
     private function resolveLatestDraftSeed(User $user, string $sessionId): array
     {
         $latestAssistantLog = AiChatLog::query()
+            ->with('aiDetail')
             ->where('user_id', $user->id)
             ->where('session_id', $sessionId)
             ->where('role', 'assistant')
@@ -1661,6 +1651,7 @@ class ChatbotCourierOrderService
     private function resolvePendingDraft(User $user, string $sessionId): ?array
     {
         $latestAssistantLog = AiChatLog::query()
+            ->with('aiDetail')
             ->where('user_id', $user->id)
             ->where('session_id', $sessionId)
             ->where('role', 'assistant')

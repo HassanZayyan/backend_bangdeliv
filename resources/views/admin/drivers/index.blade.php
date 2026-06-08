@@ -9,6 +9,7 @@
 
     $query = \App\Models\Driver::query()
         ->with('user')
+        ->withCount('orders')
         ->latest('created_at');
 
     $searchQuery = request()->query('q');
@@ -126,8 +127,8 @@
                             <span class="td-sub" style="display:block;">{{ $driver->license_number }}</span>
                         </td>
                         <td>
-                            <span class="td-strong" style="color:var(--color-warning);"><i class='bx bxs-star'></i> {{ number_format((float) $driver->avg_rating, 1) }}</span>
-                            <span class="td-sub" style="display:block;">{{ $driver->total_deliveries }} Trip Selesai</span>
+                            <span class="td-strong">{{ $driver->orders_count ?? 0 }} order terkait</span>
+                            <span class="td-sub" style="display:block;">Rating driver tidak digunakan</span>
                         </td>
                         <td><span class="badge {{ $statusClass }}">{{ $statusText }}</span></td>
                         <td class="td-action">

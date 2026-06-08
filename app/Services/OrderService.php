@@ -12,7 +12,6 @@ use App\Models\OrderPayment;
 use App\Models\OrderStatus;
 use App\Models\OrderStatusHistory;
 use App\Models\Restaurant;
-use App\Models\ShoppingOrder;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -66,7 +65,7 @@ class OrderService
 
         $query = Order::query()
             ->where('user_id', $user->id)
-            ->with(['restaurant', 'items', 'orderLocations.restaurant', 'payments', 'evidences', 'statusRef', 'serviceType', 'courierOrder', 'shoppingOrder'])
+            ->with(['restaurant', 'items', 'orderLocations.restaurant', 'payments', 'evidences', 'statusRef', 'serviceType', 'courierOrder', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt'])
             ->latest('id');
 
         if (! empty($filters['status'])) {
@@ -79,7 +78,7 @@ class OrderService
     public function customerOrderDetail(User $user, int $orderId): Order
     {
         $order = Order::query()
-            ->with(['restaurant', 'driver.user', 'items', 'orderLocations.restaurant', 'payments', 'evidences', 'statusRef', 'statusHistories.statusRef', 'serviceType', 'courierOrder', 'shoppingOrder'])
+            ->with(['restaurant', 'driver.user', 'items', 'orderLocations.restaurant', 'payments', 'evidences', 'statusRef', 'statusHistories.statusRef', 'serviceType', 'courierOrder', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt'])
             ->find($orderId);
 
         if (! $order || $order->user_id !== $user->id) {
@@ -87,7 +86,7 @@ class OrderService
         }
 
         return $this->ensureDisplayRoutePolyline($order)
-            ->fresh(['restaurant', 'driver.user', 'items', 'orderLocations.restaurant', 'payments', 'evidences', 'statusRef', 'statusHistories.statusRef', 'serviceType', 'courierOrder', 'shoppingOrder']);
+            ->fresh(['restaurant', 'driver.user', 'items', 'orderLocations.restaurant', 'payments', 'evidences', 'statusRef', 'statusHistories.statusRef', 'serviceType', 'courierOrder', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt']);
     }
 
     public function cancelByCustomer(User $user, int $orderId, string $reason): Order
@@ -96,7 +95,7 @@ class OrderService
 
         $order = DB::transaction(function () use ($user, $orderId, $reason, &$shouldBroadcastDriverOrderRemoved): Order {
             $order = Order::query()
-                ->with(['statusRef', 'shoppingOrder', 'serviceType'])
+                ->with(['statusRef', 'serviceType', 'orderLocations', 'feeLines', 'deliveryFeeOverride'])
                 ->lockForUpdate()
                 ->find($orderId);
 
@@ -116,27 +115,12 @@ class OrderService
             $cancelledStatusCode = 'CANCELLED';
 
             if ($isShopping) {
-                $shoppingOrder = ShoppingOrder::query()
-                    ->where('order_id', $order->id)
-                    ->lockForUpdate()
-                    ->first();
-
-                if (! $shoppingOrder) {
-                    $shoppingOrder = ShoppingOrder::query()->create([
-                        'order_id' => $order->id,
-                        'failed_attempt_count' => 0,
-                        'item_surcharge' => 0,
-                        'overweight_surcharge' => 0,
-                        'cancellation_penalty' => 0,
-                        'has_overweight_item' => false,
-                        'recalculation_version' => 0,
-                    ]);
-                }
-
-                $cancellationPenalty = $this->shoppingPricingService->calculateCancellationPenalty($order, $shoppingOrder);
-                $shoppingOrder->update([
-                    'cancellation_penalty' => round($cancellationPenalty, 2),
-                ]);
+                $cancellationPenalty = $this->shoppingPricingService->calculateCancellationPenalty($order);
+                $this->shoppingPricingService->syncFeeLines($order, [[
+                    'code' => 'CANCELLATION_PENALTY_AFTER_FAILED_ATTEMPTS',
+                    'label' => 'Penalty merchant gagal',
+                    'amount' => round($cancellationPenalty, 2),
+                ]]);
 
                 if ($cancellationPenalty > 0) {
                     $cancelledStatusCode = 'CANCELLED_WITH_FEE';
@@ -168,14 +152,14 @@ class OrderService
 
             if ($isShopping) {
                 $order = $this->shoppingPricingService->recalculate(
-                    $order->refresh()->load(['items', 'shoppingOrder', 'statusRef', 'serviceType']),
+                    $order->refresh()->load(['items', 'statusRef', 'serviceType', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt']),
                     $user->id,
                     $cancellationPenalty > 0 ? 'CUSTOMER_CANCEL_WITH_FEE' : 'CUSTOMER_CANCEL',
                     false
                 );
             }
 
-            return $order->refresh()->load(['restaurant', 'items', 'statusRef', 'statusHistories.statusRef', 'shoppingOrder']);
+            return $order->refresh()->load(['restaurant', 'items', 'statusRef', 'statusHistories.statusRef', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt']);
         });
 
         if ($shouldBroadcastDriverOrderRemoved) {
@@ -190,62 +174,16 @@ class OrderService
      */
     public function updatePaymentMethodByCustomer(User $user, int $orderId, array $payload): Order
     {
-        $method = $this->orderPaymentService->normalizePaymentMethod((string) ($payload['payment_method'] ?? ''));
+        $order = Order::query()
+            ->whereKey($orderId)
+            ->where('user_id', $user->id)
+            ->first();
 
-        $order = DB::transaction(function () use ($user, $orderId, $method): Order {
-            $order = Order::query()
-                ->with(['statusRef', 'payments'])
-                ->lockForUpdate()
-                ->find($orderId);
+        if (! $order) {
+            throw new ApiException('Order tidak ditemukan.', 404);
+        }
 
-            if (! $order || (int) $order->user_id !== (int) $user->id) {
-                throw new ApiException('Order tidak ditemukan.', 404);
-            }
-
-            if ($order->statusRef?->is_terminal === true) {
-                throw new ApiException('Metode pembayaran tidak bisa diubah setelah order selesai atau dibatalkan.', 409);
-            }
-
-            if ($this->orderHasPaidPayment($order)) {
-                throw new ApiException('Metode pembayaran tidak bisa diubah setelah pembayaran lunas.', 409);
-            }
-
-            $payment = $this->orderPaymentService->ensurePendingPayment($order, $method);
-
-            OrderLog::query()->create([
-                'order_id' => $order->id,
-                'log_type' => 'PAYMENT_UPDATE',
-                'trigger_type' => 'CUSTOMER_PAYMENT_METHOD_CHANGED',
-                'changed_by_user_id' => $user->id,
-                'note' => 'Customer mengubah metode pembayaran menjadi '.$method.'.',
-                'metadata' => [
-                    'payment_method' => $method,
-                    'amount' => round((float) $payment->amount, 2),
-                ],
-            ]);
-
-            return $order->refresh();
-        });
-
-        $this->broadcastContentUpdatedAfterCommit((int) $order->id, 'PAYMENT_METHOD_UPDATED', [
-            'total_price' => round((float) $order->total_price, 2),
-            'payment_method' => $method,
-            'payment_status' => 'unpaid',
-        ]);
-
-        return $order->fresh([
-            'restaurant',
-            'driver.user',
-            'items',
-            'orderLocations.restaurant',
-            'payments',
-            'evidences',
-            'statusRef',
-            'statusHistories.statusRef',
-            'serviceType',
-            'courierOrder',
-            'shoppingOrder',
-        ]);
+        throw new ApiException('Metode pembayaran sudah dikunci saat order dibuat dan tidak bisa diubah.', 409);
     }
 
     /**
@@ -255,7 +193,7 @@ class OrderService
     {
         $order = DB::transaction(function () use ($user, $orderId, $payload): Order {
             $order = Order::query()
-                ->with(['payments', 'statusRef'])
+                ->with(['payments', 'statusRef', 'serviceType'])
                 ->lockForUpdate()
                 ->find($orderId);
 
@@ -272,7 +210,25 @@ class OrderService
                 throw new ApiException('Foto bukti transfer wajib diupload.', 422);
             }
 
-            $this->orderPaymentService->ensurePendingPayment($order, OrderPaymentService::METHOD_TRANSFER);
+            $paymentMethod = $this->currentPaymentMethod($order);
+            $isCancelledWithFeeShopping =
+                strtoupper((string) ($order->serviceType->code ?? '')) === 'SHOPPING' &&
+                strtoupper((string) ($order->statusRef->code ?? '')) === 'CANCELLED_WITH_FEE';
+
+            if ($paymentMethod !== OrderPaymentService::METHOD_TRANSFER && ! $isCancelledWithFeeShopping) {
+                throw new ApiException('Bukti transfer hanya bisa diupload untuk order dengan metode pembayaran Transfer.', 409);
+            }
+
+            if ($isCancelledWithFeeShopping && $paymentMethod !== OrderPaymentService::METHOD_TRANSFER) {
+                $this->orderPaymentService->setPendingTransferPayment(
+                    $order,
+                    (float) $order->total_price,
+                    'SHOPPING_CANCEL_WITH_FEE_TRANSFER_EVIDENCE'
+                );
+            } else {
+                $this->orderPaymentService->ensurePendingPayment($order, OrderPaymentService::METHOD_TRANSFER);
+            }
+
             $this->transferEvidenceService->storeAndRecord(
                 $order,
                 $photo,
@@ -312,7 +268,9 @@ class OrderService
             'statusHistories.statusRef',
             'serviceType',
             'courierOrder',
-            'shoppingOrder',
+            'feeLines',
+            'deliveryFeeOverride',
+            'shoppingReceipt',
         ]);
     }
 
@@ -337,7 +295,7 @@ class OrderService
 
         $order = DB::transaction(function () use ($actor, $orderId, $normalizedFailureType, $reason, $pickupLocationId): Order {
             $order = Order::query()
-                ->with(['statusRef', 'serviceType', 'shoppingOrder', 'orderLocations', 'items'])
+                ->with(['statusRef', 'serviceType', 'orderLocations', 'items', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt'])
                 ->lockForUpdate()
                 ->find($orderId);
 
@@ -387,28 +345,6 @@ class OrderService
                 }
             }
 
-            $shoppingOrder = ShoppingOrder::query()
-                ->where('order_id', $order->id)
-                ->lockForUpdate()
-                ->first();
-
-            if (! $shoppingOrder) {
-                $shoppingOrder = ShoppingOrder::query()->create([
-                    'order_id' => $order->id,
-                    'failed_attempt_count' => 0,
-                    'item_surcharge' => 0,
-                    'overweight_surcharge' => 0,
-                    'cancellation_penalty' => 0,
-                    'has_overweight_item' => false,
-                    'recalculation_version' => 0,
-                ]);
-            }
-
-            $nextFailedAttemptCount = min(255, (int) $shoppingOrder->failed_attempt_count + 1);
-            $shoppingOrder->update([
-                'failed_attempt_count' => $nextFailedAttemptCount,
-            ]);
-
             if ($pickup !== null) {
                 $pickup->update([
                     'fulfillment_status' => 'FAILED',
@@ -435,7 +371,10 @@ class OrderService
                     });
             }
 
-            $this->shoppingRouteService->applyRouteToOrder($order->refresh()->load(['orderLocations.restaurant', 'items', 'shoppingOrder']));
+            $order->refresh()->load(['orderLocations.restaurant', 'items', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt']);
+            $nextFailedAttemptCount = $this->shoppingPricingService->failedAttemptCount($order);
+
+            $this->shoppingRouteService->applyRouteToOrder($order);
 
             OrderStatusHistory::query()->create([
                 'order_id' => $order->id,
@@ -455,7 +394,7 @@ class OrderService
                 'order_id' => $order->id,
                 'log_type' => 'SYSTEM_EVENT',
                 'trigger_type' => 'FAILED_ATTEMPT_'.$normalizedFailureType,
-                'recalculation_version' => (int) $shoppingOrder->recalculation_version,
+                'recalculation_version' => $this->shoppingPricingService->latestRecalculationVersion($order),
                 'changed_by_user_id' => $actor->id,
                 'note' => $reason,
                 'metadata' => [
@@ -467,7 +406,7 @@ class OrderService
             ]);
 
             return $this->shoppingPricingService->recalculate(
-                $order->refresh()->load(['items', 'shoppingOrder', 'statusRef', 'serviceType']),
+                $order->refresh()->load(['items', 'statusRef', 'serviceType', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt']),
                 $actor->id,
                 'SHOPPING_FAILED_ATTEMPT',
                 false,
@@ -628,7 +567,7 @@ class OrderService
             ? Order::query()
                 ->with($this->driverOrderPayloadFactory->relations())
                 ->where('status_id', $pendingStatusId)
-                ->whereNull('driver_id')
+                ->whereDoesntHave('assignment')
                 ->whereDoesntHave('statusHistories', function ($query) use ($actor): void {
                     $query
                         ->where('event_type', 'DRIVER_REJECT')
@@ -641,7 +580,9 @@ class OrderService
 
         $running = Order::query()
             ->with($this->driverOrderPayloadFactory->relations())
-            ->where('driver_id', $driver->id)
+            ->whereHas('assignment', function ($query) use ($driver): void {
+                $query->where('driver_id', $driver->id);
+            })
             ->whereIn('status_id', $runningStatusIds)
             ->latest('id')
             ->limit(30)
@@ -672,8 +613,10 @@ class OrderService
         ]);
 
         $orders = Order::query()
-            ->with(['user:id,name', 'statusRef:id,code,display_name'])
-            ->where('driver_id', $driver->id)
+            ->with(['user:id,name', 'statusRef:id,code,display_name', 'pricing', 'statusHistories.statusRef'])
+            ->whereHas('assignment', function ($query) use ($driver): void {
+                $query->where('driver_id', $driver->id);
+            })
             ->whereIn('status_id', $historyStatusIds)
             ->latest('id')
             ->limit(100)
@@ -741,7 +684,7 @@ class OrderService
 
     private function ensureDisplayRoutePolyline(Order $order): Order
     {
-        $order->loadMissing(['serviceType', 'orderLocations.restaurant', 'items', 'shoppingOrder']);
+        $order->loadMissing(['serviceType', 'orderLocations.restaurant', 'items', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt']);
 
         if (strtoupper((string) ($order->serviceType->code ?? '')) !== 'SHOPPING') {
             return $order;
@@ -764,7 +707,7 @@ class OrderService
             return $order;
         }
 
-        return $order->refresh()->load(['serviceType', 'orderLocations.restaurant', 'items', 'shoppingOrder']);
+        return $order->refresh()->load(['serviceType', 'orderLocations.restaurant', 'items', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt']);
     }
 
     /**
@@ -946,8 +889,6 @@ class OrderService
         string $actionCode,
         ?string $targetStatusCode = null,
         ?string $note = null,
-        ?float $latitude = null,
-        ?float $longitude = null,
     ): array {
         $driver = $this->resolveActiveDriverProfile($actor);
         $statusChangeEventPayload = null;
@@ -959,12 +900,10 @@ class OrderService
             $actionCode,
             $targetStatusCode,
             $note,
-            $latitude,
-            $longitude,
             &$statusChangeEventPayload,
         ): Order {
             $order = Order::query()
-                ->with(['statusRef', 'serviceType', 'rideOrder', 'shoppingOrder', 'evidences'])
+                ->with(['statusRef', 'serviceType', 'rideOrder', 'evidences', 'orderLocations', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt'])
                 ->lockForUpdate()
                 ->find($orderId);
 
@@ -1040,12 +979,7 @@ class OrderService
 
             $shoppingCancellationPenalty = null;
             if (strtoupper((string) $serviceCode) === 'SHOPPING' && $normalizedActionCode === 'CANCEL_WITH_FEE') {
-                $shoppingOrder = $order->shoppingOrder;
-                if (! $shoppingOrder instanceof ShoppingOrder) {
-                    throw new ApiException('Data shopping order tidak ditemukan.', 500);
-                }
-
-                if (! $this->shoppingPricingService->isCancellationPenaltyEligible($order, $shoppingOrder)) {
+                if (! $this->shoppingPricingService->isCancellationPenaltyEligible($order)) {
                     throw new ApiException('Order belum memenuhi batas failed attempt untuk dibatalkan dengan fee.', 409);
                 }
 
@@ -1053,7 +987,7 @@ class OrderService
                     throw new ApiException('Order sudah memiliki pembayaran lunas dan tidak bisa dibatalkan dengan fee.', 409);
                 }
 
-                $shoppingCancellationPenalty = $this->shoppingPricingService->calculateCancellationPenalty($order, $shoppingOrder);
+                $shoppingCancellationPenalty = $this->shoppingPricingService->calculateCancellationPenalty($order);
                 if ($shoppingCancellationPenalty <= 0) {
                     throw new ApiException('Penalty pembatalan belum dapat dihitung.', 409);
                 }
@@ -1091,13 +1025,6 @@ class OrderService
                 'service_type' => $serviceCode,
             ];
 
-            if ($latitude !== null && $longitude !== null) {
-                $snapshot['driver_location'] = [
-                    'latitude' => round($latitude, 8),
-                    'longitude' => round($longitude, 8),
-                ];
-            }
-
             $statusHistory = OrderStatusHistory::query()->create([
                 'order_id' => $order->id,
                 'status_id' => $targetStatusId,
@@ -1115,19 +1042,14 @@ class OrderService
             );
 
             if ($shoppingCancellationPenalty !== null) {
-                if ($order->shoppingOrder instanceof ShoppingOrder) {
-                    $snapshot = is_array($order->shoppingOrder->pricing_snapshot)
-                        ? $order->shoppingOrder->pricing_snapshot
-                        : [];
-                    $snapshot['penalty_base_delivery_fee'] = round((float) $order->delivery_fee, 2);
-                    $order->shoppingOrder->update([
-                        'cancellation_penalty' => round($shoppingCancellationPenalty, 2),
-                        'pricing_snapshot' => $snapshot,
-                    ]);
-                }
+                $this->shoppingPricingService->syncFeeLines($order, [[
+                    'code' => 'CANCELLATION_PENALTY_AFTER_FAILED_ATTEMPTS',
+                    'label' => 'Penalty merchant gagal',
+                    'amount' => round($shoppingCancellationPenalty, 2),
+                ]]);
 
                 $order = $this->shoppingPricingService->recalculate(
-                    $order->refresh()->load(['items', 'shoppingOrder', 'statusRef', 'serviceType']),
+                    $order->refresh()->load(['items', 'statusRef', 'serviceType', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt']),
                     $actor->id,
                     'DRIVER_CANCEL_WITH_FEE',
                     false,
@@ -1139,6 +1061,19 @@ class OrderService
                     (float) $order->total_price,
                     'DRIVER_CANCEL_WITH_FEE'
                 );
+
+                OrderLog::query()->create([
+                    'order_id' => $order->id,
+                    'log_type' => 'PAYMENT_UPDATE',
+                    'trigger_type' => 'SYSTEM_PAYMENT_METHOD_CHANGED_AFTER_FAILED_ATTEMPTS',
+                    'changed_by_user_id' => $actor->id,
+                    'note' => 'Sistem mengubah pembayaran COD menjadi Transfer setelah merchant gagal tiga kali.',
+                    'metadata' => [
+                        'payment_method' => OrderPaymentService::METHOD_TRANSFER,
+                        'amount' => round((float) $order->total_price, 2),
+                        'source' => 'DRIVER_CANCEL_WITH_FEE',
+                    ],
+                ]);
             }
 
             return $order;
@@ -1246,7 +1181,9 @@ class OrderService
         }
 
         return Order::query()
-            ->where('driver_id', $driverId)
+            ->whereHas('assignment', function ($query) use ($driverId): void {
+                $query->where('driver_id', $driverId);
+            })
             ->whereIn('status_id', $runningStatusIds)
             ->exists();
     }
@@ -1412,7 +1349,7 @@ class OrderService
             $rideOrder = $order->rideOrder()->create();
         }
 
-        if ($targetStatusCode === 'PICKED_UP' && $rideOrder->picked_up_at === null) {
+        if (in_array($targetStatusCode, ['PICKED_UP', 'ON_THE_WAY'], true) && $rideOrder->picked_up_at === null) {
             $rideOrder->update([
                 'picked_up_at' => now(),
             ]);
@@ -1435,7 +1372,7 @@ class OrderService
 
         $order = DB::transaction(function () use ($actor, $driver, $orderId, $payload): Order {
             $order = Order::query()
-                ->with(['statusRef', 'serviceType', 'shoppingOrder', 'items'])
+                ->with(['statusRef', 'serviceType', 'items', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt'])
                 ->lockForUpdate()
                 ->find($orderId);
 
@@ -1454,17 +1391,6 @@ class OrderService
             $statusCode = strtoupper((string) ($order->statusRef->code ?? ''));
             if (! in_array($statusCode, ['DRIVER_ASSIGNED', 'ARRIVED_MERCHANT'], true)) {
                 throw new ApiException('Harga nota hanya bisa diperbarui sebelum belanja selesai.', 409);
-            }
-
-            if (! $order->shoppingOrder) {
-                $order->shoppingOrder()->create([
-                    'failed_attempt_count' => 0,
-                    'item_surcharge' => 0,
-                    'overweight_surcharge' => 0,
-                    'cancellation_penalty' => 0,
-                    'has_overweight_item' => false,
-                    'recalculation_version' => 0,
-                ]);
             }
 
             $receiptNote = trim((string) ($payload['receipt_note'] ?? ''));
@@ -1524,7 +1450,7 @@ class OrderService
             }
 
             return $this->shoppingPricingService->recalculate(
-                $order->refresh()->load(['items', 'shoppingOrder', 'statusRef', 'serviceType']),
+                $order->refresh()->load(['items', 'statusRef', 'serviceType', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt']),
                 $actor->id,
                 'DRIVER_RECEIPT_UPDATE',
                 true,
@@ -1547,7 +1473,7 @@ class OrderService
         $driver = $this->resolveActiveDriverProfile($actor);
 
         $order = DB::transaction(function () use ($actor, $driver, $orderId, $payload): Order {
-            $order = $this->lockedAssignedDriverOrder($orderId, $driver->id, ['statusRef', 'serviceType', 'shoppingOrder', 'items']);
+            $order = $this->lockedAssignedDriverOrder($orderId, $driver->id, ['statusRef', 'serviceType', 'items', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt']);
 
             $manualAmount = array_key_exists('amount', $payload) && $payload['amount'] !== null
                 ? round(max(0.0, (float) $payload['amount']), 2)
@@ -1587,6 +1513,10 @@ class OrderService
                 'manual_delivery_fee_reason' => $manualAmount !== null ? $reason : null,
                 'careful_carry_required' => $carefulCarryRequired,
             ]);
+            if ($manualAmount !== null) {
+                $order->deliveryFeeOverride()->update(['changed_by_user_id' => $actor->id]);
+                $order->unsetRelation('deliveryFeeOverride');
+            }
 
             $order = $this->refreshTotalsAfterDeliveryFeeChange(
                 $order->refresh(),
@@ -1635,8 +1565,6 @@ class OrderService
                 'driver_id' => $driver->id,
                 'evidence_type' => $evidenceType,
                 'file_url' => $fileUrl,
-                'verification_mode' => 'AUTO_24H',
-                'verification_status' => 'PENDING',
                 'uploaded_at' => now(),
                 'notes' => $payload['note'] ?? null,
             ]);
@@ -1681,7 +1609,7 @@ class OrderService
             $order = $this->lockedAssignedDriverOrder(
                 $orderId,
                 $driver->id,
-                ['statusRef', 'serviceType', 'shoppingOrder', 'items']
+                ['statusRef', 'serviceType', 'items', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt']
             );
 
             if (($order->serviceType->code ?? null) !== 'SHOPPING') {
@@ -1706,6 +1634,8 @@ class OrderService
                     'manual_delivery_fee' => $manualDeliveryFee,
                     'manual_delivery_fee_reason' => 'Ongkir diedit saat checkout nitip.',
                 ]);
+                $order->deliveryFeeOverride()->update(['changed_by_user_id' => $actor->id]);
+                $order->unsetRelation('deliveryFeeOverride');
 
                 $order = $this->refreshTotalsAfterDeliveryFeeChange(
                     $order->refresh(),
@@ -1729,17 +1659,15 @@ class OrderService
                     'total_price' => $totalPrice,
                 ]);
 
-                if ($order->shoppingOrder instanceof ShoppingOrder) {
-                    $snapshot = is_array($order->shoppingOrder->pricing_snapshot)
-                        ? $order->shoppingOrder->pricing_snapshot
-                        : [];
-                    $snapshot['subtotal'] = $shoppingTotal;
-                    $snapshot['total_price'] = $totalPrice;
-                    $snapshot['driver_shopping_total_amount'] = $shoppingTotal;
-                    $order->shoppingOrder->update([
-                        'pricing_snapshot' => $snapshot,
-                    ]);
-                }
+                $order->shoppingReceipt()->updateOrCreate(
+                    ['order_id' => $order->id],
+                    [
+                        'total_amount' => $shoppingTotal,
+                        'recorded_by_user_id' => $actor->id,
+                        'recorded_at' => now(),
+                    ]
+                );
+                $order->unsetRelation('shoppingReceipt');
 
                 $this->markShoppingItemsConfirmedByReceiptTotal($order);
 
@@ -1754,8 +1682,6 @@ class OrderService
                     'driver_id' => $driver->id,
                     'evidence_type' => 'SHOPPING_RECEIPT',
                     'file_url' => $fileUrl,
-                    'verification_mode' => 'AUTO_24H',
-                    'verification_status' => 'PENDING',
                     'uploaded_at' => now(),
                     'notes' => $payload['receipt_note'] ?? null,
                 ]);
@@ -1932,12 +1858,12 @@ class OrderService
                     ],
                 ]);
 
-                $this->shoppingRouteService->applyRouteToOrder($order->refresh()->load(['orderLocations.restaurant', 'items', 'shoppingOrder']));
+                $this->shoppingRouteService->applyRouteToOrder($order->refresh()->load(['orderLocations.restaurant', 'items']));
                 $routeChanged = true;
             }
 
             return $this->shoppingPricingService->recalculate(
-                $order->refresh()->load(['items', 'shoppingOrder', 'statusRef', 'serviceType']),
+                $order->refresh()->load(['items', 'statusRef', 'serviceType', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt']),
                 $user->id,
                 $routeChanged ? 'SHOPPING_ROUTE_UPDATED' : 'CUSTOMER_ADD_ITEM',
                 true,
@@ -1983,7 +1909,7 @@ class OrderService
             ]);
 
             return $this->shoppingPricingService->recalculate(
-                $order->refresh()->load(['items', 'shoppingOrder', 'statusRef', 'serviceType']),
+                $order->refresh()->load(['items', 'statusRef', 'serviceType', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt']),
                 $user->id,
                 'CUSTOMER_UPDATE_ITEM',
                 true,
@@ -2026,7 +1952,7 @@ class OrderService
             }
 
             return $this->shoppingPricingService->recalculate(
-                $order->refresh()->load(['items', 'shoppingOrder', 'statusRef', 'serviceType']),
+                $order->refresh()->load(['items', 'statusRef', 'serviceType', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt']),
                 $user->id,
                 $routeChanged ? 'SHOPPING_ROUTE_UPDATED' : 'CUSTOMER_REMOVE_ITEM',
                 true,
@@ -2065,7 +1991,7 @@ class OrderService
             ]);
 
             $this->syncPrimaryRestaurantFromFirstPickup($order);
-            $this->shoppingRouteService->applyRouteToOrder($order->refresh()->load(['orderLocations.restaurant', 'items', 'shoppingOrder']));
+            $this->shoppingRouteService->applyRouteToOrder($order->refresh()->load(['orderLocations.restaurant', 'items']));
 
             OrderStatusHistory::query()->create([
                 'order_id' => $order->id,
@@ -2080,7 +2006,7 @@ class OrderService
             ]);
 
             return $this->shoppingPricingService->recalculate(
-                $order->refresh()->load(['items', 'shoppingOrder', 'statusRef', 'serviceType']),
+                $order->refresh()->load(['items', 'statusRef', 'serviceType', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt']),
                 $user->id,
                 'CUSTOMER_SKIP_FAILED_MERCHANT',
                 false,
@@ -2117,7 +2043,7 @@ class OrderService
     private function getEditableShoppingOrder(User $user, int $orderId): Order
     {
         $order = Order::query()
-            ->with(['items', 'shoppingOrder', 'statusRef', 'serviceType', 'restaurant', 'orderLocations.restaurant'])
+            ->with(['items', 'statusRef', 'serviceType', 'restaurant', 'orderLocations.restaurant', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt'])
             ->find($orderId);
 
         if (! $order || $order->user_id !== $user->id) {
@@ -2131,19 +2057,6 @@ class OrderService
         $statusCode = $order->statusRef?->code;
         if (! in_array($statusCode, $this->editableShoppingStatuses, true)) {
             throw new ApiException('Item tidak bisa diubah pada status order saat ini.', 409);
-        }
-
-        if (! $order->shoppingOrder) {
-            $order->shoppingOrder()->create([
-                'failed_attempt_count' => 0,
-                'item_surcharge' => 0,
-                'overweight_surcharge' => 0,
-                'cancellation_penalty' => 0,
-                'has_overweight_item' => false,
-                'recalculation_version' => 0,
-            ]);
-
-            $order->load('shoppingOrder');
         }
 
         return $order;
@@ -2286,6 +2199,8 @@ class OrderService
      */
     private function lockedAssignedDriverOrder(int $orderId, int $driverId, array $relations = []): Order
     {
+        $relations = array_values(array_unique([...$relations, 'assignment']));
+
         $order = Order::query()
             ->with($relations)
             ->lockForUpdate()
@@ -2310,17 +2225,13 @@ class OrderService
         float $oldDeliveryFee,
         float $oldTotalPrice,
     ): Order {
-        $order->loadMissing(['serviceType', 'shoppingOrder', 'items']);
+        $order->loadMissing(['serviceType', 'items', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt']);
+        $newProjectedTotal = round($oldTotalPrice + ((float) $order->delivery_fee - $oldDeliveryFee), 2);
 
-        OrderLog::query()->create([
+        $event = OrderLog::query()->create([
             'order_id' => $order->id,
             'log_type' => 'PRICE_RECALCULATION',
             'trigger_type' => $triggerType,
-            'old_delivery_fee' => round($oldDeliveryFee, 2),
-            'new_delivery_fee' => round((float) $order->delivery_fee, 2),
-            'old_total_price' => round($oldTotalPrice, 2),
-            'new_total_price' => round((float) $order->total_price, 2),
-            'delta_total_price' => round(((float) $order->delivery_fee) - $oldDeliveryFee, 2),
             'changed_by_user_id' => $actorId,
             'note' => $note,
             'metadata' => [
@@ -2331,9 +2242,21 @@ class OrderService
             ],
         ]);
 
-        if (($order->serviceType->code ?? null) === 'SHOPPING' && $order->shoppingOrder instanceof ShoppingOrder) {
+        $this->shoppingPricingService->recordPriceChange($event, [
+            'SUBTOTAL' => round((float) $order->subtotal, 2),
+            'DELIVERY_FEE' => round($oldDeliveryFee, 2),
+            'SERVICE_FEE' => round((float) $order->service_fee, 2),
+            'TOTAL_PRICE' => round($oldTotalPrice, 2),
+        ], [
+            'SUBTOTAL' => round((float) $order->subtotal, 2),
+            'DELIVERY_FEE' => round((float) $order->delivery_fee, 2),
+            'SERVICE_FEE' => round((float) $order->service_fee, 2),
+            'TOTAL_PRICE' => $newProjectedTotal,
+        ]);
+
+        if (($order->serviceType->code ?? null) === 'SHOPPING') {
             return $this->shoppingPricingService->recalculate(
-                $order->refresh()->load(['items', 'shoppingOrder', 'statusRef', 'serviceType']),
+                $order->refresh()->load(['items', 'statusRef', 'serviceType', 'feeLines', 'deliveryFeeOverride', 'shoppingReceipt']),
                 $actorId,
                 $triggerType,
                 true,
@@ -2530,6 +2453,11 @@ class OrderService
         }
     }
 
+    private function currentPaymentMethod(Order $order): string
+    {
+        return $this->orderPaymentService->normalizePaymentMethod((string) ($order->payment_method ?? OrderPaymentService::METHOD_COD));
+    }
+
     private function orderHasPaidPayment(Order $order): bool
     {
         if ($order->relationLoaded('payments')) {
@@ -2656,7 +2584,9 @@ class OrderService
                 'items',
                 'statusRef',
                 'statusHistories.statusRef',
-                'shoppingOrder',
+                'feeLines',
+                'deliveryFeeOverride',
+                'shoppingReceipt',
                 'payments',
             ]);
         });

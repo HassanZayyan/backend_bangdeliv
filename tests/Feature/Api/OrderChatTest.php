@@ -235,8 +235,6 @@ class OrderChatTest extends TestCase
             'order_id' => $order->id,
             'driver_id' => null,
             'evidence_type' => 'PAYMENT_TRANSFER_PHOTO',
-            'verification_mode' => 'MANUAL',
-            'verification_status' => 'PENDING',
         ]);
     }
 

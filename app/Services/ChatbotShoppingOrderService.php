@@ -9,7 +9,6 @@ use App\Models\OrderStatus;
 use App\Models\OrderStatusHistory;
 use App\Models\Restaurant;
 use App\Models\ServiceType;
-use App\Models\ShoppingOrder;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
@@ -18,6 +17,8 @@ use Illuminate\Support\Str;
 
 class ChatbotShoppingOrderService
 {
+    private const DEFAULT_PREP_MINUTES = 10;
+
     /**
      * @var array<int, string>
      */
@@ -109,8 +110,8 @@ class ChatbotShoppingOrderService
     private function buildIncomingDraftSeed(string $message, ?array $nluPayload): array
     {
         $nluPayload ??= [];
-        $paymentMethod = $this->normalizePaymentMethodOrNull($nluPayload['payment_method'] ?? null)
-            ?? $this->extractPaymentMethod($message);
+        $paymentMethod = $this->extractPaymentMethod($message)
+            ?? $this->normalizePaymentMethodOrNull($nluPayload['payment_method'] ?? null);
         if ($this->isPaymentMethodOnlyMessage($message, $paymentMethod)) {
             return ['payment_method' => $paymentMethod];
         }
@@ -343,6 +344,30 @@ class ChatbotShoppingOrderService
             'name' => $this->normalizeOptionalString($draftSeed['merchant_name'] ?? null),
         ] : $this->merchantPayload($merchant);
 
+        $actionPayloads = [
+            'OPEN_ADDRESSES' => [
+                'label' => 'Isi Alamat Saya',
+            ],
+            'OPEN_MAP_PICKER_DELIVERY' => [
+                'target' => 'delivery',
+                'label' => $deliveryActionLabel,
+                'initial_latitude' => $delivery['latitude'],
+                'initial_longitude' => $delivery['longitude'],
+            ],
+            'CONFIRM_DRAFT' => [
+                'label' => 'Konfirmasi Nitip',
+                'message' => 'Konfirmasi',
+            ],
+            'SET_PAYMENT_COD' => [
+                'label' => 'COD',
+                'message' => 'COD',
+            ],
+            'SET_PAYMENT_TRANSFER' => [
+                'label' => 'Transfer',
+                'message' => 'Transfer',
+            ],
+        ];
+
         $payload = [
             'intent' => 'shopping_order',
             'legacy_intent' => 'pesan_makanan',
@@ -363,29 +388,7 @@ class ChatbotShoppingOrderService
                 'missing_fields' => $missingFields,
                 'next_actions' => array_values(array_unique($nextActions)),
             ],
-            'action_payloads' => [
-                'OPEN_ADDRESSES' => [
-                    'label' => 'Isi Alamat Saya',
-                ],
-                'OPEN_MAP_PICKER_DELIVERY' => [
-                    'target' => 'delivery',
-                    'label' => $deliveryActionLabel,
-                    'initial_latitude' => $delivery['latitude'],
-                    'initial_longitude' => $delivery['longitude'],
-                ],
-                'CONFIRM_DRAFT' => [
-                    'label' => 'Konfirmasi Nitip',
-                    'message' => 'Konfirmasi',
-                ],
-                'SET_PAYMENT_COD' => [
-                    'label' => 'COD',
-                    'message' => 'COD',
-                ],
-                'SET_PAYMENT_TRANSFER' => [
-                    'label' => 'Transfer',
-                    'message' => 'Transfer',
-                ],
-            ],
+            'action_payloads' => $this->activeActionPayloads($actionPayloads, $nextActions),
             'order' => [
                 'created' => false,
                 'id' => null,
@@ -397,6 +400,18 @@ class ChatbotShoppingOrderService
         $payload['assistant_text'] = $this->buildAssistantText($payload, (string) $user->name);
 
         return $payload;
+    }
+
+    /**
+     * @param  array<string, array<string, mixed>>  $payloads
+     * @param  array<int, string>  $nextActions
+     * @return array<string, array<string, mixed>>
+     */
+    private function activeActionPayloads(array $payloads, array $nextActions): array
+    {
+        $activeKeys = array_flip(array_values(array_unique($nextActions)));
+
+        return array_intersect_key($payloads, $activeKeys);
     }
 
     /**
@@ -481,7 +496,7 @@ class ChatbotShoppingOrderService
             ];
         }
 
-        $defaultFullAddress = trim($defaultAddress->full_address.' '.($defaultAddress->detail ?? ''));
+        $defaultFullAddress = trim((string) $defaultAddress->full_address);
 
         return [
             'address' => $defaultFullAddress,
@@ -586,14 +601,16 @@ class ChatbotShoppingOrderService
 
         if ($paymentMethod === null) {
             $pendingPayload['validation']['next_actions'] = ['SET_PAYMENT_COD', 'SET_PAYMENT_TRANSFER'];
-            $pendingPayload['action_payloads']['SET_PAYMENT_COD'] = [
-                'label' => 'COD',
-                'message' => 'COD',
-            ];
-            $pendingPayload['action_payloads']['SET_PAYMENT_TRANSFER'] = [
-                'label' => 'Transfer',
-                'message' => 'Transfer',
-            ];
+            $pendingPayload['action_payloads'] = $this->activeActionPayloads([
+                'SET_PAYMENT_COD' => [
+                    'label' => 'COD',
+                    'message' => 'COD',
+                ],
+                'SET_PAYMENT_TRANSFER' => [
+                    'label' => 'Transfer',
+                    'message' => 'Transfer',
+                ],
+            ], $pendingPayload['validation']['next_actions']);
             $pendingPayload['assistant_text'] = $this->buildAssistantText($pendingPayload, (string) $user->name)
                 ."\n\nPilih COD atau Transfer dulu sebelum konfirmasi.";
 
@@ -644,7 +661,7 @@ class ChatbotShoppingOrderService
                 'route_snapshot' => $routeSnapshot,
                 'total_price' => round((float) ($pricing['total_price'] ?? 0), 2),
                 'status_id' => $pendingStatusId,
-                'estimated_delivery' => Carbon::now()->addMinutes((int) $merchant->estimated_prep_time + $routeMinutes),
+                'estimated_delivery' => Carbon::now()->addMinutes(self::DEFAULT_PREP_MINUTES + $routeMinutes),
             ]);
 
             $pickupLocation = $order->orderLocations()->create([
@@ -701,22 +718,7 @@ class ChatbotShoppingOrderService
                 ]);
             }
 
-            ShoppingOrder::query()->create([
-                'order_id' => $order->id,
-                'failed_attempt_count' => 0,
-                'item_surcharge' => round((float) ($pricing['item_surcharge'] ?? 0), 2),
-                'overweight_surcharge' => round((float) ($pricing['overweight_surcharge'] ?? 0), 2),
-                'cancellation_penalty' => round((float) ($pricing['cancellation_penalty'] ?? 0), 2),
-                'has_overweight_item' => (bool) ($pricing['has_overweight_item'] ?? false),
-                'recalculation_version' => 0,
-                'last_recalculated_at' => now(),
-                'pricing_snapshot' => $routeSnapshot === null
-                    ? $pricing
-                    : [
-                        ...$pricing,
-                        'shopping_route' => $routeSnapshot,
-                    ],
-            ]);
+            $this->shoppingPricingService->syncFeeLines($order, $pricing['fee_breakdown'] ?? []);
 
             OrderStatusHistory::query()->create([
                 'order_id' => $order->id,
@@ -728,7 +730,18 @@ class ChatbotShoppingOrderService
 
             $this->orderPaymentService->ensurePendingPayment($order, $paymentMethod);
 
-            return $order->fresh(['restaurant', 'orderLocations.restaurant', 'items', 'payments', 'statusRef', 'statusHistories.statusRef', 'shoppingOrder', 'serviceType']);
+            return $order->fresh([
+                'restaurant',
+                'orderLocations.restaurant',
+                'items',
+                'payments',
+                'statusRef',
+                'statusHistories.statusRef',
+                'serviceType',
+                'feeLines',
+                'deliveryFeeOverride',
+                'shoppingReceipt',
+            ]);
         });
 
         $this->driverOrderRealtimeService->broadcastOrderAvailable($order);
@@ -753,6 +766,7 @@ class ChatbotShoppingOrderService
     private function resolvePendingDraftPayload(User $user, string $sessionId): ?array
     {
         $log = AiChatLog::query()
+            ->with('aiDetail')
             ->where('user_id', $user->id)
             ->where('session_id', $sessionId)
             ->where('role', 'assistant')
@@ -778,6 +792,7 @@ class ChatbotShoppingOrderService
     private function resolveLatestDraftSeed(User $user, string $sessionId): array
     {
         $log = AiChatLog::query()
+            ->with('aiDetail')
             ->where('user_id', $user->id)
             ->where('session_id', $sessionId)
             ->where('role', 'assistant')

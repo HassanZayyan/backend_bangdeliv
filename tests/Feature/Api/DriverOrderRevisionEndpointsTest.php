@@ -9,7 +9,6 @@ use App\Models\OrderItem;
 use App\Models\OrderPayment;
 use App\Models\OrderStatus;
 use App\Models\ServiceType;
-use App\Models\ShoppingOrder;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -166,13 +165,16 @@ class DriverOrderRevisionEndpointsTest extends TestCase
             ->assertJsonPath('data.manual_delivery_fee_reason', 'Rute sistem kurang akurat.')
             ->assertJsonPath('data.careful_carry_required', false);
 
-        $this->assertDatabaseHas('orders', [
-            'id' => $order->id,
+        $this->assertDatabaseHas('order_pricings', [
+            'order_id' => $order->id,
             'delivery_fee' => 22000,
-            'delivery_fee_source' => 'manual',
-            'manual_delivery_fee' => 22000,
-            'manual_delivery_fee_reason' => 'Rute sistem kurang akurat.',
             'total_price' => 22000,
+        ]);
+        $this->assertDatabaseHas('order_delivery_fee_overrides', [
+            'order_id' => $order->id,
+            'amount' => 22000,
+            'reason' => 'Rute sistem kurang akurat.',
+            'changed_by_user_id' => $driverUser->id,
         ]);
         $this->assertDatabaseHas('order_payments', [
             'order_id' => $order->id,
@@ -201,13 +203,16 @@ class DriverOrderRevisionEndpointsTest extends TestCase
             ->assertJsonPath('data.manual_delivery_fee', 8000)
             ->assertJsonPath('data.careful_carry_required', true);
 
-        $this->assertDatabaseHas('orders', [
-            'id' => $order->id,
+        $this->assertDatabaseHas('order_pricings', [
+            'order_id' => $order->id,
             'delivery_fee' => 12000,
-            'delivery_fee_source' => 'manual',
-            'manual_delivery_fee' => 8000,
-            'manual_delivery_fee_reason' => 'Barang besar dan perlu bantuan.',
             'total_price' => 12000,
+        ]);
+        $this->assertDatabaseHas('order_delivery_fee_overrides', [
+            'order_id' => $order->id,
+            'amount' => 8000,
+            'reason' => 'Barang besar dan perlu bantuan.',
+            'changed_by_user_id' => $driverUser->id,
         ]);
         $this->assertDatabaseHas('order_payments', [
             'order_id' => $order->id,
@@ -249,15 +254,7 @@ class DriverOrderRevisionEndpointsTest extends TestCase
             'manual_delivery_fee_reason' => 'Ongkir sudah diedit driver.',
         ]);
 
-        ShoppingOrder::query()->create([
-            'order_id' => $order->id,
-            'failed_attempt_count' => 3,
-            'item_surcharge' => 0,
-            'overweight_surcharge' => 0,
-            'cancellation_penalty' => 0,
-            'has_overweight_item' => false,
-            'recalculation_version' => 0,
-        ]);
+        $this->createFailedPickup($order, 3);
 
         Sanctum::actingAs($driverUser);
 
@@ -279,6 +276,10 @@ class DriverOrderRevisionEndpointsTest extends TestCase
             'payment_status' => 'PENDING',
             'amount' => 5000,
         ]);
+        $this->assertDatabaseHas('order_events', [
+            'order_id' => $order->id,
+            'trigger_type' => 'SYSTEM_PAYMENT_METHOD_CHANGED_AFTER_FAILED_ATTEMPTS',
+        ]);
     }
 
     public function test_cancel_with_fee_is_rejected_after_payment_paid(): void
@@ -294,15 +295,7 @@ class DriverOrderRevisionEndpointsTest extends TestCase
                 'paid_at' => now(),
             ]);
 
-        ShoppingOrder::query()->create([
-            'order_id' => $order->id,
-            'failed_attempt_count' => 3,
-            'item_surcharge' => 0,
-            'overweight_surcharge' => 0,
-            'cancellation_penalty' => 0,
-            'has_overweight_item' => false,
-            'recalculation_version' => 0,
-        ]);
+        $this->createFailedPickup($order, 3);
 
         Sanctum::actingAs($driverUser);
 
@@ -316,7 +309,60 @@ class DriverOrderRevisionEndpointsTest extends TestCase
             ->assertJsonPath('success', false);
     }
 
-    public function test_customer_can_change_payment_method_and_upload_transfer_evidence(): void
+    public function test_customer_cannot_change_payment_method_after_order_created_for_all_service_types(): void
+    {
+        [, $driver] = $this->createDriver();
+
+        foreach (['RIDE', 'COURIER', 'SHOPPING'] as $serviceCode) {
+            $order = $this->createAssignedOrder($driver, $serviceCode, 'DRIVER_ASSIGNED', 18000);
+            $customer = User::query()->findOrFail($order->user_id);
+
+            Sanctum::actingAs($customer);
+
+            $response = $this->patchJson('/api/v1/orders/'.$order->id.'/payment-method', [
+                'payment_method' => 'TRANSFER',
+            ]);
+
+            $response->assertConflict()
+                ->assertJsonPath('success', false)
+                ->assertJsonPath('message', 'Metode pembayaran sudah dikunci saat order dibuat dan tidak bisa diubah.');
+
+            $this->assertDatabaseHas('order_payments', [
+                'order_id' => $order->id,
+                'payment_method' => 'COD',
+                'payment_status' => 'PENDING',
+                'amount' => 18000,
+            ]);
+
+            $transferOrder = $this->createAssignedOrder(
+                $driver,
+                $serviceCode,
+                'DRIVER_ASSIGNED',
+                18000,
+                'TRANSFER',
+            );
+            $transferCustomer = User::query()->findOrFail($transferOrder->user_id);
+
+            Sanctum::actingAs($transferCustomer);
+
+            $reverseResponse = $this->patchJson('/api/v1/orders/'.$transferOrder->id.'/payment-method', [
+                'payment_method' => 'COD',
+            ]);
+
+            $reverseResponse->assertConflict()
+                ->assertJsonPath('success', false)
+                ->assertJsonPath('message', 'Metode pembayaran sudah dikunci saat order dibuat dan tidak bisa diubah.');
+
+            $this->assertDatabaseHas('order_payments', [
+                'order_id' => $transferOrder->id,
+                'payment_method' => 'TRANSFER',
+                'payment_status' => 'PENDING',
+                'amount' => 18000,
+            ]);
+        }
+    }
+
+    public function test_customer_cannot_upload_transfer_evidence_for_cod_order(): void
     {
         Storage::fake('public');
         [, $driver] = $this->createDriver();
@@ -325,14 +371,35 @@ class DriverOrderRevisionEndpointsTest extends TestCase
 
         Sanctum::actingAs($customer);
 
-        $methodResponse = $this->patchJson('/api/v1/orders/'.$order->id.'/payment-method', [
-            'payment_method' => 'TRANSFER',
-        ]);
+        $response = $this->post('/api/v1/orders/'.$order->id.'/payment/transfer/evidence', [
+            'photo' => UploadedFile::fake()->image('transfer.jpg', 800, 600),
+            'note' => 'Transfer manual.',
+        ], ['Accept' => 'application/json']);
 
-        $methodResponse->assertOk()
-            ->assertJsonPath('success', true)
-            ->assertJsonPath('data.payment_method', 'TRANSFER')
-            ->assertJsonPath('data.payment_status', 'unpaid');
+        $response->assertConflict()
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('message', 'Bukti transfer hanya bisa diupload untuk order dengan metode pembayaran Transfer.');
+
+        $this->assertDatabaseMissing('order_evidence', [
+            'order_id' => $order->id,
+            'evidence_type' => 'PAYMENT_TRANSFER_PHOTO',
+        ]);
+        $this->assertDatabaseHas('order_payments', [
+            'order_id' => $order->id,
+            'payment_method' => 'COD',
+            'payment_status' => 'PENDING',
+            'amount' => 18000,
+        ]);
+    }
+
+    public function test_customer_can_upload_transfer_evidence_for_transfer_order(): void
+    {
+        Storage::fake('public');
+        [, $driver] = $this->createDriver();
+        $order = $this->createAssignedOrder($driver, 'RIDE', 'DRIVER_ASSIGNED', 18000, 'TRANSFER');
+        $customer = User::query()->findOrFail($order->user_id);
+
+        Sanctum::actingAs($customer);
 
         $uploadResponse = $this->post('/api/v1/orders/'.$order->id.'/payment/transfer/evidence', [
             'photo' => UploadedFile::fake()->image('transfer.jpg', 800, 600),
@@ -347,8 +414,6 @@ class DriverOrderRevisionEndpointsTest extends TestCase
         $this->assertDatabaseHas('order_evidence', [
             'order_id' => $order->id,
             'evidence_type' => 'PAYMENT_TRANSFER_PHOTO',
-            'verification_mode' => 'MANUAL',
-            'verification_status' => 'PENDING',
         ]);
         $this->assertDatabaseHas('order_payments', [
             'order_id' => $order->id,
@@ -369,14 +434,11 @@ class DriverOrderRevisionEndpointsTest extends TestCase
                 $serviceCode,
                 'DRIVER_ASSIGNED',
                 18000,
+                'TRANSFER',
             );
             $customer = User::query()->findOrFail($order->user_id);
 
             Sanctum::actingAs($customer);
-
-            $this->patchJson('/api/v1/orders/'.$order->id.'/payment-method', [
-                'payment_method' => 'TRANSFER',
-            ])->assertOk();
 
             $this->post('/api/v1/orders/'.$order->id.'/payment/transfer/evidence', [
                 'photo' => UploadedFile::fake()->image(
@@ -407,17 +469,10 @@ class DriverOrderRevisionEndpointsTest extends TestCase
         [$driverUser, $driver] = $this->createDriver();
         $order = $this->createAssignedOrder($driver, 'SHOPPING', 'ARRIVED_MERCHANT', 6000);
 
-        ShoppingOrder::query()->create([
-            'order_id' => $order->id,
-            'failed_attempt_count' => 0,
-            'item_surcharge' => 0,
-            'overweight_surcharge' => 0,
-            'cancellation_penalty' => 0,
-            'has_overweight_item' => false,
-            'recalculation_version' => 0,
-            'pricing_snapshot' => [
-                'driver_shopping_total_amount' => 25000,
-            ],
+        $order->shoppingReceipt()->create([
+            'total_amount' => 25000,
+            'recorded_by_user_id' => $driverUser->id,
+            'recorded_at' => now(),
         ]);
 
         OrderItem::query()->create([
@@ -436,8 +491,6 @@ class DriverOrderRevisionEndpointsTest extends TestCase
             'driver_id' => $driver->id,
             'evidence_type' => 'SHOPPING_RECEIPT',
             'file_url' => 'http://localhost/storage/orders/'.$order->id.'/receipts/receipt.jpg',
-            'verification_mode' => 'AUTO_24H',
-            'verification_status' => 'PENDING',
             'uploaded_at' => now(),
         ]);
 
@@ -458,16 +511,6 @@ class DriverOrderRevisionEndpointsTest extends TestCase
         Storage::fake('public');
         [$driverUser, $driver] = $this->createDriver();
         $order = $this->createAssignedOrder($driver, 'SHOPPING', 'ARRIVED_MERCHANT', 5000);
-
-        ShoppingOrder::query()->create([
-            'order_id' => $order->id,
-            'failed_attempt_count' => 0,
-            'item_surcharge' => 0,
-            'overweight_surcharge' => 0,
-            'cancellation_penalty' => 0,
-            'has_overweight_item' => false,
-            'recalculation_version' => 0,
-        ]);
 
         $item = OrderItem::query()->create([
             'order_id' => $order->id,
@@ -511,17 +554,16 @@ class DriverOrderRevisionEndpointsTest extends TestCase
             ->assertJsonPath('data.pricing.has_pending_manual_prices', false)
             ->assertJsonPath('data.has_pending_shopping_prices', false);
 
-        $this->assertDatabaseHas('orders', [
-            'id' => $order->id,
+        $this->assertDatabaseHas('order_pricings', [
+            'order_id' => $order->id,
             'subtotal' => 56000,
             'total_price' => 61000,
         ]);
-        $this->assertDatabaseHas('shopping_orders', [
+        $this->assertDatabaseHas('shopping_receipts', [
             'order_id' => $order->id,
+            'total_amount' => 56000,
+            'recorded_by_user_id' => $driverUser->id,
         ]);
-
-        $shoppingOrder = ShoppingOrder::query()->where('order_id', $order->id)->firstOrFail();
-        $this->assertSame(56000.0, (float) $shoppingOrder->pricing_snapshot['driver_shopping_total_amount']);
 
         $actions = collect($checkoutResponse->json('data.available_actions'));
         $confirmAction = $actions->firstWhere('action_code', 'CONFIRM_PICKED_UP');
@@ -620,7 +662,13 @@ class DriverOrderRevisionEndpointsTest extends TestCase
         return [$driverUser, $driver];
     }
 
-    private function createAssignedOrder(Driver $driver, string $serviceCode, string $statusCode, int $amount): Order
+    private function createAssignedOrder(
+        Driver $driver,
+        string $serviceCode,
+        string $statusCode,
+        int $amount,
+        string $paymentMethod = 'COD',
+    ): Order
     {
         $customer = User::factory()->create(['role' => 'customer']);
         $serviceTypeId = (int) ServiceType::query()->where('code', $serviceCode)->value('id');
@@ -641,11 +689,27 @@ class DriverOrderRevisionEndpointsTest extends TestCase
 
         OrderPayment::query()->create([
             'order_id' => $order->id,
-            'payment_method' => 'COD',
+            'payment_method' => strtoupper($paymentMethod) === 'TRANSFER' ? 'TRANSFER' : 'COD',
             'payment_status' => 'PENDING',
             'amount' => $amount,
         ]);
 
         return $order;
+    }
+
+    private function createFailedPickup(Order $order, int $failedAttemptCount): void
+    {
+        $order->orderLocations()->create([
+            'location_role' => 'PICKUP',
+            'label' => 'Merchant',
+            'full_address' => 'Jl. Merchant Failed',
+            'latitude' => -7.001,
+            'longitude' => 110.401,
+            'sequence_no' => 1,
+            'fulfillment_status' => 'FAILED',
+            'failed_attempt_count' => $failedAttemptCount,
+            'failure_reason' => 'Merchant gagal tiga kali.',
+            'failed_at' => now(),
+        ]);
     }
 }

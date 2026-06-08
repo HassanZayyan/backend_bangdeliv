@@ -9,7 +9,6 @@ use App\Models\OrderPayment;
 use App\Models\OrderStatus;
 use App\Models\Restaurant;
 use App\Models\ServiceType;
-use App\Models\ShoppingOrder;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Config;
@@ -572,16 +571,6 @@ class ShoppingOrderItemEditTest extends TestCase
             'sequence_no' => 2,
         ]);
 
-        ShoppingOrder::query()->create([
-            'order_id' => $order->id,
-            'failed_attempt_count' => 0,
-            'item_surcharge' => 0,
-            'overweight_surcharge' => 0,
-            'cancellation_penalty' => 0,
-            'has_overweight_item' => false,
-            'recalculation_version' => 0,
-        ]);
-
         OrderItem::query()->create([
             'order_id' => $order->id,
             'pickup_location_id' => $pickup->id,
@@ -621,9 +610,6 @@ class ShoppingOrderItemEditTest extends TestCase
             'longitude' => $longitude,
             'phone' => '0812'.random_int(10000000, 99999999),
             'status' => 'active',
-            'avg_rating' => 4.5,
-            'total_reviews' => 1,
-            'estimated_prep_time' => 10,
         ]);
     }
 

@@ -5,37 +5,24 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class Review extends Model
+class OrderAssignment extends Model
 {
     protected $fillable = [
         'order_id',
-        'user_id',
-        'restaurant_id',
         'driver_id',
-        'rating',
-        'comment',
+        'assigned_at',
     ];
 
     protected function casts(): array
     {
         return [
-            'rating' => 'integer',
+            'assigned_at' => 'datetime',
         ];
     }
 
     public function order(): BelongsTo
     {
         return $this->belongsTo(Order::class);
-    }
-
-    public function user(): BelongsTo
-    {
-        return $this->belongsTo(User::class); // Customer
-    }
-
-    public function restaurant(): BelongsTo
-    {
-        return $this->belongsTo(Restaurant::class);
     }
 
     public function driver(): BelongsTo

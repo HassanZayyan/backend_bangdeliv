@@ -7,7 +7,6 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\AddShoppingOrderItemRequest;
 use App\Http\Requests\Api\AddShoppingOrderItemsRequest;
 use App\Http\Requests\Api\CancelOrderRequest;
-use App\Http\Requests\Api\CheckoutOrderRequest;
 use App\Http\Requests\Api\CreateRideOrderRequest;
 use App\Http\Requests\Api\RecordCodPaymentRequest;
 use App\Http\Requests\Api\RecordFailedAttemptRequest;
@@ -15,7 +14,6 @@ use App\Http\Requests\Api\UpdateDriverShoppingItemsRequest;
 use App\Http\Requests\Api\UpdateShoppingOrderItemRequest;
 use App\Http\Requests\Api\ValidateRideDestinationRequest;
 use App\Http\Responses\ApiResponse;
-use App\Services\CheckoutService;
 use App\Services\OrderService;
 use App\Services\RideOrderService;
 use Illuminate\Http\JsonResponse;
@@ -26,21 +24,9 @@ class OrderController extends Controller
     use ApiResponse;
 
     public function __construct(
-        private readonly CheckoutService $checkoutService,
         private readonly OrderService $orderService,
         private readonly RideOrderService $rideOrderService
     ) {
-    }
-
-    public function checkout(CheckoutOrderRequest $request): JsonResponse
-    {
-        try {
-            $order = $this->checkoutService->checkout($request->user(), $request->validated());
-
-            return $this->success($order, 'Checkout berhasil.', 201);
-        } catch (ApiException $exception) {
-            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
-        }
     }
 
     public function createRideOrder(CreateRideOrderRequest $request): JsonResponse
@@ -419,8 +405,6 @@ class OrderController extends Controller
             'action_code' => ['required', 'string', 'max:60'],
             'target_status_code' => ['nullable', 'string', 'max:60'],
             'note' => ['nullable', 'string', 'max:1000'],
-            'latitude' => ['nullable', 'numeric', 'between:-90,90'],
-            'longitude' => ['nullable', 'numeric', 'between:-180,180'],
         ]);
 
         try {
@@ -432,8 +416,6 @@ class OrderController extends Controller
                     ? (string) $validated['target_status_code']
                     : null,
                 isset($validated['note']) ? (string) $validated['note'] : null,
-                isset($validated['latitude']) ? (float) $validated['latitude'] : null,
-                isset($validated['longitude']) ? (float) $validated['longitude'] : null,
             );
 
             return $this->success($order, 'Status order berhasil diperbarui.');

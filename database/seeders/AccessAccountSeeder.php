@@ -46,8 +46,6 @@ class AccessAccountSeeder extends Seeder
                 'license_number' => 'SIMC-ZKY-2026',
                 'registration_status' => 'active',
                 'status' => 'available',
-                'avg_rating' => 0,
-                'total_deliveries' => 0,
             ]
         );
 

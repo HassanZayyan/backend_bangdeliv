@@ -5,11 +5,9 @@ namespace App\Http\Controllers\Api\Driver;
 use App\Exceptions\ApiException;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
-use App\Services\OrderRealtimeBroadcaster;
 use App\Services\OrderService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Cache;
 
 class OrderExecutionController extends Controller
 {
@@ -23,12 +21,14 @@ class OrderExecutionController extends Controller
         ]);
 
         $order = Order::where('id', $orderId)
+            ->with('serviceType')
             ->whereHas('driver', function ($q) {
                 $q->where('user_id', Auth::id());
             })
             ->firstOrFail();
 
         $statusCode = strtoupper($request->status_code);
+        $serviceCode = strtoupper((string) ($order->serviceType?->code ?? ''));
 
         // Legacy status_code -> action_code mapping (backward-compat adapter).
         // Note: ON_THE_WAY maps to BOARD_PASSENGER for RIDE (resolved by service below),
@@ -37,7 +37,7 @@ class OrderExecutionController extends Controller
             'ARRIVED_MERCHANT' => 'ARRIVE_PICKUP',   // SHOPPING
             'ARRIVED_PICKUP' => 'ARRIVE_PICKUP',   // RIDE / COURIER
             'PICKED_UP' => 'CONFIRM_PICKED_UP',
-            'ON_THE_WAY' => 'START_DELIVERY',  // COURIER / SHOPPING
+            'ON_THE_WAY' => $serviceCode === 'RIDE' ? 'BOARD_PASSENGER' : 'START_DELIVERY',
             'ARRIVED_DROPOFF' => 'ARRIVE_DROPOFF',
             'DELIVERED' => 'CONFIRM_DELIVERED',
             'COMPLETED' => 'COMPLETE_ORDER',
@@ -72,84 +72,4 @@ class OrderExecutionController extends Controller
         }
     }
 
-    /**
-     * Broadcast driver location via websocket (Fire-and-forget & Cache).
-     */
-    public function updateLocation(Request $request, OrderRealtimeBroadcaster $realtimeBroadcaster, $orderId)
-    {
-        $request->validate([
-            'latitude' => 'required|numeric',
-            'longitude' => 'required|numeric',
-            'heading' => 'nullable|numeric',
-        ]);
-
-        $order = Order::where('id', $orderId)
-            ->with(['serviceType', 'statusRef'])
-            ->whereHas('driver', function ($q) {
-                $q->where('user_id', Auth::id());
-            })
-            ->firstOrFail();
-
-        $serviceCode = strtoupper((string) ($order->serviceType?->code ?? ''));
-        $currentStatusCode = strtoupper((string) ($order->statusRef?->code ?? ''));
-        $allowedStatusCodes = match ($serviceCode) {
-            'RIDE' => ['DRIVER_ASSIGNED', 'ARRIVED_PICKUP', 'ON_THE_WAY'],
-            'COURIER' => ['DRIVER_ASSIGNED', 'ARRIVED_PICKUP', 'PICKED_UP', 'ON_THE_WAY'],
-            'SHOPPING' => ['DRIVER_ASSIGNED', 'ARRIVED_MERCHANT', 'PICKED_UP', 'ON_THE_WAY'],
-            default => ['ON_THE_WAY'],
-        };
-
-        if (! in_array($currentStatusCode, $allowedStatusCodes, true)) {
-            return response()->json([
-                'message' => 'Location tracking belum tersedia pada status order saat ini.',
-            ], 403);
-        }
-
-        $lat = (float) $request->input('latitude');
-        $lng = (float) $request->input('longitude');
-        $heading = (float) $request->input('heading', 0);
-        $updatedAt = now();
-        $updatedAtIso = $updatedAt->toIso8601String();
-
-        if ($order->driver) {
-            $order->driver->update([
-                'current_latitude' => $lat,
-                'current_longitude' => $lng,
-            ]);
-        }
-
-        // 1. Cache latest location for redundancy (in case websocket disconnects)
-        $cacheKey = 'driver_location:'.$order->driver_id;
-        Cache::put($cacheKey, [
-            'order_id' => $order->id,
-            'latitude' => $lat,
-            'longitude' => $lng,
-            'heading' => $heading,
-            'updated_at' => $updatedAtIso,
-        ], now()->addHours(2));
-
-        // 2. Broadcast to connected Customer
-        $broadcasted = $realtimeBroadcaster->driverLocationUpdated(
-            (int) $order->id,
-            $lat,
-            $lng,
-            $heading,
-            $updatedAtIso,
-        );
-
-        return response()->json([
-            'message' => $broadcasted
-                ? 'Location broadcasted successfully.'
-                : 'Location saved; realtime broadcast unavailable.',
-            'data' => [
-                'order_id' => (int) $order->id,
-                'location_saved' => true,
-                'broadcasted' => $broadcasted,
-                'latitude' => $lat,
-                'longitude' => $lng,
-                'heading' => $heading,
-                'updated_at' => $updatedAtIso,
-            ],
-        ]);
-    }
 }

@@ -13,7 +13,6 @@ class Address extends Model
         'recipient_name',
         'phone',
         'full_address',
-        'detail',
         'latitude',
         'longitude',
         'is_default',

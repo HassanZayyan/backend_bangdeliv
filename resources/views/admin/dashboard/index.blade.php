@@ -12,7 +12,7 @@
     $activeStatusIds = collect(['PENDING', 'DRIVER_ASSIGNED', 'PICKED_UP', 'ON_THE_WAY'])->map(fn ($code) => $statusCodeToId[$code] ?? null)->filter()->values()->all();
     $cancelledStatusIds = collect(['CANCELLED', 'CANCELLED_WITH_FEE'])->map(fn ($code) => $statusCodeToId[$code] ?? null)->filter()->values()->all();
 
-    $gmvMonth = \App\Models\Order::whereBetween('created_at', [$monthStart, $now])->sum('total_price');
+    $gmvMonth = \App\Models\OrderPricing::whereHas('order', fn ($query) => $query->whereBetween('created_at', [$monthStart, $now]))->sum('total_price');
     $totalOrdersMonth = \App\Models\Order::whereBetween('created_at', [$monthStart, $now])->count();
     $cancelledOrdersMonth = \App\Models\Order::whereBetween('created_at', [$monthStart, $now])->whereIn('status_id', $cancelledStatusIds)->count();
     $newUsersMonth = \App\Models\User::whereBetween('created_at', [$monthStart, $now])->count();
@@ -29,7 +29,8 @@
 
     $topDrivers = \App\Models\Driver::query()
         ->with('user')
-        ->orderByDesc('total_deliveries')
+        ->withCount('orders')
+        ->orderByDesc('orders_count')
         ->limit(5)
         ->get();
 
@@ -40,7 +41,7 @@
         $dayEnd = now()->subDays($i)->endOfDay();
         $dailyLabels[] = $dayStart->translatedFormat('D');
         $dailyData[] = [
-            'revenue' => (float) \App\Models\Order::whereBetween('created_at', [$dayStart, $dayEnd])->sum('total_price'),
+            'revenue' => (float) \App\Models\OrderPricing::whereHas('order', fn ($query) => $query->whereBetween('created_at', [$dayStart, $dayEnd]))->sum('total_price'),
             'orders' => \App\Models\Order::whereBetween('created_at', [$dayStart, $dayEnd])->count(),
         ];
     }
@@ -113,7 +114,9 @@
         <div style="padding: 0;">
             @foreach($topRestaurants as $i => $resto)
             @php
-                $restoRevenue = \App\Models\Order::where('restaurant_id', $resto->id)->sum('total_price');
+                $restoRevenue = \App\Models\OrderPricing::query()
+                    ->whereHas('order.orderLocations', fn ($query) => $query->where('restaurant_id', $resto->id))
+                    ->sum('total_price');
                 $pct = (int) round(($resto->orders_count / $maxRestOrders) * 100);
             @endphp
             <div style="padding: 14px 20px; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; gap: 15px;">
@@ -150,9 +153,9 @@
                 <div style="flex:1;">
                     <div style="display:flex; justify-content:space-between;">
                         <span style="font-size:14px; font-weight:600;">{{ $driver->user->name ?? '-' }}</span>
-                        <span style="font-size:13px; color:var(--color-warning); font-weight:700;"><i class='bx bxs-star'></i> {{ number_format((float) $driver->avg_rating, 1) }}</span>
+                        <span style="font-size:13px; color:var(--color-primary); font-weight:700;">{{ $driver->status }}</span>
                     </div>
-                    <span style="font-size:12px; color:var(--text-muted);">{{ $driver->total_deliveries }} trip selesai</span>
+                    <span style="font-size:12px; color:var(--text-muted);">{{ $driver->orders_count ?? 0 }} order terkait</span>
                 </div>
             </div>
             @endforeach

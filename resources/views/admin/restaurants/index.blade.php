@@ -65,11 +65,11 @@
                         </td>
                         <td>
                             <span class="td-strong">{{ $restaurant->menus_count }} Item Menu</span>
-                            <span class="td-sub" style="display:block;"><i class='bx bx-time'></i> Est. Prep {{ $restaurant->estimated_prep_time }} menit</span>
+                            <span class="td-sub" style="display:block;"><i class='bx bx-category'></i> {{ ucfirst(str_replace('_', ' ', $restaurant->merchant_type)) }}</span>
                         </td>
                         <td>
-                            <span class="td-strong" style="color:var(--color-warning);"><i class='bx bxs-star'></i> {{ number_format((float) $restaurant->avg_rating, 1) }}</span>
-                            <span class="td-sub" style="display:block;">{{ $restaurant->orders_count }} pesanan</span>
+                            <span class="td-strong">{{ $restaurant->orders_count }} pesanan</span>
+                            <span class="td-sub" style="display:block;">Total order terkait merchant</span>
                         </td>
                         <td>
                             <span class="badge {{ $isActive ? 'badge-success' : 'badge-danger' }}">{{ $isActive ? 'Buka' : 'Suspended' }}</span>

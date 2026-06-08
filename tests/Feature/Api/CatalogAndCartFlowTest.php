@@ -2,14 +2,8 @@
 
 namespace Tests\Feature\Api;
 
-use App\Models\Address;
-use App\Models\Menu;
-use App\Models\Order;
 use App\Models\Restaurant;
-use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Http;
-use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 class CatalogAndCartFlowTest extends TestCase
@@ -28,9 +22,6 @@ class CatalogAndCartFlowTest extends TestCase
             'phone' => '081234567890',
             'banner_image' => null,
             'status' => 'active',
-            'avg_rating' => 4.50,
-            'total_reviews' => 10,
-            'estimated_prep_time' => 20,
         ]);
 
         Restaurant::query()->create([
@@ -43,9 +34,6 @@ class CatalogAndCartFlowTest extends TestCase
             'phone' => '081111111111',
             'banner_image' => null,
             'status' => 'inactive',
-            'avg_rating' => 4.00,
-            'total_reviews' => 4,
-            'estimated_prep_time' => 15,
         ]);
 
         $response = $this->getJson('/api/v1/restaurants');
@@ -56,188 +44,40 @@ class CatalogAndCartFlowTest extends TestCase
             ->assertJsonPath('data.0.slug', 'resto-aktif');
     }
 
-    public function test_customer_cannot_add_cart_items_from_different_restaurants_in_one_active_cart(): void
+    public function test_restaurant_list_accepts_name_sort_for_shopping_merchant_picker(): void
     {
-        $user = User::factory()->create([
-            'role' => 'customer',
-            'phone' => '089999999999',
-        ]);
-
-        Sanctum::actingAs($user);
-
-        $restaurantOne = Restaurant::query()->create([
-            'name' => 'Resto Satu',
-            'slug' => 'resto-satu',
+        Restaurant::query()->create([
+            'name' => 'Warung Zeta',
+            'slug' => 'warung-zeta',
             'description' => null,
-            'address' => 'Jl. Satu',
+            'merchant_type' => 'warung',
+            'address' => 'Jl. Zeta',
             'latitude' => -6.20000000,
             'longitude' => 106.81666600,
-            'phone' => '081200000001',
+            'phone' => '081234567890',
             'banner_image' => null,
             'status' => 'active',
-            'avg_rating' => 4.60,
-            'total_reviews' => 11,
-            'estimated_prep_time' => 20,
         ]);
 
-        $restaurantTwo = Restaurant::query()->create([
-            'name' => 'Resto Dua',
-            'slug' => 'resto-dua',
+        Restaurant::query()->create([
+            'name' => 'Alfamart BangDeliv Point',
+            'slug' => 'alfamart-bangdeliv-point',
             'description' => null,
-            'address' => 'Jl. Dua',
+            'merchant_type' => 'convenience_store',
+            'address' => 'Jl. Alfa',
             'latitude' => -6.21000000,
             'longitude' => 106.82666600,
-            'phone' => '081200000002',
+            'phone' => '081111111111',
             'banner_image' => null,
             'status' => 'active',
-            'avg_rating' => 4.30,
-            'total_reviews' => 7,
-            'estimated_prep_time' => 18,
         ]);
 
-        $menuOne = Menu::query()->create([
-            'restaurant_id' => $restaurantOne->id,
-            'menu_category_id' => null,
-            'name' => 'Nasi Ayam',
-            'description' => null,
-            'price' => 22000,
-            'image' => null,
-            'is_available' => true,
-            'sort_order' => 1,
-        ]);
+        $response = $this->getJson('/api/v1/restaurants?sort=name&per_page=20');
 
-        $menuTwo = Menu::query()->create([
-            'restaurant_id' => $restaurantTwo->id,
-            'menu_category_id' => null,
-            'name' => 'Mie Pedas',
-            'description' => null,
-            'price' => 18000,
-            'image' => null,
-            'is_available' => true,
-            'sort_order' => 1,
-        ]);
-
-        $this->postJson('/api/v1/cart/items', [
-            'restaurant_id' => $restaurantOne->id,
-            'menu_id' => $menuOne->id,
-            'quantity' => 1,
-        ])->assertCreated();
-
-        $this->postJson('/api/v1/cart/items', [
-            'restaurant_id' => $restaurantTwo->id,
-            'menu_id' => $menuTwo->id,
-            'quantity' => 1,
-        ])->assertStatus(409)
-            ->assertJsonPath('success', false);
-    }
-
-    public function test_checkout_creates_pending_cod_payment(): void
-    {
-        config([
-            'bangdeliv.google_maps_api_key' => 'test-google-maps-key',
-        ]);
-
-        Http::fake([
-            'https://routes.googleapis.com/*' => Http::response([
-                'routes' => [[
-                    'distanceMeters' => 3000,
-                    'duration' => '540s',
-                    'polyline' => [
-                        'encodedPolyline' => '_p~iF~ps|U_ulLnnqC_mqNvxq`@',
-                    ],
-                    'legs' => [[
-                        'distanceMeters' => 3000,
-                        'duration' => '540s',
-                    ]],
-                ]],
-            ], 200),
-            'https://maps.googleapis.com/maps/api/distancematrix/json*' => Http::response([
-                'status' => 'OK',
-                'rows' => [[
-                    'elements' => [[
-                        'status' => 'OK',
-                        'distance' => [
-                            'text' => '3.0 km',
-                            'value' => 3000,
-                        ],
-                        'duration' => [
-                            'text' => '9 mins',
-                            'value' => 540,
-                        ],
-                    ]],
-                ]],
-            ], 200),
-        ]);
-
-        $user = User::factory()->create([
-            'role' => 'customer',
-            'phone' => '089999999998',
-        ]);
-
-        $restaurant = Restaurant::query()->create([
-            'name' => 'Resto COD',
-            'slug' => 'resto-cod',
-            'description' => null,
-            'address' => 'Jl. COD',
-            'latitude' => -6.20000000,
-            'longitude' => 106.81666600,
-            'phone' => '081200000009',
-            'banner_image' => null,
-            'status' => 'active',
-            'avg_rating' => 4.60,
-            'total_reviews' => 11,
-            'estimated_prep_time' => 20,
-        ]);
-
-        $menu = Menu::query()->create([
-            'restaurant_id' => $restaurant->id,
-            'menu_category_id' => null,
-            'name' => 'Nasi COD',
-            'description' => null,
-            'price' => 22000,
-            'image' => null,
-            'is_available' => true,
-            'sort_order' => 1,
-        ]);
-
-        $address = Address::query()->create([
-            'user_id' => $user->id,
-            'label' => 'Rumah',
-            'recipient_name' => 'Customer COD',
-            'phone' => '089999999998',
-            'full_address' => 'Jl. Pelanggan COD',
-            'detail' => 'Pagar putih',
-            'latitude' => -6.21000000,
-            'longitude' => 106.82666600,
-            'is_default' => true,
-        ]);
-
-        Sanctum::actingAs($user);
-
-        $this->postJson('/api/v1/cart/items', [
-            'restaurant_id' => $restaurant->id,
-            'menu_id' => $menu->id,
-            'quantity' => 2,
-        ])->assertCreated();
-
-        $response = $this->postJson('/api/v1/orders/checkout', [
-            'address_id' => $address->id,
-        ]);
-
-        $response->assertCreated()
+        $response->assertOk()
             ->assertJsonPath('success', true)
-            ->assertJsonPath('data.payment_method', 'COD')
-            ->assertJsonPath('data.payment_status', 'unpaid');
-
-        $orderId = (int) $response->json('data.id');
-
-        $this->assertDatabaseHas('order_payments', [
-            'order_id' => $orderId,
-            'payment_method' => 'COD',
-            'payment_status' => 'PENDING',
-        ]);
-
-        $routeSnapshot = Order::query()->findOrFail($orderId)->route_snapshot;
-        $this->assertSame('_p~iF~ps|U_ulLnnqC_mqNvxq`@', $routeSnapshot['encoded_polyline'] ?? null);
+            ->assertJsonPath('data.0.name', 'Alfamart BangDeliv Point')
+            ->assertJsonPath('data.1.name', 'Warung Zeta');
     }
+
 }

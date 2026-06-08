@@ -14,12 +14,7 @@ class OrderEvidence extends Model
         'driver_id',
         'evidence_type',
         'file_url',
-        'verification_mode',
-        'verification_status',
         'uploaded_at',
-        'expires_at',
-        'verified_at',
-        'verified_by_user_id',
         'notes',
     ];
 
@@ -27,9 +22,12 @@ class OrderEvidence extends Model
     {
         return [
             'uploaded_at' => 'datetime',
-            'expires_at' => 'datetime',
-            'verified_at' => 'datetime',
         ];
+    }
+
+    public function getVerificationStatusAttribute(): string
+    {
+        return 'PENDING';
     }
 
     public function order(): BelongsTo
@@ -42,8 +40,4 @@ class OrderEvidence extends Model
         return $this->belongsTo(Driver::class);
     }
 
-    public function verifiedBy(): BelongsTo
-    {
-        return $this->belongsTo(User::class, 'verified_by_user_id');
-    }
 }

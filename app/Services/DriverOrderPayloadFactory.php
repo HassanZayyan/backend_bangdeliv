@@ -19,15 +19,20 @@ class DriverOrderPayloadFactory
             'user:id,name,phone',
             'serviceType:id,code,display_name',
             'statusRef:id,code,display_name',
-            'restaurant:id,name,address,latitude,longitude,phone,merchant_type',
+            'pricing',
+            'deliveryFeeOverride',
+            'feeLines',
+            'shoppingReceipt',
+            'routeInfo',
+            'assignment',
+            'restaurant',
             'rideOrder:id,order_id,picked_up_at,arrived_at',
-            'courierOrder:id,order_id,package_description,estimated_weight_kg,package_length_cm,package_width_cm,package_height_cm,package_size_class,package_safety_status,package_safety_flags,package_safety_reason,package_packing_note,requires_photo_evidence',
-            'shoppingOrder:id,order_id,failed_attempt_count,item_surcharge,overweight_surcharge,cancellation_penalty,has_overweight_item,recalculation_version,last_recalculated_at,pricing_snapshot',
+            'courierOrder:id,order_id,package_description',
             'items:id,order_id,menu_id,pickup_location_id,item_source,menu_name,quantity,unit_price,subtotal,notes,metadata,is_available,is_heavy',
             'orderLocations:id,order_id,restaurant_id,location_role,label,contact_name,contact_phone,full_address,latitude,longitude,sequence_no,fulfillment_status,failed_attempt_count,failure_reason,failed_at,resolved_at',
             'orderLocations.restaurant:id,name,address,latitude,longitude,phone,merchant_type',
             'payments:id,order_id,payment_method,payment_status,amount,recorded_by_user_id,driver_id,paid_at',
-            'evidences:id,order_id,driver_id,evidence_type,file_url,verification_status,uploaded_at,notes,created_at',
+            'evidences:id,order_id,driver_id,evidence_type,file_url,uploaded_at,notes,created_at',
             'statusHistories' => function (Relation $query): void {
                 $query
                     ->with('statusRef:id,code,display_name')
@@ -52,8 +57,8 @@ class DriverOrderPayloadFactory
         $proofStatus = $this->proofStatus($proofs);
         $hasDriverShoppingTotal = $serviceCode === 'SHOPPING' && $this->shoppingPricingService->hasDriverShoppingTotal($order);
         $hasPendingShoppingPrices = $serviceCode === 'SHOPPING' && $this->hasPendingManualShoppingPrices($order);
-        $canCancelShoppingWithFee = $serviceCode === 'SHOPPING' && $order->shoppingOrder !== null
-            && $this->shoppingPricingService->isCancellationPenaltyEligible($order, $order->shoppingOrder);
+        $canCancelShoppingWithFee = $serviceCode === 'SHOPPING'
+            && $this->shoppingPricingService->isCancellationPenaltyEligible($order);
         $availableActions = $this->resolveAvailableDriverActions(
             $serviceCode,
             $statusCode,
@@ -114,16 +119,6 @@ class DriverOrderPayloadFactory
 
         if ($serviceCode === 'COURIER' && $order->courierOrder !== null) {
             $payload['package_description'] = $order->courierOrder->package_description;
-            $payload['package_estimated_weight_kg'] = $order->courierOrder->estimated_weight_kg !== null
-                ? (float) $order->courierOrder->estimated_weight_kg
-                : null;
-            $payload['package_length_cm'] = $order->courierOrder->package_length_cm;
-            $payload['package_width_cm'] = $order->courierOrder->package_width_cm;
-            $payload['package_height_cm'] = $order->courierOrder->package_height_cm;
-            $payload['package_size_class'] = $order->courierOrder->package_size_class;
-            $payload['package_safety_status'] = $order->courierOrder->package_safety_status;
-            $payload['package_safety_reason'] = $order->courierOrder->package_safety_reason;
-            $payload['package_packing_note'] = $order->courierOrder->package_packing_note;
         }
 
         if ($serviceCode === 'SHOPPING') {
@@ -144,17 +139,17 @@ class DriverOrderPayloadFactory
                 'delivery_fee' => round((float) $order->delivery_fee, 2),
                 'service_fee' => round((float) $order->service_fee, 2),
                 'total_price' => round((float) $order->total_price, 2),
-                'item_surcharge' => round((float) ($order->shoppingOrder?->item_surcharge ?? 0), 2),
-                'overweight_surcharge' => round((float) ($order->shoppingOrder?->overweight_surcharge ?? 0), 2),
-                'cancellation_penalty' => round((float) ($order->shoppingOrder?->cancellation_penalty ?? 0), 2),
-                'recalculation_version' => (int) ($order->shoppingOrder?->recalculation_version ?? 0),
+                'item_surcharge' => $this->shoppingPricingService->feeLineAmount($order, 'ITEM_BLOCK_SURCHARGE'),
+                'overweight_surcharge' => $this->shoppingPricingService->feeLineAmount($order, 'OVERWEIGHT_FLAT_SURCHARGE'),
+                'cancellation_penalty' => $this->shoppingPricingService->feeLineAmount($order, 'CANCELLATION_PENALTY_AFTER_FAILED_ATTEMPTS'),
+                'recalculation_version' => $this->shoppingPricingService->latestRecalculationVersion($order),
                 'has_pending_manual_prices' => $hasPendingShoppingPrices,
-                'failed_attempt_count' => (int) ($order->shoppingOrder?->failed_attempt_count ?? 0),
+                'failed_attempt_count' => $this->shoppingPricingService->failedAttemptCount($order),
                 'failed_attempt_threshold' => $this->shoppingPricingService->cancellationFailedAttemptThreshold(
                     (int) $order->service_type_id
                 ),
                 'can_cancel_with_fee' => $canCancelShoppingWithFee,
-                'fee_breakdown' => $order->shoppingOrder?->fee_breakdown ?? [],
+                'fee_breakdown' => $this->shoppingPricingService->feeBreakdownForOrder($order),
             ];
             $payload['has_pending_shopping_prices'] = $hasPendingShoppingPrices;
         }
@@ -259,7 +254,12 @@ class DriverOrderPayloadFactory
             'manual_delivery_fee_reason' => $order->manual_delivery_fee_reason,
             'careful_carry_required' => (bool) ($order->careful_carry_required ?? false),
             'route' => $route,
-            'shopping_pricing' => $order->shoppingOrder?->pricing_snapshot,
+            'shopping_pricing' => [
+                'receipt_total_amount' => $order->shoppingReceipt?->total_amount !== null
+                    ? round((float) $order->shoppingReceipt->total_amount, 2)
+                    : null,
+                'fee_breakdown' => $this->shoppingPricingService->feeBreakdownForOrder($order),
+            ],
         ];
     }
 
@@ -749,14 +749,7 @@ class DriverOrderPayloadFactory
             return $route;
         }
 
-        $snapshot = $order->shoppingOrder?->pricing_snapshot;
-        if (! is_array($snapshot)) {
-            return null;
-        }
-
-        $route = $snapshot['shopping_route'] ?? null;
-
-        return is_array($route) ? $route : null;
+        return null;
     }
 
     /**

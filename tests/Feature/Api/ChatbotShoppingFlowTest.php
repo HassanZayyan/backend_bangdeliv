@@ -37,9 +37,6 @@ class ChatbotShoppingFlowTest extends TestCase
             'longitude' => 110.402,
             'phone' => '081200000004',
             'status' => 'active',
-            'avg_rating' => 4.5,
-            'total_reviews' => 4,
-            'estimated_prep_time' => 5,
         ]);
 
         $this->fakeGeminiAndDistance([
@@ -94,9 +91,6 @@ class ChatbotShoppingFlowTest extends TestCase
             'longitude' => 110.402,
             'phone' => '081200000005',
             'status' => 'active',
-            'avg_rating' => 4.5,
-            'total_reviews' => 4,
-            'estimated_prep_time' => 5,
         ]);
 
         $this->fakeGeminiAndDistance([
@@ -153,9 +147,6 @@ class ChatbotShoppingFlowTest extends TestCase
             'longitude' => 110.401,
             'phone' => '081200000002',
             'status' => 'active',
-            'avg_rating' => 4.8,
-            'total_reviews' => 10,
-            'estimated_prep_time' => 10,
         ]);
 
         $category = MenuCategory::query()->create([
@@ -205,12 +196,36 @@ class ChatbotShoppingFlowTest extends TestCase
             (string) $draftResponse->json('data.assistant_text')
         );
 
-        $this->postJson('/api/chatbot/process', [
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'merchant' => 'Ayam Geprek Juara',
+            'resto' => 'Ayam Geprek Juara',
+            'payment_method' => 'TRANSFER',
+            'items' => [
+                ['name' => 'Paket Geprek Original', 'menu' => 'Paket Geprek Original', 'quantity' => 2, 'qty' => 2],
+            ],
+        ]);
+
+        $codResponse = $this->postJson('/api/chatbot/process', [
             'session_id' => $sessionId,
             'service_type' => 'nitip',
             'message' => 'COD',
-        ])->assertOk()
-            ->assertJsonPath('data.shopping.payment_method', 'COD');
+        ]);
+
+        $codResponse->assertOk()
+            ->assertJsonPath('data.shopping.payment_method', 'COD')
+            ->assertJsonPath('model_used', 'deterministic-payment');
+        $this->assertSame(
+            ['OPEN_MAP_PICKER_DELIVERY', 'CONFIRM_DRAFT'],
+            $codResponse->json('data.validation.next_actions')
+        );
+        $this->assertArrayNotHasKey('SET_PAYMENT_COD', $codResponse->json('data.action_payloads'));
+        $this->assertArrayNotHasKey('SET_PAYMENT_TRANSFER', $codResponse->json('data.action_payloads'));
+        $this->assertStringContainsString(
+            'Metode pembayaran: COD.',
+            (string) $codResponse->json('data.assistant_text')
+        );
 
         $confirmResponse = $this->postJson('/api/chatbot/process', [
             'session_id' => $sessionId,
@@ -230,7 +245,10 @@ class ChatbotShoppingFlowTest extends TestCase
         $this->assertDatabaseHas('orders', [
             'id' => $orderId,
             'user_id' => $customer->id,
-            'restaurant_id' => $restaurant->id,
+        ]);
+
+        $this->assertDatabaseHas('order_pricings', [
+            'order_id' => $orderId,
             'subtotal' => 0,
         ]);
 
@@ -285,9 +303,6 @@ class ChatbotShoppingFlowTest extends TestCase
             'longitude' => 110.402,
             'phone' => '081200000004',
             'status' => 'active',
-            'avg_rating' => 4.5,
-            'total_reviews' => 4,
-            'estimated_prep_time' => 5,
         ]);
 
         $this->fakeGeminiAndDistance([
@@ -314,12 +329,21 @@ class ChatbotShoppingFlowTest extends TestCase
             ->assertJsonPath('data.shopping.items.0.item_source', 'MANUAL')
             ->assertJsonPath('data.shopping.items.0.unit_price', 0);
 
-        $this->postJson('/api/chatbot/process', [
+        $codResponse = $this->postJson('/api/chatbot/process', [
             'session_id' => $sessionId,
             'service_type' => 'nitip',
             'message' => 'COD',
-        ])->assertOk()
-            ->assertJsonPath('data.shopping.payment_method', 'COD');
+        ]);
+
+        $codResponse->assertOk()
+            ->assertJsonPath('data.shopping.payment_method', 'COD')
+            ->assertJsonPath('model_used', 'deterministic-payment');
+        $this->assertSame(
+            ['OPEN_MAP_PICKER_DELIVERY', 'CONFIRM_DRAFT'],
+            $codResponse->json('data.validation.next_actions')
+        );
+        $this->assertArrayNotHasKey('SET_PAYMENT_COD', $codResponse->json('data.action_payloads'));
+        $this->assertArrayNotHasKey('SET_PAYMENT_TRANSFER', $codResponse->json('data.action_payloads'));
 
         $confirmResponse = $this->postJson('/api/chatbot/process', [
             'session_id' => $sessionId,
@@ -331,9 +355,10 @@ class ChatbotShoppingFlowTest extends TestCase
             ->assertJsonPath('data.order.created', true);
 
         $orderId = (int) $confirmResponse->json('data.order.id');
-        $this->assertDatabaseHas('orders', [
-            'id' => $orderId,
+        $this->assertDatabaseHas('order_locations', [
+            'order_id' => $orderId,
             'restaurant_id' => $warung->id,
+            'location_role' => 'PICKUP',
         ]);
 
         $item = OrderItem::query()->where('order_id', $orderId)->firstOrFail();

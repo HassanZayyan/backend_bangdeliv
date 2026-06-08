@@ -27,7 +27,6 @@ class RestaurantCrudTest extends TestCase
                 'latitude' => -6.2,
                 'longitude' => 106.8,
                 'phone' => '081233330099',
-                'estimated_prep_time' => 20,
                 'status' => 'active',
             ])
             ->assertRedirect(route('admin.restaurants.index'));
@@ -43,7 +42,6 @@ class RestaurantCrudTest extends TestCase
                 'latitude' => -6.21,
                 'longitude' => 106.81,
                 'phone' => '081233330099',
-                'estimated_prep_time' => 25,
                 'status' => 'active',
             ])
             ->assertRedirect(route('admin.restaurants.index'));
@@ -81,7 +79,6 @@ class RestaurantCrudTest extends TestCase
             'longitude' => 106.8,
             'phone' => '081244440001',
             'status' => 'active',
-            'estimated_prep_time' => 15,
         ]);
 
         $this->actingAs($admin)

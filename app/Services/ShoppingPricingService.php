@@ -2,17 +2,29 @@
 
 namespace App\Services;
 
-use App\Exceptions\ApiException;
 use App\Models\Order;
+use App\Models\OrderFeeLine;
 use App\Models\OrderItem;
 use App\Models\OrderLog;
 use App\Models\OrderStatusHistory;
 use App\Models\ServiceFeeRule;
-use App\Models\ShoppingOrder;
 use Illuminate\Support\Facades\DB;
 
 class ShoppingPricingService
 {
+    private const ITEM_SURCHARGE = 'ITEM_BLOCK_SURCHARGE';
+    private const OVERWEIGHT_SURCHARGE = 'OVERWEIGHT_FLAT_SURCHARGE';
+    private const CANCELLATION_PENALTY = 'CANCELLATION_PENALTY_AFTER_FAILED_ATTEMPTS';
+
+    /**
+     * @var array<int, string>
+     */
+    private array $shoppingFeeCodes = [
+        self::ITEM_SURCHARGE,
+        self::OVERWEIGHT_SURCHARGE,
+        self::CANCELLATION_PENALTY,
+    ];
+
     public function __construct(
         private readonly OrderPaymentService $orderPaymentService,
         private readonly OrderRealtimeBroadcaster $realtimeBroadcaster,
@@ -30,8 +42,8 @@ class ShoppingPricingService
         ?float $subtotalOverride = null,
         bool $penaltyOnly = false,
     ): array {
-        $itemBlockRule = $this->getRuleConfig($serviceTypeId, 'ITEM_BLOCK_SURCHARGE');
-        $overweightRule = $this->getRuleConfig($serviceTypeId, 'OVERWEIGHT_FLAT_SURCHARGE');
+        $itemBlockRule = $this->getRuleConfig($serviceTypeId, self::ITEM_SURCHARGE);
+        $overweightRule = $this->getRuleConfig($serviceTypeId, self::OVERWEIGHT_SURCHARGE);
 
         $subtotal = 0.0;
         $totalItemQuantity = 0;
@@ -101,26 +113,14 @@ class ShoppingPricingService
         bool $writeHistory = true,
         ?string $historyNote = null,
     ): Order {
-        $order->loadMissing(['items', 'shoppingOrder', 'serviceType']);
+        $order->loadMissing(['items', 'serviceType', 'statusRef', 'feeLines', 'shoppingReceipt', 'deliveryFeeOverride']);
 
-        $shoppingOrder = $order->shoppingOrder;
-        if (! $shoppingOrder instanceof ShoppingOrder) {
-            throw new ApiException('Data shopping order tidak ditemukan.', 500);
-        }
-        $shoppingOrder->refresh();
-        $previousSnapshot = is_array($shoppingOrder->pricing_snapshot)
-            ? $shoppingOrder->pricing_snapshot
-            : [];
-
-        $oldSubtotal = (float) $order->subtotal;
-        $oldDeliveryFee = (float) $order->delivery_fee;
-        $oldServiceFee = (float) $order->service_fee;
-        $oldTotalPrice = (float) $order->total_price;
+        $oldAmounts = $this->pricingAmounts($order);
         $deliveryFee = (float) $order->delivery_fee;
-        $cancellationPenalty = (float) $shoppingOrder->cancellation_penalty;
+        $cancellationPenalty = $this->feeLineAmount($order, self::CANCELLATION_PENALTY);
         $statusCode = strtoupper((string) ($order->statusRef?->code ?? ''));
         $penaltyOnly = $cancellationPenalty > 0 && $statusCode === 'CANCELLED_WITH_FEE';
-        $subtotalOverride = $penaltyOnly ? null : $this->driverShoppingTotalAmountFromSnapshot($shoppingOrder);
+        $subtotalOverride = $penaltyOnly ? null : $this->driverShoppingTotalAmount($order);
 
         $pricing = $this->calculateForItems(
             (int) $order->service_type_id,
@@ -131,38 +131,12 @@ class ShoppingPricingService
             $penaltyOnly,
         );
 
-        $nextVersion = (int) $shoppingOrder->recalculation_version + 1;
-        $pricingSnapshot = [
-            ...$pricing,
-            'recalculation_version' => $nextVersion,
-        ];
-        if (isset($previousSnapshot['shopping_route'])) {
-            $pricingSnapshot['shopping_route'] = $previousSnapshot['shopping_route'];
-        }
-        if ($subtotalOverride !== null && $subtotalOverride > 0) {
-            $pricingSnapshot['driver_shopping_total_amount'] = round($subtotalOverride, 2);
-        }
-        if ($cancellationPenalty > 0) {
-            $pricingSnapshot['penalty_base_delivery_fee'] = round(
-                is_numeric($previousSnapshot['penalty_base_delivery_fee'] ?? null)
-                    ? (float) $previousSnapshot['penalty_base_delivery_fee']
-                    : $oldDeliveryFee,
-                2
-            );
-        }
+        $nextVersion = $this->latestRecalculationVersion($order) + 1;
 
-        $shoppingOrder->update([
-            'item_surcharge' => $pricing['item_surcharge'],
-            'overweight_surcharge' => $pricing['overweight_surcharge'],
-            'has_overweight_item' => $pricing['has_overweight_item'],
-            'recalculation_version' => $nextVersion,
-            'last_recalculated_at' => now(),
-            'pricing_snapshot' => $pricingSnapshot,
-        ]);
+        $this->syncFeeLines($order, $pricing['fee_breakdown']);
 
         $orderUpdates = [
             'subtotal' => $pricing['subtotal'],
-            'service_fee' => $pricing['service_fee'],
             'total_price' => $pricing['total_price'],
         ];
 
@@ -172,21 +146,13 @@ class ShoppingPricingService
 
         $order->update($orderUpdates);
 
-        $this->orderPaymentService->syncPendingCodAmount($order->refresh());
+        $freshForTotals = $order->refresh()->load(['feeLines', 'deliveryFeeOverride']);
+        $this->orderPaymentService->syncPendingCodAmount($freshForTotals);
 
-        OrderLog::query()->create([
+        $event = OrderLog::query()->create([
             'order_id' => $order->id,
             'log_type' => 'PRICE_RECALCULATION',
             'trigger_type' => $triggerType,
-            'old_subtotal' => round($oldSubtotal, 2),
-            'new_subtotal' => $pricing['subtotal'],
-            'old_delivery_fee' => round($oldDeliveryFee, 2),
-            'new_delivery_fee' => $pricing['delivery_fee'],
-            'old_service_fee' => round($oldServiceFee, 2),
-            'new_service_fee' => $pricing['service_fee'],
-            'old_total_price' => round($oldTotalPrice, 2),
-            'new_total_price' => $pricing['total_price'],
-            'delta_total_price' => round($pricing['total_price'] - $oldTotalPrice, 2),
             'recalculation_version' => $nextVersion,
             'changed_by_user_id' => $changedByUserId,
             'note' => $historyNote ?: 'Rekalkulasi harga order SHOPPING setelah perubahan item.',
@@ -194,8 +160,11 @@ class ShoppingPricingService
                 'item_count' => $pricing['item_count'],
                 'has_overweight_item' => $pricing['has_overweight_item'],
                 'trigger_type' => $triggerType,
+                'recalculation_version' => $nextVersion,
             ],
         ]);
+
+        $this->recordPriceChange($event, $oldAmounts, $this->pricingAmounts($freshForTotals));
 
         if ($writeHistory) {
             OrderStatusHistory::query()->create([
@@ -220,14 +189,16 @@ class ShoppingPricingService
             'payments',
             'statusRef',
             'statusHistories.statusRef',
-            'shoppingOrder',
             'serviceType',
+            'feeLines',
+            'deliveryFeeOverride',
+            'shoppingReceipt',
         ]);
 
         $this->broadcastContentUpdatedAfterCommit((int) $freshOrder->id, $triggerType, [
             ...$pricing,
             'recalculation_version' => $nextVersion,
-            'delivery_fee_source' => $freshOrder->delivery_fee_source ?: 'system',
+            'delivery_fee_source' => $freshOrder->delivery_fee_source,
             'manual_delivery_fee' => $freshOrder->manual_delivery_fee !== null
                 ? round((float) $freshOrder->manual_delivery_fee, 2)
                 : null,
@@ -238,34 +209,75 @@ class ShoppingPricingService
         return $freshOrder;
     }
 
-    public function calculateCancellationPenalty(Order $order, ShoppingOrder $shoppingOrder): float
+    /**
+     * @param  array<int, array<string, mixed>>  $feeBreakdown
+     */
+    public function syncFeeLines(Order $order, array $feeBreakdown): void
     {
-        $rule = $this->getRuleConfig((int) $order->service_type_id, 'CANCELLATION_PENALTY_AFTER_FAILED_ATTEMPTS');
+        $activeCodes = [];
+
+        foreach ($feeBreakdown as $line) {
+            if (! is_array($line)) {
+                continue;
+            }
+
+            $code = strtoupper((string) ($line['code'] ?? ''));
+            $amount = round((float) ($line['amount'] ?? 0), 2);
+            if (! in_array($code, $this->shoppingFeeCodes, true) || $amount <= 0) {
+                continue;
+            }
+
+            $activeCodes[] = $code;
+
+            OrderFeeLine::query()->updateOrCreate(
+                [
+                    'order_id' => $order->id,
+                    'code' => $code,
+                ],
+                [
+                    'label' => (string) ($line['label'] ?? $this->feeLineLabel($code)),
+                    'amount' => $amount,
+                ]
+            );
+        }
+
+        OrderFeeLine::query()
+            ->where('order_id', $order->id)
+            ->whereIn('code', $this->shoppingFeeCodes)
+            ->when($activeCodes !== [], fn ($query) => $query->whereNotIn('code', $activeCodes))
+            ->delete();
+
+        $order->unsetRelation('feeLines');
+    }
+
+    public function calculateCancellationPenalty(Order $order): float
+    {
+        $rule = $this->getRuleConfig((int) $order->service_type_id, self::CANCELLATION_PENALTY);
 
         $threshold = $this->failedAttemptThresholdForRule($rule);
         $percent = max(0.0, (float) ($rule['penalty_percent_of_delivery_fee'] ?? 50));
 
-        if ((int) $shoppingOrder->failed_attempt_count < $threshold || $percent <= 0) {
+        if ($this->failedAttemptCount($order) < $threshold || $percent <= 0) {
             return 0.0;
         }
 
-        $snapshot = is_array($shoppingOrder->pricing_snapshot) ? $shoppingOrder->pricing_snapshot : [];
-        $baseDeliveryFee = $snapshot['penalty_base_delivery_fee'] ?? null;
-        $deliveryFee = is_numeric($baseDeliveryFee) ? (float) $baseDeliveryFee : (float) $order->delivery_fee;
+        $baseDeliveryFee = $order->manual_delivery_fee !== null
+            ? (float) $order->manual_delivery_fee
+            : (float) $order->delivery_fee;
 
-        return round($deliveryFee * ($percent / 100), 2);
+        return round($baseDeliveryFee * ($percent / 100), 2);
     }
 
     public function cancellationFailedAttemptThreshold(int $serviceTypeId): int
     {
         return $this->failedAttemptThresholdForRule(
-            $this->getRuleConfig($serviceTypeId, 'CANCELLATION_PENALTY_AFTER_FAILED_ATTEMPTS')
+            $this->getRuleConfig($serviceTypeId, self::CANCELLATION_PENALTY)
         );
     }
 
-    public function isCancellationPenaltyEligible(Order $order, ShoppingOrder $shoppingOrder): bool
+    public function isCancellationPenaltyEligible(Order $order): bool
     {
-        return (int) $shoppingOrder->failed_attempt_count >= $this->cancellationFailedAttemptThreshold(
+        return $this->failedAttemptCount($order) >= $this->cancellationFailedAttemptThreshold(
             (int) $order->service_type_id
         );
     }
@@ -287,22 +299,99 @@ class ShoppingPricingService
 
     public function hasDriverShoppingTotal(Order $order): bool
     {
-        $order->loadMissing('shoppingOrder');
-
-        return $order->shoppingOrder instanceof ShoppingOrder
-            && $this->driverShoppingTotalAmountFromSnapshot($order->shoppingOrder) !== null;
+        return $this->driverShoppingTotalAmount($order) !== null;
     }
 
-    private function driverShoppingTotalAmountFromSnapshot(ShoppingOrder $shoppingOrder): ?float
+    public function driverShoppingTotalAmount(Order $order): ?float
     {
-        $snapshot = is_array($shoppingOrder->pricing_snapshot) ? $shoppingOrder->pricing_snapshot : [];
-        $amount = $snapshot['driver_shopping_total_amount'] ?? null;
+        $order->loadMissing('shoppingReceipt');
+        $amount = $order->shoppingReceipt?->total_amount;
 
         if (! is_numeric($amount) || (float) $amount <= 0) {
             return null;
         }
 
         return round((float) $amount, 2);
+    }
+
+    public function failedAttemptCount(Order $order): int
+    {
+        $order->loadMissing('orderLocations');
+
+        return (int) $order->orderLocations
+            ->filter(fn ($location): bool => strtoupper((string) $location->location_role) === 'PICKUP')
+            ->sum(fn ($location): int => (int) ($location->failed_attempt_count ?? 0));
+    }
+
+    public function latestRecalculationVersion(Order $order): int
+    {
+        return (int) OrderLog::query()
+            ->where('order_id', $order->id)
+            ->where('log_type', 'PRICE_RECALCULATION')
+            ->max('recalculation_version');
+    }
+
+    public function feeLineAmount(Order $order, string $code): float
+    {
+        $order->loadMissing('feeLines');
+        $line = $order->feeLines->first(
+            fn (OrderFeeLine $line): bool => strtoupper((string) $line->code) === strtoupper($code)
+        );
+
+        return round((float) ($line?->amount ?? 0), 2);
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    public function feeBreakdownForOrder(Order $order): array
+    {
+        $order->loadMissing('feeLines');
+
+        return $order->feeLines
+            ->filter(fn (OrderFeeLine $line): bool => (float) $line->amount > 0)
+            ->map(fn (OrderFeeLine $line): array => [
+                'code' => (string) $line->code,
+                'label' => (string) $line->label,
+                'description' => $this->feeLineDescription((string) $line->code),
+                'amount' => round((float) $line->amount, 2),
+            ])
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @param  array<string, float|int|string|null>  $oldAmounts
+     * @param  array<string, float|int|string|null>  $newAmounts
+     */
+    public function recordPriceChange(OrderLog $event, array $oldAmounts, array $newAmounts): void
+    {
+        $priceChange = $event->priceChange()->create();
+
+        foreach (['SUBTOTAL', 'DELIVERY_FEE', 'SERVICE_FEE', 'TOTAL_PRICE'] as $component) {
+            $oldAmount = round((float) ($oldAmounts[$component] ?? 0), 2);
+            $newAmount = round((float) ($newAmounts[$component] ?? 0), 2);
+
+            $priceChange->lines()->create([
+                'component_code' => $component,
+                'old_amount' => $oldAmount,
+                'new_amount' => $newAmount,
+                'delta_amount' => round($newAmount - $oldAmount, 2),
+            ]);
+        }
+    }
+
+    /**
+     * @return array<string, float>
+     */
+    public function pricingAmounts(Order $order): array
+    {
+        return [
+            'SUBTOTAL' => round((float) $order->subtotal, 2),
+            'DELIVERY_FEE' => round((float) $order->delivery_fee, 2),
+            'SERVICE_FEE' => round((float) $order->service_fee, 2),
+            'TOTAL_PRICE' => round((float) $order->total_price, 2),
+        ];
     }
 
     /**
@@ -316,9 +405,6 @@ class ShoppingPricingService
             ->where('is_active', true)
             ->where(function ($query): void {
                 $query->whereNull('starts_at')->orWhere('starts_at', '<=', now());
-            })
-            ->where(function ($query): void {
-                $query->whereNull('ends_at')->orWhere('ends_at', '>=', now());
             })
             ->latest('id')
             ->first();
@@ -363,8 +449,8 @@ class ShoppingPricingService
             $billableItems = max(0, $itemCount - $freeUntil);
             $blockCount = max(1, (int) ceil($billableItems / $blockSize));
             $rows[] = [
-                'code' => 'ITEM_BLOCK_SURCHARGE',
-                'label' => 'Biaya banyak item',
+                'code' => self::ITEM_SURCHARGE,
+                'label' => $this->feeLineLabel(self::ITEM_SURCHARGE),
                 'description' => $itemCount.' item, '.$blockCount.' blok tambahan',
                 'amount' => round($itemSurcharge, 2),
             ];
@@ -372,23 +458,43 @@ class ShoppingPricingService
 
         if ($overweightSurcharge > 0) {
             $rows[] = [
-                'code' => 'OVERWEIGHT_FLAT_SURCHARGE',
-                'label' => 'Item berat',
-                'description' => 'Dikenakan sekali per order',
+                'code' => self::OVERWEIGHT_SURCHARGE,
+                'label' => $this->feeLineLabel(self::OVERWEIGHT_SURCHARGE),
+                'description' => $this->feeLineDescription(self::OVERWEIGHT_SURCHARGE),
                 'amount' => round($overweightSurcharge, 2),
             ];
         }
 
         if ($cancellationPenalty > 0) {
             $rows[] = [
-                'code' => 'CANCELLATION_PENALTY_AFTER_FAILED_ATTEMPTS',
-                'label' => 'Penalty merchant gagal',
-                'description' => '50% dari ongkir setelah batas percobaan gagal',
+                'code' => self::CANCELLATION_PENALTY,
+                'label' => $this->feeLineLabel(self::CANCELLATION_PENALTY),
+                'description' => $this->feeLineDescription(self::CANCELLATION_PENALTY),
                 'amount' => round($cancellationPenalty, 2),
             ];
         }
 
         return $rows;
+    }
+
+    private function feeLineLabel(string $code): string
+    {
+        return match (strtoupper($code)) {
+            self::ITEM_SURCHARGE => 'Biaya banyak item',
+            self::OVERWEIGHT_SURCHARGE => 'Item berat',
+            self::CANCELLATION_PENALTY => 'Penalty merchant gagal',
+            default => 'Biaya layanan',
+        };
+    }
+
+    private function feeLineDescription(string $code): string
+    {
+        return match (strtoupper($code)) {
+            self::ITEM_SURCHARGE => 'Tambahan saat jumlah item melewati batas gratis',
+            self::OVERWEIGHT_SURCHARGE => 'Dikenakan sekali per order',
+            self::CANCELLATION_PENALTY => '50% ongkir setelah batas percobaan gagal',
+            default => '',
+        };
     }
 
     /**

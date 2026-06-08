@@ -24,9 +24,6 @@ return new class extends Migration
             $table->string('phone', 20); // NOT NULL — driver wajib telepon untuk konfirmasi ketersediaan
             $table->string('banner_image')->nullable();
             $table->enum('status', ['active', 'inactive'])->default('active');
-            $table->decimal('avg_rating', 3, 2)->default(0.00);
-            $table->unsignedInteger('total_reviews')->default(0);
-            $table->unsignedInteger('estimated_prep_time')->default(15); // menit
             $table->timestamps();
             $table->softDeletes();
 

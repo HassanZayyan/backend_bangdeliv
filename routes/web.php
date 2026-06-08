@@ -34,15 +34,19 @@ Route::prefix('admin')->middleware(['auth', 'role:admin'])->group(function () {
             'serviceType',
             'statusRef',
             'items',
-            'shoppingOrder',
+            'feeLines',
+            'deliveryFeeOverride',
+            'shoppingReceipt',
             'courierOrder',
             'rideOrder',
             'orderLocations',
+            'evidences',
             'payments.recordedBy',
             'payments.driver.user',
             'statusHistories.statusRef',
             'statusHistories.changedBy',
             'logs.changedBy',
+            'logs.priceChange.lines',
         ]);
 
         $backUrl = request()->query('back');

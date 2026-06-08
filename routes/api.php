@@ -1,7 +1,6 @@
 <?php
 
 use App\Http\Controllers\Api\AuthController;
-use App\Http\Controllers\Api\CartController;
 use App\Http\Controllers\Api\ChatbotController;
 use App\Http\Controllers\Api\DeviceTokenController;
 use App\Http\Controllers\Api\Driver\OrderExecutionController;
@@ -51,13 +50,6 @@ Route::prefix('v1')->group(function () {
     });
 
     Route::middleware(['auth:sanctum', 'role:customer'])->group(function () {
-        Route::get('/cart', [CartController::class, 'show']);
-        Route::post('/cart/items', [CartController::class, 'addItem']);
-        Route::patch('/cart/items/{itemId}', [CartController::class, 'updateItem']);
-        Route::delete('/cart/items/{itemId}', [CartController::class, 'removeItem']);
-        Route::delete('/cart', [CartController::class, 'clear']);
-
-        Route::post('/orders/checkout', [OrderController::class, 'checkout']);
         Route::post('/orders/ride/validate-destination', [OrderController::class, 'validateRideDestination']);
         Route::post('/orders/ride', [OrderController::class, 'createRideOrder']);
         Route::get('/orders', [OrderController::class, 'index']);
@@ -90,7 +82,6 @@ Route::prefix('v1')->group(function () {
             Route::post('/driver/orders/{orderId}/proofs', [OrderController::class, 'uploadDriverProof']);
             Route::post('/driver/orders/{orderId}/status-transition', [OrderController::class, 'transitionStatusByDriver']);
             Route::patch('/driver/orders/{orderId}/status', [OrderExecutionController::class, 'updateStatus']);
-            Route::post('/driver/orders/{orderId}/location', [OrderExecutionController::class, 'updateLocation']);
             Route::post('/orders/{orderId}/attempt-failed', [OrderController::class, 'recordFailedAttemptByDriver']);
             Route::post('/orders/{orderId}/payment/collect-cod', [OrderController::class, 'recordCodCollectionByDriver']);
             Route::post('/orders/{orderId}/payment/transfer/confirm', [OrderController::class, 'recordTransferPaymentByDriver']);

@@ -9,7 +9,6 @@ use App\Http\Requests\Api\UpdateAddressRequest;
 use App\Http\Requests\Api\UpgradeToDriverRequest;
 use App\Http\Requests\Api\ValidateAddressRequest;
 use App\Models\OrderPayment;
-use App\Models\Review;
 use App\Models\User;
 use App\Services\AddressService;
 use App\Services\DriverOnboardingService;
@@ -428,7 +427,6 @@ class AuthController extends Controller
                 'recipient_name',
                 'phone',
                 'full_address',
-                'detail',
                 'latitude',
                 'longitude',
                 'is_default',
@@ -440,7 +438,6 @@ class AuthController extends Controller
             ->whereHas('order', fn ($query) => $query->where('user_id', $user->id))
             ->where('payment_status', 'PAID')
             ->sum('amount');
-        $rating = (float) (Review::query()->where('user_id', $user->id)->avg('rating') ?? 0);
 
         if ($user->role === 'driver') {
             $driver = $user->driver()->first();
@@ -451,20 +448,9 @@ class AuthController extends Controller
                         $query->where('code', 'COMPLETED');
                     });
 
-                $totalOrders = (clone $completedDriverOrders)->count();
-                $totalPaid = (float) (clone $completedDriverOrders)->sum('delivery_fee');
-
-                $avgRating = Review::query()
-                    ->where('driver_id', $driver->id)
-                    ->avg('rating');
-
-                if ($avgRating !== null) {
-                    $rating = (float) $avgRating;
-                } elseif ($driver->avg_rating !== null) {
-                    $rating = (float) $driver->avg_rating;
-                } else {
-                    $rating = 0;
-                }
+                $completed = (clone $completedDriverOrders)->with('pricing')->get();
+                $totalOrders = $completed->count();
+                $totalPaid = (float) $completed->sum(fn ($order): float => (float) $order->delivery_fee);
             }
         }
 
@@ -476,7 +462,6 @@ class AuthController extends Controller
         $responseUserData['stats'] = [
             'total_orders' => $totalOrders,
             'total_paid' => $totalPaid,
-            'rating' => round($rating, 1),
         ];
 
         return $responseUserData;

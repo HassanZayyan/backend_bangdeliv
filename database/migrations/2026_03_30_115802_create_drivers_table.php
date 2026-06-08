@@ -21,10 +21,6 @@ return new class extends Migration
             $table->string('license_number', 50);
             $table->enum('registration_status', ['pending', 'active', 'rejected', 'suspended'])->default('pending');
             $table->enum('status', ['available', 'busy', 'offline'])->default('offline');
-            $table->decimal('current_latitude', 10, 8)->nullable();
-            $table->decimal('current_longitude', 11, 8)->nullable();
-            $table->decimal('avg_rating', 3, 2)->default(0.00);
-            $table->unsignedInteger('total_deliveries')->default(0);
             $table->timestamps();
             $table->softDeletes();
 

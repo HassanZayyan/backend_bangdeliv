@@ -128,7 +128,6 @@ class RideOrderCreationTest extends TestCase
             'user_id' => $user->id,
             'service_type_id' => $rideServiceTypeId,
             'status_id' => $pendingStatusId,
-            'restaurant_id' => null,
         ]);
 
         $this->assertDatabaseHas('order_locations', [

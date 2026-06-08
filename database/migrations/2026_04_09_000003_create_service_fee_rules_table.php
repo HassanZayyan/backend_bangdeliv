@@ -19,7 +19,6 @@ return new class extends Migration
             $table->json('rule_config');
             $table->boolean('is_active')->default(true);
             $table->timestamp('starts_at')->nullable();
-            $table->timestamp('ends_at')->nullable();
             $table->timestamps();
 
             $table->unique(['service_type_id', 'rule_code']);
@@ -27,8 +26,6 @@ return new class extends Migration
         });
 
         $shoppingServiceTypeId = DB::table('service_types')->where('code', 'SHOPPING')->value('id');
-        $courierServiceTypeId = DB::table('service_types')->where('code', 'COURIER')->value('id');
-
         if ($shoppingServiceTypeId) {
             DB::table('service_fee_rules')->insert([
                 [
@@ -73,19 +70,6 @@ return new class extends Migration
             ]);
         }
 
-        if ($courierServiceTypeId) {
-            DB::table('service_fee_rules')->insert([
-                'service_type_id' => $courierServiceTypeId,
-                'rule_code' => 'AUTO_CONFIRM_EVIDENCE_TIMEOUT',
-                'rule_config' => json_encode([
-                    'auto_confirm_after_hours' => 24,
-                ]),
-                'is_active' => true,
-                'starts_at' => now(),
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
-        }
     }
 
     /**

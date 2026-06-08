@@ -35,6 +35,12 @@
     $locations = $order->orderLocations->sortBy('sequence_no')->values();
     $statusHistories = $order->statusHistories->sortByDesc('created_at')->values();
     $logs = $order->logs->sortByDesc('created_at')->take(10)->values();
+    $shoppingFailedAttemptCount = $locations
+        ->filter(fn ($location) => strtoupper((string) $location->location_role) === 'PICKUP')
+        ->sum(fn ($location) => (int) ($location->failed_attempt_count ?? 0));
+    $shoppingRecalculationVersion = (int) $order->logs
+        ->where('log_type', 'PRICE_RECALCULATION')
+        ->max('recalculation_version');
     $payments = $order->payments
         ->sortByDesc(fn ($payment) => $payment->paid_at?->getTimestamp() ?? $payment->created_at?->getTimestamp() ?? 0)
         ->values();
@@ -145,11 +151,11 @@
             </div>
             <div>
                 <div class="td-sub">Failed Attempt</div>
-                <div class="td-strong">{{ $order->shoppingOrder?->failed_attempt_count ?? 0 }}</div>
+                <div class="td-strong">{{ $shoppingFailedAttemptCount }}</div>
             </div>
             <div>
                 <div class="td-sub">Version Rekalkulasi</div>
-                <div class="td-strong">{{ $order->shoppingOrder?->recalculation_version ?? 0 }}</div>
+                <div class="td-strong">{{ $shoppingRecalculationVersion }}</div>
             </div>
         </div>
 
@@ -187,13 +193,9 @@
 @if($serviceCode === 'COURIER')
     @php
         $courierOrder = $order->courierOrder;
-        $packageWeight = $courierOrder?->estimated_weight_kg !== null
-            ? rtrim(rtrim(number_format((float) $courierOrder->estimated_weight_kg, 2, ',', '.'), '0'), ',').' kg'
-            : '-';
-        $packageDimensions = ($courierOrder?->package_length_cm && $courierOrder?->package_width_cm && $courierOrder?->package_height_cm)
-            ? "{$courierOrder->package_length_cm}x{$courierOrder->package_width_cm}x{$courierOrder->package_height_cm} cm"
-            : '-';
-        $packageSafetyFlags = collect($courierOrder?->package_safety_flags ?? [])->implode(', ');
+        $courierEvidenceCount = $order->evidences
+            ->filter(fn ($evidence) => in_array(strtoupper((string) $evidence->evidence_type), ['PICKUP_PHOTO', 'DELIVERY_PHOTO', 'COURIER_DELIVERY_PHOTO', 'COURIER_RECEIVER_PHOTO'], true))
+            ->count();
     @endphp
     <div class="panel" style="margin-bottom:16px;">
         <div class="panel-header">
@@ -205,47 +207,8 @@
                 <div class="td-strong">{{ $courierOrder?->package_description ?? '-' }}</div>
             </div>
             <div>
-                <div class="td-sub">Status Safety</div>
-                <div class="td-strong">{{ strtoupper((string) ($courierOrder?->package_safety_status ?? '-')) }}</div>
-            </div>
-            <div>
-                <div class="td-sub">Estimasi Berat</div>
-                <div class="td-strong">{{ $packageWeight }}</div>
-            </div>
-            <div>
-                <div class="td-sub">Estimasi Ukuran</div>
-                <div class="td-strong">{{ $packageDimensions }}</div>
-            </div>
-            <div>
-                <div class="td-sub">Kelas Ukuran</div>
-                <div class="td-strong">{{ strtoupper((string) ($courierOrder?->package_size_class ?? '-')) }}</div>
-            </div>
-            <div>
-                <div class="td-sub">Packing</div>
-                <div class="td-strong">{{ $courierOrder?->package_packing_note ?? '-' }}</div>
-            </div>
-            <div>
-                <div class="td-sub">Wajib Bukti Foto</div>
-                <div class="td-strong">{{ $courierOrder?->requires_photo_evidence === null ? '-' : ($courierOrder->requires_photo_evidence ? 'Ya' : 'Tidak') }}</div>
-            </div>
-            <div>
-                <div class="td-sub">Deadline Konfirmasi</div>
-                <div class="td-strong">{{ $courierOrder?->confirmation_deadline_at?->format('d M Y, H:i') ?? '-' }}</div>
-            </div>
-            <div>
-                <div class="td-sub">Auto Konfirmasi</div>
-                <div class="td-strong">{{ $courierOrder?->auto_confirmed_at?->format('d M Y, H:i') ?? '-' }}</div>
-            </div>
-            <div style="grid-column: 1 / -1;">
-                <div class="td-sub">Alasan / Catatan Safety</div>
-                <div class="td-strong">{{ $courierOrder?->package_safety_reason ?? '-' }}</div>
-                @if($packageSafetyFlags)
-                    <div class="td-sub" style="margin-top:4px;">Flags: {{ $packageSafetyFlags }}</div>
-                @endif
-            </div>
-            <div style="grid-column: 1 / -1;">
-                <div class="td-sub">Alasan Komplain</div>
-                <div class="td-strong">{{ $courierOrder?->complaint_reason ?? '-' }}</div>
+                <div class="td-sub">Bukti Foto Kurir</div>
+                <div class="td-strong">{{ $courierEvidenceCount }} bukti di order evidence</div>
             </div>
         </div>
     </div>
@@ -382,7 +345,7 @@
                         <td class="td-sub">{{ $log->created_at?->format('d M Y, H:i') ?? '-' }}</td>
                         <td class="td-sub">{{ $log->log_type }}</td>
                         <td class="td-sub">{{ $log->trigger_type ?? '-' }}</td>
-                        <td class="td-sub">{{ $log->delta_total_price !== null ? 'Rp '.number_format((float) $log->delta_total_price, 0, ',', '.') : '-' }}</td>
+                        <td class="td-sub">{{ $log->priceChange?->delta_total_price !== null ? 'Rp '.number_format((float) $log->priceChange->delta_total_price, 0, ',', '.') : '-' }}</td>
                         <td class="td-sub">{{ $log->note ?? '-' }}</td>
                     </tr>
                 @empty

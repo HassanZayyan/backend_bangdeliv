@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 
 /**
  * @property int $id
@@ -18,18 +19,14 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property string|null $phone
  * @property string|null $banner_image
  * @property string $status
- * @property string|null $avg_rating
- * @property int $total_reviews
- * @property int|null $estimated_prep_time
  * @property \Carbon\Carbon|null $created_at
  * @property \Carbon\Carbon|null $updated_at
  * @property \Carbon\Carbon|null $deleted_at
  *
- * @property-read \Illuminate\Database\Eloquent\Collection<int, \App\Models\RestaurantOperatingHour> $operatingHours
  * @property-read \Illuminate\Database\Eloquent\Collection<int, \App\Models\MenuCategory> $menuCategories
  * @property-read \Illuminate\Database\Eloquent\Collection<int, \App\Models\Menu> $menus
+ * @property-read \Illuminate\Database\Eloquent\Collection<int, \App\Models\OrderLocation> $orderLocations
  * @property-read \Illuminate\Database\Eloquent\Collection<int, \App\Models\Order> $orders
- * @property-read \Illuminate\Database\Eloquent\Collection<int, \App\Models\Review> $reviews
  */
 class Restaurant extends Model
 {
@@ -46,9 +43,6 @@ class Restaurant extends Model
         'phone',
         'banner_image',
         'status',
-        'avg_rating',
-        'total_reviews',
-        'estimated_prep_time',
     ];
 
     protected function casts(): array
@@ -57,15 +51,7 @@ class Restaurant extends Model
             'latitude' => 'decimal:8',
             'longitude' => 'decimal:8',
             'merchant_type' => 'string',
-            'avg_rating' => 'decimal:2',
-            'total_reviews' => 'integer',
-            'estimated_prep_time' => 'integer',
         ];
-    }
-
-    public function operatingHours(): HasMany
-    {
-        return $this->hasMany(RestaurantOperatingHour::class);
     }
 
     public function menuCategories(): HasMany
@@ -78,13 +64,20 @@ class Restaurant extends Model
         return $this->hasMany(Menu::class);
     }
 
-    public function orders(): HasMany
+    public function orderLocations(): HasMany
     {
-        return $this->hasMany(Order::class);
+        return $this->hasMany(OrderLocation::class);
     }
 
-    public function reviews(): HasMany
+    public function orders(): HasManyThrough
     {
-        return $this->hasMany(Review::class);
+        return $this->hasManyThrough(
+            Order::class,
+            OrderLocation::class,
+            'restaurant_id',
+            'id',
+            'id',
+            'order_id'
+        );
     }
 }

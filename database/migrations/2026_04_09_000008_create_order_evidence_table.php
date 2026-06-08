@@ -25,17 +25,11 @@ return new class extends Migration
                 'PAYMENT_TRANSFER_PHOTO',
             ]);
             $table->string('file_url');
-            $table->enum('verification_mode', ['AUTO_24H', 'MANUAL'])->default('AUTO_24H');
-            $table->enum('verification_status', ['PENDING', 'APPROVED', 'REJECTED', 'AUTO_APPROVED'])->default('PENDING');
             $table->timestamp('uploaded_at')->useCurrent();
-            $table->timestamp('expires_at')->nullable();
-            $table->timestamp('verified_at')->nullable();
-            $table->foreignId('verified_by_user_id')->nullable()->constrained('users')->nullOnDelete();
             $table->text('notes')->nullable();
             $table->timestamps();
 
-            $table->index(['order_id', 'verification_status'], 'order_evidence_order_status_idx');
-            $table->index(['expires_at'], 'order_evidence_expires_at_idx');
+            $table->index(['order_id', 'evidence_type'], 'order_evidence_order_type_idx');
         });
     }
 

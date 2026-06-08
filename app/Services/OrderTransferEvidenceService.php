@@ -40,8 +40,6 @@ class OrderTransferEvidenceService
             'driver_id' => $driverId,
             'evidence_type' => 'PAYMENT_TRANSFER_PHOTO',
             'file_url' => $fileUrl,
-            'verification_mode' => 'MANUAL',
-            'verification_status' => 'PENDING',
             'uploaded_at' => now(),
             'notes' => $note !== null && trim($note) !== ''
                 ? trim($note)

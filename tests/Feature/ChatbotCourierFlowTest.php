@@ -601,13 +601,7 @@ class ChatbotCourierFlowTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.intent', 'courier_order')
             ->assertJsonPath('data.validation.is_valid_order', true)
-            ->assertJsonPath('data.courier.safety_status', 'ALLOWED')
-            ->assertJsonPath('data.courier.size_class', 'SMALL')
-            ->assertJsonPath('data.courier.estimated_weight_kg', null)
-            ->assertJsonPath('data.courier.package_length_cm', null)
             ->assertJsonPath('data.courier.ready_to_confirm', true);
-
-        $this->assertContains('SIZE_INFERRED_SMALL', $response->json('data.courier.safety_flags'));
         $this->assertStringContainsString('kacamata', strtolower((string) $response->json('data.courier.package_description')));
         $this->assertStringContainsString('Erha Setiabudi', (string) $response->json('data.courier.dropoff_address'));
     }

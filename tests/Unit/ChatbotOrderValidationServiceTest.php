@@ -24,9 +24,6 @@ class ChatbotOrderValidationServiceTest extends TestCase
             'phone' => '081200000001',
             'banner_image' => null,
             'status' => 'active',
-            'avg_rating' => 4.70,
-            'total_reviews' => 120,
-            'estimated_prep_time' => 20,
         ]);
 
         $service = app(ChatbotOrderValidationService::class);
@@ -54,9 +51,6 @@ class ChatbotOrderValidationServiceTest extends TestCase
             'phone' => '081200000001',
             'banner_image' => null,
             'status' => 'active',
-            'avg_rating' => 4.70,
-            'total_reviews' => 120,
-            'estimated_prep_time' => 20,
         ]);
 
         Menu::query()->create([

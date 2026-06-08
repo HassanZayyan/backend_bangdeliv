@@ -12,7 +12,6 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property array<string, mixed>|null $rule_config
  * @property bool $is_active
  * @property \Carbon\Carbon|null $starts_at
- * @property \Carbon\Carbon|null $ends_at
  *
  * @property-read \App\Models\ServiceType $serviceType
  */
@@ -24,7 +23,6 @@ class ServiceFeeRule extends Model
         'rule_config',
         'is_active',
         'starts_at',
-        'ends_at',
     ];
 
     protected function casts(): array
@@ -33,7 +31,6 @@ class ServiceFeeRule extends Model
             'rule_config' => 'array',
             'is_active' => 'boolean',
             'starts_at' => 'datetime',
-            'ends_at' => 'datetime',
         ];
     }
 

@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
@@ -17,10 +18,6 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property string|null $license_number
  * @property string $registration_status
  * @property string $status
- * @property string|null $current_latitude
- * @property string|null $current_longitude
- * @property string|null $avg_rating
- * @property int $total_deliveries
  * @property \Carbon\Carbon|null $created_at
  * @property \Carbon\Carbon|null $updated_at
  * @property \Carbon\Carbon|null $deleted_at
@@ -41,21 +38,7 @@ class Driver extends Model
         'license_number',
         'registration_status',
         'status',
-        'current_latitude',
-        'current_longitude',
-        'avg_rating',
-        'total_deliveries',
     ];
-
-    protected function casts(): array
-    {
-        return [
-            'current_latitude' => 'decimal:8',
-            'current_longitude' => 'decimal:8',
-            'avg_rating' => 'decimal:2',
-            'total_deliveries' => 'integer',
-        ];
-    }
 
     public function user(): BelongsTo
     {
@@ -67,8 +50,15 @@ class Driver extends Model
         return $this->hasMany(DriverDocument::class);
     }
 
-    public function orders(): HasMany
+    public function orders(): HasManyThrough
     {
-        return $this->hasMany(Order::class);
+        return $this->hasManyThrough(
+            Order::class,
+            OrderAssignment::class,
+            'driver_id',
+            'id',
+            'id',
+            'order_id'
+        );
     }
 }

@@ -24,9 +24,6 @@ class HomeApiTest extends TestCase
             'phone' => '081234567890',
             'banner_image' => null,
             'status' => 'active',
-            'avg_rating' => 4.80,
-            'total_reviews' => 120,
-            'estimated_prep_time' => 15,
         ]);
 
         $category = MenuCategory::query()->create([

@@ -75,12 +75,6 @@
                 </div>
 
                 <div class="form-group" style="margin-bottom:0;">
-                    <label>Estimasi Persiapan <span style="font-size:12px; font-weight:400; color:var(--text-muted);">(menit)</span> <span style="color:var(--color-danger);">*</span></label>
-                    <input type="number" min="1" max="240" name="estimated_prep_time" value="{{ old('estimated_prep_time', $restaurant->estimated_prep_time) }}" class="form-control" required>
-                    @error('estimated_prep_time') <div style="color:var(--color-danger); font-size:12px; margin-top:4px;"><i class='bx bx-error-circle'></i> {{ $message }}</div> @enderror
-                </div>
-
-                <div class="form-group" style="margin-bottom:0;">
                     <label>Status <span style="color:var(--color-danger);">*</span></label>
                     <select name="status" class="form-control" required>
                         <option value="active" @selected(old('status', $restaurant->status) === 'active')>Aktif</option>

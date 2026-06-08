@@ -16,7 +16,6 @@ use App\Models\OrderPayment;
 use App\Models\OrderStatus;
 use App\Models\OrderStatusHistory;
 use App\Models\ServiceType;
-use App\Models\ShoppingOrder;
 use App\Models\User;
 use App\Services\DriverOrderRealtimeService;
 use Illuminate\Broadcasting\BroadcastException;
@@ -25,7 +24,6 @@ use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Broadcast;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Hash;
@@ -106,8 +104,11 @@ class DriverOrderWorkflowTest extends TestCase
 
         $this->assertDatabaseHas('orders', [
             'id' => $order->id,
-            'driver_id' => $driver->id,
             'status_id' => $assignedStatusId,
+        ]);
+        $this->assertDatabaseHas('order_assignments', [
+            'order_id' => $order->id,
+            'driver_id' => $driver->id,
         ]);
 
         $this->assertDatabaseHas('order_status_histories', [
@@ -141,9 +142,8 @@ class DriverOrderWorkflowTest extends TestCase
         $this->assertCount(0, $response->json('data.incoming_orders'));
         $this->assertCount(1, $response->json('data.running_orders'));
         $this->assertSame((string) $runningOrder->id, (string) $response->json('data.running_orders.0.id'));
-        $this->assertDatabaseHas('orders', [
-            'id' => $pendingOrder->id,
-            'driver_id' => null,
+        $this->assertDatabaseMissing('order_assignments', [
+            'order_id' => $pendingOrder->id,
         ]);
     }
 
@@ -277,9 +277,8 @@ class DriverOrderWorkflowTest extends TestCase
 
         app(DriverOrderRealtimeService::class)->broadcastOrderAvailable($order);
 
-        $this->assertDatabaseHas('orders', [
-            'id' => $order->id,
-            'driver_id' => null,
+        $this->assertDatabaseMissing('order_assignments', [
+            'order_id' => $order->id,
         ]);
     }
 
@@ -380,9 +379,8 @@ class DriverOrderWorkflowTest extends TestCase
             ->assertJsonPath('success', false)
             ->assertJsonPath('message', 'Aktifkan status kerja sebelum menerima order.');
 
-        $this->assertDatabaseHas('orders', [
-            'id' => $order->id,
-            'driver_id' => null,
+        $this->assertDatabaseMissing('order_assignments', [
+            'order_id' => $order->id,
         ]);
 
         $this->assertDatabaseHas('drivers', [
@@ -498,75 +496,6 @@ class DriverOrderWorkflowTest extends TestCase
                 && $event->isTerminal === false
                 && $event->historyId !== null;
         });
-    }
-
-    public function test_driver_location_update_still_saves_when_realtime_broadcast_fails(): void
-    {
-        $this->useFailingBroadcaster();
-
-        $driverUser = User::query()->create([
-            'name' => 'Driver Location',
-            'email' => 'driver.location@example.com',
-            'phone' => '081211119996',
-            'password' => Hash::make('password123'),
-            'role' => 'driver',
-            'is_active' => true,
-            'is_blacklisted' => false,
-        ]);
-
-        $driver = Driver::query()->create($this->driverAttributes([
-            'user_id' => $driverUser->id,
-            'vehicle_plate' => 'B 4444 LOC',
-            'license_number' => 'SIMC-LOC-2026',
-            'registration_status' => 'active',
-            'status' => 'busy',
-        ]));
-
-        $customer = User::factory()->create(['role' => 'customer']);
-        $rideTypeId = (int) ServiceType::query()->where('code', 'RIDE')->value('id');
-        $assignedStatusId = (int) OrderStatus::query()->where('code', 'DRIVER_ASSIGNED')->value('id');
-
-        $order = Order::query()->create([
-            'order_number' => 'BD-DRV-LOC-0001',
-            'user_id' => $customer->id,
-            'restaurant_id' => null,
-            'service_type_id' => $rideTypeId,
-            'driver_id' => $driver->id,
-            'address_id' => null,
-            'delivery_address' => 'Jl. Lokasi Driver No. 1',
-            'delivery_latitude' => -7.001200,
-            'delivery_longitude' => 110.401200,
-            'subtotal' => 0,
-            'delivery_fee' => 15000,
-            'service_fee' => 0,
-            'total_amount' => 15000,
-            'total_price' => 15000,
-            'status_id' => $assignedStatusId,
-            'payment_status' => 'unpaid',
-            'payment_method' => 'COD',
-        ]);
-
-        Sanctum::actingAs($driverUser);
-
-        $this->postJson('/api/v1/driver/orders/'.$order->id.'/location', [
-            'latitude' => -7.123456,
-            'longitude' => 110.654321,
-            'heading' => 45.5,
-        ])->assertOk()
-            ->assertJsonPath('data.location_saved', true)
-            ->assertJsonPath('data.broadcasted', false)
-            ->assertJsonPath('data.order_id', $order->id);
-
-        $driver->refresh();
-        $this->assertEqualsWithDelta(-7.123456, (float) $driver->current_latitude, 0.000001);
-        $this->assertEqualsWithDelta(110.654321, (float) $driver->current_longitude, 0.000001);
-
-        $cached = Cache::get('driver_location:'.$driver->id);
-        $this->assertIsArray($cached);
-        $this->assertSame($order->id, $cached['order_id']);
-        $this->assertSame(-7.123456, $cached['latitude']);
-        $this->assertSame(110.654321, $cached['longitude']);
-        $this->assertSame(45.5, $cached['heading']);
     }
 
     public function test_driver_cod_collection_enables_complete_order(): void
@@ -761,10 +690,10 @@ class DriverOrderWorkflowTest extends TestCase
         ])->assertOk()
             ->assertJsonPath('data.status_code', 'CANCELLED');
 
-        $this->assertDatabaseHas('orders', [
-            'id' => $order->id,
+        $this->assertDatabaseHas('order_cancellations', [
+            'order_id' => $order->id,
             'cancelled_by' => 'driver',
-            'cancellation_reason' => 'Barang lebih besar dari deskripsi dan tidak muat motor.',
+            'reason' => 'Barang lebih besar dari deskripsi dan tidak muat motor.',
         ]);
     }
 
@@ -946,16 +875,6 @@ class DriverOrderWorkflowTest extends TestCase
         [$driverUser, $driver] = $this->createActiveDriver('shopping-pending-price');
         $order = $this->createShoppingOrder($driver, 'ARRIVED_MERCHANT');
 
-        ShoppingOrder::query()->create([
-            'order_id' => $order->id,
-            'failed_attempt_count' => 0,
-            'item_surcharge' => 0,
-            'overweight_surcharge' => 0,
-            'cancellation_penalty' => 0,
-            'has_overweight_item' => false,
-            'recalculation_version' => 0,
-        ]);
-
         OrderItem::query()->create([
             'order_id' => $order->id,
             'item_source' => 'MANUAL',
@@ -983,16 +902,6 @@ class DriverOrderWorkflowTest extends TestCase
     {
         [$driverUser, $driver] = $this->createActiveDriver('shopping-receipt');
         $order = $this->createShoppingOrder($driver, 'ARRIVED_MERCHANT');
-
-        ShoppingOrder::query()->create([
-            'order_id' => $order->id,
-            'failed_attempt_count' => 0,
-            'item_surcharge' => 0,
-            'overweight_surcharge' => 0,
-            'cancellation_penalty' => 0,
-            'has_overweight_item' => false,
-            'recalculation_version' => 0,
-        ]);
 
         $item = OrderItem::query()->create([
             'order_id' => $order->id,
@@ -1044,11 +953,15 @@ class DriverOrderWorkflowTest extends TestCase
             'is_heavy' => true,
         ]);
 
-        $this->assertDatabaseHas('orders', [
-            'id' => $order->id,
+        $this->assertDatabaseHas('order_pricings', [
+            'order_id' => $order->id,
             'subtotal' => 30000,
-            'service_fee' => 6000,
             'total_price' => 42000,
+        ]);
+        $this->assertDatabaseHas('order_fee_lines', [
+            'order_id' => $order->id,
+            'code' => 'OVERWEIGHT_FLAT_SURCHARGE',
+            'amount' => 6000,
         ]);
 
         $this->assertDatabaseHas('order_payments', [
@@ -1078,9 +991,6 @@ class DriverOrderWorkflowTest extends TestCase
             'longitude' => 110.401,
             'phone' => '0812'.random_int(10000000, 99999999),
             'status' => 'active',
-            'avg_rating' => 4.5,
-            'total_reviews' => 1,
-            'estimated_prep_time' => 10,
         ]);
 
         $pickup = $order->orderLocations()->create([
@@ -1104,15 +1014,7 @@ class DriverOrderWorkflowTest extends TestCase
             'sequence_no' => 2,
         ]);
 
-        ShoppingOrder::query()->create([
-            'order_id' => $order->id,
-            'failed_attempt_count' => 2,
-            'item_surcharge' => 0,
-            'overweight_surcharge' => 0,
-            'cancellation_penalty' => 0,
-            'has_overweight_item' => false,
-            'recalculation_version' => 0,
-        ]);
+        $pickup->update(['failed_attempt_count' => 2]);
 
         OrderItem::query()->create([
             'order_id' => $order->id,
@@ -1144,8 +1046,8 @@ class DriverOrderWorkflowTest extends TestCase
         $failedResponse->assertOk()
             ->assertJsonPath('success', true);
 
-        $this->assertDatabaseHas('shopping_orders', [
-            'order_id' => $order->id,
+        $this->assertDatabaseHas('order_locations', [
+            'id' => $pickup->id,
             'failed_attempt_count' => 3,
         ]);
 
@@ -1184,18 +1086,30 @@ class DriverOrderWorkflowTest extends TestCase
             ->assertJsonPath('data.pricing.delivery_fee', 0)
             ->assertJsonPath('data.pricing.total_price', 3000);
 
-        $this->assertDatabaseHas('orders', [
-            'id' => $order->id,
+        $this->assertDatabaseHas('order_pricings', [
+            'order_id' => $order->id,
             'delivery_fee' => 0,
-            'service_fee' => 3000,
             'total_price' => 3000,
+        ]);
+        $this->assertDatabaseHas('order_fee_lines', [
+            'order_id' => $order->id,
+            'code' => 'CANCELLATION_PENALTY_AFTER_FAILED_ATTEMPTS',
+            'amount' => 3000,
+        ]);
+        $this->assertDatabaseHas('order_cancellations', [
+            'order_id' => $order->id,
             'cancelled_by' => 'driver',
         ]);
 
         $this->assertDatabaseHas('order_payments', [
             'order_id' => $order->id,
+            'payment_method' => 'TRANSFER',
             'payment_status' => 'PENDING',
             'amount' => 3000,
+        ]);
+        $this->assertDatabaseHas('order_events', [
+            'order_id' => $order->id,
+            'trigger_type' => 'SYSTEM_PAYMENT_METHOD_CHANGED_AFTER_FAILED_ATTEMPTS',
         ]);
     }
 
@@ -1275,15 +1189,6 @@ class DriverOrderWorkflowTest extends TestCase
         CourierOrder::query()->create([
             'order_id' => $order->id,
             'package_description' => 'dokumen kontrak',
-            'estimated_weight_kg' => 1.5,
-            'package_length_cm' => 30,
-            'package_width_cm' => 20,
-            'package_height_cm' => 5,
-            'package_size_class' => 'SMALL',
-            'package_safety_status' => 'ALLOWED',
-            'package_safety_flags' => [],
-            'package_safety_reason' => 'Paket aman untuk layanan kurir motor.',
-            'requires_photo_evidence' => true,
         ]);
 
         OrderPayment::query()->create([
@@ -1303,8 +1208,6 @@ class DriverOrderWorkflowTest extends TestCase
             'driver_id' => $driver->id,
             'evidence_type' => $evidenceType,
             'file_url' => 'http://localhost/storage/test-proof.jpg',
-            'verification_mode' => 'AUTO_24H',
-            'verification_status' => 'PENDING',
             'uploaded_at' => now(),
         ]);
     }

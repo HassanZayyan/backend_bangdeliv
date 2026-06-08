@@ -12,28 +12,23 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('shopping_orders', function (Blueprint $table) {
+        Schema::create('shopping_receipts', function (Blueprint $table) {
             $table->id();
             $table->foreignId('order_id')->unique()->constrained()->cascadeOnDelete();
-            $table->unsignedTinyInteger('failed_attempt_count')->default(0);
-            $table->decimal('item_surcharge', 12, 2)->default(0);
-            $table->decimal('overweight_surcharge', 12, 2)->default(0);
-            $table->decimal('cancellation_penalty', 12, 2)->default(0);
-            $table->boolean('has_overweight_item')->default(false);
-            $table->unsignedInteger('recalculation_version')->default(0);
-            $table->timestamp('last_recalculated_at')->nullable();
-            $table->json('pricing_snapshot')->nullable();
+            $table->decimal('total_amount', 12, 2);
+            $table->foreignId('recorded_by_user_id')->nullable()->constrained('users')->nullOnDelete();
+            $table->timestamp('recorded_at')->useCurrent();
             $table->timestamps();
         });
 
         if (DB::getDriverName() === 'mysql') {
-            DB::unprepared('DROP TRIGGER IF EXISTS trg_shopping_orders_only_shopping_insert');
-            DB::unprepared('DROP TRIGGER IF EXISTS trg_shopping_orders_only_shopping_update');
+            DB::unprepared('DROP TRIGGER IF EXISTS trg_shopping_receipts_only_shopping_insert');
+            DB::unprepared('DROP TRIGGER IF EXISTS trg_shopping_receipts_only_shopping_update');
 
             DB::unprepared(
                 <<<'SQL'
-                CREATE TRIGGER trg_shopping_orders_only_shopping_insert
-                BEFORE INSERT ON shopping_orders
+                CREATE TRIGGER trg_shopping_receipts_only_shopping_insert
+                BEFORE INSERT ON shopping_receipts
                 FOR EACH ROW
                 BEGIN
                     DECLARE v_service_code VARCHAR(30);
@@ -45,7 +40,7 @@ return new class extends Migration
                     LIMIT 1;
 
                     IF v_service_code IS NULL OR v_service_code <> 'SHOPPING' THEN
-                        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'shopping_orders hanya untuk service SHOPPING';
+                        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'shopping_receipts hanya untuk service SHOPPING';
                     END IF;
                 END
                 SQL
@@ -53,8 +48,8 @@ return new class extends Migration
 
             DB::unprepared(
                 <<<'SQL'
-                CREATE TRIGGER trg_shopping_orders_only_shopping_update
-                BEFORE UPDATE ON shopping_orders
+                CREATE TRIGGER trg_shopping_receipts_only_shopping_update
+                BEFORE UPDATE ON shopping_receipts
                 FOR EACH ROW
                 BEGIN
                     DECLARE v_service_code VARCHAR(30);
@@ -66,7 +61,7 @@ return new class extends Migration
                     LIMIT 1;
 
                     IF v_service_code IS NULL OR v_service_code <> 'SHOPPING' THEN
-                        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'shopping_orders hanya untuk service SHOPPING';
+                        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'shopping_receipts hanya untuk service SHOPPING';
                     END IF;
                 END
                 SQL
@@ -80,10 +75,10 @@ return new class extends Migration
     public function down(): void
     {
         if (DB::getDriverName() === 'mysql') {
-            DB::unprepared('DROP TRIGGER IF EXISTS trg_shopping_orders_only_shopping_insert');
-            DB::unprepared('DROP TRIGGER IF EXISTS trg_shopping_orders_only_shopping_update');
+            DB::unprepared('DROP TRIGGER IF EXISTS trg_shopping_receipts_only_shopping_insert');
+            DB::unprepared('DROP TRIGGER IF EXISTS trg_shopping_receipts_only_shopping_update');
         }
 
-        Schema::dropIfExists('shopping_orders');
+        Schema::dropIfExists('shopping_receipts');
     }
 };

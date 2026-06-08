@@ -11,20 +11,40 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('ai_chat_logs', function (Blueprint $table) {
+        Schema::create('chat_sessions', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('user_id')->constrained()->cascadeOnDelete();
+            $table->string('session_id', 100);
+            $table->timestamp('last_message_at')->useCurrent();
+            $table->timestamps();
+
+            $table->unique(['user_id', 'session_id']);
+            $table->index(['user_id', 'last_message_at']);
+        });
+
+        Schema::create('chat_messages', function (Blueprint $table) {
             $table->id();
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
             $table->string('session_id', 100);
             $table->enum('role', ['user', 'assistant']);
             $table->text('message');
-            $table->json('ai_response')->nullable();
-            $table->string('model_used', 100)->nullable();
-            $table->string('intent', 50)->nullable();
-            $table->foreignId('order_id')->nullable()->constrained()->nullOnDelete();
             $table->timestamp('created_at')->useCurrent();
 
             $table->index(['user_id', 'session_id']);
+            $table->index(['session_id', 'created_at']);
             $table->index('created_at');
+        });
+
+        Schema::create('ai_message_details', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('chat_message_id')->unique()->constrained('chat_messages')->cascadeOnDelete();
+            $table->json('ai_response');
+            $table->string('model_used', 100);
+            $table->string('intent', 50);
+            $table->foreignId('order_id')->nullable()->constrained()->nullOnDelete();
+            $table->timestamps();
+
+            $table->index(['intent', 'order_id']);
         });
     }
 
@@ -33,6 +53,8 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('ai_chat_logs');
+        Schema::dropIfExists('ai_message_details');
+        Schema::dropIfExists('chat_messages');
+        Schema::dropIfExists('chat_sessions');
     }
 };

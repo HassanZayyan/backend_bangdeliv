@@ -14,6 +14,7 @@ use App\Services\GoogleMapsGeocodingService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -118,6 +119,7 @@ class ChatbotController extends Controller
             ->groupBy('session_id');
 
         $latestAssistantLogs = AiChatLog::query()
+            ->with('aiDetail')
             ->whereIn('id', $latestAssistantLogIds)
             ->orderByDesc('created_at')
             ->limit($limit * 2)
@@ -196,6 +198,7 @@ class ChatbotController extends Controller
         $beforeId = isset($validated['before_id']) ? (int) $validated['before_id'] : null;
 
         $query = AiChatLog::query()
+            ->with('aiDetail')
             ->where('user_id', $user->id)
             ->where('session_id', $normalizedSessionId)
             ->when($beforeId !== null, static function (Builder $builder) use ($beforeId): void {
@@ -267,6 +270,7 @@ class ChatbotController extends Controller
         }
 
         $latestAssistantLog = AiChatLog::query()
+            ->with('aiDetail')
             ->where('user_id', $user->id)
             ->where('session_id', $normalizedSessionId)
             ->where('role', 'assistant')
@@ -305,29 +309,25 @@ class ChatbotController extends Controller
         $orderId = $this->resolveOrderId($patchedPayload);
         $assistantText = trim((string) ($patchedPayload['assistant_text'] ?? 'Titik lokasi berhasil diperbarui.'));
 
-        AiChatLog::query()->create([
-            'user_id' => $user->id,
-            'session_id' => $normalizedSessionId,
-            'role' => 'user',
-            'message' => '[MAP_PIN] '.$target.' => '.$address,
-            'ai_response' => null,
-            'model_used' => null,
-            'intent' => $intent,
-            'order_id' => $orderId,
-            'created_at' => now(),
-        ]);
+        $this->recordChatMessage(
+            user: $user,
+            sessionId: $normalizedSessionId,
+            role: 'user',
+            message: '[MAP_PIN] '.$target.' => '.$address,
+            intent: $intent,
+            orderId: $orderId
+        );
 
-        AiChatLog::query()->create([
-            'user_id' => $user->id,
-            'session_id' => $normalizedSessionId,
-            'role' => 'assistant',
-            'message' => $assistantText,
-            'ai_response' => $patchedPayload,
-            'model_used' => 'map-pin-action',
-            'intent' => $intent,
-            'order_id' => $orderId,
-            'created_at' => now(),
-        ]);
+        $this->recordChatMessage(
+            user: $user,
+            sessionId: $normalizedSessionId,
+            role: 'assistant',
+            message: $assistantText,
+            aiResponse: $patchedPayload,
+            modelUsed: 'map-pin-action',
+            intent: $intent,
+            orderId: $orderId
+        );
 
         return response()->json([
             'status' => 'success',
@@ -413,29 +413,25 @@ class ChatbotController extends Controller
             ->map(static fn (array $location): string => $location['target'].' => '.$location['address'])
             ->implode('; ');
 
-        AiChatLog::query()->create([
-            'user_id' => $user->id,
-            'session_id' => $normalizedSessionId,
-            'role' => 'user',
-            'message' => '[MAP_ROUTE] '.$routeSummary,
-            'ai_response' => null,
-            'model_used' => null,
-            'intent' => $intent,
-            'order_id' => $orderId,
-            'created_at' => now(),
-        ]);
+        $this->recordChatMessage(
+            user: $user,
+            sessionId: $normalizedSessionId,
+            role: 'user',
+            message: '[MAP_ROUTE] '.$routeSummary,
+            intent: $intent,
+            orderId: $orderId
+        );
 
-        AiChatLog::query()->create([
-            'user_id' => $user->id,
-            'session_id' => $normalizedSessionId,
-            'role' => 'assistant',
-            'message' => $assistantText,
-            'ai_response' => $patchedPayload,
-            'model_used' => 'map-route-action',
-            'intent' => $intent,
-            'order_id' => $orderId,
-            'created_at' => now(),
-        ]);
+        $this->recordChatMessage(
+            user: $user,
+            sessionId: $normalizedSessionId,
+            role: 'assistant',
+            message: $assistantText,
+            aiResponse: $patchedPayload,
+            modelUsed: 'map-route-action',
+            intent: $intent,
+            orderId: $orderId
+        );
 
         return response()->json([
             'status' => 'success',
@@ -491,6 +487,11 @@ class ChatbotController extends Controller
         }
 
         $deleted = AiChatLog::query()
+            ->where('user_id', $request->user()->id)
+            ->where('session_id', $normalizedSessionId)
+            ->delete();
+
+        DB::table('chat_sessions')
             ->where('user_id', $request->user()->id)
             ->where('session_id', $normalizedSessionId)
             ->delete();
@@ -573,11 +574,11 @@ class ChatbotController extends Controller
         try {
             $nluPayload = null;
             $modelUsed = null;
-            $fastCommand = $this->detectTransportFastCommand($message);
+            $fastPayload = $this->detectShoppingFastPayload($message);
 
-            if ($fastCommand !== null) {
-                $nluPayload = ['command' => $fastCommand];
-                $modelUsed = 'deterministic-command';
+            if ($fastPayload !== null) {
+                $nluPayload = $fastPayload['payload'];
+                $modelUsed = $fastPayload['model_used'];
             } else {
                 try {
                     $modelContext = $this->buildModelContext($user, $sessionId, $serviceType);
@@ -634,32 +635,76 @@ class ChatbotController extends Controller
             $assistantText = trim((string) ($assistantPayload['assistant_text'] ?? 'Respon chatbot berhasil diproses.'));
             $orderId = $this->resolveOrderId($assistantPayload);
 
-            AiChatLog::query()->create([
-                'user_id' => $user->id,
-                'session_id' => $sessionId,
-                'role' => 'user',
-                'message' => $userMessage,
-                'ai_response' => null,
-                'model_used' => null,
-                'intent' => $intent,
-                'order_id' => $orderId,
-                'created_at' => now(),
-            ]);
+            $this->recordChatMessage(
+                user: $user,
+                sessionId: $sessionId,
+                role: 'user',
+                message: $userMessage,
+                intent: $intent,
+                orderId: $orderId
+            );
 
-            AiChatLog::query()->create([
-                'user_id' => $user->id,
-                'session_id' => $sessionId,
-                'role' => 'assistant',
-                'message' => $assistantText === '' ? 'Respon chatbot berhasil diproses.' : $assistantText,
-                'ai_response' => $assistantPayload,
-                'model_used' => $modelUsed,
-                'intent' => $intent,
-                'order_id' => $orderId,
-                'created_at' => now(),
-            ]);
+            $this->recordChatMessage(
+                user: $user,
+                sessionId: $sessionId,
+                role: 'assistant',
+                message: $assistantText === '' ? 'Respon chatbot berhasil diproses.' : $assistantText,
+                aiResponse: $assistantPayload,
+                modelUsed: $modelUsed,
+                intent: $intent,
+                orderId: $orderId
+            );
         } catch (\Throwable $exception) {
             Log::warning('Gagal menyimpan ai_chat_logs: '.$exception->getMessage());
         }
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $aiResponse
+     */
+    private function recordChatMessage(
+        User $user,
+        string $sessionId,
+        string $role,
+        string $message,
+        ?array $aiResponse = null,
+        ?string $modelUsed = null,
+        ?string $intent = null,
+        ?int $orderId = null,
+    ): AiChatLog {
+        $now = now();
+        DB::table('chat_sessions')->upsert([
+            [
+                'session_id' => $sessionId,
+                'user_id' => $user->id,
+                'last_message_at' => $now,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ],
+        ], ['user_id', 'session_id'], [
+            'user_id',
+            'last_message_at',
+            'updated_at',
+        ]);
+
+        $log = AiChatLog::query()->create([
+            'user_id' => $user->id,
+            'session_id' => $sessionId,
+            'role' => $role,
+            'message' => $message,
+            'created_at' => $now,
+        ]);
+
+        if ($role === 'assistant') {
+            $log->aiDetail()->create([
+                'ai_response' => $aiResponse ?? [],
+                'model_used' => $modelUsed ?? 'deterministic-command',
+                'intent' => $intent ?? 'unknown',
+                'order_id' => $orderId,
+            ]);
+        }
+
+        return $log->load('aiDetail');
     }
 
     /**
@@ -714,11 +759,47 @@ class ChatbotController extends Controller
     }
 
     /**
+     * @return array{payload: array<string, mixed>, model_used: string}|null
+     */
+    private function detectShoppingFastPayload(string $message): ?array
+    {
+        $normalized = strtolower(trim((string) preg_replace('/[^\p{L}\p{N}\s]+/u', ' ', $message)));
+        $normalized = strtolower(trim((string) preg_replace('/\s+/', ' ', $normalized)));
+        if ($normalized === '') {
+            return null;
+        }
+
+        if (in_array($normalized, self::CONFIRM_COMMANDS, true)) {
+            return [
+                'payload' => ['command' => 'confirm'],
+                'model_used' => 'deterministic-command',
+            ];
+        }
+
+        if (in_array($normalized, ['cod', 'cash', 'tunai'], true)) {
+            return [
+                'payload' => ['payment_method' => 'COD'],
+                'model_used' => 'deterministic-payment',
+            ];
+        }
+
+        if (in_array($normalized, ['transfer', 'tf', 'bank', 'qris', 'non tunai', 'nontunai'], true)) {
+            return [
+                'payload' => ['payment_method' => 'TRANSFER'],
+                'model_used' => 'deterministic-payment',
+            ];
+        }
+
+        return null;
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function buildModelContext(User $user, string $sessionId, string $serviceType): array
     {
         $logs = AiChatLog::query()
+            ->with('aiDetail')
             ->where('user_id', $user->id)
             ->where('session_id', $sessionId)
             ->orderByDesc('id')
@@ -793,13 +874,6 @@ class ChatbotController extends Controller
                 'pickup_address' => $this->normalizeOptionalContextString($courier['pickup_address'] ?? null),
                 'dropoff_address' => $this->normalizeOptionalContextString($courier['dropoff_address'] ?? null),
                 'package_description' => $this->normalizeOptionalContextString($courier['package_description'] ?? null),
-                'estimated_weight_kg' => $courier['estimated_weight_kg'] ?? null,
-                'package_length_cm' => $courier['package_length_cm'] ?? null,
-                'package_width_cm' => $courier['package_width_cm'] ?? null,
-                'package_height_cm' => $courier['package_height_cm'] ?? null,
-                'packing_note' => $this->normalizeOptionalContextString($courier['packing_note'] ?? null),
-                'safety_status' => $courier['safety_status'] ?? null,
-                'safety_reason' => $this->normalizeOptionalContextString($courier['safety_reason'] ?? null),
             ];
         }
 
@@ -813,6 +887,9 @@ class ChatbotController extends Controller
                 'delivery_address' => $this->normalizeOptionalContextString($delivery['address'] ?? null),
                 'item_count' => count($items),
                 'ready_to_confirm' => (bool) ($shopping['ready_to_confirm'] ?? false),
+                'payment_method' => $this->normalizeOptionalContextString(
+                    $shopping['payment_method'] ?? data_get($payload, 'order.payment_method')
+                ),
             ];
         }
 
@@ -855,29 +932,6 @@ class ChatbotController extends Controller
         $normalized = trim($value);
 
         return $normalized === '' ? null : $this->truncateContextText($normalized, 240);
-    }
-
-    /**
-     * @param  array<string, mixed>  $courier
-     */
-    private function formatCourierPackageSizeLine(array $courier): string
-    {
-        $parts = [];
-        if (is_numeric($courier['estimated_weight_kg'] ?? null)) {
-            $parts[] = rtrim(rtrim(number_format((float) $courier['estimated_weight_kg'], 2, ',', '.'), '0'), ',').' kg';
-        }
-
-        $dimensions = array_filter([
-            $courier['package_length_cm'] ?? null,
-            $courier['package_width_cm'] ?? null,
-            $courier['package_height_cm'] ?? null,
-        ], fn ($value): bool => is_numeric($value) && (int) $value > 0);
-
-        if ($dimensions !== []) {
-            $parts[] = implode('x', array_map(fn ($value): string => (string) (int) $value, $dimensions)).' cm';
-        }
-
-        return $parts === [] ? 'kecil/ringan untuk motor' : implode(' - ', $parts);
     }
 
     private function truncateContextText(string $text, int $maxLength): string

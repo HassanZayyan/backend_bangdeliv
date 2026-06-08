@@ -565,6 +565,7 @@ class ChatbotRideOrderService
     private function resolveLatestDraftSeed(User $user, string $sessionId): array
     {
         $latestAssistantLog = AiChatLog::query()
+            ->with('aiDetail')
             ->where('user_id', $user->id)
             ->where('session_id', $sessionId)
             ->where('role', 'assistant')
@@ -962,6 +963,7 @@ class ChatbotRideOrderService
     private function resolvePendingDraft(User $user, string $sessionId): ?array
     {
         $latestAssistantLog = AiChatLog::query()
+            ->with('aiDetail')
             ->where('user_id', $user->id)
             ->where('session_id', $sessionId)
             ->where('role', 'assistant')

@@ -38,7 +38,6 @@ class AddressService
                 'recipient_name' => trim((string) $payload['recipient_name']),
                 'phone' => $phone,
                 'full_address' => $resolvedAddress['formatted_address'],
-                'detail' => $this->normalizeNullableString($payload['detail'] ?? null),
                 'latitude' => round((float) $resolvedAddress['latitude'], 8),
                 'longitude' => round((float) $resolvedAddress['longitude'], 8),
                 'is_default' => $isDefault,
@@ -68,7 +67,6 @@ class AddressService
                 'recipient_name' => trim((string) $payload['recipient_name']),
                 'phone' => $phone,
                 'full_address' => $resolvedAddress['formatted_address'],
-                'detail' => $this->normalizeNullableString($payload['detail'] ?? null),
                 'latitude' => round((float) $resolvedAddress['latitude'], 8),
                 'longitude' => round((float) $resolvedAddress['longitude'], 8),
                 'is_default' => $isDefault,
@@ -182,13 +180,6 @@ class AddressService
         }
 
         return $normalizedAddress;
-    }
-
-    private function normalizeNullableString(mixed $value): ?string
-    {
-        $normalized = trim((string) ($value ?? ''));
-
-        return $normalized === '' ? null : $normalized;
     }
 
     private function normalizePhone(string $phone): string

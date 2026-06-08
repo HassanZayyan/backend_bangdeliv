@@ -5,7 +5,6 @@ namespace Database\Seeders;
 use App\Models\Menu;
 use App\Models\MenuCategory;
 use App\Models\Restaurant;
-use App\Models\RestaurantOperatingHour;
 use Illuminate\Database\Seeder;
 
 class RestaurantMenuSeeder extends Seeder
@@ -23,9 +22,6 @@ class RestaurantMenuSeeder extends Seeder
                 'longitude' => 110.4347394,
                 'phone' => '081233330101',
                 'status' => 'active',
-                'avg_rating' => 4.60,
-                'total_reviews' => 45,
-                'estimated_prep_time' => 18,
                 'categories' => [
                     'Paket Nasi' => [
                         ['name' => 'Nasi Ayam Geprek', 'price' => 22000],
@@ -47,9 +43,6 @@ class RestaurantMenuSeeder extends Seeder
                 'longitude' => 110.4360778,
                 'phone' => '081233330102',
                 'status' => 'active',
-                'avg_rating' => 4.55,
-                'total_reviews' => 39,
-                'estimated_prep_time' => 16,
                 'categories' => [
                     'Menu Rumahan' => [
                         ['name' => 'Nasi Ayam Kremes', 'price' => 24000],
@@ -71,9 +64,6 @@ class RestaurantMenuSeeder extends Seeder
                 'longitude' => 110.4333919,
                 'phone' => '081233330103',
                 'status' => 'active',
-                'avg_rating' => 4.50,
-                'total_reviews' => 31,
-                'estimated_prep_time' => 15,
                 'categories' => [
                     'Paket Hemat' => [
                         ['name' => 'Nasi Oseng Ayam', 'price' => 20000],
@@ -95,9 +85,6 @@ class RestaurantMenuSeeder extends Seeder
                 'longitude' => 110.4390071,
                 'phone' => '081233330201',
                 'status' => 'active',
-                'avg_rating' => 4.40,
-                'total_reviews' => 24,
-                'estimated_prep_time' => 10,
                 'categories' => [
                     'Sembako' => [
                         ['name' => 'Telur Ayam 1 kg', 'price' => 32000],
@@ -119,9 +106,6 @@ class RestaurantMenuSeeder extends Seeder
                 'longitude' => 110.4395979,
                 'phone' => '081233330202',
                 'status' => 'active',
-                'avg_rating' => 4.35,
-                'total_reviews' => 21,
-                'estimated_prep_time' => 10,
                 'categories' => [
                     'Sembako' => [
                         ['name' => 'Gula Pasir 1 kg', 'price' => 17000],
@@ -143,9 +127,6 @@ class RestaurantMenuSeeder extends Seeder
                 'longitude' => 110.4365384,
                 'phone' => '081233330203',
                 'status' => 'active',
-                'avg_rating' => 4.38,
-                'total_reviews' => 19,
-                'estimated_prep_time' => 10,
                 'categories' => [
                     'Sembako' => [
                         ['name' => 'Sabun Cuci Piring', 'price' => 12000],
@@ -167,9 +148,6 @@ class RestaurantMenuSeeder extends Seeder
                 'longitude' => 110.4384112,
                 'phone' => '081233330301',
                 'status' => 'active',
-                'avg_rating' => 4.65,
-                'total_reviews' => 42,
-                'estimated_prep_time' => 10,
                 'categories' => [
                     'Minuman' => [
                         ['name' => 'Air Mineral 600 ml', 'price' => 4000],
@@ -191,9 +169,6 @@ class RestaurantMenuSeeder extends Seeder
                 'longitude' => 110.4386352,
                 'phone' => '081233330302',
                 'status' => 'active',
-                'avg_rating' => 4.62,
-                'total_reviews' => 40,
-                'estimated_prep_time' => 10,
                 'categories' => [
                     'Snack' => [
                         ['name' => 'Biskuit Coklat', 'price' => 9000],
@@ -219,25 +194,8 @@ class RestaurantMenuSeeder extends Seeder
                     'longitude' => $restoData['longitude'],
                     'phone' => $restoData['phone'],
                     'status' => $restoData['status'],
-                    'avg_rating' => $restoData['avg_rating'],
-                    'total_reviews' => $restoData['total_reviews'],
-                    'estimated_prep_time' => $restoData['estimated_prep_time'],
                 ]
             );
-
-            for ($day = 0; $day <= 6; $day++) {
-                RestaurantOperatingHour::updateOrCreate(
-                    [
-                        'restaurant_id' => $restaurant->id,
-                        'day_of_week' => $day,
-                    ],
-                    [
-                        'open_time' => '09:00:00',
-                        'close_time' => '22:00:00',
-                        'is_closed' => false,
-                    ]
-                );
-            }
 
             $sortCategory = 1;
             foreach ($restoData['categories'] as $categoryName => $menus) {

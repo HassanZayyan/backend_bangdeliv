@@ -26,6 +26,7 @@ return new class extends Migration
 
             $table->unique('order_id');
             $table->index(['payment_status', 'paid_at'], 'order_payments_status_paid_at_idx');
+            $table->index(['driver_id', 'paid_at'], 'order_payments_driver_paid_at_idx');
             $table->index(['paid_at'], 'order_payments_paid_at_idx');
         });
     }

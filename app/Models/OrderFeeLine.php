@@ -5,12 +5,21 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class CourierOrder extends Model
+class OrderFeeLine extends Model
 {
     protected $fillable = [
         'order_id',
-        'package_description',
+        'code',
+        'label',
+        'amount',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'amount' => 'decimal:2',
+        ];
+    }
 
     public function order(): BelongsTo
     {

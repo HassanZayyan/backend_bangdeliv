@@ -54,11 +54,10 @@ class HomeService
                 ->whereNotNull('latitude')
                 ->whereNotNull('longitude')
                 ->orderBy('distance_sort')
-                ->orderByDesc('avg_rating');
+                ->orderBy('name');
         } else {
             $restaurantsQuery
-                ->orderByDesc('avg_rating')
-                ->orderByDesc('total_reviews');
+                ->orderBy('name');
         }
 
         $restaurants = $restaurantsQuery
@@ -73,9 +72,6 @@ class HomeService
                 'slug' => $restaurant->slug,
                 'merchant_type' => $restaurant->merchant_type,
                 'banner_image' => $restaurant->banner_image,
-                'avg_rating' => (float) $restaurant->avg_rating,
-                'total_reviews' => (int) $restaurant->total_reviews,
-                'estimated_prep_time' => (int) $restaurant->estimated_prep_time,
                 'distance_km' => $this->distanceKm($restaurant, $latitude, $longitude),
             ])
             ->values()
@@ -114,7 +110,6 @@ class HomeService
                     'is_available' => (bool) $menu->is_available,
                     'sort_order' => (int) $menu->sort_order,
                     'restaurant_name' => $restaurant->name,
-                    'restaurant_rating' => (float) $restaurant->avg_rating,
                 ];
 
                 if (count($popularMenus) >= $limitMenus) {
