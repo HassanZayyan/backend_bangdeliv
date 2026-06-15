@@ -57,6 +57,7 @@ class ChatbotOrderValidationService
 
             if ($menu === null) {
                 $unmatchedItems[] = $item;
+
                 continue;
             }
 
@@ -110,7 +111,7 @@ class ChatbotOrderValidationService
 
     private function normalizeOptionalString(mixed $value): ?string
     {
-        if (!is_string($value)) {
+        if (! is_string($value)) {
             return null;
         }
 
@@ -127,13 +128,13 @@ class ChatbotOrderValidationService
      */
     private function normalizeItems(mixed $items): array
     {
-        if (!is_array($items)) {
+        if (! is_array($items)) {
             return [];
         }
 
         $normalized = [];
         foreach ($items as $item) {
-            if (!is_array($item)) {
+            if (! is_array($item)) {
                 continue;
             }
 

@@ -11,8 +11,6 @@ use Illuminate\Support\Facades\Log;
 
 class ShoppingRouteService
 {
-    private const DEFAULT_PREP_MINUTES = 10;
-
     private const MINIMUM_ROUTE_DISTANCE_METERS = 20;
 
     public function __construct(
@@ -161,15 +159,9 @@ class ShoppingRouteService
 
         $route = $this->calculateForOrder($order);
         $this->resequenceStops($order, $route['ordered_pickup_location_ids'] ?? null);
-        $routeMinutes = $this->estimateTravelMinutes((int) ($route['duration_seconds'] ?? 0));
-        $order->refresh()->load(['orderLocations.restaurant']);
-        $prepMinutes = $this->maxPrepMinutes($this->activePickupLocations($order));
 
         $order->update([
             'delivery_fee' => round((float) $route['delivery_fee'], 2),
-            'delivery_distance_km' => round((float) $route['distance_km'], 2),
-            'delivery_distance_text' => (string) $route['distance_text'],
-            'estimated_delivery' => now()->addMinutes($prepMinutes + $routeMinutes),
         ]);
 
         $this->storeRouteSnapshot($order, $route);
@@ -288,19 +280,6 @@ class ShoppingRouteService
         foreach ($dropoffs as $dropoff) {
             $dropoff->update(['sequence_no' => $sequence++]);
         }
-    }
-
-    /**
-     * @param  Collection<int, OrderLocation>  $locations
-     */
-    private function maxPrepMinutes(Collection $locations): int
-    {
-        $max = $locations
-            ->filter(fn (OrderLocation $location): bool => strtoupper((string) $location->location_role) === 'PICKUP')
-            ->map(fn (): int => self::DEFAULT_PREP_MINUTES)
-            ->max();
-
-        return max(self::DEFAULT_PREP_MINUTES, (int) ($max ?? self::DEFAULT_PREP_MINUTES));
     }
 
     /**
@@ -458,13 +437,6 @@ class ShoppingRouteService
         ];
 
         $order->update(['route_snapshot' => $routeSnapshot]);
-    }
-
-    private function estimateTravelMinutes(int $durationSeconds): int
-    {
-        $minutes = (int) ceil(max(0, $durationSeconds) / 60);
-
-        return max(10, min(180, $minutes));
     }
 
     private function formatDurationText(int $durationSeconds): string

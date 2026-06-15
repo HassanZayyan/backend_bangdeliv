@@ -26,6 +26,20 @@ return [
         'timeout_seconds' => (int) env('GOOGLE_MAPS_GEOCODING_TIMEOUT', 8),
         'language' => env('GOOGLE_MAPS_GEOCODING_LANGUAGE', 'id'),
         'region' => env('GOOGLE_MAPS_GEOCODING_REGION', 'id'),
+        'service_area' => [
+            'enabled' => (bool) env('ADDRESS_GEOCODING_SERVICE_AREA_ENABLED', true),
+            'bounds' => [
+                'southwest' => [
+                    'latitude' => (float) env('ADDRESS_GEOCODING_SW_LATITUDE', -7.65),
+                    'longitude' => (float) env('ADDRESS_GEOCODING_SW_LONGITUDE', 110.05),
+                ],
+                'northeast' => [
+                    'latitude' => (float) env('ADDRESS_GEOCODING_NE_LATITUDE', -6.90),
+                    'longitude' => (float) env('ADDRESS_GEOCODING_NE_LONGITUDE', 110.80),
+                ],
+            ],
+            'components' => env('ADDRESS_GEOCODING_COMPONENTS', 'country:ID'),
+        ],
     ],
 
     /*
@@ -66,6 +80,21 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Driver Dispatch
+    |--------------------------------------------------------------------------
+    |
+    | Konfigurasi ringan untuk prioritas driver terdekat. Jarak dispatch
+    | dihitung on the fly dari lokasi terakhir driver dan titik pickup order.
+    |
+    */
+    'dispatch' => [
+        'near_km' => (float) env('DRIVER_DISPATCH_NEAR_KM', 3),
+        'medium_km' => (float) env('DRIVER_DISPATCH_MEDIUM_KM', 7),
+        'fresh_location_minutes' => (int) env('DRIVER_DISPATCH_FRESH_LOCATION_MINUTES', 10),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Delivery Fee Configuration
     |--------------------------------------------------------------------------
     |
@@ -74,7 +103,7 @@ return [
     | delivery_fee = base_fee + (billed_km × rate_per_km)
     |
     */
-    'base_delivery_fee'    => env('BASE_DELIVERY_FEE', 5000),         // Rp 5.000
+    'base_delivery_fee' => env('BASE_DELIVERY_FEE', 5000),         // Rp 5.000
     'delivery_rate_per_km' => env('DELIVERY_RATE_PER_KM', 2000),      // Legacy fallback
     'delivery_rate_0_10_per_km' => env('DELIVERY_RATE_0_10_PER_KM', 2000),
     'delivery_rate_10_25_per_km' => env('DELIVERY_RATE_10_25_PER_KM', 2500),
@@ -91,7 +120,7 @@ return [
     |
     */
     'new_account_order_limit' => env('NEW_ACCOUNT_ORDER_LIMIT', 50000), // Rp 50.000
-    'new_account_threshold'   => env('NEW_ACCOUNT_THRESHOLD', 3),       // 3 order pertama
+    'new_account_threshold' => env('NEW_ACCOUNT_THRESHOLD', 3),       // 3 order pertama
 
     /*
     |--------------------------------------------------------------------------

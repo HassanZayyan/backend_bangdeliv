@@ -11,7 +11,6 @@ use App\Models\OrderStatus;
 use App\Models\OrderStatusHistory;
 use App\Models\ServiceType;
 use App\Models\User;
-use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class ChatbotCourierOrderService
@@ -411,7 +410,6 @@ class ChatbotCourierOrderService
                 'status' => $order->statusRef?->code,
                 'total_price' => (float) $order->total_price,
                 'delivery_fee' => (float) $order->delivery_fee,
-                'estimated_delivery' => $order->estimated_delivery,
             ],
             'assistant_text' => $this->buildSuccessMessage($order, $pendingDraft),
         ];
@@ -951,14 +949,11 @@ class ChatbotCourierOrderService
         $paymentMethod = $this->normalizePaymentMethodOrNull($parsed['payment_method'] ?? null)
             ?? OrderPaymentService::METHOD_COD;
 
-        $estimatedMinutes = $this->estimateDeliveryMinutes((int) $route['duration_seconds']);
-
         $order = DB::transaction(function () use (
             $user,
             $profilePickupAddress,
             $serviceTypeId,
             $pendingStatusId,
-            $distanceKm,
             $deliveryFee,
             $serviceFee,
             $totalAmount,
@@ -969,9 +964,7 @@ class ChatbotCourierOrderService
             $dropoffAddress,
             $dropoffLatitude,
             $dropoffLongitude,
-            $route,
             $packageDescription,
-            $estimatedMinutes,
             $paymentMethod
         ): Order {
             $order = Order::query()->create([
@@ -982,14 +975,9 @@ class ChatbotCourierOrderService
                 'subtotal' => 0,
                 'delivery_fee' => round($deliveryFee, 2),
                 'service_fee' => round($serviceFee, 2),
-                'delivery_distance_km' => $distanceKm !== null ? round($distanceKm, 2) : null,
-                'delivery_distance_text' => $distanceKm !== null
-                    ? (string) ($route['distance_text'] ?? number_format($distanceKm, 2).' km')
-                    : null,
                 'route_snapshot' => $routeSnapshot,
                 'total_price' => round($totalAmount, 2),
                 'status_id' => $pendingStatusId,
-                'estimated_delivery' => Carbon::now()->addMinutes($estimatedMinutes),
             ]);
 
             $this->orderPaymentService->ensurePendingPayment($order, $paymentMethod);
@@ -1535,13 +1523,6 @@ class ChatbotCourierOrderService
         $safeHaversine = min(1.0, max(0.0, $haversine));
 
         return $earthRadiusMeters * 2 * atan2(sqrt($safeHaversine), sqrt(1 - $safeHaversine));
-    }
-
-    private function estimateDeliveryMinutes(int $durationSeconds): int
-    {
-        $estimated = (int) ceil(max(0, $durationSeconds) / 60);
-
-        return max(20, min(180, $estimated + 10));
     }
 
     /**

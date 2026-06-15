@@ -10,15 +10,12 @@ use App\Models\OrderStatusHistory;
 use App\Models\Restaurant;
 use App\Models\ServiceType;
 use App\Models\User;
-use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class ChatbotShoppingOrderService
 {
-    private const DEFAULT_PREP_MINUTES = 10;
-
     /**
      * @var array<int, string>
      */
@@ -659,7 +656,6 @@ class ChatbotShoppingOrderService
 
         $serviceTypeId = $this->resolveServiceTypeId();
         $pendingStatusId = $this->resolveStatusId('PENDING');
-        $routeMinutes = $this->estimateTravelMinutes((int) ($route['duration_seconds'] ?? 0));
         $routeSnapshot = $route === []
             ? null
             : [
@@ -673,10 +669,8 @@ class ChatbotShoppingOrderService
             $delivery,
             $items,
             $pricing,
-            $route,
             $serviceTypeId,
             $pendingStatusId,
-            $routeMinutes,
             $routeSnapshot,
             $paymentMethod,
         ): Order {
@@ -688,12 +682,9 @@ class ChatbotShoppingOrderService
                 'subtotal' => round((float) ($pricing['subtotal'] ?? 0), 2),
                 'delivery_fee' => round((float) ($pricing['delivery_fee'] ?? 0), 2),
                 'service_fee' => round((float) ($pricing['service_fee'] ?? 0), 2),
-                'delivery_distance_km' => isset($route['distance_km']) ? round((float) $route['distance_km'], 2) : null,
-                'delivery_distance_text' => isset($route['distance_text']) ? (string) $route['distance_text'] : null,
                 'route_snapshot' => $routeSnapshot,
                 'total_price' => round((float) ($pricing['total_price'] ?? 0), 2),
                 'status_id' => $pendingStatusId,
-                'estimated_delivery' => Carbon::now()->addMinutes(self::DEFAULT_PREP_MINUTES + $routeMinutes),
             ]);
 
             $pickupLocation = $order->orderLocations()->create([
@@ -1055,13 +1046,6 @@ class ChatbotShoppingOrderService
         } while (Order::query()->where('order_number', $candidate)->exists());
 
         return $candidate;
-    }
-
-    private function estimateTravelMinutes(int $durationSeconds): int
-    {
-        $minutes = (int) ceil(max(0, $durationSeconds) / 60);
-
-        return max(10, min(120, $minutes));
     }
 
     private function normalizeWhitespace(string $value): string

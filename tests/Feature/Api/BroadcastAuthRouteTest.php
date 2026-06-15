@@ -165,11 +165,13 @@ class BroadcastAuthRouteTest extends TestCase
             'subtotal' => 0,
             'delivery_fee' => 12000,
             'service_fee' => 0,
-            'delivery_distance_km' => 2.5,
-            'delivery_distance_text' => '2.5 km',
+            'route_snapshot' => [
+                'distance_meters' => 2500,
+                'distance_km' => 2.5,
+                'distance_text' => '2.5 km',
+            ],
             'total_price' => 12000,
             'status_id' => $statusId,
-            'estimated_delivery' => now()->addMinutes(20),
             'payment_status' => 'unpaid',
             'payment_method' => 'COD',
         ]);

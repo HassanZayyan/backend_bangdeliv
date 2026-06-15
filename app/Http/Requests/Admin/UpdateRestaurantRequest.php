@@ -73,7 +73,7 @@ class UpdateRestaurantRequest extends FormRequest
 
     private function normalizeCoordinateInput(mixed $value): mixed
     {
-        if (!is_string($value)) {
+        if (! is_string($value)) {
             return $value;
         }
 

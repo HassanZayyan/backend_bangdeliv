@@ -144,7 +144,7 @@ class ChatbotGeminiService
             'gemini-3-flash-preview',
         ]);
 
-        if (!is_array($models) || $models === []) {
+        if (! is_array($models) || $models === []) {
             $models = ['gemini-2.5-flash'];
         }
 
@@ -180,7 +180,7 @@ class ChatbotGeminiService
         $lastError = null;
 
         foreach ($models as $model) {
-            if (!is_string($model) || trim($model) === '') {
+            if (! is_string($model) || trim($model) === '') {
                 continue;
             }
 
@@ -199,7 +199,7 @@ class ChatbotGeminiService
                     $textResponse = (string) data_get($result, 'candidates.0.content.parts.0.text', '{}');
                     $decodedResponse = json_decode($textResponse, true);
 
-                    if (!is_array($decodedResponse)) {
+                    if (! is_array($decodedResponse)) {
                         $decodedResponse = $fallback;
                     }
 
@@ -211,6 +211,7 @@ class ChatbotGeminiService
 
                 if ($response->status() === 429) {
                     Log::warning('Gemini API rate limit hit for model '.$resolvedModel);
+
                     continue;
                 }
 
@@ -218,6 +219,7 @@ class ChatbotGeminiService
             } catch (\Throwable $exception) {
                 $lastError = $exception->getMessage();
                 Log::error('Gemini API exception for model '.$resolvedModel.': '.$exception->getMessage());
+
                 continue;
             }
         }
@@ -250,7 +252,7 @@ class ChatbotGeminiService
         $items = [];
         if (is_array($payload['items'] ?? null)) {
             foreach ($payload['items'] as $item) {
-                if (!is_array($item)) {
+                if (! is_array($item)) {
                     continue;
                 }
 
@@ -326,7 +328,7 @@ class ChatbotGeminiService
 
     private function normalizeOptionalString(mixed $value): ?string
     {
-        if (!is_string($value)) {
+        if (! is_string($value)) {
             return null;
         }
 
@@ -337,7 +339,7 @@ class ChatbotGeminiService
 
     private function normalizeOptionalFloat(mixed $value): ?float
     {
-        if (!is_numeric($value)) {
+        if (! is_numeric($value)) {
             return null;
         }
 
@@ -348,7 +350,7 @@ class ChatbotGeminiService
 
     private function normalizeOptionalInt(mixed $value): ?int
     {
-        if (!is_numeric($value)) {
+        if (! is_numeric($value)) {
             return null;
         }
 

@@ -15,9 +15,7 @@ class DriverVerificationController extends Controller
 {
     use ApiResponse;
 
-    public function __construct(private readonly DriverVerificationService $service)
-    {
-    }
+    public function __construct(private readonly DriverVerificationService $service) {}
 
     public function myStatus(Request $request): JsonResponse
     {

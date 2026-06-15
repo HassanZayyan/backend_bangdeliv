@@ -17,7 +17,7 @@ class RestaurantService
         $query = Restaurant::query()
             ->where('status', 'active');
 
-        if (!empty($filters['search'])) {
+        if (! empty($filters['search'])) {
             $search = trim((string) $filters['search']);
 
             $query->where(function (Builder $builder) use ($search): void {
@@ -26,7 +26,7 @@ class RestaurantService
             });
         }
 
-        if (!empty($filters['merchant_type'])) {
+        if (! empty($filters['merchant_type'])) {
             $query->where('merchant_type', (string) $filters['merchant_type']);
         }
 
@@ -77,7 +77,7 @@ class RestaurantService
             ->with('menuCategories')
             ->first();
 
-        if (!$restaurant) {
+        if (! $restaurant) {
             throw new ApiException('Restoran tidak ditemukan.', 404);
         }
 

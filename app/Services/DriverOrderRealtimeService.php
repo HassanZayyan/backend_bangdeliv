@@ -4,14 +4,16 @@ namespace App\Services;
 
 use App\Events\DriverOrderAvailable;
 use App\Events\DriverOrderRemoved;
-use App\Models\Driver;
 use App\Models\Order;
-use App\Models\OrderStatusHistory;
+use App\Services\Dispatch\DriverCandidateSelector;
 use Illuminate\Support\Facades\Log;
 
 class DriverOrderRealtimeService
 {
-    public function __construct(private readonly DriverOrderPayloadFactory $payloadFactory) {}
+    public function __construct(
+        private readonly DriverOrderPayloadFactory $payloadFactory,
+        private readonly DriverCandidateSelector $candidateSelector,
+    ) {}
 
     public function broadcastOrderAvailable(Order $order): void
     {
@@ -20,9 +22,17 @@ class DriverOrderRealtimeService
             return;
         }
 
-        $payload = $this->payloadFactory->serialize($freshOrder);
+        foreach ($this->candidateSelector->candidatesForOrder($freshOrder) as $candidate) {
+            $driverUserId = (int) $candidate['driver']->user_id;
+            if ($driverUserId <= 0) {
+                continue;
+            }
 
-        foreach ($this->availableDriverUserIds($freshOrder) as $driverUserId) {
+            $payload = [
+                ...$this->payloadFactory->serialize($freshOrder),
+                'dispatch' => $candidate['dispatch'],
+            ];
+
             $this->safelyBroadcast(
                 new DriverOrderAvailable($driverUserId, $payload),
                 'DriverOrderAvailable',
@@ -77,30 +87,8 @@ class DriverOrderRealtimeService
      */
     private function availableDriverUserIds(?Order $order = null): array
     {
-        $rejectedDriverUserIds = $order === null
-            ? []
-            : OrderStatusHistory::query()
-                ->where('order_id', $order->id)
-                ->where('event_type', 'DRIVER_REJECT')
-                ->whereNotNull('changed_by_user_id')
-                ->pluck('changed_by_user_id')
-                ->map(fn ($userId): int => (int) $userId)
-                ->filter(fn (int $userId): bool => $userId > 0)
-                ->values()
-                ->all();
-
-        return Driver::query()
-            ->where('registration_status', 'active')
-            ->where('status', 'available')
-            ->when($rejectedDriverUserIds !== [], function ($query) use ($rejectedDriverUserIds): void {
-                $query->whereNotIn('user_id', $rejectedDriverUserIds);
-            })
-            ->whereHas('user', function ($query): void {
-                $query
-                    ->where('role', 'driver')
-                    ->where('is_active', true)
-                    ->where('is_blacklisted', false);
-            })
+        return $this->candidateSelector
+            ->availableDriverQuery($order)
             ->whereNotNull('user_id')
             ->pluck('user_id')
             ->map(fn ($userId): int => (int) $userId)

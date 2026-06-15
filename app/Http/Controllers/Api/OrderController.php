@@ -26,8 +26,7 @@ class OrderController extends Controller
     public function __construct(
         private readonly OrderService $orderService,
         private readonly RideOrderService $rideOrderService
-    ) {
-    }
+    ) {}
 
     public function createRideOrder(CreateRideOrderRequest $request): JsonResponse
     {
@@ -342,6 +341,26 @@ class OrderController extends Controller
             );
 
             return $this->success($payload, 'Status kerja driver berhasil diperbarui.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
+    public function updateCurrentDriverLocation(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'latitude' => ['required', 'numeric', 'between:-90,90'],
+            'longitude' => ['required', 'numeric', 'between:-180,180'],
+            'updated_at' => ['nullable', 'date'],
+        ]);
+
+        try {
+            $payload = $this->orderService->updateCurrentDriverLocation(
+                $request->user(),
+                $validated
+            );
+
+            return $this->success($payload, 'Lokasi standby driver berhasil diperbarui.');
         } catch (ApiException $exception) {
             return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
         }

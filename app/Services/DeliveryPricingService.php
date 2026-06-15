@@ -5,6 +5,7 @@ namespace App\Services;
 class DeliveryPricingService
 {
     private const FLAT_DISTANCE_KM = 1.5;
+
     private const ROUND_UP_FRACTION = 0.7;
 
     /**

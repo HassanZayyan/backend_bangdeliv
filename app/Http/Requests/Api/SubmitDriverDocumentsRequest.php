@@ -30,9 +30,9 @@ class SubmitDriverDocumentsRequest extends FormRequest
     {
         $validator->after(function (Validator $validator): void {
             if (
-                !$this->hasFile('ktp')
-                && !$this->hasFile('sim')
-                && !$this->hasFile('selfie')
+                ! $this->hasFile('ktp')
+                && ! $this->hasFile('sim')
+                && ! $this->hasFile('selfie')
             ) {
                 $validator->errors()->add('documents', 'Minimal satu dokumen harus diunggah.');
             }

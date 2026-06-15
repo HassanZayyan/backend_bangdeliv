@@ -39,5 +39,4 @@ class OrderEvidence extends Model
     {
         return $this->belongsTo(Driver::class);
     }
-
 }

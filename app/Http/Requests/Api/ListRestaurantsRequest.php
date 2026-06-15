@@ -31,7 +31,7 @@ class ListRestaurantsRequest extends FormRequest
     public function withValidator(Validator $validator): void
     {
         $validator->after(function (Validator $validator): void {
-            if ($this->input('sort') === 'nearest' && (!$this->filled('latitude') || !$this->filled('longitude'))) {
+            if ($this->input('sort') === 'nearest' && (! $this->filled('latitude') || ! $this->filled('longitude'))) {
                 $validator->errors()->add('latitude', 'Latitude dan longitude wajib diisi untuk sort=nearest.');
             }
         });

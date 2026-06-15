@@ -11,7 +11,7 @@ class GoogleMapsGeocodingService
     /**
      * @return array{latitude: float, longitude: float, formatted_address: string}|null
      */
-    public function resolveAddress(string $address): ?array
+    public function resolveAddress(string $address, bool $restrictToServiceArea = false): ?array
     {
         $apiKey = (string) config('bangdeliv.google_maps_api_key');
 
@@ -19,16 +19,22 @@ class GoogleMapsGeocodingService
             throw new ApiException('Konfigurasi API Google Maps belum tersedia.', 500);
         }
 
+        $requestParameters = [
+            'address' => $address,
+            'language' => (string) config('bangdeliv.geocoding.language', 'id'),
+            'region' => (string) config('bangdeliv.geocoding.region', 'id'),
+            'key' => $apiKey,
+        ];
+
+        if ($this->shouldRestrictToServiceArea($restrictToServiceArea)) {
+            $requestParameters = array_merge($requestParameters, $this->serviceAreaGeocodingParameters());
+        }
+
         $response = Http::timeout((int) config('bangdeliv.geocoding.timeout_seconds', 8))
             ->acceptJson()
-            ->get((string) config('bangdeliv.geocoding.endpoint', 'https://maps.googleapis.com/maps/api/geocode/json'), [
-                'address' => $address,
-                'language' => (string) config('bangdeliv.geocoding.language', 'id'),
-                'region' => (string) config('bangdeliv.geocoding.region', 'id'),
-                'key' => $apiKey,
-            ]);
+            ->get((string) config('bangdeliv.geocoding.endpoint', 'https://maps.googleapis.com/maps/api/geocode/json'), $requestParameters);
 
-        if (!$response->successful()) {
+        if (! $response->successful()) {
             throw new ApiException('Layanan validasi alamat sedang tidak tersedia.', 503);
         }
 
@@ -47,7 +53,7 @@ class GoogleMapsGeocodingService
         $selectedResult = $this->selectBestResult($results);
         $location = $selectedResult['geometry']['location'] ?? null;
 
-        if (!is_array($location) || !isset($location['lat'], $location['lng'])) {
+        if (! is_array($location) || ! isset($location['lat'], $location['lng'])) {
             throw new ApiException('Respons geocoding tidak lengkap.', 503);
         }
 
@@ -61,9 +67,22 @@ class GoogleMapsGeocodingService
             ]);
         }
 
+        $latitude = (float) $location['lat'];
+        $longitude = (float) $location['lng'];
+
+        if ($this->shouldRestrictToServiceArea($restrictToServiceArea) && ! $this->isInsideServiceArea($latitude, $longitude)) {
+            Log::info('Geocoding result rejected outside saved-address service area.', [
+                'address' => $address,
+                'latitude' => $latitude,
+                'longitude' => $longitude,
+            ]);
+
+            return null;
+        }
+
         return [
-            'latitude' => (float) $location['lat'],
-            'longitude' => (float) $location['lng'],
+            'latitude' => $latitude,
+            'longitude' => $longitude,
             'formatted_address' => (string) ($selectedResult['formatted_address'] ?? $address),
         ];
     }
@@ -88,7 +107,7 @@ class GoogleMapsGeocodingService
                 'key' => $apiKey,
             ]);
 
-        if (!$response->successful()) {
+        if (! $response->successful()) {
             throw new ApiException('Layanan validasi koordinat sedang tidak tersedia.', 503);
         }
 
@@ -107,7 +126,7 @@ class GoogleMapsGeocodingService
         $selectedResult = $this->selectBestResult($results);
         $location = $selectedResult['geometry']['location'] ?? null;
 
-        if (!is_array($location) || !isset($location['lat'], $location['lng'])) {
+        if (! is_array($location) || ! isset($location['lat'], $location['lng'])) {
             throw new ApiException('Respons reverse geocoding tidak lengkap.', 503);
         }
 
@@ -154,17 +173,17 @@ class GoogleMapsGeocodingService
             $nearbyResponse = Http::timeout((int) config('bangdeliv.geocoding.timeout_seconds', 8))
                 ->acceptJson()
                 ->get('https://maps.googleapis.com/maps/api/place/nearbysearch/json', [
-                    'location'  => sprintf('%.6f,%.6f', $latitude, $longitude),
-                    'rankby'    => 'distance',
-                    'language'  => (string) config('bangdeliv.geocoding.language', 'id'),
-                    'key'       => $apiKey,
+                    'location' => sprintf('%.6f,%.6f', $latitude, $longitude),
+                    'rankby' => 'distance',
+                    'language' => (string) config('bangdeliv.geocoding.language', 'id'),
+                    'key' => $apiKey,
                     // Broad types that cover most named POIs
-                    'type'      => 'establishment',
+                    'type' => 'establishment',
                 ]);
 
             if ($nearbyResponse->successful()) {
                 $nearbyPayload = $nearbyResponse->json();
-                $nearbyStatus  = (string) ($nearbyPayload['status'] ?? 'ZERO_RESULTS');
+                $nearbyStatus = (string) ($nearbyPayload['status'] ?? 'ZERO_RESULTS');
 
                 if ($nearbyStatus === 'OK') {
                     $nearbyResults = is_array($nearbyPayload['results'] ?? null)
@@ -173,17 +192,17 @@ class GoogleMapsGeocodingService
 
                     // Pick the single closest result (already sorted by distance)
                     foreach ($nearbyResults as $place) {
-                        if (!is_array($place)) {
+                        if (! is_array($place)) {
                             continue;
                         }
 
-                        $placeName    = trim((string) ($place['name'] ?? ''));
+                        $placeName = trim((string) ($place['name'] ?? ''));
                         $placeVicinity = trim((string) ($place['vicinity'] ?? ''));
 
                         // Skip generics / unnamed / transit stops
                         $skipTypes = ['transit_station', 'bus_station', 'subway_station', 'route', 'street_address'];
                         $placeTypes = is_array($place['types'] ?? null) ? $place['types'] : [];
-                        $isGeneric  = count(array_intersect($skipTypes, $placeTypes)) > 0;
+                        $isGeneric = count(array_intersect($skipTypes, $placeTypes)) > 0;
 
                         if ($placeName === '' || $isGeneric) {
                             continue;
@@ -191,13 +210,13 @@ class GoogleMapsGeocodingService
 
                         // Use the place name as prefix only if it isn't already in the base address
                         $finalAddress = $baseAddress;
-                        if (!str_contains(strtolower($baseAddress), strtolower($placeName))) {
-                            $finalAddress = $placeName . ', ' . $baseAddress;
+                        if (! str_contains(strtolower($baseAddress), strtolower($placeName))) {
+                            $finalAddress = $placeName.', '.$baseAddress;
                         }
 
                         return [
-                            'latitude'          => (float) $latitude,
-                            'longitude'         => (float) $longitude,
+                            'latitude' => (float) $latitude,
+                            'longitude' => (float) $longitude,
                             'formatted_address' => $finalAddress,
                         ];
                     }
@@ -205,9 +224,9 @@ class GoogleMapsGeocodingService
             }
         } catch (\Throwable $e) {
             Log::warning('Places Nearby Search failed during map-pin enrichment.', [
-                'latitude'  => $latitude,
+                'latitude' => $latitude,
                 'longitude' => $longitude,
-                'error'     => $e->getMessage(),
+                'error' => $e->getMessage(),
             ]);
         }
 
@@ -217,19 +236,18 @@ class GoogleMapsGeocodingService
         }
 
         return [
-            'latitude'          => (float) $latitude,
-            'longitude'         => (float) $longitude,
+            'latitude' => (float) $latitude,
+            'longitude' => (float) $longitude,
             'formatted_address' => sprintf('Pin %.6f, %.6f', $latitude, $longitude),
         ];
     }
 
     /**
-     * @param  mixed  $results
      * @return array<string, mixed>
      */
     private function selectBestResult(mixed $results): array
     {
-        if (!is_array($results) || $results === []) {
+        if (! is_array($results) || $results === []) {
             throw new ApiException('Respons geocoding tidak lengkap.', 503);
         }
 
@@ -237,12 +255,12 @@ class GoogleMapsGeocodingService
         $bestScore = PHP_INT_MIN;
 
         foreach ($results as $index => $result) {
-            if (!is_array($result)) {
+            if (! is_array($result)) {
                 continue;
             }
 
             $location = $result['geometry']['location'] ?? null;
-            if (!is_array($location) || !isset($location['lat'], $location['lng'])) {
+            if (! is_array($location) || ! isset($location['lat'], $location['lng'])) {
                 continue;
             }
 
@@ -256,7 +274,7 @@ class GoogleMapsGeocodingService
             $bestResult['__index'] = (int) $index;
         }
 
-        if (!is_array($bestResult)) {
+        if (! is_array($bestResult)) {
             throw new ApiException('Respons geocoding tidak lengkap.', 503);
         }
 
@@ -306,6 +324,65 @@ class GoogleMapsGeocodingService
         return $score;
     }
 
+    private function shouldRestrictToServiceArea(bool $restrictToServiceArea): bool
+    {
+        return $restrictToServiceArea && (bool) config('bangdeliv.geocoding.service_area.enabled', true);
+    }
+
+    /**
+     * @return array{bounds: string, components?: string}
+     */
+    private function serviceAreaGeocodingParameters(): array
+    {
+        $bounds = $this->serviceAreaBounds();
+        $parameters = [
+            'bounds' => sprintf(
+                '%.6f,%.6f|%.6f,%.6f',
+                $bounds['southwest']['latitude'],
+                $bounds['southwest']['longitude'],
+                $bounds['northeast']['latitude'],
+                $bounds['northeast']['longitude'],
+            ),
+        ];
+
+        $components = trim((string) config('bangdeliv.geocoding.service_area.components', 'country:ID'));
+        if ($components !== '') {
+            $parameters['components'] = $components;
+        }
+
+        return $parameters;
+    }
+
+    /**
+     * @return array{
+     *     southwest: array{latitude: float, longitude: float},
+     *     northeast: array{latitude: float, longitude: float}
+     * }
+     */
+    private function serviceAreaBounds(): array
+    {
+        return [
+            'southwest' => [
+                'latitude' => (float) config('bangdeliv.geocoding.service_area.bounds.southwest.latitude', -7.65),
+                'longitude' => (float) config('bangdeliv.geocoding.service_area.bounds.southwest.longitude', 110.05),
+            ],
+            'northeast' => [
+                'latitude' => (float) config('bangdeliv.geocoding.service_area.bounds.northeast.latitude', -6.90),
+                'longitude' => (float) config('bangdeliv.geocoding.service_area.bounds.northeast.longitude', 110.80),
+            ],
+        ];
+    }
+
+    private function isInsideServiceArea(float $latitude, float $longitude): bool
+    {
+        $bounds = $this->serviceAreaBounds();
+
+        return $latitude >= $bounds['southwest']['latitude']
+            && $latitude <= $bounds['northeast']['latitude']
+            && $longitude >= $bounds['southwest']['longitude']
+            && $longitude <= $bounds['northeast']['longitude'];
+    }
+
     /**
      * @return array{latitude: float, longitude: float, formatted_address: string}|null
      */
@@ -326,7 +403,7 @@ class GoogleMapsGeocodingService
                 'key' => $apiKey,
             ]);
 
-        if (!$response->successful()) {
+        if (! $response->successful()) {
             return $this->resolveAddress($query);
         }
 
@@ -349,7 +426,7 @@ class GoogleMapsGeocodingService
         $selectedResult = $results[0];
         $location = $selectedResult['geometry']['location'] ?? null;
 
-        if (!is_array($location) || !isset($location['lat'], $location['lng'])) {
+        if (! is_array($location) || ! isset($location['lat'], $location['lng'])) {
             return $this->resolveAddress($query);
         }
 
@@ -359,8 +436,8 @@ class GoogleMapsGeocodingService
         $finalAddress = $formattedAddress;
 
         if ($name !== '' && $name !== $formattedAddress) {
-            if (!str_contains(strtolower($formattedAddress), strtolower($name))) {
-                $finalAddress = $name . ', ' . $formattedAddress;
+            if (! str_contains(strtolower($formattedAddress), strtolower($name))) {
+                $finalAddress = $name.', '.$formattedAddress;
             }
         }
 

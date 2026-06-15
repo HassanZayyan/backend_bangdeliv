@@ -106,7 +106,7 @@ class RestaurantMenuController extends Controller
             return (int) $category->id;
         }
 
-        if (!empty($payload['menu_category_id'])) {
+        if (! empty($payload['menu_category_id'])) {
             return (int) $payload['menu_category_id'];
         }
 

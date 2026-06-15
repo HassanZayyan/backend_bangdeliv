@@ -6,17 +6,15 @@ use App\Exceptions\ApiException;
 use App\Models\Address;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 
 class AddressService
 {
     public function __construct(
         private readonly GoogleMapsGeocodingService $geocodingService
-    ) {
-    }
+    ) {}
 
     /**
-     * @param array<string, mixed> $payload
+     * @param  array<string, mixed>  $payload
      */
     public function store(User $user, array $payload): Address
     {
@@ -28,7 +26,7 @@ class AddressService
         return DB::transaction(function () use ($user, $payload, $resolvedAddress, $phone): Address {
             $isDefault = (bool) ($payload['is_default'] ?? false);
 
-            if ($isDefault || !$user->addresses()->exists()) {
+            if ($isDefault || ! $user->addresses()->exists()) {
                 $user->addresses()->update(['is_default' => false]);
                 $isDefault = true;
             }
@@ -46,7 +44,7 @@ class AddressService
     }
 
     /**
-     * @param array<string, mixed> $payload
+     * @param  array<string, mixed>  $payload
      */
     public function update(User $user, Address $address, array $payload): Address
     {
@@ -83,7 +81,7 @@ class AddressService
     {
         $normalizedAddress = $this->normalizeRequiredAddress($fullAddress);
 
-        $resolved = $this->geocodingService->resolveAddress($normalizedAddress);
+        $resolved = $this->geocodingService->resolveAddress($normalizedAddress, restrictToServiceArea: true);
 
         if ($resolved === null) {
             throw new ApiException('Alamat tidak valid atau tidak ditemukan di peta.', 422, [
@@ -95,7 +93,7 @@ class AddressService
     }
 
     /**
-     * @param array<string, mixed> $payload
+     * @param  array<string, mixed>  $payload
      * @return array{latitude: float, longitude: float}|null
      */
     private function extractProvidedCoordinates(array $payload): ?array
@@ -103,11 +101,11 @@ class AddressService
         $hasLatitude = array_key_exists('latitude', $payload) && $payload['latitude'] !== null && $payload['latitude'] !== '';
         $hasLongitude = array_key_exists('longitude', $payload) && $payload['longitude'] !== null && $payload['longitude'] !== '';
 
-        if (!$hasLatitude && !$hasLongitude) {
+        if (! $hasLatitude && ! $hasLongitude) {
             return null;
         }
 
-        if (!$hasLatitude || !$hasLongitude) {
+        if (! $hasLatitude || ! $hasLongitude) {
             throw new ApiException('Koordinat alamat tidak lengkap.', 422, [
                 'latitude' => ['Latitude dan longitude wajib diisi berpasangan.'],
                 'longitude' => ['Latitude dan longitude wajib diisi berpasangan.'],
@@ -131,7 +129,7 @@ class AddressService
     }
 
     /**
-     * @param array{latitude: float, longitude: float}|null $providedCoordinates
+     * @param  array{latitude: float, longitude: float}|null  $providedCoordinates
      * @return array{latitude: float, longitude: float, formatted_address: string}
      */
     private function resolveAddressForWrite(string $fullAddress, ?array $providedCoordinates): array
@@ -139,34 +137,15 @@ class AddressService
         if ($providedCoordinates === null) {
             $validated = $this->validateAddress($fullAddress);
             $validated['formatted_address'] = $fullAddress;
+
             return $validated;
         }
-
-        $resolvedAddress = $this->tryResolveAddress($fullAddress);
 
         return [
             'latitude' => $providedCoordinates['latitude'],
             'longitude' => $providedCoordinates['longitude'],
             'formatted_address' => $fullAddress,
         ];
-    }
-
-    /**
-     * @return array{latitude: float, longitude: float, formatted_address: string}|null
-     */
-    private function tryResolveAddress(string $fullAddress): ?array
-    {
-        try {
-            return $this->geocodingService->resolveAddress($fullAddress);
-        } catch (ApiException $exception) {
-            Log::warning('Address geocoding fallback to payload coordinates.', [
-                'address' => $fullAddress,
-                'status' => $exception->status(),
-                'message' => $exception->getMessage(),
-            ]);
-
-            return null;
-        }
     }
 
     private function normalizeRequiredAddress(string $fullAddress): string

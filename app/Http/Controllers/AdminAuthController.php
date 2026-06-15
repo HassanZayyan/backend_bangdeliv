@@ -5,7 +5,6 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 
 class AdminAuthController extends Controller
@@ -23,10 +22,10 @@ class AdminAuthController extends Controller
         ]);
 
         $credentials = $request->only('email', 'password');
-        
+
         // Cek apakah user ada dan rolenya adalah admin
         $user = User::where('email', $request->email)->first();
-        
+
         if ($user && $user->role !== 'admin') {
             throw ValidationException::withMessages([
                 'email' => ['Akses ditolak. Anda bukan admin.'],
@@ -35,6 +34,7 @@ class AdminAuthController extends Controller
 
         if (Auth::attempt($credentials)) {
             $request->session()->regenerate();
+
             return redirect()->intended('/admin/dashboard');
         }
 

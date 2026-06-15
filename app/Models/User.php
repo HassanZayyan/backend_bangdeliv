@@ -24,7 +24,6 @@ use Laravel\Sanctum\HasApiTokens;
  * @property \Carbon\Carbon|null $created_at
  * @property \Carbon\Carbon|null $updated_at
  * @property \Carbon\Carbon|null $deleted_at
- *
  * @property-read \App\Models\Driver|null $driver
  */
 class User extends Authenticatable

@@ -2,13 +2,22 @@
 
 namespace App\Services;
 
+use App\Enums\DriverActionCode;
+use App\Enums\PaymentMethod;
+use App\Enums\ProofType;
+use App\Enums\ServiceTypeCode;
 use App\Models\Order;
 use App\Models\OrderStatusHistory;
+use App\Services\Dispatch\OrderPickupPointResolver;
 use Illuminate\Database\Eloquent\Relations\Relation;
 
 class DriverOrderPayloadFactory
 {
-    public function __construct(private readonly ShoppingPricingService $shoppingPricingService) {}
+    public function __construct(
+        private readonly ShoppingPricingService $shoppingPricingService,
+        private readonly OrderProofPolicyService $proofPolicyService,
+        private readonly OrderPickupPointResolver $pickupPointResolver,
+    ) {}
 
     /**
      * @return array<int|string, mixed>
@@ -42,12 +51,12 @@ class DriverOrderPayloadFactory
      */
     public function serialize(Order $order, bool $includeTimeline = false): array
     {
-        $serviceCode = strtoupper((string) ($order->serviceType->code ?? ''));
+        $serviceCode = ServiceTypeCode::normalize((string) ($order->serviceType->code ?? ''));
         $statusCode = strtoupper((string) ($order->statusRef->code ?? ''));
         $paymentStatus = strtolower((string) ($order->payment_status ?? 'unpaid'));
-        $paymentMethod = strtoupper((string) ($order->payment_method ?? 'COD'));
+        $paymentMethod = PaymentMethod::normalize((string) ($order->payment_method ?? PaymentMethod::Cod->value));
 
-        $pickup = $this->resolvePickupPoint($order, $serviceCode);
+        $pickup = $this->pickupPointResolver->resolve($order);
         $dropoff = $this->resolveDropoffPoint($order);
         $proofs = $this->serializeProofs($order);
         $proofStatus = $this->proofStatus($proofs);
@@ -106,7 +115,7 @@ class DriverOrderPayloadFactory
             'proofs' => $proofs,
             'total_price' => round((float) $order->total_price, 2),
             'item_count' => $itemCount,
-            'eta_minutes' => $this->estimateEtaMinutes($order),
+            'eta_minutes' => 0,
             'accepted_at' => $acceptedAt?->format('H:i'),
             'status_code' => $statusCode,
             'status_display_name' => $order->statusRef?->display_name,
@@ -116,11 +125,11 @@ class DriverOrderPayloadFactory
             'route' => $this->orderRouteSnapshot($order),
         ];
 
-        if ($serviceCode === 'COURIER' && $order->courierOrder !== null) {
+        if ($serviceCode === ServiceTypeCode::Courier->value && $order->courierOrder !== null) {
             $payload['package_description'] = $order->courierOrder->package_description;
         }
 
-        if ($serviceCode === 'SHOPPING') {
+        if ($serviceCode === ServiceTypeCode::Shopping->value) {
             $payload['merchant'] = [
                 'id' => $order->restaurant?->id,
                 'name' => $order->restaurant?->name,
@@ -166,8 +175,8 @@ class DriverOrderPayloadFactory
     public function driverActionRules(string $serviceCode): array
     {
         return match (strtoupper($serviceCode)) {
-            'RIDE' => $this->rideActionRules(),
-            'SHOPPING' => $this->shoppingActionRules(),
+            ServiceTypeCode::Ride->value => $this->rideActionRules(),
+            ServiceTypeCode::Shopping->value => $this->shoppingActionRules(),
             default => $this->courierActionRules(),
         };
     }
@@ -225,14 +234,7 @@ class DriverOrderPayloadFactory
 
     private function canonicalProofType(string $evidenceType): string
     {
-        return match (strtoupper($evidenceType)) {
-            'PICKUP_PHOTO' => 'pickup',
-            'DELIVERY_PHOTO', 'COURIER_DELIVERY_PHOTO', 'COURIER_RECEIVER_PHOTO' => 'delivery',
-            'SHOPPING_RECEIPT' => 'receipt',
-            'STORE_CLOSED_PHOTO' => 'store_closed',
-            'PAYMENT_TRANSFER_PHOTO' => 'payment_transfer',
-            default => strtolower($evidenceType),
-        };
+        return ProofType::fromEvidenceType($evidenceType);
     }
 
     /**
@@ -312,7 +314,7 @@ class DriverOrderPayloadFactory
 
     private function carefulCarryRequired(Order $order): bool
     {
-        return strtoupper((string) ($order->serviceType?->code ?? '')) === 'COURIER'
+        return ServiceTypeCode::normalize((string) ($order->serviceType?->code ?? '')) === ServiceTypeCode::Courier->value
             && (bool) ($order->courierOrder?->careful_carry_required ?? false);
     }
 
@@ -334,34 +336,6 @@ class DriverOrderPayloadFactory
             })
             ->values()
             ->all();
-    }
-
-    /**
-     * @return array<string, float|string|null>
-     */
-    private function resolvePickupPoint(Order $order, string $serviceCode): array
-    {
-        if ($serviceCode === 'SHOPPING') {
-            $pickup = $order->orderLocations
-                ->filter(fn ($location): bool => strtoupper((string) $location->location_role) === 'PICKUP')
-                ->sortBy([['sequence_no', 'asc'], ['id', 'asc']])
-                ->first();
-
-            return [
-                'address' => $pickup?->full_address ?? $order->restaurant->address ?? '-',
-                'latitude' => $this->toFloatOrNull($pickup?->latitude ?? $order->restaurant?->latitude),
-                'longitude' => $this->toFloatOrNull($pickup?->longitude ?? $order->restaurant?->longitude),
-            ];
-        }
-
-        $pickup = $order->orderLocations
-            ->first(fn ($location): bool => strtoupper((string) $location->location_role) === 'PICKUP');
-
-        return [
-            'address' => $pickup?->full_address ?? '-',
-            'latitude' => $this->toFloatOrNull($pickup?->latitude),
-            'longitude' => $this->toFloatOrNull($pickup?->longitude),
-        ];
     }
 
     /**
@@ -421,7 +395,7 @@ class DriverOrderPayloadFactory
 
             if (
                 $this->supportsDriverProofType($serviceCode, 'pickup') &&
-                in_array($actionCode, ['BOARD_PASSENGER', 'CONFIRM_PICKED_UP'], true) &&
+                in_array($actionCode, [DriverActionCode::BoardPassenger->value, DriverActionCode::ConfirmPickedUp->value], true) &&
                 ! (bool) ($proofStatus['pickup'] ?? false)
             ) {
                 $blockedReasons[] = 'Bukti foto pickup belum diupload.';
@@ -429,7 +403,7 @@ class DriverOrderPayloadFactory
 
             if (
                 $serviceCode === 'SHOPPING' &&
-                $actionCode === 'CONFIRM_PICKED_UP' &&
+                $actionCode === DriverActionCode::ConfirmPickedUp->value &&
                 ! $hasDriverShoppingTotal
             ) {
                 $blockedReasons[] = 'Total belanja di struk belum diisi.';
@@ -437,7 +411,7 @@ class DriverOrderPayloadFactory
 
             if (
                 $this->supportsDriverProofType($serviceCode, 'receipt') &&
-                $actionCode === 'CONFIRM_PICKED_UP' &&
+                $actionCode === DriverActionCode::ConfirmPickedUp->value &&
                 ! (bool) ($proofStatus['receipt'] ?? false)
             ) {
                 $blockedReasons[] = 'Foto struk belanja belum diupload.';
@@ -445,7 +419,7 @@ class DriverOrderPayloadFactory
 
             if (
                 $this->supportsDriverProofType($serviceCode, 'delivery') &&
-                $actionCode === 'COMPLETE_ORDER' &&
+                $actionCode === DriverActionCode::CompleteOrder->value &&
                 ! (bool) ($proofStatus['delivery'] ?? false)
             ) {
                 $blockedReasons[] = 'Bukti foto selesai pengantaran belum diupload.';
@@ -453,7 +427,7 @@ class DriverOrderPayloadFactory
 
             if (
                 $serviceCode === 'SHOPPING' &&
-                $actionCode === 'CONFIRM_PICKED_UP' &&
+                $actionCode === DriverActionCode::ConfirmPickedUp->value &&
                 $hasPendingShoppingPrices &&
                 ! $hasDriverShoppingTotal
             ) {
@@ -499,11 +473,7 @@ class DriverOrderPayloadFactory
 
     private function supportsDriverProofType(string $serviceCode, string $type): bool
     {
-        return match (strtoupper($serviceCode)) {
-            'COURIER' => in_array($type, ['pickup', 'delivery'], true),
-            'SHOPPING' => in_array($type, ['receipt', 'store_closed'], true),
-            default => false,
-        };
+        return $this->proofPolicyService->supportsDriverProofType($serviceCode, $type);
     }
 
     /**
@@ -809,17 +779,6 @@ class DriverOrderPayloadFactory
                 && (bool) $item->is_available
                 && (float) $item->unit_price <= 0;
         });
-    }
-
-    private function estimateEtaMinutes(Order $order): int
-    {
-        if ($order->estimated_delivery === null) {
-            return 0;
-        }
-
-        $minutes = now()->diffInMinutes($order->estimated_delivery, false);
-
-        return $minutes > 0 ? $minutes : 0;
     }
 
     private function toFloatOrNull(mixed $value): ?float

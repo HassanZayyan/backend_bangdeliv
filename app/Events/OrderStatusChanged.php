@@ -21,8 +21,7 @@ class OrderStatusChanged implements ShouldBroadcastNow
         public ?int $changedAtMs,
         public ?string $statusLabel = null,
         public ?bool $isTerminal = null,
-    ) {
-    }
+    ) {}
 
     /**
      * @return array<int, \Illuminate\Broadcasting\Channel>

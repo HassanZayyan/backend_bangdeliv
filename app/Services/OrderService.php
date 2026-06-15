@@ -2,11 +2,15 @@
 
 namespace App\Services;
 
+use App\Enums\OrderStatusCode;
+use App\Enums\ServiceTypeCode;
 use App\Exceptions\ApiException;
+use App\Models\CourierOrder;
 use App\Models\Driver;
 use App\Models\Menu;
 use App\Models\Order;
 use App\Models\OrderEvidence;
+use App\Models\OrderItem;
 use App\Models\OrderLocation;
 use App\Models\OrderLog;
 use App\Models\OrderPayment;
@@ -14,6 +18,7 @@ use App\Models\OrderStatus;
 use App\Models\OrderStatusHistory;
 use App\Models\Restaurant;
 use App\Models\User;
+use App\Services\Dispatch\DriverCandidateSelector;
 use Carbon\Carbon;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\UploadedFile;
@@ -29,9 +34,11 @@ class OrderService
         private readonly ShoppingRouteService $shoppingRouteService,
         private readonly DriverOrderPayloadFactory $driverOrderPayloadFactory,
         private readonly DriverOrderRealtimeService $driverOrderRealtimeService,
+        private readonly DriverCandidateSelector $driverCandidateSelector,
         private readonly OrderStatusPushNotificationService $orderStatusPushNotificationService,
         private readonly OrderPaymentService $orderPaymentService,
-        private readonly OrderTransferEvidenceService $transferEvidenceService
+        private readonly OrderTransferEvidenceService $transferEvidenceService,
+        private readonly OrderProofPolicyService $proofPolicyService
     ) {}
 
     /**
@@ -43,28 +50,6 @@ class OrderService
      * @var array<int, string>
      */
     private array $failedAttemptRecordableStatuses = ['PENDING', 'DRIVER_ASSIGNED', 'ARRIVED_MERCHANT', 'PICKED_UP', 'ON_THE_WAY'];
-
-    /**
-     * @var array<int, string>
-     */
-    private const RUNNING_DRIVER_ORDER_STATUS_CODES = [
-        'DRIVER_ASSIGNED',
-        'ARRIVED_MERCHANT',
-        'ARRIVED_PICKUP',
-        'PICKED_UP',
-        'ON_THE_WAY',
-        'ARRIVED_DROPOFF',
-        'DELIVERED',
-        'CANCELLED_WITH_FEE',
-    ];
-
-    private const DRIVER_LOCATION_TRACKABLE_STATUS_CODES = [
-        'DRIVER_ASSIGNED',
-        'ARRIVED_MERCHANT',
-        'ARRIVED_PICKUP',
-        'PICKED_UP',
-        'ON_THE_WAY',
-    ];
 
     /**
      * @param  array<string, mixed>  $filters
@@ -366,7 +351,7 @@ class OrderService
                 $order->items()
                     ->where('pickup_location_id', $pickup->id)
                     ->get()
-                    ->each(function ($item) use ($reason): void {
+                    ->each(function (OrderItem $item) use ($reason): void {
                         $metadata = is_array($item->metadata) ? $item->metadata : [];
                         $metadata['price_status'] = 'UNAVAILABLE';
                         $metadata['failure_reason'] = $reason;
@@ -385,6 +370,10 @@ class OrderService
 
             $this->shoppingRouteService->applyRouteToOrder($order);
 
+            $pickupLocationIdForAudit = $pickup instanceof OrderLocation
+                ? (int) $pickup->id
+                : $pickupLocationId;
+
             OrderStatusHistory::query()->create([
                 'order_id' => $order->id,
                 'status_id' => $order->status_id,
@@ -394,7 +383,7 @@ class OrderService
                 'price_snapshot' => [
                     'failure_type' => $normalizedFailureType,
                     'failed_attempt_count' => $nextFailedAttemptCount,
-                    'pickup_location_id' => $pickup?->id ?? $pickupLocationId,
+                    'pickup_location_id' => $pickupLocationIdForAudit,
                     'fulfillment_status' => $pickup !== null ? 'FAILED' : null,
                 ],
             ]);
@@ -410,7 +399,7 @@ class OrderService
                     'failed_attempt_count' => $nextFailedAttemptCount,
                     'recalculation_version' => $this->shoppingPricingService->latestRecalculationVersion($order),
                     'actor_role' => $actor->role,
-                    'pickup_location_id' => $pickup?->id ?? $pickupLocationId,
+                    'pickup_location_id' => $pickupLocationIdForAudit,
                 ],
             ]);
 
@@ -564,6 +553,38 @@ class OrderService
     }
 
     /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    public function updateCurrentDriverLocation(User $actor, array $payload): array
+    {
+        $driver = $this->resolveActiveDriverProfile($actor);
+
+        if (! $this->isDriverAvailableForIncomingOrders($driver)) {
+            throw new ApiException('Aktifkan status kerja sebelum mengirim lokasi standby.', 409);
+        }
+
+        $latitude = round((float) $payload['latitude'], 7);
+        $longitude = round((float) $payload['longitude'], 7);
+        $updatedAt = isset($payload['updated_at'])
+            ? Carbon::parse((string) $payload['updated_at'])
+            : now();
+
+        $driver->update([
+            'latitude' => $latitude,
+            'longitude' => $longitude,
+            'location_updated_at' => $updatedAt,
+        ]);
+
+        return [
+            'driver_id' => (int) $driver->id,
+            'latitude' => $latitude,
+            'longitude' => $longitude,
+            'updated_at' => $updatedAt->toIso8601String(),
+        ];
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function listDriverOrders(User $actor): array
@@ -595,9 +616,15 @@ class OrderService
             ->limit(30)
             ->get();
 
+        $incomingPayloads = $incoming
+            ->map(fn (Order $order): array => $this->serializeDriverOrderForDisplay(
+                $order,
+                dispatchMetadata: $this->driverCandidateSelector->dispatchForDriver($order, $driver),
+            ))
+            ->sort(fn (array $left, array $right): int => $this->compareIncomingDriverOrderPayloads($left, $right));
+
         return [
-            'incoming_orders' => $incoming
-                ->map(fn (Order $order): array => $this->serializeDriverOrderForDisplay($order))
+            'incoming_orders' => $incomingPayloads
                 ->values()
                 ->all(),
             'running_orders' => $running
@@ -675,15 +702,54 @@ class OrderService
             throw new ApiException('Order tidak ditemukan.', 404);
         }
 
-        return $this->serializeDriverOrderForDisplay($order, includeTimeline: true);
+        $dispatchMetadata = $isIncomingCandidate
+            ? $this->driverCandidateSelector->dispatchForDriver($order, $driver)
+            : null;
+
+        return $this->serializeDriverOrderForDisplay($order, includeTimeline: true, dispatchMetadata: $dispatchMetadata);
     }
 
-    private function serializeDriverOrderForDisplay(Order $order, bool $includeTimeline = false): array
-    {
+    /**
+     * @param  array<string, mixed>|null  $dispatchMetadata
+     * @return array<string, mixed>
+     */
+    private function serializeDriverOrderForDisplay(
+        Order $order,
+        bool $includeTimeline = false,
+        ?array $dispatchMetadata = null,
+    ): array {
         $order = $this->ensureDisplayRoutePolyline($order)
             ->fresh($this->driverOrderPayloadFactory->relations());
 
-        return $this->driverOrderPayloadFactory->serialize($order, includeTimeline: $includeTimeline);
+        $payload = $this->driverOrderPayloadFactory->serialize($order, includeTimeline: $includeTimeline);
+
+        if ($dispatchMetadata !== null) {
+            $payload['dispatch'] = $dispatchMetadata;
+        }
+
+        return $payload;
+    }
+
+    /**
+     * @param  array<string, mixed>  $left
+     * @param  array<string, mixed>  $right
+     */
+    private function compareIncomingDriverOrderPayloads(array $left, array $right): int
+    {
+        $leftDistance = $left['dispatch']['distance_to_pickup_meters'] ?? null;
+        $rightDistance = $right['dispatch']['distance_to_pickup_meters'] ?? null;
+        $leftKnown = is_numeric($leftDistance);
+        $rightKnown = is_numeric($rightDistance);
+
+        if ($leftKnown !== $rightKnown) {
+            return $leftKnown ? -1 : 1;
+        }
+
+        if ($leftKnown && $rightKnown && (int) $leftDistance !== (int) $rightDistance) {
+            return (int) $leftDistance <=> (int) $rightDistance;
+        }
+
+        return (int) ($right['id'] ?? 0) <=> (int) ($left['id'] ?? 0);
     }
 
     private function ensureDisplayRoutePolyline(Order $order): Order
@@ -825,8 +891,8 @@ class OrderService
             throw new ApiException('Order ini tidak ditugaskan kepada driver saat ini.', 403);
         }
 
-        $statusCode = strtoupper((string) ($order->statusRef?->code ?? ''));
-        if (! in_array($statusCode, self::DRIVER_LOCATION_TRACKABLE_STATUS_CODES, true)) {
+        $statusCode = $this->orderStatusCode($order);
+        if (! in_array($statusCode, OrderStatusCode::driverLocationTrackableStatuses(), true)) {
             throw new ApiException('Lokasi driver tidak dapat dikirim pada status order saat ini.', 409);
         }
 
@@ -1232,7 +1298,7 @@ class OrderService
      */
     private function runningDriverOrderStatusIds(): array
     {
-        return $this->resolveStatusIdsLenient(self::RUNNING_DRIVER_ORDER_STATUS_CODES);
+        return $this->resolveStatusIdsLenient(OrderStatusCode::runningDriverStatuses());
     }
 
     private function hasRunningDriverOrder(int $driverId): bool
@@ -1250,7 +1316,7 @@ class OrderService
 
     private function isRunningDriverStatusCode(string $statusCode): bool
     {
-        return in_array(strtoupper(trim($statusCode)), self::RUNNING_DRIVER_ORDER_STATUS_CODES, true);
+        return in_array(OrderStatusCode::normalize($statusCode), OrderStatusCode::runningDriverStatuses(), true);
     }
 
     private function isDriverAvailableForIncomingOrders(Driver $driver): bool
@@ -1840,7 +1906,7 @@ class OrderService
                 throw new ApiException('Minimal satu item belanja wajib ditambahkan.', 422);
             }
 
-            $statusCode = strtoupper((string) ($order->statusRef?->code ?? ''));
+            $statusCode = $this->orderStatusCode($order);
             $routeChanged = false;
             $replacementPickup = $replacementForPickupLocationId !== null
                 ? $this->resolveReplacementPickup($order, $replacementForPickupLocationId)
@@ -1848,10 +1914,6 @@ class OrderService
             $pickupLocationsByMerchantId = [];
 
             foreach ($items as $payload) {
-                if (! is_array($payload)) {
-                    continue;
-                }
-
                 $merchant = $this->resolveShoppingItemMerchant($order, $payload);
                 $merchantId = (int) $merchant->id;
                 $pickupLocation = $pickupLocationsByMerchantId[$merchantId] ?? null;
@@ -1925,7 +1987,6 @@ class OrderService
     {
         return DB::transaction(function () use ($user, $orderId, $itemId, $payload): Order {
             $order = $this->getEditableShoppingOrder($user, $orderId);
-            /** @var \App\Models\OrderItem|null $item */
             $item = $order->items()->where('id', $itemId)->first();
 
             if (! $item) {
@@ -2444,6 +2505,24 @@ class OrderService
         return $this->deliveryFeeWithCarefulCarry($systemFee, $carefulCarryRequired);
     }
 
+    private function orderServiceCode(Order $order): string
+    {
+        $serviceType = $order->serviceType;
+
+        return $serviceType !== null
+            ? ServiceTypeCode::normalize($serviceType->code)
+            : ServiceTypeCode::Unknown->value;
+    }
+
+    private function orderStatusCode(Order $order): string
+    {
+        $status = $order->statusRef;
+
+        return $status !== null
+            ? OrderStatusCode::normalize($status->code)
+            : '';
+    }
+
     private function deliveryFeeWithCarefulCarry(float $baseDeliveryFee, bool $carefulCarryRequired): float
     {
         $baseDeliveryFee = max(0.0, $baseDeliveryFee);
@@ -2457,27 +2536,33 @@ class OrderService
 
     private function supportsCarefulCarry(string $serviceCode): bool
     {
-        return strtoupper($serviceCode) === 'COURIER';
+        return ServiceTypeCode::normalize($serviceCode) === ServiceTypeCode::Courier->value;
     }
 
     private function carefulCarryRequired(Order $order): bool
     {
-        return strtoupper((string) ($order->serviceType?->code ?? '')) === 'COURIER'
-            && (bool) ($order->courierOrder?->careful_carry_required ?? false);
+        $courierOrder = $order->courierOrder;
+
+        return $this->orderServiceCode($order) === ServiceTypeCode::Courier->value
+            && $courierOrder instanceof CourierOrder
+            && (bool) $courierOrder->careful_carry_required;
     }
 
     private function setCourierCarefulCarryRequired(Order $order, bool $required): void
     {
-        if (strtoupper((string) ($order->serviceType?->code ?? '')) !== 'COURIER') {
+        if ($this->orderServiceCode($order) !== ServiceTypeCode::Courier->value) {
             return;
         }
 
         $order->loadMissing('courierOrder');
+        $courierOrder = $order->courierOrder;
 
         $order->courierOrder()->updateOrCreate(
             ['order_id' => $order->id],
             [
-                'package_description' => $order->courierOrder?->package_description ?? 'Paket kurir',
+                'package_description' => $courierOrder instanceof CourierOrder
+                    ? $courierOrder->package_description
+                    : 'Paket kurir',
                 'careful_carry_required' => $required,
             ],
         );
@@ -2486,31 +2571,17 @@ class OrderService
 
     private function supportsDriverProofType(string $serviceCode, string $type): bool
     {
-        return match (strtoupper($serviceCode)) {
-            'COURIER' => in_array($type, ['pickup', 'delivery'], true),
-            'SHOPPING' => in_array($type, ['receipt', 'store_closed'], true),
-            default => false,
-        };
+        return $this->proofPolicyService->supportsDriverProofType($serviceCode, $type);
     }
 
     private function unsupportedProofMessage(string $type, string $serviceCode): string
     {
-        $service = strtoupper($serviceCode);
-
-        if ($service === 'SHOPPING' && in_array($type, ['pickup', 'delivery'], true)) {
-            return 'Bukti pengambilan dan diterima hanya tersedia untuk order kurir.';
-        }
-
-        if ($service === 'COURIER' && in_array($type, ['receipt', 'store_closed'], true)) {
-            return 'Bukti struk dan toko tutup hanya tersedia untuk order Nitip.';
-        }
-
-        return 'Bukti foto order tidak tersedia untuk layanan ini.';
+        return $this->proofPolicyService->unsupportedProofMessage($type, $serviceCode);
     }
 
     private function isLifecycleProofType(string $type): bool
     {
-        return in_array($type, ['pickup', 'delivery', 'receipt', 'store_closed'], true);
+        return $this->proofPolicyService->isLifecycleProofType($type);
     }
 
     private function storeOrderPhoto(UploadedFile $photo, int $orderId, string $folder): string
@@ -2525,38 +2596,17 @@ class OrderService
 
     private function normalizeProofType(string $type): string
     {
-        $normalized = strtolower(str_replace('-', '_', trim($type)));
-        $allowed = ['pickup', 'delivery', 'receipt', 'store_closed', 'payment_transfer'];
-
-        if (! in_array($normalized, $allowed, true)) {
-            throw new ApiException('Tipe bukti tidak valid.', 422);
-        }
-
-        return $normalized;
+        return $this->proofPolicyService->normalizeProofType($type);
     }
 
     private function evidenceTypeForProof(string $type): string
     {
-        return match ($type) {
-            'pickup' => 'PICKUP_PHOTO',
-            'delivery' => 'DELIVERY_PHOTO',
-            'receipt' => 'SHOPPING_RECEIPT',
-            'store_closed' => 'STORE_CLOSED_PHOTO',
-            'payment_transfer' => 'PAYMENT_TRANSFER_PHOTO',
-            default => throw new ApiException('Tipe bukti tidak valid.', 422),
-        };
+        return $this->proofPolicyService->evidenceTypeForProof($type);
     }
 
     private function orderHasProof(Order $order, string $type): bool
     {
-        $evidenceTypes = match ($type) {
-            'pickup' => ['PICKUP_PHOTO'],
-            'delivery' => ['DELIVERY_PHOTO', 'COURIER_DELIVERY_PHOTO', 'COURIER_RECEIVER_PHOTO'],
-            'receipt' => ['SHOPPING_RECEIPT'],
-            'store_closed' => ['STORE_CLOSED_PHOTO'],
-            'payment_transfer' => ['PAYMENT_TRANSFER_PHOTO'],
-            default => [],
-        };
+        $evidenceTypes = $this->proofPolicyService->evidenceTypesForProof($type);
 
         if ($evidenceTypes === []) {
             return false;

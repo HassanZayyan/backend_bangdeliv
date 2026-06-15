@@ -5,11 +5,15 @@ namespace App\Services;
 class CourierPackagePolicyService
 {
     public const STATUS_ALLOWED = 'ALLOWED';
+
     public const STATUS_NEEDS_CLARIFICATION = 'NEEDS_CLARIFICATION';
+
     public const STATUS_PROHIBITED = 'PROHIBITED';
+
     public const STATUS_OVERSIZE = 'OVERSIZE';
 
     private const MAX_WEIGHT_KG = 10.0;
+
     private const MAX_DIMENSION_CM = 40;
 
     /**

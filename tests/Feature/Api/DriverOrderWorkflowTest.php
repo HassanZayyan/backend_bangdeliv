@@ -2,9 +2,9 @@
 
 namespace Tests\Feature\Api;
 
+use App\Events\DriverLocationUpdated;
 use App\Events\DriverOrderAvailable;
 use App\Events\DriverOrderRemoved;
-use App\Events\DriverLocationUpdated;
 use App\Events\OrderStatusChanged;
 use App\Models\Address;
 use App\Models\CourierOrder;
@@ -12,6 +12,7 @@ use App\Models\Driver;
 use App\Models\Order;
 use App\Models\OrderEvidence;
 use App\Models\OrderItem;
+use App\Models\OrderLocation;
 use App\Models\OrderLog;
 use App\Models\OrderPayment;
 use App\Models\OrderStatus;
@@ -256,6 +257,76 @@ class DriverOrderWorkflowTest extends TestCase
         $this->assertSame((string) $pendingOrder->id, (string) $response->json('data.incoming_orders.0.id'));
     }
 
+    public function test_available_driver_can_update_standby_location_without_order(): void
+    {
+        [$driverUser, $driver] = $this->createActiveDriver('standby-location');
+        $driver->update(['status' => 'available']);
+
+        Sanctum::actingAs($driverUser);
+
+        $response = $this->patchJson('/api/v1/driver/location', [
+            'latitude' => -7.3305001,
+            'longitude' => 110.5084002,
+            'updated_at' => '2026-06-15T10:00:00+07:00',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.driver_id', $driver->id)
+            ->assertJsonPath('data.latitude', -7.3305001)
+            ->assertJsonPath('data.longitude', 110.5084002);
+
+        $this->assertDatabaseHas('drivers', [
+            'id' => $driver->id,
+            'latitude' => -7.3305001,
+            'longitude' => 110.5084002,
+        ]);
+
+        $driver->update(['status' => 'offline']);
+
+        $this->patchJson('/api/v1/driver/location', [
+            'latitude' => -7.3305001,
+            'longitude' => 110.5084002,
+        ])->assertConflict();
+    }
+
+    public function test_driver_orders_include_dispatch_metadata_and_prioritize_nearest_pickup(): void
+    {
+        Config::set('bangdeliv.dispatch.fresh_location_minutes', 10);
+
+        [$driverUser, $driver] = $this->createActiveDriver('dispatch-list');
+        $driver->update([
+            'status' => 'available',
+            'latitude' => -7.3305,
+            'longitude' => 110.5084,
+            'location_updated_at' => now(),
+        ]);
+
+        $nearOrder = $this->createShoppingOrder(null, 'PENDING');
+        $this->createPickupLocation($nearOrder, -7.3310, 110.5090, 'Dekat Salatiga');
+
+        $farOrder = $this->createShoppingOrder(null, 'PENDING');
+        $this->createPickupLocation($farOrder, -7.4500, 110.6500, 'Jauh Kabupaten Semarang');
+
+        Sanctum::actingAs($driverUser);
+
+        $response = $this->getJson('/api/v1/driver/orders');
+
+        $response->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.incoming_orders.0.id', (string) $nearOrder->id)
+            ->assertJsonPath('data.incoming_orders.0.dispatch.distance_bucket', 'NEAR')
+            ->assertJsonPath('data.incoming_orders.0.dispatch.priority_rank', 1)
+            ->assertJsonPath('data.incoming_orders.0.dispatch.location_fresh', true);
+
+        $this->assertSame((string) $farOrder->id, (string) $response->json('data.incoming_orders.1.id'));
+        $this->assertIsNumeric($response->json('data.incoming_orders.0.dispatch.distance_to_pickup_km'));
+        $this->assertLessThan(
+            $response->json('data.incoming_orders.1.dispatch.distance_to_pickup_km'),
+            $response->json('data.incoming_orders.0.dispatch.distance_to_pickup_km')
+        );
+    }
+
     public function test_rejected_pending_order_is_hidden_and_reject_is_idempotent(): void
     {
         [$driverUser, $driver] = $this->createActiveDriver('reject-hide');
@@ -325,6 +396,46 @@ class DriverOrderWorkflowTest extends TestCase
         Event::assertDispatched(DriverOrderAvailable::class, function (DriverOrderAvailable $event) use ($otherDriverUser, $order): bool {
             return (int) $event->driverUserId === (int) $otherDriverUser->id
                 && (int) ($event->order['id'] ?? 0) === (int) $order->id;
+        });
+    }
+
+    public function test_driver_order_available_event_includes_driver_specific_dispatch_metadata(): void
+    {
+        [$nearDriverUser, $nearDriver] = $this->createActiveDriver('dispatch-near');
+        $nearDriver->update([
+            'status' => 'available',
+            'latitude' => -7.3305,
+            'longitude' => 110.5084,
+            'location_updated_at' => now(),
+        ]);
+
+        [$farDriverUser, $farDriver] = $this->createActiveDriver('dispatch-far');
+        $farDriver->update([
+            'status' => 'available',
+            'latitude' => -7.5000,
+            'longitude' => 110.7000,
+            'location_updated_at' => now(),
+        ]);
+
+        $order = $this->createShoppingOrder(null, 'PENDING');
+        $this->createPickupLocation($order, -7.3310, 110.5090, 'Pickup Dekat');
+
+        Event::fake([DriverOrderAvailable::class]);
+
+        app(DriverOrderRealtimeService::class)->broadcastOrderAvailable($order);
+
+        Event::assertDispatched(DriverOrderAvailable::class, function (DriverOrderAvailable $event) use ($nearDriverUser, $order): bool {
+            return (int) $event->driverUserId === (int) $nearDriverUser->id
+                && (int) ($event->order['id'] ?? 0) === (int) $order->id
+                && ($event->order['dispatch']['priority_rank'] ?? null) === 1
+                && ($event->order['dispatch']['distance_bucket'] ?? null) === 'NEAR';
+        });
+
+        Event::assertDispatched(DriverOrderAvailable::class, function (DriverOrderAvailable $event) use ($farDriverUser, $order): bool {
+            return (int) $event->driverUserId === (int) $farDriverUser->id
+                && (int) ($event->order['id'] ?? 0) === (int) $order->id
+                && ($event->order['dispatch']['priority_rank'] ?? null) === 2
+                && ($event->order['dispatch']['distance_bucket'] ?? null) === 'FAR';
         });
     }
 
@@ -1312,6 +1423,23 @@ class DriverOrderWorkflowTest extends TestCase
             'status_id' => $statusId,
             'payment_status' => 'unpaid',
             'payment_method' => 'COD',
+        ]);
+    }
+
+    private function createPickupLocation(Order $order, float $latitude, float $longitude, string $label): OrderLocation
+    {
+        return OrderLocation::query()->create([
+            'order_id' => $order->id,
+            'restaurant_id' => null,
+            'location_role' => 'PICKUP',
+            'label' => $label,
+            'contact_name' => 'Merchant Test',
+            'contact_phone' => '081234567890',
+            'full_address' => $label,
+            'latitude' => $latitude,
+            'longitude' => $longitude,
+            'sequence_no' => 1,
+            'fulfillment_status' => 'PENDING',
         ]);
     }
 

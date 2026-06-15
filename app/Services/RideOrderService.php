@@ -10,7 +10,6 @@ use App\Models\OrderStatusHistory;
 use App\Models\RideOrder;
 use App\Models\ServiceType;
 use App\Models\User;
-use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class RideOrderService
@@ -128,7 +127,6 @@ class RideOrderService
         }
 
         $pricing = $this->deliveryPricingService->calculateFromDistanceMeters($distanceMeters);
-        $estimatedMinutes = $this->estimateTravelMinutes((int) $route['duration_seconds']);
         $paymentMethod = $this->orderPaymentService->normalizePaymentMethod(
             isset($payload['payment_method']) ? (string) $payload['payment_method'] : null
         );
@@ -151,14 +149,11 @@ class RideOrderService
             $normalizedDestinationAddress,
             $destinationLatitude,
             $destinationLongitude,
-            $distanceKm,
-            $route,
             $subtotal,
             $deliveryFee,
             $serviceFee,
             $totalAmount,
             $routeSnapshot,
-            $estimatedMinutes,
             $pickupAddressText,
             $pickupLatitude,
             $pickupLongitude,
@@ -172,12 +167,9 @@ class RideOrderService
                 'subtotal' => round($subtotal, 2),
                 'delivery_fee' => round($deliveryFee, 2),
                 'service_fee' => round($serviceFee, 2),
-                'delivery_distance_km' => round($distanceKm, 2),
-                'delivery_distance_text' => (string) ($route['distance_text'] ?? number_format($distanceKm, 2).' km'),
                 'route_snapshot' => $routeSnapshot,
                 'total_price' => round($totalAmount, 2),
                 'status_id' => $pendingStatusId,
-                'estimated_delivery' => Carbon::now()->addMinutes($estimatedMinutes),
             ]);
 
             $this->orderPaymentService->ensurePendingPayment($order, $paymentMethod);
@@ -312,13 +304,6 @@ class RideOrderService
         } while (Order::query()->where('order_number', $candidate)->exists());
 
         return $candidate;
-    }
-
-    private function estimateTravelMinutes(int $durationSeconds): int
-    {
-        $minutes = (int) ceil(max(0, $durationSeconds) / 60);
-
-        return max(20, min(180, $minutes + 10));
     }
 
     private function assertRoutePointsSeparated(

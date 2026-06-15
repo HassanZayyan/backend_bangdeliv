@@ -33,7 +33,7 @@ class DriverVerificationService
         }
 
         $driver = Driver::query()->where('user_id', $actor->id)->first();
-        if (!$driver) {
+        if (! $driver) {
             throw new ApiException('Profil driver tidak ditemukan.', 404);
         }
 
@@ -41,13 +41,13 @@ class DriverVerificationService
 
         DB::transaction(function () use ($driver, $payload, &$uploadedTypes): void {
             $lockedDriver = Driver::query()->lockForUpdate()->find($driver->id);
-            if (!$lockedDriver) {
+            if (! $lockedDriver) {
                 throw new ApiException('Profil driver tidak ditemukan.', 404);
             }
 
             foreach (self::REQUIRED_DOCUMENT_TYPES as $documentType) {
                 $file = $payload[$documentType] ?? null;
-                if (!$file instanceof UploadedFile) {
+                if (! $file instanceof UploadedFile) {
                     continue;
                 }
 
@@ -94,7 +94,7 @@ class DriverVerificationService
         }
 
         $driver = Driver::query()->where('user_id', $actor->id)->value('id');
-        if (!$driver) {
+        if (! $driver) {
             throw new ApiException('Profil driver tidak ditemukan.', 404);
         }
 
@@ -119,11 +119,11 @@ class DriverVerificationService
         }
 
         $statuses = $this->resolveStatuses($filters);
-        if (!empty($statuses)) {
+        if (! empty($statuses)) {
             $query->whereIn('registration_status', $statuses);
         }
 
-        if (!empty($filters['search'])) {
+        if (! empty($filters['search'])) {
             $search = trim((string) $filters['search']);
             $query->where(function (Builder $builder) use ($search): void {
                 $builder
@@ -192,7 +192,7 @@ class DriverVerificationService
                 ->lockForUpdate()
                 ->find($driverId);
 
-            if (!$driver) {
+            if (! $driver) {
                 throw new ApiException('Driver tidak ditemukan.', 404);
             }
 
@@ -202,7 +202,7 @@ class DriverVerificationService
                 $reason = isset($decision['rejection_reason']) ? trim((string) $decision['rejection_reason']) : null;
 
                 $document = $driver->driverDocuments->firstWhere('document_type', $type);
-                if (!$document) {
+                if (! $document) {
                     throw new ApiException("Dokumen {$type} belum diunggah oleh driver.", 422);
                 }
 
@@ -238,7 +238,7 @@ class DriverVerificationService
         }
 
         $normalizedDocumentType = strtolower(trim($documentType));
-        if (!in_array($normalizedDocumentType, self::REQUIRED_DOCUMENT_TYPES, true)) {
+        if (! in_array($normalizedDocumentType, self::REQUIRED_DOCUMENT_TYPES, true)) {
             throw new ApiException('Tipe dokumen tidak valid.', 422);
         }
 
@@ -248,17 +248,17 @@ class DriverVerificationService
                 ->lockForUpdate()
                 ->find($driverId);
 
-            if (!$driver) {
+            if (! $driver) {
                 throw new ApiException('Driver tidak ditemukan.', 404);
             }
 
             /** @var DriverDocument|null $document */
             $document = $driver->driverDocuments->firstWhere('document_type', $normalizedDocumentType);
-            if (!$document) {
+            if (! $document) {
                 throw new ApiException('Dokumen tidak ditemukan.', 404);
             }
 
-            if (!empty($document->file_path)) {
+            if (! empty($document->file_path)) {
                 Storage::disk('public')->delete($document->file_path);
             }
 
@@ -288,7 +288,7 @@ class DriverVerificationService
         }
 
         $normalizedDocumentType = strtolower(trim($documentType));
-        if (!in_array($normalizedDocumentType, self::REQUIRED_DOCUMENT_TYPES, true)) {
+        if (! in_array($normalizedDocumentType, self::REQUIRED_DOCUMENT_TYPES, true)) {
             throw new ApiException('Tipe dokumen tidak valid.', 422);
         }
 
@@ -296,18 +296,18 @@ class DriverVerificationService
             ->with('driverDocuments')
             ->find($driverId);
 
-        if (!$driver) {
+        if (! $driver) {
             throw new ApiException('Driver tidak ditemukan.', 404);
         }
 
         /** @var DriverDocument|null $document */
         $document = $driver->driverDocuments->firstWhere('document_type', $normalizedDocumentType);
-        if (!$document || empty($document->file_path)) {
+        if (! $document || empty($document->file_path)) {
             throw new ApiException('Dokumen belum tersedia.', 404);
         }
 
         $filePath = (string) $document->file_path;
-        if (!Storage::disk('public')->exists($filePath)) {
+        if (! Storage::disk('public')->exists($filePath)) {
             throw new ApiException('File dokumen tidak ditemukan di storage.', 404);
         }
 
@@ -323,7 +323,7 @@ class DriverVerificationService
             ->with(['user:id,name,email,phone', 'driverDocuments.verifier:id,name'])
             ->find($driverId);
 
-        if (!$driver) {
+        if (! $driver) {
             throw new ApiException('Driver tidak ditemukan.', 404);
         }
 
@@ -343,7 +343,7 @@ class DriverVerificationService
                 /** @var DriverDocument|null $doc */
                 $doc = $documentsByType->get($documentType);
 
-                $fileExists = !empty($doc?->file_path)
+                $fileExists = ! empty($doc?->file_path)
                     ? Storage::disk('public')->exists((string) $doc->file_path)
                     : false;
 
@@ -402,7 +402,7 @@ class DriverVerificationService
         foreach (self::REQUIRED_DOCUMENT_TYPES as $documentType) {
             /** @var DriverDocument|null $document */
             $document = $documents->firstWhere('document_type', $documentType);
-            if (!$document) {
+            if (! $document) {
                 return 'pending';
             }
 
@@ -440,7 +440,7 @@ class DriverVerificationService
         $rawStatuses = [];
         if (isset($filters['statuses']) && is_array($filters['statuses'])) {
             $rawStatuses = $filters['statuses'];
-        } elseif (!empty($filters['status']) && is_string($filters['status'])) {
+        } elseif (! empty($filters['status']) && is_string($filters['status'])) {
             $rawStatuses = explode(',', $filters['status']);
         }
 

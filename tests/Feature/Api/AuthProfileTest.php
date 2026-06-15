@@ -90,13 +90,15 @@ class AuthProfileTest extends TestCase
             'driver_id' => null,
             'subtotal' => 30000,
             'delivery_fee' => 5000,
-            'delivery_distance_km' => 2.5,
-            'delivery_distance_text' => '2.5 km',
+            'route_snapshot' => [
+                'distance_meters' => 2500,
+                'distance_km' => 2.5,
+                'distance_text' => '2.5 km',
+            ],
             'total_price' => 35000,
             'status_id' => $completedStatus->id,
             'cancellation_reason' => null,
             'cancelled_by' => null,
-            'estimated_delivery' => null,
             'delivered_at' => now(),
         ]);
 
@@ -542,7 +544,12 @@ class AuthProfileTest extends TestCase
             'is_default' => true,
         ]);
 
-        Http::assertSentCount(1);
+        Http::assertSent(function ($request): bool {
+            $data = $request->data();
+
+            return ($data['bounds'] ?? null) === '-7.650000,110.050000|-6.900000,110.800000'
+                && ($data['components'] ?? null) === 'country:ID';
+        });
     }
 
     public function test_authenticated_user_can_update_saved_address(): void
@@ -615,7 +622,12 @@ class AuthProfileTest extends TestCase
             'is_default' => true,
         ]);
 
-        Http::assertSentCount(1);
+        Http::assertSent(function ($request): bool {
+            $data = $request->data();
+
+            return ($data['bounds'] ?? null) === '-7.650000,110.050000|-6.900000,110.800000'
+                && ($data['components'] ?? null) === 'country:ID';
+        });
     }
 
     public function test_authenticated_user_can_store_saved_address_with_payload_coordinates_when_geocoding_unavailable(): void
@@ -660,7 +672,7 @@ class AuthProfileTest extends TestCase
             'is_default' => true,
         ]);
 
-        Http::assertSentCount(1);
+        Http::assertSentCount(0);
     }
 
     public function test_authenticated_user_update_keeps_payload_coordinates_even_if_geocode_differs(): void
@@ -729,7 +741,7 @@ class AuthProfileTest extends TestCase
             'longitude' => 107.65432109,
         ]);
 
-        Http::assertSentCount(1);
+        Http::assertSentCount(0);
     }
 
     public function test_authenticated_user_can_validate_saved_address(): void
@@ -749,11 +761,11 @@ class AuthProfileTest extends TestCase
                 'status' => 'OK',
                 'results' => [
                     [
-                        'formatted_address' => 'Jl. Sudirman No. 10, Jakarta, Indonesia',
+                        'formatted_address' => 'Jl. Sudirman No. 10, Salatiga, Jawa Tengah, Indonesia',
                         'geometry' => [
                             'location' => [
-                                'lat' => -6.21462000,
-                                'lng' => 106.84513000,
+                                'lat' => -7.33165000,
+                                'lng' => 110.49950000,
                             ],
                         ],
                     ],
@@ -762,16 +774,65 @@ class AuthProfileTest extends TestCase
         ]);
 
         $response = $this->postJson('/api/user/addresses/validate', [
-            'full_address' => 'Jl. Sudirman No. 10, Jakarta',
+            'full_address' => 'Jl. Sudirman No. 10, Salatiga',
         ]);
 
         $response->assertOk()
             ->assertJsonPath('message', 'Alamat valid.')
-            ->assertJsonPath('data.formatted_address', 'Jl. Sudirman No. 10, Jakarta, Indonesia')
-            ->assertJsonPath('data.latitude', -6.21462)
-            ->assertJsonPath('data.longitude', 106.84513);
+            ->assertJsonPath('data.formatted_address', 'Jl. Sudirman No. 10, Salatiga, Jawa Tengah, Indonesia')
+            ->assertJsonPath('data.latitude', -7.33165)
+            ->assertJsonPath('data.longitude', 110.4995);
 
-        Http::assertSentCount(1);
+        Http::assertSent(function ($request): bool {
+            $data = $request->data();
+
+            return ($data['bounds'] ?? null) === '-7.650000,110.050000|-6.900000,110.800000'
+                && ($data['components'] ?? null) === 'country:ID';
+        });
+    }
+
+    public function test_saved_address_validation_rejects_geocoding_result_outside_service_area(): void
+    {
+        $user = User::query()->create([
+            'name' => 'Validasi Luar Area',
+            'email' => 'validasi.luar.area@example.com',
+            'phone' => '081233340002',
+            'password' => Hash::make('rahasia123'),
+            'role' => 'customer',
+        ]);
+
+        Sanctum::actingAs($user);
+
+        Http::fake([
+            'https://maps.googleapis.com/maps/api/geocode/*' => Http::response([
+                'status' => 'OK',
+                'results' => [
+                    [
+                        'formatted_address' => 'Monas, Jakarta, Indonesia',
+                        'geometry' => [
+                            'location' => [
+                                'lat' => -6.175392,
+                                'lng' => 106.827153,
+                            ],
+                        ],
+                    ],
+                ],
+            ], 200),
+        ]);
+
+        $response = $this->postJson('/api/user/addresses/validate', [
+            'full_address' => 'Monas Jakarta',
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJsonPath('message', 'Alamat tidak valid atau tidak ditemukan di peta.');
+
+        Http::assertSent(function ($request): bool {
+            $data = $request->data();
+
+            return ($data['bounds'] ?? null) === '-7.650000,110.050000|-6.900000,110.800000'
+                && ($data['components'] ?? null) === 'country:ID';
+        });
     }
 
     public function test_authenticated_user_cannot_validate_invalid_saved_address(): void

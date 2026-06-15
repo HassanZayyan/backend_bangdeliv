@@ -21,8 +21,6 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property string $delivery_fee
  * @property string|null $delivery_fee_source
  * @property string|null $service_fee
- * @property float|null $delivery_distance_km
- * @property string|null $delivery_distance_text
  * @property array<string, mixed>|null $route_snapshot
  * @property string|null $total_price
  * @property int $status_id
@@ -33,7 +31,6 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property \Carbon\Carbon|null $paid_at
  * @property string|null $cancellation_reason
  * @property string|null $cancelled_by
- * @property \Carbon\Carbon|null $estimated_delivery
  * @property \Carbon\Carbon|null $delivered_at
  * @property \Carbon\Carbon|null $created_at
  * @property \Carbon\Carbon|null $updated_at
@@ -74,15 +71,12 @@ class Order extends Model
         'delivery_fee',
         'delivery_fee_source',
         'service_fee',
-        'delivery_distance_km',
-        'delivery_distance_text',
         'route_snapshot',
         'total_price',
         'status_id',
         'cancellation_reason',
         'cancelled_by',
         'cancelled_at',
-        'estimated_delivery',
         'delivered_at',
     ];
 
@@ -103,6 +97,8 @@ class Order extends Model
         'shopping_stops',
         'route',
         'shopping_route',
+        'delivery_distance_km',
+        'delivery_distance_text',
         'pricing_snapshot',
         'fee_breakdown',
         'delivery_fee_change_note',
@@ -116,11 +112,9 @@ class Order extends Model
             'subtotal' => 'decimal:2',
             'delivery_fee' => 'decimal:2',
             'service_fee' => 'decimal:2',
-            'delivery_distance_km' => 'float',
             'route_snapshot' => 'array',
             'total_price' => 'decimal:2',
             'cancelled_at' => 'datetime',
-            'estimated_delivery' => 'datetime',
             'delivered_at' => 'datetime',
         ];
     }
@@ -139,6 +133,9 @@ class Order extends Model
         return $this->belongsTo(User::class);
     }
 
+    /**
+     * @return HasOneThrough<Restaurant, OrderLocation, $this>
+     */
     public function restaurant(): HasOneThrough
     {
         return $this->hasOneThrough(
@@ -154,81 +151,129 @@ class Order extends Model
             ->orderBy('order_locations.sequence_no');
     }
 
+    /**
+     * @return BelongsTo<ServiceType, $this>
+     */
     public function serviceType(): BelongsTo
     {
         return $this->belongsTo(ServiceType::class);
     }
 
+    /**
+     * @return BelongsTo<Driver, $this>
+     */
     public function driver(): BelongsTo
     {
         return $this->belongsTo(Driver::class);
     }
 
+    /**
+     * @return BelongsTo<OrderStatus, $this>
+     */
     public function statusRef(): BelongsTo
     {
         return $this->belongsTo(OrderStatus::class, 'status_id');
     }
 
+    /**
+     * @return HasMany<OrderFeeLine, $this>
+     */
     public function feeLines(): HasMany
     {
         return $this->hasMany(OrderFeeLine::class);
     }
 
+    /**
+     * @return HasMany<OrderItem, $this>
+     */
     public function items(): HasMany
     {
         return $this->hasMany(OrderItem::class);
     }
 
+    /**
+     * @return HasMany<OrderStatusHistory, $this>
+     */
     public function statusHistories(): HasMany
     {
         return $this->hasMany(OrderStatusHistory::class);
     }
 
+    /**
+     * @return HasMany<OrderLocation, $this>
+     */
     public function orderLocations(): HasMany
     {
         return $this->hasMany(OrderLocation::class);
     }
 
+    /**
+     * @return HasMany<OrderLocation, $this>
+     */
     public function locations(): HasMany
     {
         return $this->orderLocations();
     }
 
+    /**
+     * @return HasMany<OrderEvidence, $this>
+     */
     public function evidences(): HasMany
     {
         return $this->hasMany(OrderEvidence::class);
     }
 
+    /**
+     * @return HasMany<OrderLog, $this>
+     */
     public function logs(): HasMany
     {
         return $this->hasMany(OrderLog::class);
     }
 
+    /**
+     * @return HasOne<OrderPayment, $this>
+     */
     public function payment(): HasOne
     {
         return $this->hasOne(OrderPayment::class);
     }
 
+    /**
+     * @return HasMany<OrderPayment, $this>
+     */
     public function payments(): HasMany
     {
         return $this->hasMany(OrderPayment::class);
     }
 
+    /**
+     * @return HasMany<OrderChatMessage, $this>
+     */
     public function chatMessages(): HasMany
     {
         return $this->hasMany(OrderChatMessage::class);
     }
 
+    /**
+     * @return HasOne<RideOrder, $this>
+     */
     public function rideOrder(): HasOne
     {
         return $this->hasOne(RideOrder::class);
     }
 
+    /**
+     * @return HasOne<CourierOrder, $this>
+     */
     public function courierOrder(): HasOne
     {
         return $this->hasOne(CourierOrder::class);
     }
 
+    /**
+     * @return HasOne<ShoppingReceipt, $this>
+     */
     public function shoppingReceipt(): HasOne
     {
         return $this->hasOne(ShoppingReceipt::class);
@@ -331,14 +376,26 @@ class Order extends Model
 
     public function getDeliveryDistanceKmAttribute(mixed $value = null): ?float
     {
-        $distance = $value ?? ($this->attributes['delivery_distance_km'] ?? null);
+        $distance = $value ?? data_get($this->route_snapshot, 'distance_km');
+        if ($distance === null) {
+            $meters = data_get($this->route_snapshot, 'distance_meters');
+            $distance = is_numeric($meters) ? ((float) $meters / 1000) : null;
+        }
 
-        return $distance !== null ? (float) $distance : null;
+        return is_numeric($distance) ? round((float) $distance, 2) : null;
     }
 
     public function getDeliveryDistanceTextAttribute(mixed $value = null): ?string
     {
-        return $value ?? ($this->attributes['delivery_distance_text'] ?? null);
+        $text = $value ?? data_get($this->route_snapshot, 'distance_text');
+        $normalized = trim((string) ($text ?? ''));
+        if ($normalized !== '') {
+            return $normalized;
+        }
+
+        $distance = $this->delivery_distance_km;
+
+        return $distance !== null ? number_format($distance, 1, ',', '.').' km' : null;
     }
 
     public function getRouteSnapshotAttribute(mixed $value = null): ?array
@@ -356,13 +413,6 @@ class Order extends Model
         }
 
         return null;
-    }
-
-    public function getEstimatedDeliveryAttribute(mixed $value = null): mixed
-    {
-        $timestamp = $value ?? ($this->attributes['estimated_delivery'] ?? null);
-
-        return $timestamp !== null ? $this->asDateTime($timestamp) : null;
     }
 
     public function getCancellationReasonAttribute(mixed $value = null): ?string

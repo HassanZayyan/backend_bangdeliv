@@ -15,11 +15,11 @@ class EnsureUserRole
     {
         $user = $request->user();
 
-        if (!$user) {
+        if (! $user) {
             abort(401, 'Unauthenticated.');
         }
 
-        if (!in_array($user->role, $roles, true)) {
+        if (! in_array($user->role, $roles, true)) {
             abort(403, 'Akses ditolak untuk role ini.');
         }
 

@@ -14,9 +14,7 @@ class RestaurantController extends Controller
 {
     use ApiResponse;
 
-    public function __construct(private readonly RestaurantService $restaurantService)
-    {
-    }
+    public function __construct(private readonly RestaurantService $restaurantService) {}
 
     public function index(ListRestaurantsRequest $request): JsonResponse
     {

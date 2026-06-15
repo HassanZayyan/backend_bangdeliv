@@ -8,8 +8,11 @@ use App\Models\OrderPayment;
 class OrderPaymentService
 {
     public const METHOD_COD = 'COD';
+
     public const METHOD_TRANSFER = 'TRANSFER';
+
     public const STATUS_PENDING = 'PENDING';
+
     public const STATUS_PAID = 'PAID';
 
     public function ensurePendingPayment(Order $order, string $method = self::METHOD_COD): OrderPayment

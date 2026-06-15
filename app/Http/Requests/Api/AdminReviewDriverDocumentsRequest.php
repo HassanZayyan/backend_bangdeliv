@@ -29,7 +29,7 @@ class AdminReviewDriverDocumentsRequest extends FormRequest
     {
         $validator->after(function (Validator $validator): void {
             $documents = $this->input('documents', []);
-            if (!is_array($documents)) {
+            if (! is_array($documents)) {
                 return;
             }
 

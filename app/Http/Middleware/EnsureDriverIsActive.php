@@ -13,7 +13,7 @@ class EnsureDriverIsActive
     {
         $user = $request->user();
 
-        if (!$user) {
+        if (! $user) {
             return $this->deny($request, 'Unauthenticated.', 401);
         }
 
@@ -22,7 +22,7 @@ class EnsureDriverIsActive
         }
 
         $driver = $user->driver;
-        if (!$driver) {
+        if (! $driver) {
             return $this->deny($request, 'Profil driver tidak ditemukan.', 403);
         }
 

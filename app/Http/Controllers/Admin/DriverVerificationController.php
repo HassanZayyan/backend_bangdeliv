@@ -13,9 +13,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class DriverVerificationController extends Controller
 {
-    public function __construct(private readonly DriverVerificationService $service)
-    {
-    }
+    public function __construct(private readonly DriverVerificationService $service) {}
 
     public function index(Request $request): View
     {

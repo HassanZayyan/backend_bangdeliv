@@ -12,7 +12,6 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property array<string, mixed>|null $rule_config
  * @property bool $is_active
  * @property \Carbon\Carbon|null $starts_at
- *
  * @property-read \App\Models\ServiceType $serviceType
  */
 class ServiceFeeRule extends Model

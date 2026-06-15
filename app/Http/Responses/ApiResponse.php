@@ -18,7 +18,7 @@ trait ApiResponse
             'data' => $data,
         ];
 
-        if (!empty($meta)) {
+        if (! empty($meta)) {
             $payload['meta'] = $meta;
         }
 
@@ -35,7 +35,7 @@ trait ApiResponse
             'message' => $message,
         ];
 
-        if (!empty($errors)) {
+        if (! empty($errors)) {
             $payload['errors'] = $errors;
         }
 

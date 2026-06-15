@@ -71,5 +71,4 @@ class OrderExecutionController extends Controller
             ], $e->status());
         }
     }
-
 }

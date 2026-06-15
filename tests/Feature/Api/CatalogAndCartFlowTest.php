@@ -79,5 +79,4 @@ class CatalogAndCartFlowTest extends TestCase
             ->assertJsonPath('data.0.name', 'Alfamart BangDeliv Point')
             ->assertJsonPath('data.1.name', 'Warung Zeta');
     }
-
 }

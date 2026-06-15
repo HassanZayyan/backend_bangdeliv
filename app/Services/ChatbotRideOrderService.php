@@ -293,7 +293,6 @@ class ChatbotRideOrderService
                 'status' => $order->statusRef?->code,
                 'total_price' => (float) $order->total_price,
                 'delivery_fee' => (float) $order->delivery_fee,
-                'estimated_delivery' => $order->estimated_delivery,
             ],
             'assistant_text' => $this->buildSuccessMessage($order, $pendingDraft),
         ];
