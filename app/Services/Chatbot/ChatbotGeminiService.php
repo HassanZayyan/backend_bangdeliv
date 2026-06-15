@@ -13,7 +13,7 @@ class ChatbotGeminiService
      */
     public function parseFoodOrder(string $message, ?array $context = null): array
     {
-        $systemInstruction = 'Kamu adalah NLU assistant BangDeliv untuk layanan Nitip. Keluarkan hanya JSON sesuai schema. intent valid: "shopping_order" atau "out_of_domain". command valid: "confirm" atau "none"; gunakan confirm hanya untuk pesan konfirmasi singkat seperti "konfirmasi", "confirm", atau "lanjut". Ekstrak merchant/resto/toko, item belanja, jumlah, catatan, dan alamat antar jika disebut. Item dari warung/alfamart/restoran boleh berupa barang umum atau nama makanan. Jangan menentukan item berat; berat akan dikonfirmasi driver. Jika disediakan CONTEXT_JSON, gunakan untuk menjaga kesinambungan draft. Dilarang merespon teks biasa.';
+        $systemInstruction = 'Kamu adalah NLU assistant BangDeliv untuk layanan Nitip. Keluarkan hanya JSON sesuai schema. intent valid: "shopping_order" atau "out_of_domain". command valid: "confirm" atau "none"; gunakan confirm hanya untuk pesan konfirmasi singkat seperti "konfirmasi", "confirm", atau "lanjut". Ekstrak merchant/resto/toko, item belanja, jumlah, catatan, dan alamat antar hanya jika disebut di pesan terbaru. Jika user menambah item, operation item adalah "add"; jika user mengubah jumlah final dengan kata seperti "saja", "cukup", atau "jadi", operation adalah "set"; jika user menghapus/membatalkan item, operation adalah "remove". Jangan mengembalikan ulang item lama dari CONTEXT_JSON kecuali item itu disebut lagi di pesan terbaru. Item dari warung/alfamart/restoran boleh berupa barang umum atau nama makanan. Jangan menentukan item berat; berat akan dikonfirmasi driver. Jika disediakan CONTEXT_JSON, gunakan untuk menjaga kesinambungan draft tanpa menyalin ulang semua item lama. Dilarang merespon teks biasa.';
 
         $schema = [
             'type' => 'OBJECT',
@@ -32,6 +32,7 @@ class ChatbotGeminiService
                             'menu' => ['type' => 'STRING'],
                             'quantity' => ['type' => 'INTEGER'],
                             'qty' => ['type' => 'INTEGER'],
+                            'operation' => ['type' => 'STRING', 'nullable' => true],
                             'notes' => ['type' => 'STRING', 'nullable' => true],
                         ],
                         'required' => ['name', 'quantity'],
@@ -262,13 +263,19 @@ class ChatbotGeminiService
                 }
 
                 $quantity = max(1, (int) ($item['quantity'] ?? $item['qty'] ?? 1));
-                $items[] = [
+                $operation = $this->normalizeItemOperation($item['operation'] ?? null);
+                $normalizedItem = [
                     'name' => $name,
                     'menu' => $name,
                     'quantity' => $quantity,
                     'qty' => $quantity,
                     'notes' => $this->normalizeOptionalString($item['notes'] ?? null),
                 ];
+                if ($operation !== null) {
+                    $normalizedItem['operation'] = $operation;
+                }
+
+                $items[] = $normalizedItem;
             }
         }
 
@@ -335,6 +342,15 @@ class ChatbotGeminiService
         $normalized = trim($value);
 
         return $normalized === '' ? null : $normalized;
+    }
+
+    private function normalizeItemOperation(mixed $value): ?string
+    {
+        $normalized = strtolower(trim((string) ($value ?? '')));
+
+        return in_array($normalized, ['add', 'set', 'remove'], true)
+            ? $normalized
+            : null;
     }
 
     private function normalizeOptionalFloat(mixed $value): ?float

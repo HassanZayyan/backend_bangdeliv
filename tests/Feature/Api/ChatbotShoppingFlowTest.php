@@ -12,6 +12,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Testing\TestResponse;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -277,6 +278,161 @@ class ChatbotShoppingFlowTest extends TestCase
         $this->assertSame('_p~iF~ps|U_ulLnnqC_mqNvxq`@', $routeSnapshot['encoded_polyline'] ?? null);
     }
 
+    public function test_chatbot_shopping_item_edit_context_add_set_and_remove(): void
+    {
+        Config::set('bangdeliv.google_maps_api_key', 'test-key');
+
+        $customer = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        Address::query()->create([
+            'user_id' => $customer->id,
+            'label' => 'Rumah',
+            'recipient_name' => 'Customer Test',
+            'phone' => '081200000006',
+            'full_address' => 'Jl. Customer No. 6',
+            'latitude' => -7.003,
+            'longitude' => 110.403,
+            'is_default' => true,
+        ]);
+
+        Restaurant::query()->create([
+            'name' => 'Resto Taman Kedai Satu',
+            'slug' => 'resto-taman-kedai-satu',
+            'description' => 'Resto ayam geprek',
+            'merchant_type' => 'restaurant',
+            'address' => 'Jl. Taman Kedai No. 1',
+            'latitude' => -7.001,
+            'longitude' => 110.401,
+            'phone' => '081200000007',
+            'status' => 'active',
+        ]);
+
+        Sanctum::actingAs($customer);
+        $sessionId = 'shopping-context-edit-session';
+
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'merchant' => 'Resto Taman Kedai Satu',
+            'items' => [
+                ['name' => 'ayam geprek', 'quantity' => 1],
+            ],
+        ]);
+        $draftResponse = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'beli ayam geprek 1x di taman kedai',
+        ]);
+
+        $draftResponse->assertOk()
+            ->assertJsonPath('data.shopping.ready_to_confirm', true);
+        $this->assertSame(['ayam geprek' => 1], $this->shoppingItemQuantities($draftResponse));
+
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'merchant' => 'Resto Taman Kedai Satu',
+            'items' => [
+                ['name' => 'ayam geprek', 'quantity' => 1],
+                ['name' => 'es teh', 'quantity' => 1, 'operation' => 'add'],
+            ],
+        ]);
+        $addTeaResponse = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'tambah es teh 1x',
+        ]);
+
+        $addTeaResponse->assertOk();
+        $this->assertSame(
+            ['ayam geprek' => 1, 'es teh' => 1],
+            $this->shoppingItemQuantities($addTeaResponse)
+        );
+
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'merchant' => 'Resto Taman Kedai Satu',
+            'items' => [
+                ['name' => 'ayam geprek', 'quantity' => 1, 'operation' => 'set'],
+                ['name' => 'es teh', 'quantity' => 1],
+            ],
+        ]);
+        $setChickenResponse = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'ayam gepreknya 1x saja',
+        ]);
+
+        $setChickenResponse->assertOk();
+        $this->assertSame(
+            ['ayam geprek' => 1, 'es teh' => 1],
+            $this->shoppingItemQuantities($setChickenResponse)
+        );
+
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'merchant' => 'Resto Taman Kedai Satu',
+            'items' => [
+                ['name' => 'ayam geprek', 'quantity' => 1, 'operation' => 'add'],
+                ['name' => 'es teh', 'quantity' => 1],
+            ],
+        ]);
+        $addChickenResponse = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'tambah ayam geprek 1x',
+        ]);
+
+        $addChickenResponse->assertOk();
+        $this->assertSame(
+            ['ayam geprek' => 2, 'es teh' => 1],
+            $this->shoppingItemQuantities($addChickenResponse)
+        );
+
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'merchant' => 'Resto Taman Kedai Satu',
+            'items' => [
+                ['name' => 'ayam geprek', 'quantity' => 2],
+                ['name' => 'es teh', 'quantity' => 1, 'operation' => 'remove'],
+            ],
+        ]);
+        $removeTeaResponse = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'hapus es teh',
+        ]);
+
+        $removeTeaResponse->assertOk();
+        $this->assertSame(['ayam geprek' => 2], $this->shoppingItemQuantities($removeTeaResponse));
+
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'merchant' => 'Resto Taman Kedai Satu',
+            'items' => [
+                ['name' => 'ayam geprek', 'quantity' => 2, 'operation' => 'remove'],
+            ],
+        ]);
+        $removeLastItemResponse = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'hapus ayam geprek',
+        ]);
+
+        $removeLastItemResponse->assertOk()
+            ->assertJsonPath('data.shopping.ready_to_confirm', false);
+        $this->assertSame([], $this->shoppingItemQuantities($removeLastItemResponse));
+        $this->assertContains('items', $removeLastItemResponse->json('data.validation.missing_fields'));
+    }
+
     public function test_chatbot_shopping_for_warung_creates_manual_pending_price_item(): void
     {
         Config::set('bangdeliv.google_maps_api_key', 'test-key');
@@ -370,6 +526,32 @@ class ChatbotShoppingFlowTest extends TestCase
         $this->assertSame('MANUAL', $item->item_source);
         $this->assertSame('0.00', (string) $item->unit_price);
         $this->assertSame('PENDING_DRIVER_INPUT', $item->metadata['price_status'] ?? null);
+    }
+
+    /**
+     * @return array<string, int>
+     */
+    private function shoppingItemQuantities(TestResponse $response): array
+    {
+        $items = $response->json('data.shopping.items') ?? [];
+        $quantities = [];
+
+        foreach ($items as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+
+            $name = strtolower(trim((string) ($item['name'] ?? $item['menu_name'] ?? '')));
+            if ($name === '') {
+                continue;
+            }
+
+            $quantities[$name] = (int) ($item['quantity'] ?? 0);
+        }
+
+        ksort($quantities);
+
+        return $quantities;
     }
 
     /**

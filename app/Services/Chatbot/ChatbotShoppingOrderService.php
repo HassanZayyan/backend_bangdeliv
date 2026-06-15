@@ -38,6 +38,7 @@ class ChatbotShoppingOrderService
         private readonly OrderPaymentService $orderPaymentService,
         private readonly DriverOrderRealtimeService $driverOrderRealtimeService,
         private readonly ChatbotAddressReadinessService $addressReadinessService,
+        private readonly ChatbotShoppingItemIntentParser $itemIntentParser,
     ) {}
 
     /**
@@ -119,9 +120,12 @@ class ChatbotShoppingOrderService
             return ['payment_method' => $paymentMethod];
         }
 
+        $parsedItemIntents = $this->itemIntentParser->parse($message);
         $seed = [
             'merchant_name' => $this->normalizeOptionalString($nluPayload['merchant'] ?? $nluPayload['resto'] ?? null),
-            'items' => $this->normalizeIncomingItems($nluPayload['items'] ?? []),
+            'items' => $parsedItemIntents === []
+                ? $this->normalizeIncomingItems($nluPayload['items'] ?? [])
+                : $parsedItemIntents,
             'payment_method' => $paymentMethod,
         ];
 
@@ -166,6 +170,8 @@ class ChatbotShoppingOrderService
             $normalized[] = [
                 'name' => $name,
                 'quantity' => max(1, (int) ($item['quantity'] ?? $item['qty'] ?? 1)),
+                'operation' => $this->itemIntentParser->normalizeOperation($item['operation'] ?? null)
+                    ?? ChatbotShoppingItemIntentParser::OP_ADD,
                 'notes' => $this->normalizeOptionalString($item['notes'] ?? null),
                 'is_heavy' => false,
             ];
@@ -203,6 +209,7 @@ class ChatbotShoppingOrderService
             $items[] = [
                 'name' => $name,
                 'quantity' => max(1, (int) ($match[1] ?? 1)),
+                'operation' => ChatbotShoppingItemIntentParser::OP_ADD,
                 'notes' => null,
                 'is_heavy' => false,
             ];
@@ -263,7 +270,7 @@ class ChatbotShoppingOrderService
     {
         $itemsByName = [];
 
-        foreach ([...$baseItems, ...$incomingItems] as $item) {
+        foreach ($baseItems as $item) {
             if (! is_array($item)) {
                 continue;
             }
@@ -274,11 +281,44 @@ class ChatbotShoppingOrderService
             }
 
             $key = Str::of($name)->lower()->squish()->toString();
-            $currentQty = (int) ($itemsByName[$key]['quantity'] ?? 0);
             $itemsByName[$key] = [
                 'name' => $name,
-                'quantity' => max(1, $currentQty + max(1, (int) ($item['quantity'] ?? $item['qty'] ?? 1))),
+                'quantity' => max(1, (int) ($item['quantity'] ?? $item['qty'] ?? 1)),
                 'notes' => $this->normalizeOptionalString($item['notes'] ?? null),
+                'is_heavy' => false,
+            ];
+        }
+
+        foreach ($incomingItems as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+
+            $name = $this->normalizeOptionalString($item['name'] ?? $item['menu_name'] ?? null);
+            if ($name === null) {
+                continue;
+            }
+
+            $key = Str::of($name)->lower()->squish()->toString();
+            $operation = $this->itemIntentParser->normalizeOperation($item['operation'] ?? null)
+                ?? ChatbotShoppingItemIntentParser::OP_ADD;
+            if ($operation === ChatbotShoppingItemIntentParser::OP_REMOVE) {
+                unset($itemsByName[$key]);
+
+                continue;
+            }
+
+            $incomingQty = max(1, (int) ($item['quantity'] ?? $item['qty'] ?? 1));
+            $currentQty = (int) ($itemsByName[$key]['quantity'] ?? 0);
+            $quantity = $operation === ChatbotShoppingItemIntentParser::OP_SET
+                ? $incomingQty
+                : $currentQty + $incomingQty;
+
+            $itemsByName[$key] = [
+                'name' => $name,
+                'quantity' => max(1, $quantity),
+                'notes' => $this->normalizeOptionalString($item['notes'] ?? null)
+                    ?? ($itemsByName[$key]['notes'] ?? null),
                 'is_heavy' => false,
             ];
         }
