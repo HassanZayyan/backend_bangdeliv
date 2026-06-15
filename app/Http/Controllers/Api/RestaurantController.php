@@ -6,7 +6,7 @@ use App\Exceptions\ApiException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\ListRestaurantsRequest;
 use App\Http\Responses\ApiResponse;
-use App\Services\RestaurantService;
+use App\Services\Catalog\RestaurantService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 

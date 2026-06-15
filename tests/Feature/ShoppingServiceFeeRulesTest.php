@@ -3,7 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\ServiceType;
-use App\Services\ShoppingPricingService;
+use App\Services\Pricing\ShoppingPricingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 

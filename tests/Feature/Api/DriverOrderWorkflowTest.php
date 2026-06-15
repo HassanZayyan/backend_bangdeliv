@@ -19,7 +19,7 @@ use App\Models\OrderStatus;
 use App\Models\OrderStatusHistory;
 use App\Models\ServiceType;
 use App\Models\User;
-use App\Services\DriverOrderRealtimeService;
+use App\Services\Driver\DriverOrderRealtimeService;
 use Illuminate\Broadcasting\BroadcastException;
 use Illuminate\Contracts\Broadcasting\Broadcaster as BroadcasterContract;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
@@ -325,6 +325,139 @@ class DriverOrderWorkflowTest extends TestCase
             $response->json('data.incoming_orders.1.dispatch.distance_to_pickup_km'),
             $response->json('data.incoming_orders.0.dispatch.distance_to_pickup_km')
         );
+    }
+
+    public function test_customer_order_detail_includes_driver_eta_for_ride_assigned_order(): void
+    {
+        Config::set('bangdeliv.google_maps_api_key', 'test-google-key');
+        Config::set('bangdeliv.dispatch.fresh_location_minutes', 10);
+        $this->fakeEtaRouteResponse(durationSeconds: 480, distanceMeters: 2100);
+
+        [, $driver] = $this->createActiveDriver('ride-eta');
+        $driver->update([
+            'latitude' => -7.3305,
+            'longitude' => 110.5084,
+            'location_updated_at' => now(),
+        ]);
+
+        $order = $this->createRideOrderForDriver($driver, 'DRIVER_ASSIGNED');
+        $this->createPickupLocation($order, -7.3310, 110.5090, 'Rumah Customer');
+        $this->createDropoffLocation($order, -7.3400, 110.5200, 'Kampus Tujuan');
+
+        Sanctum::actingAs($order->user);
+
+        $response = $this->getJson('/api/v1/orders/'.$order->id);
+
+        $response->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.driver_eta.target', 'PICKUP')
+            ->assertJsonPath('data.driver_eta.target_label', 'Titik jemput')
+            ->assertJsonPath('data.driver_eta.duration_seconds', 480)
+            ->assertJsonPath('data.driver_eta.duration_text', '8 menit')
+            ->assertJsonPath('data.driver_eta.distance_meters', 2100)
+            ->assertJsonPath('data.driver_eta.distance_text', '2.10 km')
+            ->assertJsonPath('data.driver_eta.location_fresh', true)
+            ->assertJsonPath('data.driver_eta.route_provider', 'routes_api');
+    }
+
+    public function test_customer_order_detail_hides_driver_eta_after_ride_pickup_arrival(): void
+    {
+        [, $driver] = $this->createActiveDriver('ride-arrived-eta');
+        $driver->update([
+            'latitude' => -7.3305,
+            'longitude' => 110.5084,
+            'location_updated_at' => now(),
+        ]);
+
+        $order = $this->createRideOrderForDriver($driver, 'ARRIVED_PICKUP');
+        $this->createPickupLocation($order, -7.3310, 110.5090, 'Rumah Customer');
+
+        Sanctum::actingAs($order->user);
+
+        $this->getJson('/api/v1/orders/'.$order->id)
+            ->assertOk()
+            ->assertJsonPath('data.driver_eta', null);
+    }
+
+    public function test_customer_order_detail_includes_driver_eta_for_courier_assigned_order(): void
+    {
+        Config::set('bangdeliv.google_maps_api_key', 'test-google-key');
+        $this->fakeEtaRouteResponse(durationSeconds: 660, distanceMeters: 3200);
+
+        [, $driver] = $this->createActiveDriver('courier-eta');
+        $driver->update([
+            'latitude' => -7.3305,
+            'longitude' => 110.5084,
+            'location_updated_at' => now(),
+        ]);
+
+        $order = $this->createCourierOrderForDriver($driver, 'DRIVER_ASSIGNED', 20000);
+        $this->createPickupLocation($order, -7.3310, 110.5090, 'Pickup Paket');
+        $this->createDropoffLocation($order, -7.3400, 110.5200, 'Tujuan Paket');
+
+        Sanctum::actingAs($order->user);
+
+        $this->getJson('/api/v1/orders/'.$order->id)
+            ->assertOk()
+            ->assertJsonPath('data.driver_eta.target', 'PICKUP')
+            ->assertJsonPath('data.driver_eta.duration_seconds', 660)
+            ->assertJsonPath('data.driver_eta.distance_meters', 3200);
+    }
+
+    public function test_customer_order_detail_includes_shopping_eta_only_when_driver_heads_to_customer(): void
+    {
+        Config::set('bangdeliv.google_maps_api_key', 'test-google-key');
+        $this->fakeEtaRouteResponse(durationSeconds: 720, distanceMeters: 4100);
+
+        [, $driver] = $this->createActiveDriver('shopping-eta');
+        $driver->update([
+            'latitude' => -7.3305,
+            'longitude' => 110.5084,
+            'location_updated_at' => now(),
+        ]);
+
+        $assignedOrder = $this->createShoppingOrder($driver, 'DRIVER_ASSIGNED');
+        $this->createPickupLocation($assignedOrder, -7.3310, 110.5090, 'Merchant');
+        $this->createDropoffLocation($assignedOrder, -7.3400, 110.5200, 'Alamat Customer');
+
+        Sanctum::actingAs($assignedOrder->user);
+
+        $this->getJson('/api/v1/orders/'.$assignedOrder->id)
+            ->assertOk()
+            ->assertJsonPath('data.driver_eta', null);
+
+        $onTheWayOrder = $this->createShoppingOrder($driver, 'ON_THE_WAY');
+        $this->createPickupLocation($onTheWayOrder, -7.3310, 110.5090, 'Merchant');
+        $this->createDropoffLocation($onTheWayOrder, -7.3400, 110.5200, 'Alamat Customer');
+
+        Sanctum::actingAs($onTheWayOrder->user);
+
+        $this->getJson('/api/v1/orders/'.$onTheWayOrder->id)
+            ->assertOk()
+            ->assertJsonPath('data.driver_eta.target', 'DROPOFF')
+            ->assertJsonPath('data.driver_eta.target_label', 'Alamat customer')
+            ->assertJsonPath('data.driver_eta.duration_seconds', 720);
+    }
+
+    public function test_customer_order_detail_hides_driver_eta_when_driver_location_is_stale(): void
+    {
+        Config::set('bangdeliv.dispatch.fresh_location_minutes', 10);
+
+        [, $driver] = $this->createActiveDriver('stale-eta');
+        $driver->update([
+            'latitude' => -7.3305,
+            'longitude' => 110.5084,
+            'location_updated_at' => now()->subMinutes(30),
+        ]);
+
+        $order = $this->createRideOrderForDriver($driver, 'DRIVER_ASSIGNED');
+        $this->createPickupLocation($order, -7.3310, 110.5090, 'Rumah Customer');
+
+        Sanctum::actingAs($order->user);
+
+        $this->getJson('/api/v1/orders/'.$order->id)
+            ->assertOk()
+            ->assertJsonPath('data.driver_eta', null);
     }
 
     public function test_rejected_pending_order_is_hidden_and_reject_is_idempotent(): void
@@ -1426,6 +1559,33 @@ class DriverOrderWorkflowTest extends TestCase
         ]);
     }
 
+    private function createRideOrderForDriver(Driver $driver, string $statusCode): Order
+    {
+        $customer = User::factory()->create(['role' => 'customer']);
+        $rideTypeId = (int) ServiceType::query()->where('code', 'RIDE')->value('id');
+        $statusId = (int) OrderStatus::query()->where('code', $statusCode)->value('id');
+
+        return Order::query()->create([
+            'order_number' => 'BD-RDE-'.strtoupper(substr(md5($statusCode.random_int(1, 999999)), 0, 8)),
+            'user_id' => $customer->id,
+            'restaurant_id' => null,
+            'service_type_id' => $rideTypeId,
+            'driver_id' => $driver->id,
+            'address_id' => null,
+            'delivery_address' => 'Jl. Tujuan Ride No. '.random_int(1, 99),
+            'delivery_latitude' => -7.3400,
+            'delivery_longitude' => 110.5200,
+            'subtotal' => 0,
+            'delivery_fee' => 12000,
+            'service_fee' => 0,
+            'total_amount' => 12000,
+            'total_price' => 12000,
+            'status_id' => $statusId,
+            'payment_status' => 'unpaid',
+            'payment_method' => 'COD',
+        ]);
+    }
+
     private function createPickupLocation(Order $order, float $latitude, float $longitude, string $label): OrderLocation
     {
         return OrderLocation::query()->create([
@@ -1439,6 +1599,23 @@ class DriverOrderWorkflowTest extends TestCase
             'latitude' => $latitude,
             'longitude' => $longitude,
             'sequence_no' => 1,
+            'fulfillment_status' => 'PENDING',
+        ]);
+    }
+
+    private function createDropoffLocation(Order $order, float $latitude, float $longitude, string $label): OrderLocation
+    {
+        return OrderLocation::query()->create([
+            'order_id' => $order->id,
+            'restaurant_id' => null,
+            'location_role' => 'DROPOFF',
+            'label' => $label,
+            'contact_name' => 'Customer Test',
+            'contact_phone' => '081234567891',
+            'full_address' => $label,
+            'latitude' => $latitude,
+            'longitude' => $longitude,
+            'sequence_no' => 99,
             'fulfillment_status' => 'PENDING',
         ]);
     }
@@ -1487,6 +1664,25 @@ class DriverOrderWorkflowTest extends TestCase
             'evidence_type' => $evidenceType,
             'file_url' => 'http://localhost/storage/test-proof.jpg',
             'uploaded_at' => now(),
+        ]);
+    }
+
+    private function fakeEtaRouteResponse(int $durationSeconds, int $distanceMeters): void
+    {
+        Http::fake([
+            'https://routes.googleapis.com/directions/v2:computeRoutes*' => Http::response([
+                'routes' => [[
+                    'distanceMeters' => $distanceMeters,
+                    'duration' => $durationSeconds.'s',
+                    'polyline' => [
+                        'encodedPolyline' => 'eta-polyline',
+                    ],
+                    'legs' => [[
+                        'distanceMeters' => $distanceMeters,
+                        'duration' => $durationSeconds.'s',
+                    ]],
+                ]],
+            ]),
         ]);
     }
 

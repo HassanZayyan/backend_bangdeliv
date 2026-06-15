@@ -4,7 +4,7 @@ namespace Tests\Unit;
 
 use App\Models\Menu;
 use App\Models\Restaurant;
-use App\Services\ChatbotOrderValidationService;
+use App\Services\Chatbot\ChatbotOrderValidationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 

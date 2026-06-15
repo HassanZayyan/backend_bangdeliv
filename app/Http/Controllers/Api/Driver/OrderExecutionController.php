@@ -5,7 +5,7 @@ namespace App\Http\Controllers\Api\Driver;
 use App\Exceptions\ApiException;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
-use App\Services\OrderService;
+use App\Services\Order\OrderService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 

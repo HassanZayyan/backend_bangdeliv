@@ -3,9 +3,9 @@
 namespace Tests\Unit;
 
 use App\Exceptions\ApiException;
-use App\Services\DeliveryPricingService;
-use App\Services\GoogleMapsDistanceMatrixService;
-use App\Services\ShoppingRouteService;
+use App\Services\Maps\GoogleMapsDistanceMatrixService;
+use App\Services\Pricing\DeliveryPricingService;
+use App\Services\Shopping\ShoppingRouteService;
 use Tests\TestCase;
 
 class ShoppingRouteServiceTest extends TestCase

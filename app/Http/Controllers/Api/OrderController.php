@@ -14,8 +14,8 @@ use App\Http\Requests\Api\UpdateDriverShoppingItemsRequest;
 use App\Http\Requests\Api\UpdateShoppingOrderItemRequest;
 use App\Http\Requests\Api\ValidateRideDestinationRequest;
 use App\Http\Responses\ApiResponse;
-use App\Services\OrderService;
-use App\Services\RideOrderService;
+use App\Services\Order\OrderService;
+use App\Services\Order\RideOrderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 

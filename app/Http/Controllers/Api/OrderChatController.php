@@ -5,7 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Exceptions\ApiException;
 use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiResponse;
-use App\Services\OrderChatService;
+use App\Services\Order\OrderChatService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 

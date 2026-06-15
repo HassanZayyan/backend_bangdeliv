@@ -3,5 +3,5 @@ includes:
 
 parameters:
     paths:
-        - app/Services/OrderService.php
+        - app/Services/Order/OrderService.php
     level: 5

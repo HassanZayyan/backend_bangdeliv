@@ -5,7 +5,7 @@ namespace Tests\Unit;
 use App\Enums\ProofType;
 use App\Enums\ServiceTypeCode;
 use App\Exceptions\ApiException;
-use App\Services\OrderProofPolicyService;
+use App\Services\Order\OrderProofPolicyService;
 use PHPUnit\Framework\TestCase;
 
 class OrderProofPolicyServiceTest extends TestCase

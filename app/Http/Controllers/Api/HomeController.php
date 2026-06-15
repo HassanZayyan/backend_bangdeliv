@@ -4,7 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiResponse;
-use App\Services\HomeService;
+use App\Services\Home\HomeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 

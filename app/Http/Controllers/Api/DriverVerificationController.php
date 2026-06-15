@@ -7,7 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\AdminReviewDriverDocumentsRequest;
 use App\Http\Requests\Api\SubmitDriverDocumentsRequest;
 use App\Http\Responses\ApiResponse;
-use App\Services\DriverVerificationService;
+use App\Services\Driver\DriverVerificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 

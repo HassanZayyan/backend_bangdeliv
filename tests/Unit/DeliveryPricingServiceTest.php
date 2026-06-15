@@ -2,7 +2,7 @@
 
 namespace Tests\Unit;
 
-use App\Services\DeliveryPricingService;
+use App\Services\Pricing\DeliveryPricingService;
 use Tests\TestCase;
 
 class DeliveryPricingServiceTest extends TestCase
