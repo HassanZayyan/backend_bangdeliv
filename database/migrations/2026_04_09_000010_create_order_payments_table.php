@@ -20,7 +20,6 @@ return new class extends Migration
             $table->foreignId('recorded_by_user_id')->nullable()->constrained('users')->nullOnDelete();
             $table->foreignId('driver_id')->nullable()->constrained()->nullOnDelete();
             $table->timestamp('paid_at')->nullable();
-            $table->text('note')->nullable();
             $table->json('metadata')->nullable();
             $table->timestamps();
 

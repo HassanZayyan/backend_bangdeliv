@@ -18,7 +18,7 @@ class OrderTransferEvidenceService
     ): OrderEvidence {
         $path = $photo->store('orders/'.$order->id.'/payments', 'public');
         if (! is_string($path) || $path === '') {
-            throw new ApiException('Upload bukti transfer gagal disimpan.', 500);
+            throw new ApiException('Upload bukti QRIS gagal disimpan.', 500);
         }
 
         return $this->recordFromUrl(
@@ -43,7 +43,7 @@ class OrderTransferEvidenceService
             'uploaded_at' => now(),
             'notes' => $note !== null && trim($note) !== ''
                 ? trim($note)
-                : 'Bukti transfer menunggu verifikasi.',
+                : 'Bukti QRIS menunggu verifikasi.',
         ]);
     }
 }

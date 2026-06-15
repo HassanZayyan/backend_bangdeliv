@@ -214,7 +214,7 @@ class OrderChatTest extends TestCase
         $this->assertDatabaseCount('order_chat_messages', 1);
     }
 
-    public function test_payment_transfer_chat_attachment_is_recorded_as_order_proof(): void
+    public function test_payment_transfer_chat_attachment_stays_chat_only(): void
     {
         Storage::fake('public');
         [$customer, , , $order] = $this->createAssignedOrder();
@@ -222,7 +222,7 @@ class OrderChatTest extends TestCase
         Sanctum::actingAs($customer);
 
         $this->post("/api/v1/orders/{$order->id}/chat/messages", [
-            'body' => 'Bukti transfer customer.',
+            'body' => 'Bukti QRIS customer.',
             'attachment_type' => 'payment_transfer',
             'attachment' => UploadedFile::fake()->image('transfer.jpg', 640, 480),
             'client_message_id' => 'transfer-proof-1',
@@ -231,9 +231,8 @@ class OrderChatTest extends TestCase
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.message.attachment_type', 'payment_transfer');
 
-        $this->assertDatabaseHas('order_evidence', [
+        $this->assertDatabaseMissing('order_evidence', [
             'order_id' => $order->id,
-            'driver_id' => null,
             'evidence_type' => 'PAYMENT_TRANSFER_PHOTO',
         ]);
     }

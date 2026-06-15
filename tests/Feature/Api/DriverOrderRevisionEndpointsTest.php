@@ -383,7 +383,7 @@ class DriverOrderRevisionEndpointsTest extends TestCase
 
         $response->assertConflict()
             ->assertJsonPath('success', false)
-            ->assertJsonPath('message', 'Bukti transfer hanya bisa diupload untuk order dengan metode pembayaran Transfer.');
+            ->assertJsonPath('message', 'Bukti QRIS hanya bisa diupload untuk order dengan metode pembayaran QRIS.');
 
         $this->assertDatabaseMissing('order_evidence', [
             'order_id' => $order->id,
@@ -616,7 +616,6 @@ class DriverOrderRevisionEndpointsTest extends TestCase
 
         $response = $this->postJson('/api/v1/orders/'.$order->id.'/payment/transfer/confirm', [
             'amount' => 18000,
-            'note' => 'Transfer BCA sudah dicek.',
         ]);
 
         $response->assertOk()
@@ -631,6 +630,13 @@ class DriverOrderRevisionEndpointsTest extends TestCase
             'amount' => 18000,
             'recorded_by_user_id' => $driverUser->id,
             'driver_id' => $driver->id,
+        ]);
+        $this->assertDatabaseHas('order_events', [
+            'order_id' => $order->id,
+            'event_type' => 'PAYMENT_UPDATE',
+            'trigger_type' => 'QRIS_PAYMENT_RECORDED_BY_DRIVER',
+            'changed_by_user_id' => $driverUser->id,
+            'note' => 'Driver mencatat pembayaran QRIS secara manual.',
         ]);
     }
 

@@ -135,7 +135,7 @@ class OrderController extends Controller
                 $validated
             );
 
-            return $this->success($order, 'Bukti transfer berhasil diupload.', 201);
+            return $this->success($order, 'Bukti QRIS berhasil diupload.', 201);
         } catch (ApiException $exception) {
             return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
         }
@@ -517,7 +517,6 @@ class OrderController extends Controller
     {
         $validated = $request->validate([
             'amount' => ['required', 'numeric', 'min:1', 'max:99999999'],
-            'note' => ['nullable', 'string', 'max:1000'],
             'paid_at' => ['nullable', 'date'],
         ]);
 
@@ -528,7 +527,7 @@ class OrderController extends Controller
                 $validated
             );
 
-            return $this->success($payload, 'Pembayaran transfer berhasil dicatat.');
+            return $this->success($payload, 'Pembayaran QRIS berhasil dicatat.');
         } catch (ApiException $exception) {
             return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
         }

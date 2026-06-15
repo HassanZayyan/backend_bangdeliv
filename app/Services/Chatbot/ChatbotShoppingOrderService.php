@@ -366,8 +366,8 @@ class ChatbotShoppingOrderService
                 'message' => 'COD',
             ],
             'SET_PAYMENT_TRANSFER' => [
-                'label' => 'Transfer',
-                'message' => 'Transfer',
+                'label' => 'QRIS',
+                'message' => 'QRIS',
             ],
         ];
 
@@ -642,12 +642,12 @@ class ChatbotShoppingOrderService
                     'message' => 'COD',
                 ],
                 'SET_PAYMENT_TRANSFER' => [
-                    'label' => 'Transfer',
-                    'message' => 'Transfer',
+                    'label' => 'QRIS',
+                    'message' => 'QRIS',
                 ],
             ], $pendingPayload['validation']['next_actions']);
             $pendingPayload['assistant_text'] = $this->buildAssistantText($pendingPayload, (string) $user->name)
-                ."\n\nPilih COD atau Transfer dulu sebelum konfirmasi.";
+                ."\n\nPilih COD atau QRIS dulu sebelum konfirmasi.";
 
             return $pendingPayload;
         }
@@ -948,7 +948,7 @@ class ChatbotShoppingOrderService
         $lines[] = 'Estimasi total sementara: Rp '.number_format((float) data_get($payload, 'pricing.total_price', 0), 0, ',', '.');
         $paymentMethod = $this->normalizePaymentMethodOrNull(data_get($payload, 'shopping.payment_method'));
         $lines[] = $paymentMethod === null
-            ? 'Metode pembayaran: pilih COD atau Transfer.'
+            ? 'Metode pembayaran: pilih COD atau QRIS.'
             : 'Metode pembayaran: '.$this->paymentMethodLabel($paymentMethod).'.';
         $lines[] = '';
         $lines[] = 'Ketik "konfirmasi" kalau sudah oke.';
@@ -999,7 +999,7 @@ class ChatbotShoppingOrderService
     private function paymentMethodLabel(mixed $value): string
     {
         return $this->normalizePaymentMethodOrNull($value) === OrderPaymentService::METHOD_TRANSFER
-            ? 'Transfer'
+            ? 'QRIS'
             : 'COD';
     }
 

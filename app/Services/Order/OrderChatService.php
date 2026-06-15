@@ -19,7 +19,6 @@ class OrderChatService
     public function __construct(
         private readonly OrderRealtimeBroadcaster $realtimeBroadcaster,
         private readonly ChatPushNotificationService $chatPushNotificationService,
-        private readonly OrderTransferEvidenceService $transferEvidenceService,
     ) {}
 
     /**
@@ -142,7 +141,6 @@ class OrderChatService
             || $this->realtimeBroadcaster->orderChatMessageSent($order->id, $serialized);
 
         if ($message->wasRecentlyCreated) {
-            $this->recordPaymentTransferEvidence($order, $message);
             $this->chatPushNotificationService->sendOrderChatNotification(
                 $order,
                 $actor,
@@ -324,25 +322,6 @@ class OrderChatService
             'attachment_mime_type' => $attachment->getMimeType(),
             'attachment_size' => $attachment->getSize(),
         ];
-    }
-
-    private function recordPaymentTransferEvidence(Order $order, OrderChatMessage $message): void
-    {
-        if ($message->attachment_url === null) {
-            return;
-        }
-
-        $attachmentType = strtolower(str_replace('-', '_', (string) $message->attachment_type));
-        if ($attachmentType !== 'payment_transfer') {
-            return;
-        }
-
-        $this->transferEvidenceService->recordFromUrl(
-            $order,
-            $message->attachment_url,
-            $message->sender_role === 'driver' ? $order->driver_id : null,
-            $message->body !== '' ? $message->body : 'Bukti transfer dari chat order.',
-        );
     }
 
     private function positiveIntOrNull(mixed $value): ?int

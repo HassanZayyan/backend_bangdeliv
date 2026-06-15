@@ -217,7 +217,7 @@ class OrderService
 
             $photo = $payload['photo'] ?? null;
             if (! $photo instanceof UploadedFile) {
-                throw new ApiException('Foto bukti transfer wajib diupload.', 422);
+                throw new ApiException('Foto bukti QRIS wajib diupload.', 422);
             }
 
             $paymentMethod = $this->currentPaymentMethod($order);
@@ -226,7 +226,7 @@ class OrderService
                 strtoupper((string) ($order->statusRef->code ?? '')) === 'CANCELLED_WITH_FEE';
 
             if ($paymentMethod !== OrderPaymentService::METHOD_TRANSFER && ! $isCancelledWithFeeShopping) {
-                throw new ApiException('Bukti transfer hanya bisa diupload untuk order dengan metode pembayaran Transfer.', 409);
+                throw new ApiException('Bukti QRIS hanya bisa diupload untuk order dengan metode pembayaran QRIS.', 409);
             }
 
             if ($isCancelledWithFeeShopping && $paymentMethod !== OrderPaymentService::METHOD_TRANSFER) {
@@ -243,7 +243,7 @@ class OrderService
                 $order,
                 $photo,
                 null,
-                $payload['note'] ?? 'Bukti transfer dari customer.'
+                $payload['note'] ?? 'Bukti QRIS dari customer.'
             );
 
             OrderLog::query()->create([
@@ -251,7 +251,7 @@ class OrderService
                 'log_type' => 'PAYMENT_UPDATE',
                 'trigger_type' => 'CUSTOMER_TRANSFER_EVIDENCE_UPLOADED',
                 'changed_by_user_id' => $user->id,
-                'note' => 'Customer upload bukti transfer.',
+                'note' => 'Customer upload bukti QRIS.',
                 'metadata' => [
                     'payment_method' => OrderPaymentService::METHOD_TRANSFER,
                     'verification_status' => 'PENDING',
@@ -515,7 +515,6 @@ class OrderService
                     'paid_at' => $payment->paid_at,
                     'recorded_by_user_id' => $payment->recorded_by_user_id,
                     'recorded_by_name' => $payment->recordedBy?->name,
-                    'note' => $payment->note,
                 ];
             })->values()->all(),
         ];
@@ -1842,7 +1841,7 @@ class OrderService
             $expectedAmount = round((float) $order->total_price, 2);
 
             if ($amount <= 0) {
-                throw new ApiException('Nominal transfer harus lebih dari 0.', 422);
+                throw new ApiException('Nominal QRIS harus lebih dari 0.', 422);
             }
 
             $paidAt = isset($payload['paid_at'])
@@ -1858,10 +1857,9 @@ class OrderService
                     'recorded_by_user_id' => $actor->id,
                     'driver_id' => $driver->id,
                     'paid_at' => $paidAt,
-                    'note' => $payload['note'] ?? null,
                     'metadata' => [
                         'recorded_by_role' => $actor->role,
-                        'source' => 'DRIVER_TRANSFER_CONFIRMATION',
+                        'source' => 'DRIVER_QRIS_CONFIRMATION',
                         'expected_amount' => $expectedAmount,
                     ],
                 ],
@@ -1870,12 +1868,13 @@ class OrderService
             OrderLog::query()->create([
                 'order_id' => $order->id,
                 'log_type' => 'PAYMENT_UPDATE',
-                'trigger_type' => 'TRANSFER_PAYMENT_RECORDED_BY_DRIVER',
+                'trigger_type' => 'QRIS_PAYMENT_RECORDED_BY_DRIVER',
                 'changed_by_user_id' => $actor->id,
-                'note' => $payload['note'] ?? 'Pencatatan pembayaran transfer.',
+                'note' => 'Driver mencatat pembayaran QRIS secara manual.',
                 'metadata' => [
                     'paid_amount' => $amount,
                     'expected_amount' => $expectedAmount,
+                    'recorded_by_role' => $actor->role,
                 ],
             ]);
 
@@ -1884,7 +1883,7 @@ class OrderService
                 'status_id' => $order->status_id,
                 'event_type' => 'PAYMENT_UPDATE',
                 'changed_by_user_id' => $actor->id,
-                'note' => 'Pembayaran transfer berhasil dicatat.',
+                'note' => 'Pembayaran QRIS berhasil dicatat.',
                 'price_snapshot' => [
                     'paid_amount' => $amount,
                     'payment_status' => 'paid',
@@ -2695,7 +2694,7 @@ class OrderService
             }
 
             if (strtoupper((string) ($order->payment_method ?? 'COD')) === OrderPaymentService::METHOD_TRANSFER) {
-                throw new ApiException('Order ini menggunakan pembayaran transfer. Gunakan pencatatan transfer.', 409);
+                throw new ApiException('Order ini menggunakan pembayaran QRIS. Gunakan pencatatan QRIS.', 409);
             }
 
             $serviceCode = strtoupper((string) ($order->serviceType->code ?? ''));
@@ -2746,7 +2745,6 @@ class OrderService
                     'recorded_by_user_id' => $actor->id,
                     'driver_id' => $orderDriverId > 0 ? $orderDriverId : null,
                     'paid_at' => $paidAt,
-                    'note' => $payload['note'] ?? null,
                     'metadata' => [
                         'recorded_by_role' => $actor->role,
                         'source' => $isCourierPickupCollection

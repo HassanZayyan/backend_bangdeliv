@@ -246,7 +246,7 @@ class ChatbotRideOrderService
 
         if ($this->normalizePaymentMethodOrNull($pendingDraft['payment_method'] ?? null) === null) {
             $payload = $this->buildDraftPayload($pendingDraft, $user->name);
-            $payload['assistant_text'] .= "\n\nPilih COD atau Transfer dulu sebelum konfirmasi.";
+            $payload['assistant_text'] .= "\n\nPilih COD atau QRIS dulu sebelum konfirmasi.";
 
             return $payload;
         }
@@ -363,8 +363,8 @@ class ChatbotRideOrderService
                 'message' => 'COD',
             ],
             'SET_PAYMENT_TRANSFER' => [
-                'label' => 'Transfer',
-                'message' => 'Transfer',
+                'label' => 'QRIS',
+                'message' => 'QRIS',
             ],
         ];
         if ($paymentMethod !== null) {
@@ -985,7 +985,7 @@ class ChatbotRideOrderService
         $buffer .= "Estimasi ongkir sementara: Rp {$deliveryFee} (kalkulasi detail menyusul).\n";
         $paymentMethod = $this->normalizePaymentMethodOrNull($draft['payment_method'] ?? null);
         if ($paymentMethod === null) {
-            $buffer .= "Pilih metode pembayaran dulu: COD atau Transfer.\n";
+            $buffer .= "Pilih metode pembayaran dulu: COD atau QRIS.\n";
         } else {
             $buffer .= 'Metode pembayaran: '.$this->paymentMethodLabel($paymentMethod)."\n";
         }
@@ -1148,7 +1148,7 @@ class ChatbotRideOrderService
     private function paymentMethodLabel(mixed $value): string
     {
         return $this->normalizePaymentMethodOrNull($value) === OrderPaymentService::METHOD_TRANSFER
-            ? 'Transfer'
+            ? 'QRIS'
             : 'COD';
     }
 }

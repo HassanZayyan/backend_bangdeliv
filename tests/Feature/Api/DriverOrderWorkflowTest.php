@@ -1473,7 +1473,6 @@ class DriverOrderWorkflowTest extends TestCase
 
         $this->postJson('/api/v1/orders/'.$order->id.'/payment/transfer/confirm', [
             'amount' => 3000,
-            'note' => 'Transfer penalty sudah diverifikasi.',
         ])->assertOk()
             ->assertJsonPath('data.payment_status', 'paid');
 

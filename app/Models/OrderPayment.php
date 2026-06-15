@@ -14,7 +14,6 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int|null $recorded_by_user_id
  * @property int|null $driver_id
  * @property \Carbon\Carbon|null $paid_at
- * @property string|null $note
  * @property array<string, mixed>|null $metadata
  * @property-read \App\Models\Order $order
  * @property-read \App\Models\User|null $recordedBy
@@ -30,7 +29,6 @@ class OrderPayment extends Model
         'recorded_by_user_id',
         'driver_id',
         'paid_at',
-        'note',
         'metadata',
     ];
 
