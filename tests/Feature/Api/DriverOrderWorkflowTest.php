@@ -1062,7 +1062,7 @@ class DriverOrderWorkflowTest extends TestCase
         $shoppingTypeId = (int) ServiceType::query()->where('code', 'SHOPPING')->value('id');
         $completedStatusId = (int) OrderStatus::query()->where('code', 'COMPLETED')->value('id');
 
-        Order::query()->create([
+        $order = Order::query()->create([
             'order_number' => 'BD-DRV-HST-0001',
             'user_id' => $customer->id,
             'restaurant_id' => null,
@@ -1089,8 +1089,23 @@ class DriverOrderWorkflowTest extends TestCase
 
         $response->assertOk()
             ->assertJsonPath('success', true)
+            ->assertJsonPath('data.history_orders.0.id', 'BD-DRV-HST-0001')
+            ->assertJsonPath('data.history_orders.0.order_id', $order->id)
+            ->assertJsonPath('data.history_orders.0.order_number', 'BD-DRV-HST-0001')
             ->assertJsonPath('data.history_orders.0.customer_name', 'Customer Riwayat')
             ->assertJsonPath('data.history_orders.0.status', 'Selesai');
+
+        $this->getJson('/api/v1/driver/orders/'.$order->id)
+            ->assertOk()
+            ->assertJsonPath('data.id', (string) $order->id)
+            ->assertJsonPath('data.order_number', 'BD-DRV-HST-0001')
+            ->assertJsonPath('data.status_code', 'COMPLETED');
+
+        [$otherDriverUser] = $this->createActiveDriver('history-other');
+        Sanctum::actingAs($otherDriverUser);
+
+        $this->getJson('/api/v1/driver/orders/'.$order->id)
+            ->assertNotFound();
     }
 
     public function test_driver_can_toggle_availability_online_and_offline(): void

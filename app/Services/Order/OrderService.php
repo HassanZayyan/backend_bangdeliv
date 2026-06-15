@@ -674,6 +674,8 @@ class OrderService
 
                 return [
                     'id' => $order->order_number ?: (string) $order->id,
+                    'order_id' => (int) $order->id,
+                    'order_number' => $order->order_number,
                     'customer_name' => $order->user->name ?? '-',
                     'date' => $date?->toIso8601String(),
                     'fee' => (int) round((float) $order->delivery_fee),
