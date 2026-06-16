@@ -9,6 +9,7 @@ use App\Enums\ServiceTypeCode;
 use App\Models\Order;
 use App\Models\OrderStatusHistory;
 use App\Services\Driver\Dispatch\OrderPickupPointResolver;
+use App\Services\Order\DeliveryFeeNegotiationService;
 use App\Services\Order\OrderProofPolicyService;
 use App\Services\Pricing\ShoppingPricingService;
 use Illuminate\Database\Eloquent\Relations\Relation;
@@ -19,6 +20,7 @@ class DriverOrderPayloadFactory
         private readonly ShoppingPricingService $shoppingPricingService,
         private readonly OrderProofPolicyService $proofPolicyService,
         private readonly OrderPickupPointResolver $pickupPointResolver,
+        private readonly DeliveryFeeNegotiationService $deliveryFeeNegotiationService,
     ) {}
 
     /**
@@ -64,6 +66,14 @@ class DriverOrderPayloadFactory
         $proofStatus = $this->proofStatus($proofs);
         $hasDriverShoppingTotal = $serviceCode === 'SHOPPING' && $this->shoppingPricingService->hasDriverShoppingTotal($order);
         $hasPendingShoppingPrices = $serviceCode === 'SHOPPING' && $this->hasPendingManualShoppingPrices($order);
+        $shoppingNegotiation = $serviceCode === 'SHOPPING'
+            ? $order->shopping_negotiation
+            : null;
+        $shoppingQuoteApproved = is_array($shoppingNegotiation)
+            && (bool) ($shoppingNegotiation['checkout_allowed'] ?? false);
+        $deliveryFeeNegotiation = $this->deliveryFeeNegotiationService->snapshot($order);
+        $hasPendingDeliveryFeeNegotiation = is_array($deliveryFeeNegotiation)
+            && (bool) ($deliveryFeeNegotiation['is_pending'] ?? false);
         $canCancelShoppingWithFee = $serviceCode === 'SHOPPING'
             && $this->shoppingPricingService->isCancellationPenaltyEligible($order);
         $availableActions = $this->resolveAvailableDriverActions(
@@ -73,7 +83,9 @@ class DriverOrderPayloadFactory
             $paymentMethod,
             $hasPendingShoppingPrices,
             $hasDriverShoppingTotal,
+            $shoppingQuoteApproved,
             $canCancelShoppingWithFee,
+            $hasPendingDeliveryFeeNegotiation,
             $proofStatus,
         );
 
@@ -125,6 +137,7 @@ class DriverOrderPayloadFactory
             'payment_method' => $order->payment_method,
             'available_actions' => $availableActions,
             'route' => $this->orderRouteSnapshot($order),
+            'delivery_fee_negotiation' => $deliveryFeeNegotiation,
         ];
 
         if ($serviceCode === ServiceTypeCode::Courier->value && $order->courierOrder !== null) {
@@ -144,6 +157,7 @@ class DriverOrderPayloadFactory
             $payload['shopping_items'] = $this->serializeShoppingItems($order);
             $payload['shopping_stops'] = $this->serializeShoppingStops($order);
             $payload['shopping_route'] = $payload['route'] ?? $this->shoppingRouteSnapshot($order);
+            $payload['shopping_negotiation'] = $shoppingNegotiation;
             $payload['pricing'] = [
                 'subtotal' => round((float) $order->subtotal, 2),
                 'delivery_fee' => round((float) $order->delivery_fee, 2),
@@ -365,7 +379,9 @@ class DriverOrderPayloadFactory
         string $paymentMethod,
         bool $hasPendingShoppingPrices = false,
         bool $hasDriverShoppingTotal = false,
+        bool $shoppingQuoteApproved = false,
         bool $canCancelShoppingWithFee = false,
+        bool $hasPendingDeliveryFeeNegotiation = false,
         array $proofStatus = [],
     ): array {
         $actions = [];
@@ -401,6 +417,21 @@ class DriverOrderPayloadFactory
                 ! (bool) ($proofStatus['pickup'] ?? false)
             ) {
                 $blockedReasons[] = 'Bukti foto pickup belum diupload.';
+            }
+
+            if (
+                $serviceCode === 'SHOPPING' &&
+                $actionCode === DriverActionCode::ConfirmPickedUp->value &&
+                ! $shoppingQuoteApproved
+            ) {
+                $blockedReasons[] = 'Harga Nitip belum disetujui customer.';
+            }
+
+            if (
+                $hasPendingDeliveryFeeNegotiation &&
+                $this->deliveryFeeNegotiationService->blocksDriverProgressFor($serviceCode, $actionCode)
+            ) {
+                $blockedReasons[] = 'Revisi ongkir belum disetujui customer.';
             }
 
             if (

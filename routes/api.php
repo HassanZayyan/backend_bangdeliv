@@ -62,6 +62,8 @@ Route::prefix('v1')->group(function () {
         Route::patch('/orders/{orderId}/items/{itemId}', [OrderController::class, 'updateShoppingItem'])->name('api.v1.orders.items.update');
         Route::delete('/orders/{orderId}/items/{itemId}', [OrderController::class, 'removeShoppingItem'])->name('api.v1.orders.items.destroy');
         Route::post('/orders/{orderId}/shopping-stops/{pickupLocationId}/skip', [OrderController::class, 'skipFailedShoppingStop'])->name('api.v1.orders.shopping-stops.skip');
+        Route::post('/orders/{orderId}/shopping/price-quote/respond', [OrderController::class, 'respondShoppingPriceQuote'])->name('api.v1.orders.shopping.price-quote.respond');
+        Route::post('/orders/{orderId}/delivery-fee-override/respond', [OrderController::class, 'respondDeliveryFeeOverride'])->name('api.v1.orders.delivery-fee-override.respond');
     });
 
     Route::middleware(['auth:sanctum', 'role:driver'])->group(function () {
@@ -79,7 +81,10 @@ Route::prefix('v1')->group(function () {
             Route::post('/driver/orders/{orderId}/reject', [OrderController::class, 'rejectByDriver'])->name('api.v1.driver.orders.reject');
             Route::patch('/driver/orders/{orderId}/shopping-items', [OrderController::class, 'updateDriverShoppingItems'])->name('api.v1.driver.orders.shopping-items.update');
             Route::patch('/driver/orders/{orderId}/shopping-checkout', [OrderController::class, 'updateShoppingCheckout'])->name('api.v1.driver.orders.shopping-checkout.update');
+            Route::post('/driver/orders/{orderId}/shopping/price-quote', [OrderController::class, 'submitShoppingPriceQuote'])->name('api.v1.driver.orders.shopping.price-quote.store');
+            Route::post('/driver/orders/{orderId}/shopping/price-quote/accept-counter', [OrderController::class, 'acceptShoppingCounter'])->name('api.v1.driver.orders.shopping.price-quote.accept-counter');
             Route::post('/driver/orders/{orderId}/delivery-fee-override', [OrderController::class, 'updateDeliveryFeeOverride'])->name('api.v1.driver.orders.delivery-fee-override');
+            Route::post('/driver/orders/{orderId}/delivery-fee-override/accept-counter', [OrderController::class, 'acceptDeliveryFeeCounter'])->name('api.v1.driver.orders.delivery-fee-override.accept-counter');
             Route::patch('/driver/orders/{orderId}/location', [OrderController::class, 'updateDriverLocation'])->name('api.v1.driver.orders.location.update');
             Route::post('/driver/orders/{orderId}/proofs', [OrderController::class, 'uploadDriverProof'])->name('api.v1.driver.orders.proofs.store');
             Route::post('/driver/orders/{orderId}/status-transition', [OrderController::class, 'transitionStatusByDriver'])->name('api.v1.driver.orders.status-transition');

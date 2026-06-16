@@ -212,6 +212,27 @@ class OrderController extends Controller
         }
     }
 
+    public function respondShoppingPriceQuote(Request $request, int $orderId): JsonResponse
+    {
+        $validated = $request->validate([
+            'action' => ['required', 'string', 'in:APPROVE,COUNTER,CANCEL_MERCHANT,CANCEL_ORDER'],
+            'counter_amount' => ['nullable', 'numeric', 'min:1', 'max:99999999'],
+            'pickup_location_id' => ['nullable', 'integer', 'min:1'],
+        ]);
+
+        try {
+            $order = $this->orderService->respondShoppingPriceQuoteByCustomer(
+                $request->user(),
+                $orderId,
+                $validated
+            );
+
+            return $this->success($order, 'Respons harga Nitip berhasil diproses.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
     public function updateDriverShoppingItems(UpdateDriverShoppingItemsRequest $request, int $orderId): JsonResponse
     {
         try {
@@ -222,6 +243,46 @@ class OrderController extends Controller
             );
 
             return $this->success($payload, 'Item belanja berhasil diperbarui dari nota.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
+    public function submitShoppingPriceQuote(Request $request, int $orderId): JsonResponse
+    {
+        $validated = $request->validate([
+            'pickup_location_id' => ['nullable', 'integer', 'min:1'],
+            'amount' => ['required', 'numeric', 'min:1', 'max:99999999'],
+            'note' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        try {
+            $payload = $this->orderService->submitShoppingPriceQuoteByDriver(
+                $request->user(),
+                $orderId,
+                $validated
+            );
+
+            return $this->success($payload, 'Quote harga Nitip berhasil dikirim.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
+    public function acceptShoppingCounter(Request $request, int $orderId): JsonResponse
+    {
+        $validated = $request->validate([
+            'note' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        try {
+            $payload = $this->orderService->acceptShoppingCounterByDriver(
+                $request->user(),
+                $orderId,
+                $validated
+            );
+
+            return $this->success($payload, 'Tawaran harga customer berhasil disetujui.');
         } catch (ApiException $exception) {
             return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
         }
@@ -242,7 +303,46 @@ class OrderController extends Controller
                 $validated
             );
 
-            return $this->success($payload, 'Ongkir order berhasil diperbarui.');
+            return $this->success($payload, 'Proposal revisi ongkir berhasil dikirim.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
+    public function respondDeliveryFeeOverride(Request $request, int $orderId): JsonResponse
+    {
+        $validated = $request->validate([
+            'action' => ['required', 'string', 'in:APPROVE,COUNTER,CANCEL_ORDER'],
+            'counter_amount' => ['nullable', 'numeric', 'min:1', 'max:99999999'],
+        ]);
+
+        try {
+            $order = $this->orderService->respondDeliveryFeeOverrideByCustomer(
+                $request->user(),
+                $orderId,
+                $validated
+            );
+
+            return $this->success($order, 'Respons revisi ongkir berhasil diproses.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
+    public function acceptDeliveryFeeCounter(Request $request, int $orderId): JsonResponse
+    {
+        $validated = $request->validate([
+            'note' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        try {
+            $payload = $this->orderService->acceptDeliveryFeeCounterByDriver(
+                $request->user(),
+                $orderId,
+                $validated
+            );
+
+            return $this->success($payload, 'Tawaran ongkir customer berhasil disetujui.');
         } catch (ApiException $exception) {
             return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
         }

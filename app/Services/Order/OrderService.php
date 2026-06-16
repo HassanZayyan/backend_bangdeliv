@@ -21,9 +21,13 @@ use App\Models\User;
 use App\Services\Driver\Dispatch\DriverCandidateSelector;
 use App\Services\Driver\DriverOrderPayloadFactory;
 use App\Services\Driver\DriverOrderRealtimeService;
+use App\Services\Notification\OrderPricingPushNotificationService;
 use App\Services\Notification\OrderRealtimeBroadcaster;
 use App\Services\Notification\OrderStatusPushNotificationService;
 use App\Services\Pricing\ShoppingPricingService;
+use App\Services\Shopping\ShoppingMerchantCandidate;
+use App\Services\Shopping\ShoppingMerchantCandidateResolver;
+use App\Services\Shopping\ShoppingPriceNegotiationService;
 use App\Services\Shopping\ShoppingRouteService;
 use Carbon\Carbon;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -36,6 +40,7 @@ class OrderService
 {
     public function __construct(
         private readonly OrderRealtimeBroadcaster $realtimeBroadcaster,
+        private readonly OrderPricingPushNotificationService $orderPricingPushNotificationService,
         private readonly ShoppingPricingService $shoppingPricingService,
         private readonly ShoppingRouteService $shoppingRouteService,
         private readonly DriverOrderPayloadFactory $driverOrderPayloadFactory,
@@ -45,6 +50,9 @@ class OrderService
         private readonly OrderPaymentService $orderPaymentService,
         private readonly OrderTransferEvidenceService $transferEvidenceService,
         private readonly OrderProofPolicyService $proofPolicyService,
+        private readonly ShoppingMerchantCandidateResolver $shoppingMerchantCandidateResolver,
+        private readonly ShoppingPriceNegotiationService $shoppingPriceNegotiationService,
+        private readonly DeliveryFeeNegotiationService $deliveryFeeNegotiationService,
         private readonly DriverArrivalEtaService $driverArrivalEtaService
     ) {}
 
@@ -1089,6 +1097,18 @@ class OrderService
                 throw new ApiException('Aksi ini hanya tersedia sebelum pembayaran dicatat.', 409);
             }
 
+            if ($this->deliveryFeeNegotiationService->blocksDriverProgress($order, $normalizedActionCode)) {
+                throw new ApiException('Revisi ongkir belum disetujui customer.', 409);
+            }
+
+            if (
+                strtoupper((string) $serviceCode) === 'SHOPPING' &&
+                $normalizedActionCode === 'CONFIRM_PICKED_UP' &&
+                ! $this->shoppingPriceNegotiationService->isApproved($order)
+            ) {
+                throw new ApiException('Harga Nitip belum disetujui customer.', 409);
+            }
+
             if (
                 strtoupper((string) $serviceCode) === 'SHOPPING' &&
                 $normalizedActionCode === 'CONFIRM_PICKED_UP' &&
@@ -1508,6 +1528,471 @@ class OrderService
      * @param  array<string, mixed>  $payload
      * @return array<string, mixed>
      */
+    public function submitShoppingPriceQuoteByDriver(User $actor, int $orderId, array $payload): array
+    {
+        $driver = $this->resolveActiveDriverProfile($actor);
+
+        $order = DB::transaction(function () use ($actor, $driver, $orderId, $payload): Order {
+            $order = $this->lockedAssignedDriverOrder(
+                $orderId,
+                $driver->id,
+                ['statusRef', 'serviceType', 'orderLocations']
+            );
+
+            if (($order->serviceType->code ?? null) !== 'SHOPPING') {
+                throw new ApiException('Quote harga hanya tersedia untuk order SHOPPING.', 409);
+            }
+
+            if (strtoupper((string) ($order->statusRef->code ?? '')) !== 'ARRIVED_MERCHANT') {
+                throw new ApiException('Quote harga hanya bisa dikirim saat driver tiba di merchant.', 409);
+            }
+
+            $amount = round((float) ($payload['amount'] ?? 0), 2);
+            if ($amount <= 0) {
+                throw new ApiException('Nominal harga merchant harus lebih dari 0.', 422);
+            }
+
+            $pickup = $this->resolveShoppingNegotiationPickup(
+                $order,
+                isset($payload['pickup_location_id']) ? (int) $payload['pickup_location_id'] : null
+            );
+            $note = trim((string) ($payload['note'] ?? ''));
+            $trigger = $this->shoppingPriceNegotiationService->nextDriverQuoteTrigger($order);
+
+            $this->shoppingPriceNegotiationService->record(
+                $order,
+                $trigger,
+                $actor->id,
+                $note !== '' ? $note : 'Driver mengirim quote harga Nitip.',
+                [
+                    'pickup_location_id' => $pickup?->id,
+                    'quoted_amount' => $amount,
+                    'amount' => $amount,
+                    'status' => 'PENDING_CUSTOMER',
+                ]
+            );
+
+            return $order->refresh();
+        });
+
+        $this->broadcastShoppingNegotiationUpdated((int) $order->id);
+        $this->notifyShoppingPriceChanged($order, $actor, 'customer', true);
+
+        return $this->driverOrderPayloadFactory->serialize(
+            $order->fresh($this->driverOrderPayloadFactory->relations()),
+            includeTimeline: true,
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    public function acceptShoppingCounterByDriver(User $actor, int $orderId, array $payload): array
+    {
+        $driver = $this->resolveActiveDriverProfile($actor);
+
+        $order = DB::transaction(function () use ($actor, $driver, $orderId, $payload): Order {
+            $order = $this->lockedAssignedDriverOrder(
+                $orderId,
+                $driver->id,
+                ['statusRef', 'serviceType', 'orderLocations']
+            );
+
+            if (($order->serviceType->code ?? null) !== 'SHOPPING') {
+                throw new ApiException('Counter offer hanya tersedia untuk order SHOPPING.', 409);
+            }
+
+            $snapshot = $this->shoppingPriceNegotiationService->snapshot($order);
+            if (($snapshot['status'] ?? null) !== 'PENDING_DRIVER') {
+                throw new ApiException('Belum ada tawaran customer yang perlu disetujui.', 409);
+            }
+
+            $counterAmount = round((float) ($snapshot['counter_amount'] ?? 0), 2);
+            if ($counterAmount <= 0) {
+                throw new ApiException('Nominal tawaran customer tidak valid.', 409);
+            }
+
+            $note = trim((string) ($payload['note'] ?? ''));
+            $this->shoppingPriceNegotiationService->record(
+                $order,
+                ShoppingPriceNegotiationService::DRIVER_COUNTER_APPROVED,
+                $actor->id,
+                $note !== '' ? $note : 'Driver menyetujui tawaran harga customer.',
+                [
+                    'quote_log_id' => $snapshot['quote_log_id'] ?? null,
+                    'pickup_location_id' => $snapshot['pickup_location_id'] ?? null,
+                    'quoted_amount' => $snapshot['quoted_amount'] ?? null,
+                    'counter_amount' => $counterAmount,
+                    'approved_amount' => $counterAmount,
+                    'status' => 'APPROVED',
+                ]
+            );
+
+            return $order->refresh();
+        });
+
+        $this->broadcastShoppingNegotiationUpdated((int) $order->id);
+        $this->notifyShoppingPriceChanged($order, $actor, 'customer', false);
+
+        return $this->driverOrderPayloadFactory->serialize(
+            $order->fresh($this->driverOrderPayloadFactory->relations()),
+            includeTimeline: true,
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    public function respondShoppingPriceQuoteByCustomer(User $actor, int $orderId, array $payload): Order
+    {
+        $action = strtoupper(trim((string) ($payload['action'] ?? '')));
+        $statusChangeEventPayload = null;
+
+        $order = DB::transaction(function () use ($actor, $orderId, $payload, $action, &$statusChangeEventPayload): Order {
+            $order = Order::query()
+                ->with(['statusRef', 'serviceType', 'orderLocations', 'items', 'feeLines', 'shoppingReceipt'])
+                ->lockForUpdate()
+                ->find($orderId);
+
+            if (! $order || (int) $order->user_id !== (int) $actor->id) {
+                throw new ApiException('Order tidak ditemukan.', 404);
+            }
+
+            if (($order->serviceType->code ?? null) !== 'SHOPPING') {
+                throw new ApiException('Negosiasi harga hanya tersedia untuk order SHOPPING.', 409);
+            }
+
+            return match ($action) {
+                'APPROVE' => $this->approveShoppingQuoteByCustomer($actor, $order),
+                'COUNTER' => $this->counterShoppingQuoteByCustomer($actor, $order, $payload),
+                'CANCEL_MERCHANT' => $this->cancelShoppingMerchantByCustomer($actor, $order, $payload, $statusChangeEventPayload),
+                'CANCEL_ORDER' => $this->cancelShoppingOrderFromNegotiation($actor, $order, $statusChangeEventPayload),
+                default => throw new ApiException('Aksi respons quote tidak valid.', 422),
+            };
+        });
+
+        $this->broadcastOrderStatusChanged($statusChangeEventPayload);
+        $this->sendOrderStatusPushNotification($order, $statusChangeEventPayload);
+        $this->broadcastShoppingNegotiationUpdated((int) $order->id);
+        $this->notifyShoppingPriceChanged($order, $actor, 'driver', $action === 'COUNTER');
+
+        $freshOrder = $order->fresh(['restaurant', 'driver.user', 'items', 'orderLocations.restaurant', 'payments', 'evidences', 'statusRef', 'statusHistories.statusRef', 'serviceType', 'courierOrder', 'feeLines',  'shoppingReceipt']);
+        if (! $freshOrder instanceof Order) {
+            throw new ApiException('Order tidak ditemukan.', 404);
+        }
+
+        return $freshOrder;
+    }
+
+    private function approveShoppingQuoteByCustomer(User $actor, Order $order): Order
+    {
+        $snapshot = $this->shoppingPriceNegotiationService->snapshot($order);
+        if (($snapshot['status'] ?? null) !== 'PENDING_CUSTOMER') {
+            throw new ApiException('Belum ada quote harga yang menunggu persetujuan customer.', 409);
+        }
+
+        $quotedAmount = round((float) ($snapshot['quoted_amount'] ?? 0), 2);
+        if ($quotedAmount <= 0) {
+            throw new ApiException('Nominal quote harga tidak valid.', 409);
+        }
+
+        $this->shoppingPriceNegotiationService->record(
+            $order,
+            ShoppingPriceNegotiationService::CUSTOMER_PRICE_APPROVED,
+            $actor->id,
+            'Customer menyetujui quote harga Nitip.',
+            [
+                'quote_log_id' => $snapshot['quote_log_id'] ?? null,
+                'pickup_location_id' => $snapshot['pickup_location_id'] ?? null,
+                'quoted_amount' => $quotedAmount,
+                'approved_amount' => $quotedAmount,
+                'status' => 'APPROVED',
+            ]
+        );
+
+        return $order->refresh();
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function counterShoppingQuoteByCustomer(User $actor, Order $order, array $payload): Order
+    {
+        $snapshot = $this->shoppingPriceNegotiationService->snapshot($order);
+        if (($snapshot['status'] ?? null) !== 'PENDING_CUSTOMER') {
+            throw new ApiException('Belum ada quote harga yang bisa ditawar.', 409);
+        }
+
+        $counterAmount = round((float) ($payload['counter_amount'] ?? 0), 2);
+        if ($counterAmount <= 0) {
+            throw new ApiException('Nominal tawaran harus lebih dari 0.', 422);
+        }
+
+        $this->shoppingPriceNegotiationService->record(
+            $order,
+            ShoppingPriceNegotiationService::CUSTOMER_PRICE_COUNTERED,
+            $actor->id,
+            'Customer mengirim tawaran harga Nitip.',
+            [
+                'quote_log_id' => $snapshot['quote_log_id'] ?? null,
+                'pickup_location_id' => $snapshot['pickup_location_id'] ?? null,
+                'quoted_amount' => $snapshot['quoted_amount'] ?? null,
+                'counter_amount' => $counterAmount,
+                'status' => 'PENDING_DRIVER',
+            ]
+        );
+
+        return $order->refresh();
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function cancelShoppingMerchantByCustomer(User $actor, Order $order, array $payload, mixed &$statusChangeEventPayload): Order
+    {
+        $pickup = $this->resolveShoppingNegotiationPickup(
+            $order,
+            isset($payload['pickup_location_id']) ? (int) $payload['pickup_location_id'] : null
+        );
+        $reason = 'Resto tutup/order batal.';
+
+        $this->markShoppingPickupFailedForCustomerCancel($order, $pickup, $reason);
+
+        $order->refresh()->load(['statusRef', 'serviceType', 'orderLocations.restaurant', 'items', 'feeLines', 'shoppingReceipt']);
+        $failedAttemptCount = $this->shoppingPricingService->failedAttemptCount($order);
+
+        $this->shoppingRouteService->applyRouteToOrder($order);
+
+        OrderStatusHistory::query()->create([
+            'order_id' => $order->id,
+            'status_id' => $order->status_id,
+            'event_type' => 'FAILED_ATTEMPT_INCREMENT',
+            'changed_by_user_id' => $actor->id,
+            'note' => $reason,
+            'price_snapshot' => [
+                'failure_type' => 'CUSTOMER_CANCEL_MERCHANT',
+                'failed_attempt_count' => $failedAttemptCount,
+                'pickup_location_id' => $pickup?->id,
+                'fulfillment_status' => 'FAILED',
+            ],
+        ]);
+
+        $this->shoppingPriceNegotiationService->record(
+            $order,
+            ShoppingPriceNegotiationService::CUSTOMER_CANCEL_MERCHANT,
+            $actor->id,
+            $reason,
+            [
+                'pickup_location_id' => $pickup?->id,
+                'failed_attempt_count' => $failedAttemptCount,
+                'status' => 'CANCELLED_MERCHANT',
+            ]
+        );
+
+        $order = $this->shoppingPricingService->recalculate(
+            $order->refresh()->load(['items', 'statusRef', 'serviceType', 'feeLines', 'shoppingReceipt']),
+            $actor->id,
+            'CUSTOMER_CANCEL_MERCHANT',
+            false,
+            $reason
+        );
+
+        if ($this->shoppingPricingService->isCancellationPenaltyEligible($order)) {
+            return $this->cancelShoppingOrderWithOptionalFee(
+                $actor,
+                $order,
+                $reason,
+                true,
+                'CUSTOMER_CANCEL_MERCHANT_WITH_FEE',
+                $statusChangeEventPayload
+            );
+        }
+
+        return $order->refresh()->load(['statusRef', 'serviceType', 'orderLocations', 'items', 'feeLines', 'shoppingReceipt']);
+    }
+
+    private function cancelShoppingOrderFromNegotiation(User $actor, Order $order, mixed &$statusChangeEventPayload): Order
+    {
+        $withFee = $this->shoppingPricingService->isCancellationPenaltyEligible($order);
+
+        $this->shoppingPriceNegotiationService->record(
+            $order,
+            ShoppingPriceNegotiationService::CUSTOMER_CANCEL_ORDER,
+            $actor->id,
+            'Customer membatalkan order Nitip dari negosiasi harga.',
+            [
+                'failed_attempt_count' => $this->shoppingPricingService->failedAttemptCount($order),
+                'with_fee' => $withFee,
+            ]
+        );
+
+        return $this->cancelShoppingOrderWithOptionalFee(
+            $actor,
+            $order,
+            $withFee
+                ? 'Order Nitip dibatalkan dengan fee setelah merchant gagal.'
+                : 'Order Nitip dibatalkan customer.',
+            $withFee,
+            $withFee ? 'CUSTOMER_CANCEL_ORDER_WITH_FEE' : 'CUSTOMER_CANCEL_ORDER',
+            $statusChangeEventPayload
+        );
+    }
+
+    private function cancelShoppingOrderWithOptionalFee(
+        User $actor,
+        Order $order,
+        string $reason,
+        bool $withFee,
+        string $recalculationTrigger,
+        mixed &$statusChangeEventPayload,
+    ): Order {
+        $statusCode = $withFee ? 'CANCELLED_WITH_FEE' : 'CANCELLED';
+        $statusId = $this->resolveStatusId($statusCode);
+        $previousStatusCode = strtoupper((string) ($order->statusRef->code ?? ''));
+        $penalty = 0.0;
+
+        if ($withFee) {
+            $penalty = $this->shoppingPricingService->calculateCancellationPenalty($order);
+            if ($penalty <= 0) {
+                throw new ApiException('Penalty pembatalan belum dapat dihitung.', 409);
+            }
+
+            $this->shoppingPricingService->syncFeeLines($order, [[
+                'code' => 'CANCELLATION_PENALTY_AFTER_FAILED_ATTEMPTS',
+                'label' => 'Penalty merchant gagal',
+                'amount' => round($penalty, 2),
+            ]]);
+        }
+
+        $order->update([
+            'status_id' => $statusId,
+            'cancelled_by' => 'customer',
+            'cancellation_reason' => $reason,
+        ]);
+
+        $statusHistory = OrderStatusHistory::query()->create([
+            'order_id' => $order->id,
+            'status_id' => $statusId,
+            'event_type' => 'STATUS_CHANGE',
+            'changed_by_user_id' => $actor->id,
+            'note' => $reason,
+            'price_snapshot' => [
+                'cancellation_penalty' => round($penalty, 2),
+                'source' => $recalculationTrigger,
+            ],
+        ]);
+
+        $statusChangeEventPayload = $this->buildOrderStatusBroadcastPayload(
+            $order->id,
+            $statusCode,
+            $previousStatusCode,
+            $statusHistory
+        );
+
+        if ($order->driver_id !== null) {
+            $this->syncDriverAvailabilityAfterNonRunningOrder((int) $order->driver_id);
+        }
+
+        $order = $this->shoppingPricingService->recalculate(
+            $order->refresh()->load(['items', 'statusRef', 'serviceType', 'feeLines', 'shoppingReceipt']),
+            $actor->id,
+            $recalculationTrigger,
+            false,
+            $reason
+        );
+
+        if ($withFee) {
+            $this->orderPaymentService->setPendingTransferPayment(
+                $order->refresh(),
+                (float) $order->total_price,
+                $recalculationTrigger
+            );
+
+            OrderLog::query()->create([
+                'order_id' => $order->id,
+                'log_type' => 'PAYMENT_UPDATE',
+                'trigger_type' => 'SYSTEM_PAYMENT_METHOD_CHANGED_AFTER_FAILED_ATTEMPTS',
+                'changed_by_user_id' => $actor->id,
+                'note' => 'Sistem membuat pembayaran QRIS untuk fee pembatalan Nitip.',
+                'metadata' => [
+                    'payment_method' => OrderPaymentService::METHOD_TRANSFER,
+                    'amount' => round((float) $order->total_price, 2),
+                    'source' => $recalculationTrigger,
+                ],
+            ]);
+        }
+
+        return $order->refresh()->load(['statusRef', 'serviceType', 'orderLocations', 'items', 'feeLines', 'shoppingReceipt']);
+    }
+
+    private function resolveShoppingNegotiationPickup(Order $order, ?int $pickupLocationId): ?OrderLocation
+    {
+        $order->loadMissing('orderLocations');
+        if ($pickupLocationId === null || $pickupLocationId <= 0) {
+            $snapshot = $this->shoppingPriceNegotiationService->snapshot($order);
+            $snapshotPickupId = is_array($snapshot) ? (int) ($snapshot['pickup_location_id'] ?? 0) : 0;
+            $pickupLocationId = $snapshotPickupId > 0 ? $snapshotPickupId : null;
+        }
+
+        $pickup = null;
+        if ($pickupLocationId !== null) {
+            $pickup = $order->orderLocations->first(
+                fn (OrderLocation $location): bool => (int) $location->id === $pickupLocationId
+            );
+            if (! $pickup || strtoupper((string) $pickup->location_role) !== 'PICKUP') {
+                throw new ApiException('Merchant/pickup order tidak valid.', 422);
+            }
+        }
+
+        if (! $pickup instanceof OrderLocation) {
+            $pickup = $order->orderLocations
+                ->sortBy([['sequence_no', 'asc'], ['id', 'asc']])
+                ->first(fn (OrderLocation $location): bool => strtoupper((string) $location->location_role) === 'PICKUP');
+        }
+
+        if ($pickup instanceof OrderLocation && strtoupper((string) ($pickup->fulfillment_status ?? 'PENDING')) === 'FAILED') {
+            throw new ApiException('Merchant ini sudah ditandai Resto tutup/order batal.', 409);
+        }
+
+        return $pickup instanceof OrderLocation ? $pickup : null;
+    }
+
+    private function markShoppingPickupFailedForCustomerCancel(Order $order, ?OrderLocation $pickup, string $reason): void
+    {
+        if (! $pickup instanceof OrderLocation) {
+            throw new ApiException('Merchant/pickup order tidak valid.', 422);
+        }
+
+        $pickup->update([
+            'fulfillment_status' => 'FAILED',
+            'failed_attempt_count' => min(255, (int) ($pickup->failed_attempt_count ?? 0) + 1),
+            'failure_reason' => $reason,
+            'failed_at' => now(),
+            'resolved_at' => null,
+        ]);
+
+        $order->items()
+            ->where('pickup_location_id', $pickup->id)
+            ->get()
+            ->each(function (OrderItem $item) use ($reason): void {
+                $metadata = is_array($item->metadata) ? $item->metadata : [];
+                $metadata['price_status'] = 'UNAVAILABLE';
+                $metadata['failure_reason'] = $reason;
+
+                $item->update([
+                    'is_available' => false,
+                    'unit_price' => 0,
+                    'subtotal' => 0,
+                    'metadata' => $metadata,
+                ]);
+            });
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
     public function updateShoppingItemsByDriver(User $actor, int $orderId, array $payload): array
     {
         $driver = $this->resolveActiveDriverProfile($actor);
@@ -1615,7 +2100,7 @@ class OrderService
         $driver = $this->resolveActiveDriverProfile($actor);
 
         $order = DB::transaction(function () use ($actor, $driver, $orderId, $payload): Order {
-            $order = $this->lockedAssignedDriverOrder($orderId, $driver->id, ['statusRef', 'serviceType', 'items', 'feeLines', 'shoppingReceipt', 'courierOrder']);
+            $order = $this->lockedAssignedDriverOrder($orderId, $driver->id, ['statusRef', 'serviceType', 'payments', 'payment', 'evidences', 'courierOrder']);
 
             $manualAmount = array_key_exists('amount', $payload) && $payload['amount'] !== null
                 ? round(max(0.0, (float) $payload['amount']), 2)
@@ -1634,43 +2119,318 @@ class OrderService
                 $carefulCarryRequired = false;
             }
 
-            if ($manualAmount !== null && $manualAmount <= 0) {
+            if (! $this->deliveryFeeNegotiationService->canDriverSubmitQuote($order)) {
+                throw new ApiException('Revisi ongkir tidak tersedia untuk status atau pembayaran order ini.', 409);
+            }
+
+            if ($manualAmount === null || $manualAmount <= 0) {
                 throw new ApiException('Nominal ongkir manual harus lebih dari 0.', 422);
             }
 
-            if ($manualAmount !== null && $reason === '') {
+            if ($reason === '') {
                 throw new ApiException('Alasan edit ongkir wajib diisi.', 422);
             }
 
-            $nextDeliveryFee = $manualAmount !== null
-                ? $manualAmount
-                : $this->systemDeliveryFeeWithCarefulCarry($order, $carefulCarryRequired);
-            $oldDeliveryFee = (float) $order->delivery_fee;
-            $oldTotalPrice = (float) $order->total_price;
-
-            $order->update([
-                'delivery_fee' => $nextDeliveryFee,
-                'delivery_fee_source' => $manualAmount !== null ? 'driver_manual' : 'system',
-            ]);
-            $this->setCourierCarefulCarryRequired($order->refresh(), $carefulCarryRequired);
-
-            $order = $this->refreshTotalsAfterDeliveryFeeChange(
-                $order->refresh()->loadMissing('courierOrder'),
+            $trigger = $this->deliveryFeeNegotiationService->nextDriverQuoteTrigger($order);
+            $this->deliveryFeeNegotiationService->record(
+                $order,
+                $trigger,
                 $actor->id,
-                'DRIVER_DELIVERY_FEE_OVERRIDE',
-                $reason !== '' ? $reason : 'Driver memperbarui ongkir.',
-                $oldDeliveryFee,
-                $oldTotalPrice,
-                $reason !== '' ? $reason : null,
-                'driver',
+                $reason,
+                [
+                    'old_delivery_fee' => round((float) $order->delivery_fee, 2),
+                    'quoted_amount' => $manualAmount,
+                    'amount' => $manualAmount,
+                    'careful_carry_required' => $carefulCarryRequired,
+                    'delivery_fee_source' => 'driver_manual',
+                    'status' => 'PENDING_CUSTOMER',
+                ]
             );
 
-            return $order;
+            return $order->refresh();
         });
+
+        $this->broadcastDeliveryFeeNegotiationUpdated((int) $order->id);
+        $this->notifyDeliveryFeeChanged($order, $actor, 'customer', true);
 
         return $this->driverOrderPayloadFactory->serialize(
             $order->fresh($this->driverOrderPayloadFactory->relations()),
             includeTimeline: true,
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    public function acceptDeliveryFeeCounterByDriver(User $actor, int $orderId, array $payload): array
+    {
+        $driver = $this->resolveActiveDriverProfile($actor);
+
+        $order = DB::transaction(function () use ($actor, $driver, $orderId, $payload): Order {
+            $order = $this->lockedAssignedDriverOrder($orderId, $driver->id, ['statusRef', 'serviceType', 'payments', 'payment', 'evidences', 'courierOrder', 'items', 'feeLines', 'shoppingReceipt']);
+            $snapshot = $this->deliveryFeeNegotiationService->snapshot($order);
+            if (($snapshot['status'] ?? null) !== 'PENDING_DRIVER') {
+                throw new ApiException('Belum ada tawaran ongkir customer yang perlu disetujui.', 409);
+            }
+
+            if (! $this->deliveryFeeNegotiationService->canDriverSubmitQuote($order)) {
+                throw new ApiException('Revisi ongkir tidak tersedia untuk status atau pembayaran order ini.', 409);
+            }
+
+            $counterAmount = round((float) ($snapshot['counter_amount'] ?? 0), 2);
+            if ($counterAmount <= 0) {
+                throw new ApiException('Nominal tawaran ongkir customer tidak valid.', 409);
+            }
+
+            $note = trim((string) ($payload['note'] ?? ''));
+            $this->deliveryFeeNegotiationService->record(
+                $order,
+                DeliveryFeeNegotiationService::DRIVER_COUNTER_APPROVED,
+                $actor->id,
+                $note !== '' ? $note : 'Driver menyetujui tawaran ongkir customer.',
+                [
+                    'quote_log_id' => $snapshot['quote_log_id'] ?? null,
+                    'old_delivery_fee' => $snapshot['old_delivery_fee'] ?? round((float) $order->delivery_fee, 2),
+                    'quoted_amount' => $snapshot['quoted_amount'] ?? null,
+                    'counter_amount' => $counterAmount,
+                    'approved_amount' => $counterAmount,
+                    'careful_carry_required' => $snapshot['careful_carry_required'] ?? $this->carefulCarryRequired($order),
+                    'delivery_fee_source' => 'driver_manual',
+                    'status' => 'APPROVED',
+                ]
+            );
+
+            return $this->applyApprovedDeliveryFeeOverride(
+                $order,
+                $actor->id,
+                $counterAmount,
+                (bool) ($snapshot['careful_carry_required'] ?? $this->carefulCarryRequired($order)),
+                'DRIVER_DELIVERY_FEE_COUNTER_APPROVED',
+                'Driver menyetujui tawaran ongkir customer.',
+                $note !== '' ? $note : ($snapshot['note'] ?? null),
+                'driver'
+            );
+        });
+
+        $this->broadcastDeliveryFeeNegotiationUpdated((int) $order->id);
+        $this->notifyDeliveryFeeChanged($order, $actor, 'customer', false);
+
+        return $this->driverOrderPayloadFactory->serialize(
+            $order->fresh($this->driverOrderPayloadFactory->relations()),
+            includeTimeline: true,
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    public function respondDeliveryFeeOverrideByCustomer(User $actor, int $orderId, array $payload): Order
+    {
+        $action = strtoupper(trim((string) ($payload['action'] ?? '')));
+        $statusChangeEventPayload = null;
+
+        $order = DB::transaction(function () use ($actor, $orderId, $payload, $action, &$statusChangeEventPayload): Order {
+            $order = Order::query()
+                ->with(['statusRef', 'serviceType', 'payments', 'payment', 'evidences', 'courierOrder', 'items', 'feeLines', 'shoppingReceipt'])
+                ->lockForUpdate()
+                ->find($orderId);
+
+            if (! $order || (int) $order->user_id !== (int) $actor->id) {
+                throw new ApiException('Order tidak ditemukan.', 404);
+            }
+
+            return match ($action) {
+                'APPROVE' => $this->approveDeliveryFeeQuoteByCustomer($actor, $order),
+                'COUNTER' => $this->counterDeliveryFeeQuoteByCustomer($actor, $order, $payload),
+                'CANCEL_ORDER' => $this->cancelOrderFromDeliveryFeeNegotiation($actor, $order, $statusChangeEventPayload),
+                default => throw new ApiException('Aksi respons revisi ongkir tidak valid.', 422),
+            };
+        });
+
+        $this->broadcastOrderStatusChanged($statusChangeEventPayload);
+        $this->sendOrderStatusPushNotification($order, $statusChangeEventPayload);
+        $this->broadcastDeliveryFeeNegotiationUpdated((int) $order->id);
+        $this->notifyDeliveryFeeChanged($order, $actor, 'driver', $action === 'COUNTER');
+
+        $freshOrder = $order->fresh(['restaurant', 'driver.user', 'items', 'orderLocations.restaurant', 'payments', 'evidences', 'statusRef', 'statusHistories.statusRef', 'serviceType', 'courierOrder', 'feeLines', 'shoppingReceipt']);
+        if (! $freshOrder instanceof Order) {
+            throw new ApiException('Order tidak ditemukan.', 404);
+        }
+
+        return $freshOrder;
+    }
+
+    private function approveDeliveryFeeQuoteByCustomer(User $actor, Order $order): Order
+    {
+        $snapshot = $this->deliveryFeeNegotiationService->snapshot($order);
+        if (($snapshot['status'] ?? null) !== 'PENDING_CUSTOMER') {
+            throw new ApiException('Belum ada revisi ongkir yang menunggu persetujuan customer.', 409);
+        }
+
+        if (! $this->deliveryFeeNegotiationService->canCustomerRespond($order)) {
+            throw new ApiException('Revisi ongkir tidak tersedia untuk status atau pembayaran order ini.', 409);
+        }
+
+        $quotedAmount = round((float) ($snapshot['quoted_amount'] ?? 0), 2);
+        if ($quotedAmount <= 0) {
+            throw new ApiException('Nominal revisi ongkir tidak valid.', 409);
+        }
+
+        $this->deliveryFeeNegotiationService->record(
+            $order,
+            DeliveryFeeNegotiationService::CUSTOMER_FEE_APPROVED,
+            $actor->id,
+            'Customer menyetujui revisi ongkir.',
+            [
+                'quote_log_id' => $snapshot['quote_log_id'] ?? null,
+                'old_delivery_fee' => $snapshot['old_delivery_fee'] ?? round((float) $order->delivery_fee, 2),
+                'quoted_amount' => $quotedAmount,
+                'approved_amount' => $quotedAmount,
+                'careful_carry_required' => $snapshot['careful_carry_required'] ?? $this->carefulCarryRequired($order),
+                'delivery_fee_source' => 'driver_manual',
+                'status' => 'APPROVED',
+            ]
+        );
+
+        return $this->applyApprovedDeliveryFeeOverride(
+            $order,
+            $actor->id,
+            $quotedAmount,
+            (bool) ($snapshot['careful_carry_required'] ?? $this->carefulCarryRequired($order)),
+            'CUSTOMER_DELIVERY_FEE_APPROVED',
+            'Customer menyetujui revisi ongkir.',
+            $snapshot['note'] ?? null,
+            'customer'
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function counterDeliveryFeeQuoteByCustomer(User $actor, Order $order, array $payload): Order
+    {
+        $snapshot = $this->deliveryFeeNegotiationService->snapshot($order);
+        if (($snapshot['status'] ?? null) !== 'PENDING_CUSTOMER') {
+            throw new ApiException('Belum ada revisi ongkir yang bisa ditawar.', 409);
+        }
+
+        if (! $this->deliveryFeeNegotiationService->canCustomerRespond($order)) {
+            throw new ApiException('Revisi ongkir tidak tersedia untuk status atau pembayaran order ini.', 409);
+        }
+
+        $counterAmount = round((float) ($payload['counter_amount'] ?? 0), 2);
+        if ($counterAmount <= 0) {
+            throw new ApiException('Nominal tawaran ongkir harus lebih dari 0.', 422);
+        }
+
+        $this->deliveryFeeNegotiationService->record(
+            $order,
+            DeliveryFeeNegotiationService::CUSTOMER_FEE_COUNTERED,
+            $actor->id,
+            'Customer mengirim tawaran ongkir.',
+            [
+                'quote_log_id' => $snapshot['quote_log_id'] ?? null,
+                'old_delivery_fee' => $snapshot['old_delivery_fee'] ?? round((float) $order->delivery_fee, 2),
+                'quoted_amount' => $snapshot['quoted_amount'] ?? null,
+                'counter_amount' => $counterAmount,
+                'careful_carry_required' => $snapshot['careful_carry_required'] ?? $this->carefulCarryRequired($order),
+                'delivery_fee_source' => 'driver_manual',
+                'status' => 'PENDING_DRIVER',
+            ]
+        );
+
+        return $order->refresh();
+    }
+
+    private function cancelOrderFromDeliveryFeeNegotiation(User $actor, Order $order, mixed &$statusChangeEventPayload): Order
+    {
+        $snapshot = $this->deliveryFeeNegotiationService->snapshot($order);
+        if (($snapshot['status'] ?? null) !== 'PENDING_CUSTOMER') {
+            throw new ApiException('Belum ada revisi ongkir yang bisa dibatalkan.', 409);
+        }
+
+        if (! $this->deliveryFeeNegotiationService->canCustomerRespond($order)) {
+            throw new ApiException('Order ini tidak bisa dibatalkan dari revisi ongkir.', 409);
+        }
+
+        $reason = 'Customer membatalkan order karena menolak revisi ongkir.';
+        $statusId = $this->resolveStatusId('CANCELLED');
+        $previousStatusCode = strtoupper((string) ($order->statusRef->code ?? ''));
+
+        $this->deliveryFeeNegotiationService->record(
+            $order,
+            DeliveryFeeNegotiationService::CUSTOMER_CANCEL_ORDER,
+            $actor->id,
+            $reason,
+            [
+                'quote_log_id' => $snapshot['quote_log_id'] ?? null,
+                'old_delivery_fee' => $snapshot['old_delivery_fee'] ?? round((float) $order->delivery_fee, 2),
+                'quoted_amount' => $snapshot['quoted_amount'] ?? null,
+                'counter_amount' => $snapshot['counter_amount'] ?? null,
+                'status' => 'CANCELLED_ORDER',
+            ]
+        );
+
+        $order->update([
+            'status_id' => $statusId,
+            'cancelled_by' => 'customer',
+            'cancellation_reason' => $reason,
+        ]);
+
+        $statusHistory = OrderStatusHistory::query()->create([
+            'order_id' => $order->id,
+            'status_id' => $statusId,
+            'event_type' => 'STATUS_CHANGE',
+            'changed_by_user_id' => $actor->id,
+            'note' => $reason,
+            'price_snapshot' => [
+                'source' => 'CUSTOMER_CANCEL_DELIVERY_FEE_NEGOTIATION',
+            ],
+        ]);
+
+        $statusChangeEventPayload = $this->buildOrderStatusBroadcastPayload(
+            $order->id,
+            'CANCELLED',
+            $previousStatusCode,
+            $statusHistory
+        );
+
+        if ($order->driver_id !== null) {
+            $this->syncDriverAvailabilityAfterNonRunningOrder((int) $order->driver_id);
+        }
+
+        return $order->refresh();
+    }
+
+    private function applyApprovedDeliveryFeeOverride(
+        Order $order,
+        int $actorId,
+        float $amount,
+        bool $carefulCarryRequired,
+        string $triggerType,
+        string $note,
+        ?string $reason,
+        string $changedByRole,
+    ): Order {
+        $oldDeliveryFee = (float) $order->delivery_fee;
+        $oldTotalPrice = (float) $order->total_price;
+
+        $order->update([
+            'delivery_fee' => round($amount, 2),
+            'delivery_fee_source' => 'driver_manual',
+        ]);
+        $this->setCourierCarefulCarryRequired($order->refresh(), $carefulCarryRequired);
+
+        return $this->refreshTotalsAfterDeliveryFeeChange(
+            $order->refresh()->loadMissing('courierOrder'),
+            $actorId,
+            $triggerType,
+            $note,
+            $oldDeliveryFee,
+            $oldTotalPrice,
+            $reason,
+            $changedByRole,
         );
     }
 
@@ -1754,30 +2514,16 @@ class OrderService
                 throw new ApiException('Checkout nitip hanya tersedia untuk order SHOPPING.', 409);
             }
 
-            $oldDeliveryFee = (float) $order->delivery_fee;
-            $oldTotalPrice = (float) $order->total_price;
+            if (! $this->shoppingPriceNegotiationService->isApproved($order)) {
+                throw new ApiException('Harga Nitip harus disetujui customer sebelum checkout disimpan.', 409);
+            }
+
+            if ($this->deliveryFeeNegotiationService->hasPendingApproval($order)) {
+                throw new ApiException('Revisi ongkir harus disetujui customer sebelum checkout disimpan.', 409);
+            }
 
             if (array_key_exists('delivery_fee_override', $payload) && $payload['delivery_fee_override'] !== null) {
-                $manualDeliveryFee = round(max(0.0, (float) $payload['delivery_fee_override']), 2);
-                if ($manualDeliveryFee <= 0) {
-                    throw new ApiException('Ongkir checkout harus lebih dari 0.', 422);
-                }
-
-                $order->update([
-                    'delivery_fee' => $manualDeliveryFee,
-                    'delivery_fee_source' => 'driver_manual',
-                ]);
-
-                $order = $this->refreshTotalsAfterDeliveryFeeChange(
-                    $order->refresh(),
-                    $actor->id,
-                    'DRIVER_SHOPPING_CHECKOUT_DELIVERY_FEE',
-                    'Driver mengubah ongkir saat checkout nitip.',
-                    $oldDeliveryFee,
-                    $oldTotalPrice,
-                    'Ongkir diedit saat checkout nitip.',
-                    'driver',
-                );
+                throw new ApiException('Revisi ongkir Nitip harus dikirim sebagai proposal ongkir.', 409);
             }
 
             if (array_key_exists('shopping_total_amount', $payload) && $payload['shopping_total_amount'] !== null) {
@@ -1927,15 +2673,15 @@ class OrderService
             $replacementPickup = $replacementForPickupLocationId !== null
                 ? $this->resolveReplacementPickup($order, $replacementForPickupLocationId)
                 : null;
-            $pickupLocationsByMerchantId = [];
+            $pickupLocationsByCandidateKey = [];
 
             foreach ($items as $payload) {
-                $merchant = $this->resolveShoppingItemMerchant($order, $payload);
-                $merchantId = (int) $merchant->id;
-                $pickupLocation = $pickupLocationsByMerchantId[$merchantId] ?? null;
+                $candidate = $this->shoppingMerchantCandidateResolver->resolve($order, $payload);
+                $candidateKey = $candidate->key();
+                $pickupLocation = $pickupLocationsByCandidateKey[$candidateKey] ?? null;
 
                 if (! $pickupLocation) {
-                    $pickupLocation = $this->resolvePickupLocationForMerchant($order, $merchant);
+                    $pickupLocation = $this->resolvePickupLocationForCandidate($order, $candidate);
                 }
 
                 if (! $pickupLocation) {
@@ -1943,14 +2689,14 @@ class OrderService
                         throw new ApiException('Merchant baru hanya bisa ditambahkan sebelum driver mulai belanja.', 409);
                     }
 
-                    $pickupLocation = $this->createPickupLocationForMerchant($order, $merchant);
+                    $pickupLocation = $this->createPickupLocationForCandidate($order, $candidate);
                     $routeChanged = true;
                 }
 
-                $pickupLocationsByMerchantId[$merchantId] = $pickupLocation;
+                $pickupLocationsByCandidateKey[$candidateKey] = $pickupLocation;
 
                 $order->items()->create([
-                    ...$this->shoppingItemCreatePayload($merchant, $payload),
+                    ...$this->shoppingItemCreatePayload($candidate, $payload),
                     'pickup_location_id' => $pickupLocation->id,
                     'is_available' => true,
                     'is_heavy' => false,
@@ -2185,41 +2931,9 @@ class OrderService
 
     /**
      * @param  array<string, mixed>  $payload
-     */
-    private function resolveShoppingItemMerchant(Order $order, array $payload): Restaurant
-    {
-        if (isset($payload['merchant_id']) && is_numeric($payload['merchant_id'])) {
-            $merchant = Restaurant::query()
-                ->where('status', 'active')
-                ->whereKey((int) $payload['merchant_id'])
-                ->first();
-
-            if (! $merchant) {
-                throw new ApiException('Merchant tidak ditemukan atau tidak aktif.', 404);
-            }
-
-            return $merchant;
-        }
-
-        if ($order->restaurant instanceof Restaurant && $order->restaurant->status === 'active') {
-            return $order->restaurant;
-        }
-
-        $pickup = $order->orderLocations
-            ->first(fn (OrderLocation $location): bool => strtoupper((string) $location->location_role) === 'PICKUP' && $location->restaurant instanceof Restaurant);
-
-        if ($pickup?->restaurant instanceof Restaurant && $pickup->restaurant->status === 'active') {
-            return $pickup->restaurant;
-        }
-
-        throw new ApiException('Merchant wajib dipilih untuk item manual.', 422);
-    }
-
-    /**
-     * @param  array<string, mixed>  $payload
      * @return array<string, mixed>
      */
-    private function shoppingItemCreatePayload(Restaurant $merchant, array $payload): array
+    private function shoppingItemCreatePayload(ShoppingMerchantCandidate $candidate, array $payload): array
     {
         $itemSource = strtoupper((string) ($payload['item_source'] ?? 'MANUAL'));
         $quantity = max(1, (int) ($payload['quantity'] ?? 1));
@@ -2228,6 +2942,11 @@ class OrderService
             : null;
 
         if ($itemSource === 'MENU_DB') {
+            $merchant = $candidate->restaurant;
+            if (! $merchant instanceof Restaurant) {
+                throw new ApiException('Menu database hanya tersedia untuk merchant resmi BangDeliv.', 422);
+            }
+
             $menu = $this->resolveShoppingMenu($merchant, $payload);
             $unitPrice = round((float) $menu->price, 2);
 
@@ -2240,6 +2959,7 @@ class OrderService
                 'subtotal' => round($unitPrice * $quantity, 2),
                 'notes' => $notes,
                 'metadata' => [
+                    ...$candidate->metadata(),
                     'price_status' => 'CONFIRMED',
                     'source' => 'CUSTOMER_MENU_DB',
                 ],
@@ -2259,7 +2979,10 @@ class OrderService
             'unit_price' => 0,
             'subtotal' => 0,
             'notes' => $notes,
-            'metadata' => ['price_status' => 'PENDING_DRIVER_INPUT'],
+            'metadata' => [
+                ...$candidate->metadata(),
+                'price_status' => 'PENDING_DRIVER_INPUT',
+            ],
         ];
     }
 
@@ -2303,6 +3026,15 @@ class OrderService
         }
 
         return $pickup;
+    }
+
+    private function resolvePickupLocationForCandidate(Order $order, ShoppingMerchantCandidate $candidate): ?OrderLocation
+    {
+        if ($candidate->restaurant instanceof Restaurant) {
+            return $this->resolvePickupLocationForMerchant($order, $candidate->restaurant);
+        }
+
+        return $this->resolvePickupLocationForExternalPlace($order, $candidate);
     }
 
     private function resolvePickupLocationForMerchant(Order $order, Restaurant $merchant): ?OrderLocation
@@ -2350,6 +3082,49 @@ class OrderService
         return null;
     }
 
+    private function resolvePickupLocationForExternalPlace(Order $order, ShoppingMerchantCandidate $candidate): ?OrderLocation
+    {
+        $order->loadMissing(['orderLocations.restaurant']);
+
+        return $order->orderLocations
+            ->filter(fn (OrderLocation $location): bool => strtoupper((string) $location->location_role) === 'PICKUP')
+            ->first(function (OrderLocation $location) use ($candidate): bool {
+                if ($location->restaurant_id !== null) {
+                    return false;
+                }
+
+                if (in_array(
+                    strtoupper((string) ($location->fulfillment_status ?? 'PENDING')),
+                    ['FAILED', 'SKIPPED', 'REPLACED'],
+                    true
+                )) {
+                    return false;
+                }
+
+                $sameName = $this->normalizeShoppingLocationText((string) ($location->contact_name ?? ''))
+                    === $candidate->normalizedName();
+                if (! $sameName) {
+                    return false;
+                }
+
+                return $this->roughDistanceMeters(
+                    (float) $location->latitude,
+                    (float) $location->longitude,
+                    $candidate->latitude,
+                    $candidate->longitude,
+                ) <= 30;
+            });
+    }
+
+    private function createPickupLocationForCandidate(Order $order, ShoppingMerchantCandidate $candidate): OrderLocation
+    {
+        if ($candidate->restaurant instanceof Restaurant) {
+            return $this->createPickupLocationForMerchant($order, $candidate->restaurant);
+        }
+
+        return $this->createPickupLocationForExternalPlace($order, $candidate);
+    }
+
     private function createPickupLocationForMerchant(Order $order, Restaurant $merchant): OrderLocation
     {
         $maxSequence = (int) $order->orderLocations()->max('sequence_no');
@@ -2365,6 +3140,47 @@ class OrderService
             'longitude' => $merchant->longitude,
             'sequence_no' => max(1, $maxSequence + 1),
         ]);
+    }
+
+    private function createPickupLocationForExternalPlace(Order $order, ShoppingMerchantCandidate $candidate): OrderLocation
+    {
+        $maxSequence = (int) $order->orderLocations()->max('sequence_no');
+
+        return $order->orderLocations()->create([
+            'restaurant_id' => null,
+            'location_role' => 'PICKUP',
+            'label' => 'Merchant',
+            'contact_name' => $candidate->name,
+            'contact_phone' => null,
+            'full_address' => $candidate->address,
+            'latitude' => $candidate->latitude,
+            'longitude' => $candidate->longitude,
+            'sequence_no' => max(1, $maxSequence + 1),
+        ]);
+    }
+
+    private function normalizeShoppingLocationText(string $value): string
+    {
+        return mb_strtolower(trim(preg_replace('/\s+/', ' ', $value) ?? $value));
+    }
+
+    private function roughDistanceMeters(
+        float $originLatitude,
+        float $originLongitude,
+        float $targetLatitude,
+        float $targetLongitude
+    ): float {
+        $earthRadiusMeters = 6371000.0;
+        $originLatitudeRad = deg2rad($originLatitude);
+        $targetLatitudeRad = deg2rad($targetLatitude);
+        $deltaLatitudeRad = deg2rad($targetLatitude - $originLatitude);
+        $deltaLongitudeRad = deg2rad($targetLongitude - $originLongitude);
+
+        $haversine = sin($deltaLatitudeRad / 2) ** 2
+            + cos($originLatitudeRad) * cos($targetLatitudeRad) * sin($deltaLongitudeRad / 2) ** 2;
+        $safeHaversine = min(1.0, max(0.0, $haversine));
+
+        return $earthRadiusMeters * 2 * atan2(sqrt($safeHaversine), sqrt(1 - $safeHaversine));
     }
 
     private function syncPrimaryRestaurantFromFirstPickup(Order $order): void
@@ -2501,6 +3317,94 @@ class OrderService
         $broadcast();
     }
 
+    private function broadcastShoppingNegotiationUpdated(int $orderId): bool
+    {
+        return $this->realtimeBroadcaster->orderContentUpdated($orderId, 'SHOPPING_NEGOTIATION_UPDATED');
+    }
+
+    private function broadcastDeliveryFeeNegotiationUpdated(int $orderId): bool
+    {
+        return $this->realtimeBroadcaster->orderContentUpdated($orderId, 'DELIVERY_FEE_NEGOTIATION_UPDATED');
+    }
+
+    private function notifyShoppingPriceChanged(
+        Order $order,
+        User $actor,
+        string $recipientRole,
+        bool $requiresResponse,
+    ): void {
+        $freshOrder = $order->fresh(['user', 'driver.user', 'serviceType', 'statusRef']);
+        if (! $freshOrder instanceof Order) {
+            return;
+        }
+
+        $snapshot = $this->shoppingPriceNegotiationService->snapshot($freshOrder);
+        if (! is_array($snapshot)) {
+            return;
+        }
+
+        $this->orderPricingPushNotificationService->sendPriceChanged(
+            order: $freshOrder,
+            recipientRole: $recipientRole,
+            changeType: (string) ($snapshot['trigger_type'] ?? 'SHOPPING_PRICE_UPDATED'),
+            amount: $this->negotiationDisplayAmount($snapshot),
+            requiresResponse: $requiresResponse,
+            actor: $actor,
+            priceEventId: $this->negotiationEventId($snapshot),
+        );
+    }
+
+    private function notifyDeliveryFeeChanged(
+        Order $order,
+        User $actor,
+        string $recipientRole,
+        bool $requiresResponse,
+    ): void {
+        $freshOrder = $order->fresh(['user', 'driver.user', 'serviceType', 'statusRef']);
+        if (! $freshOrder instanceof Order) {
+            return;
+        }
+
+        $snapshot = $this->deliveryFeeNegotiationService->snapshot($freshOrder);
+        if (! is_array($snapshot)) {
+            return;
+        }
+
+        $this->orderPricingPushNotificationService->sendPriceChanged(
+            order: $freshOrder,
+            recipientRole: $recipientRole,
+            changeType: (string) ($snapshot['trigger_type'] ?? 'DELIVERY_FEE_UPDATED'),
+            amount: $this->negotiationDisplayAmount($snapshot),
+            requiresResponse: $requiresResponse,
+            actor: $actor,
+            priceEventId: $this->negotiationEventId($snapshot),
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $snapshot
+     */
+    private function negotiationDisplayAmount(array $snapshot): float
+    {
+        foreach (['approved_amount', 'counter_amount', 'quoted_amount', 'amount'] as $key) {
+            if (isset($snapshot[$key]) && is_numeric($snapshot[$key])) {
+                return round((float) $snapshot[$key], 2);
+            }
+        }
+
+        return 0.0;
+    }
+
+    /**
+     * @param  array<string, mixed>  $snapshot
+     */
+    private function negotiationEventId(array $snapshot): ?int
+    {
+        $id = $snapshot['quote_log_id'] ?? null;
+
+        return is_numeric($id) ? (int) $id : null;
+    }
+
     private function syncPendingPaymentAmount(Order $order): void
     {
         OrderPayment::query()
@@ -2509,16 +3413,6 @@ class OrderService
             ->update([
                 'amount' => round((float) $order->total_price, 2),
             ]);
-    }
-
-    private function systemDeliveryFeeWithCarefulCarry(Order $order, bool $carefulCarryRequired): float
-    {
-        $route = $order->route_snapshot;
-        $systemFee = is_array($route) && is_numeric(data_get($route, 'delivery_pricing.total_fee'))
-            ? (float) data_get($route, 'delivery_pricing.total_fee')
-            : (float) $order->delivery_fee;
-
-        return $this->deliveryFeeWithCarefulCarry($systemFee, $carefulCarryRequired);
     }
 
     private function orderServiceCode(Order $order): string
@@ -2537,17 +3431,6 @@ class OrderService
         return $status !== null
             ? OrderStatusCode::normalize($status->code)
             : '';
-    }
-
-    private function deliveryFeeWithCarefulCarry(float $baseDeliveryFee, bool $carefulCarryRequired): float
-    {
-        $baseDeliveryFee = max(0.0, $baseDeliveryFee);
-
-        if (! $carefulCarryRequired) {
-            return round($baseDeliveryFee, 2);
-        }
-
-        return round($baseDeliveryFee + ($baseDeliveryFee * 0.5), 2);
     }
 
     private function supportsCarefulCarry(string $serviceCode): bool

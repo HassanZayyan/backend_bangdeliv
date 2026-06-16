@@ -8,6 +8,7 @@ use App\Models\OrderItem;
 use App\Models\OrderLog;
 use App\Models\OrderStatusHistory;
 use App\Models\ServiceFeeRule;
+use App\Services\Notification\OrderPricingPushNotificationService;
 use App\Services\Notification\OrderRealtimeBroadcaster;
 use App\Services\Order\OrderPaymentService;
 use Illuminate\Support\Facades\DB;
@@ -32,6 +33,7 @@ class ShoppingPricingService
     public function __construct(
         private readonly OrderPaymentService $orderPaymentService,
         private readonly OrderRealtimeBroadcaster $realtimeBroadcaster,
+        private readonly OrderPricingPushNotificationService $pricingPushNotificationService,
     ) {}
 
     /**
@@ -167,7 +169,8 @@ class ShoppingPricingService
             ],
         ]);
 
-        $this->recordPriceChange($event, $oldAmounts, $this->pricingAmounts($freshForTotals));
+        $newAmounts = $this->pricingAmounts($freshForTotals);
+        $this->recordPriceChange($event, $oldAmounts, $newAmounts);
 
         if ($writeHistory) {
             OrderStatusHistory::query()->create([
@@ -205,6 +208,17 @@ class ShoppingPricingService
             'delivery_fee_change_note' => $freshOrder->delivery_fee_change_note,
             'careful_carry_required' => false,
         ]);
+
+        if ($event->exists) {
+            $this->notifyTotalChangedAfterCommit(
+                $freshOrder,
+                $changedByUserId,
+                $triggerType,
+                (float) ($oldAmounts['TOTAL_PRICE'] ?? 0),
+                (float) ($newAmounts['TOTAL_PRICE'] ?? 0),
+                (int) $event->id,
+            );
+        }
 
         return $freshOrder;
     }
@@ -523,6 +537,32 @@ class ShoppingPricingService
         }
 
         $broadcast();
+    }
+
+    private function notifyTotalChangedAfterCommit(
+        Order $order,
+        int $changedByUserId,
+        string $triggerType,
+        float $oldTotalPrice,
+        float $newTotalPrice,
+        int $priceEventId,
+    ): void {
+        $notify = fn (): bool => $this->pricingPushNotificationService->sendOrderTotalChanged(
+            $order,
+            $changedByUserId,
+            $triggerType,
+            $oldTotalPrice,
+            $newTotalPrice,
+            $priceEventId,
+        );
+
+        if (DB::transactionLevel() > 0) {
+            DB::afterCommit($notify);
+
+            return;
+        }
+
+        $notify();
     }
 
     /**

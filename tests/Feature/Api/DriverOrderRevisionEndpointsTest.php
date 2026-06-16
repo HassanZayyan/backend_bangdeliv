@@ -7,6 +7,7 @@ use App\Models\Driver;
 use App\Models\Order;
 use App\Models\OrderEvidence;
 use App\Models\OrderItem;
+use App\Models\OrderLog;
 use App\Models\OrderPayment;
 use App\Models\OrderStatus;
 use App\Models\ServiceType;
@@ -161,10 +162,31 @@ class DriverOrderRevisionEndpointsTest extends TestCase
 
         $response->assertOk()
             ->assertJsonPath('success', true)
-            ->assertJsonPath('data.delivery_fee', 22000)
-            ->assertJsonPath('data.delivery_fee_source', 'driver_manual')
+            ->assertJsonPath('data.delivery_fee', 15000)
+            ->assertJsonPath('data.delivery_fee_source', 'system')
+            ->assertJsonPath('data.delivery_fee_negotiation.status', 'PENDING_CUSTOMER')
+            ->assertJsonPath('data.delivery_fee_negotiation.quoted_amount', 22000)
             ->assertJsonPath('data.careful_carry_required', false);
         $this->assertArrayNotHasKey('manual_delivery_fee_reason', $response->json('data'));
+
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
+            'delivery_fee' => 15000,
+            'total_price' => 15000,
+            'delivery_fee_source' => 'system',
+        ]);
+
+        Sanctum::actingAs(User::query()->findOrFail($order->user_id));
+
+        $approve = $this->postJson('/api/v1/orders/'.$order->id.'/delivery-fee-override/respond', [
+            'action' => 'APPROVE',
+        ]);
+
+        $approve->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.delivery_fee', '22000.00')
+            ->assertJsonPath('data.delivery_fee_source', 'driver_manual')
+            ->assertJsonPath('data.delivery_fee_negotiation.status', 'APPROVED');
 
         $this->assertDatabaseHas('orders', [
             'id' => $order->id,
@@ -179,13 +201,11 @@ class DriverOrderRevisionEndpointsTest extends TestCase
         ]);
         $event = \App\Models\OrderLog::query()
             ->where('order_id', $order->id)
-            ->where('trigger_type', 'DRIVER_DELIVERY_FEE_OVERRIDE')
+            ->where('trigger_type', 'CUSTOMER_DELIVERY_FEE_APPROVED')
             ->firstOrFail();
         $this->assertSame('Rute sistem kurang akurat.', $event->metadata['reason'] ?? null);
-        $this->assertSame('driver', $event->metadata['changed_by_role'] ?? null);
+        $this->assertSame('customer', $event->metadata['changed_by_role'] ?? null);
         $this->assertArrayNotHasKey('recalculation_version', $event->getAttributes());
-
-        Sanctum::actingAs(User::query()->findOrFail($order->user_id));
 
         $this->getJson('/api/v1/orders/'.$order->id)
             ->assertOk()
@@ -209,9 +229,18 @@ class DriverOrderRevisionEndpointsTest extends TestCase
 
         $response->assertOk()
             ->assertJsonPath('success', true)
-            ->assertJsonPath('data.delivery_fee', 8000)
-            ->assertJsonPath('data.delivery_fee_source', 'driver_manual')
-            ->assertJsonPath('data.careful_carry_required', true);
+            ->assertJsonPath('data.delivery_fee', 5000)
+            ->assertJsonPath('data.delivery_fee_source', 'system')
+            ->assertJsonPath('data.delivery_fee_negotiation.status', 'PENDING_CUSTOMER')
+            ->assertJsonPath('data.delivery_fee_negotiation.quoted_amount', 8000);
+
+        Sanctum::actingAs(User::query()->findOrFail($order->user_id));
+
+        $this->postJson('/api/v1/orders/'.$order->id.'/delivery-fee-override/respond', [
+            'action' => 'APPROVE',
+        ])->assertOk()
+            ->assertJsonPath('data.delivery_fee', '8000.00')
+            ->assertJsonPath('data.delivery_fee_source', 'driver_manual');
 
         $this->assertDatabaseHas('orders', [
             'id' => $order->id,
@@ -229,7 +258,10 @@ class DriverOrderRevisionEndpointsTest extends TestCase
             'careful_carry_required' => true,
         ]);
 
-        $breakdown = collect($response->json('data.fee_breakdown'));
+        Sanctum::actingAs($driverUser);
+        $detail = $this->getJson('/api/v1/driver/orders/'.$order->id)
+            ->assertOk();
+        $breakdown = collect($detail->json('data.fee_breakdown'));
         $this->assertSame(8000.0, (float) $breakdown->firstWhere('code', 'manual_override')['amount']);
         $this->assertNull($breakdown->firstWhere('code', 'careful_carry'));
     }
@@ -479,6 +511,7 @@ class DriverOrderRevisionEndpointsTest extends TestCase
             'recorded_by_user_id' => $driverUser->id,
             'recorded_at' => now(),
         ]);
+        $this->approveShoppingQuoteForTest($order, $driverUser, $order->user, 25000);
 
         OrderItem::query()->create([
             'order_id' => $order->id,
@@ -528,6 +561,7 @@ class DriverOrderRevisionEndpointsTest extends TestCase
             'is_heavy' => false,
             'metadata' => ['price_status' => 'PENDING_DRIVER_INPUT'],
         ]);
+        $this->approveShoppingQuoteForTest($order, $driverUser, $order->user, 56000);
 
         Sanctum::actingAs($driverUser);
 
@@ -605,6 +639,130 @@ class DriverOrderRevisionEndpointsTest extends TestCase
 
         $response->assertUnprocessable()
             ->assertJsonPath('success', false);
+    }
+
+    public function test_customer_counter_delivery_fee_requires_driver_approval(): void
+    {
+        [$driverUser, $driver] = $this->createDriver();
+        $order = $this->createAssignedOrder($driver, 'RIDE', 'ARRIVED_PICKUP', 15000);
+        $customer = User::query()->findOrFail($order->user_id);
+
+        Sanctum::actingAs($driverUser);
+        $this->postJson('/api/v1/driver/orders/'.$order->id.'/delivery-fee-override', [
+            'amount' => 22000,
+            'reason' => 'Rute lebih jauh dari estimasi.',
+        ])->assertOk()
+            ->assertJsonPath('data.delivery_fee_negotiation.status', 'PENDING_CUSTOMER');
+
+        Sanctum::actingAs($customer);
+        $this->postJson('/api/v1/orders/'.$order->id.'/delivery-fee-override/respond', [
+            'action' => 'COUNTER',
+            'counter_amount' => 19000,
+        ])->assertOk()
+            ->assertJsonPath('data.delivery_fee', '15000.00')
+            ->assertJsonPath('data.delivery_fee_negotiation.status', 'PENDING_DRIVER')
+            ->assertJsonPath('data.delivery_fee_negotiation.counter_amount', 19000);
+
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
+            'delivery_fee' => 15000,
+            'total_price' => 15000,
+        ]);
+
+        Sanctum::actingAs($driverUser);
+        $this->postJson('/api/v1/driver/orders/'.$order->id.'/delivery-fee-override/accept-counter')
+            ->assertOk()
+            ->assertJsonPath('data.delivery_fee', 19000)
+            ->assertJsonPath('data.delivery_fee_source', 'driver_manual')
+            ->assertJsonPath('data.delivery_fee_negotiation.status', 'APPROVED');
+
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
+            'delivery_fee' => 19000,
+            'total_price' => 19000,
+            'delivery_fee_source' => 'driver_manual',
+        ]);
+    }
+
+    public function test_pending_delivery_fee_revision_blocks_driver_progress(): void
+    {
+        [$driverUser, $driver] = $this->createDriver();
+        $order = $this->createAssignedOrder($driver, 'RIDE', 'ARRIVED_PICKUP', 15000);
+
+        Sanctum::actingAs($driverUser);
+        $this->postJson('/api/v1/driver/orders/'.$order->id.'/delivery-fee-override', [
+            'amount' => 22000,
+            'reason' => 'Titik jemput berubah.',
+        ])->assertOk();
+
+        $detail = $this->getJson('/api/v1/driver/orders/'.$order->id)
+            ->assertOk();
+        $action = collect($detail->json('data.available_actions'))
+            ->firstWhere('action_code', 'BOARD_PASSENGER');
+        $this->assertIsArray($action);
+        $this->assertTrue((bool) ($action['blocked'] ?? false));
+        $this->assertStringContainsString('Revisi ongkir', (string) ($action['blocked_reason'] ?? ''));
+
+        $this->postJson('/api/v1/driver/orders/'.$order->id.'/status-transition', [
+            'action_code' => 'BOARD_PASSENGER',
+            'target_status_code' => 'ON_THE_WAY',
+        ])->assertConflict()
+            ->assertJsonPath('success', false);
+    }
+
+    public function test_delivery_fee_revision_is_rejected_after_cutoff_or_payment_proof(): void
+    {
+        Storage::fake('public');
+        [$driverUser, $driver] = $this->createDriver();
+        $lateOrder = $this->createAssignedOrder($driver, 'COURIER', 'PICKED_UP', 15000);
+
+        Sanctum::actingAs($driverUser);
+        $this->postJson('/api/v1/driver/orders/'.$lateOrder->id.'/delivery-fee-override', [
+            'amount' => 22000,
+            'reason' => 'Terlambat edit.',
+        ])->assertConflict()
+            ->assertJsonPath('success', false);
+
+        $transferOrder = $this->createAssignedOrder($driver, 'RIDE', 'DRIVER_ASSIGNED', 15000, 'TRANSFER');
+        $customer = User::query()->findOrFail($transferOrder->user_id);
+
+        Sanctum::actingAs($customer);
+        $this->post('/api/v1/orders/'.$transferOrder->id.'/payment/transfer/evidence', [
+            'photo' => UploadedFile::fake()->image('qris.jpg', 800, 600),
+        ], ['Accept' => 'application/json'])->assertCreated();
+
+        Sanctum::actingAs($driverUser);
+        $this->postJson('/api/v1/driver/orders/'.$transferOrder->id.'/delivery-fee-override', [
+            'amount' => 22000,
+            'reason' => 'Bukti sudah upload.',
+        ])->assertConflict()
+            ->assertJsonPath('success', false);
+    }
+
+    public function test_customer_can_cancel_order_from_delivery_fee_revision_without_fee(): void
+    {
+        [$driverUser, $driver] = $this->createDriver();
+        $order = $this->createAssignedOrder($driver, 'COURIER', 'ARRIVED_PICKUP', 15000);
+        $customer = User::query()->findOrFail($order->user_id);
+
+        Sanctum::actingAs($driverUser);
+        $this->postJson('/api/v1/driver/orders/'.$order->id.'/delivery-fee-override', [
+            'amount' => 22000,
+            'reason' => 'Paket lebih besar dari estimasi.',
+        ])->assertOk();
+
+        Sanctum::actingAs($customer);
+        $this->postJson('/api/v1/orders/'.$order->id.'/delivery-fee-override/respond', [
+            'action' => 'CANCEL_ORDER',
+        ])->assertOk()
+            ->assertJsonPath('data.status_ref.code', 'CANCELLED')
+            ->assertJsonPath('data.delivery_fee_negotiation.status', 'CANCELLED_ORDER');
+
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
+            'cancelled_by' => 'customer',
+            'cancellation_reason' => 'Customer membatalkan order karena menolak revisi ongkir.',
+        ]);
     }
 
     public function test_driver_can_record_transfer_payment(): void
@@ -712,6 +870,35 @@ class DriverOrderRevisionEndpointsTest extends TestCase
         }
 
         return $order;
+    }
+
+    private function approveShoppingQuoteForTest(Order $order, User $driverUser, User $customer, float $amount): void
+    {
+        $quote = OrderLog::query()->create([
+            'order_id' => $order->id,
+            'log_type' => 'SHOPPING_NEGOTIATION',
+            'trigger_type' => 'DRIVER_PRICE_QUOTED',
+            'changed_by_user_id' => $driverUser->id,
+            'note' => 'Quote test.',
+            'metadata' => [
+                'quoted_amount' => $amount,
+                'status' => 'PENDING_CUSTOMER',
+            ],
+        ]);
+
+        OrderLog::query()->create([
+            'order_id' => $order->id,
+            'log_type' => 'SHOPPING_NEGOTIATION',
+            'trigger_type' => 'CUSTOMER_PRICE_APPROVED',
+            'changed_by_user_id' => $customer->id,
+            'note' => 'Approval test.',
+            'metadata' => [
+                'quote_log_id' => $quote->id,
+                'quoted_amount' => $amount,
+                'approved_amount' => $amount,
+                'status' => 'APPROVED',
+            ],
+        ]);
     }
 
     private function createFailedPickup(Order $order, int $failedAttemptCount): void

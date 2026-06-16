@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Services\Order\DeliveryFeeNegotiationService;
+use App\Services\Shopping\ShoppingPriceNegotiationService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -97,6 +99,8 @@ class Order extends Model
         'shopping_stops',
         'route',
         'shopping_route',
+        'delivery_fee_negotiation',
+        'shopping_negotiation',
         'delivery_distance_km',
         'delivery_distance_text',
         'pricing_snapshot',
@@ -332,7 +336,12 @@ class Order extends Model
 
         $event = $this->logs()
             ->whereIn('event_type', ['PRICE_RECALCULATION', 'PRICE_UPDATE'])
-            ->whereIn('trigger_type', ['DRIVER_DELIVERY_FEE_OVERRIDE', 'DRIVER_SHOPPING_CHECKOUT_DELIVERY_FEE'])
+            ->whereIn('trigger_type', [
+                'DRIVER_DELIVERY_FEE_OVERRIDE',
+                'DRIVER_SHOPPING_CHECKOUT_DELIVERY_FEE',
+                'CUSTOMER_DELIVERY_FEE_APPROVED',
+                'DRIVER_DELIVERY_FEE_COUNTER_APPROVED',
+            ])
             ->latest('created_at')
             ->latest('id')
             ->first();
@@ -593,6 +602,22 @@ class Order extends Model
         }
 
         return $this->legacyShoppingRouteSnapshot();
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function getShoppingNegotiationAttribute(): ?array
+    {
+        return app(ShoppingPriceNegotiationService::class)->snapshot($this);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function getDeliveryFeeNegotiationAttribute(): ?array
+    {
+        return app(DeliveryFeeNegotiationService::class)->snapshot($this);
     }
 
     /**

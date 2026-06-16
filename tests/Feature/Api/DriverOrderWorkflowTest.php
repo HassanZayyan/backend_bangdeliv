@@ -1238,6 +1238,8 @@ class DriverOrderWorkflowTest extends TestCase
             'is_heavy' => false,
         ]);
 
+        $this->approveShoppingQuoteForTest($order, $driverUser, $order->user);
+
         Sanctum::actingAs($driverUser);
 
         $response = $this->postJson('/api/v1/driver/orders/'.$order->id.'/status-transition', [
@@ -1326,6 +1328,165 @@ class DriverOrderWorkflowTest extends TestCase
             ->where('order_id', $order->id)
             ->where('trigger_type', 'DRIVER_RECEIPT_UPDATE')
             ->exists());
+    }
+
+    public function test_shopping_price_quote_counter_and_driver_approval_flow(): void
+    {
+        [$driverUser, $driver] = $this->createActiveDriver('shopping-counter');
+        $order = $this->createShoppingOrder($driver, 'ARRIVED_MERCHANT');
+        $pickup = $this->createPickupLocation($order, -7.001, 110.401, 'Resto Counter');
+        $this->createDropoffLocation($order, -7.004, 110.404, 'Customer Counter');
+
+        OrderItem::query()->create([
+            'order_id' => $order->id,
+            'pickup_location_id' => $pickup->id,
+            'item_source' => 'MANUAL',
+            'menu_name' => 'Ayam geprek',
+            'quantity' => 1,
+            'unit_price' => 0,
+            'subtotal' => 0,
+            'is_available' => true,
+            'is_heavy' => false,
+        ]);
+
+        Sanctum::actingAs($driverUser);
+
+        $quote = $this->postJson('/api/v1/driver/orders/'.$order->id.'/shopping/price-quote', [
+            'pickup_location_id' => $pickup->id,
+            'amount' => 20000,
+        ]);
+
+        $quote->assertOk()
+            ->assertJsonPath('data.shopping_negotiation.status', 'PENDING_CUSTOMER')
+            ->assertJsonPath('data.shopping_negotiation.quoted_amount', 20000);
+
+        Sanctum::actingAs($order->user);
+
+        $counter = $this->postJson('/api/v1/orders/'.$order->id.'/shopping/price-quote/respond', [
+            'action' => 'COUNTER',
+            'counter_amount' => 18000,
+        ]);
+
+        $counter->assertOk()
+            ->assertJsonPath('data.shopping_negotiation.status', 'PENDING_DRIVER')
+            ->assertJsonPath('data.shopping_negotiation.counter_amount', 18000)
+            ->assertJsonPath('data.shopping_negotiation.checkout_allowed', false);
+
+        Sanctum::actingAs($driverUser);
+
+        $approved = $this->postJson('/api/v1/driver/orders/'.$order->id.'/shopping/price-quote/accept-counter');
+
+        $approved->assertOk()
+            ->assertJsonPath('data.shopping_negotiation.status', 'APPROVED')
+            ->assertJsonPath('data.shopping_negotiation.approved_amount', 18000)
+            ->assertJsonPath('data.shopping_negotiation.checkout_allowed', true);
+
+        $this->assertDatabaseHas('order_events', [
+            'order_id' => $order->id,
+            'event_type' => 'SHOPPING_NEGOTIATION',
+            'trigger_type' => 'DRIVER_COUNTER_APPROVED',
+        ]);
+    }
+
+    public function test_customer_cancel_merchant_records_failed_attempt_without_fee_before_threshold(): void
+    {
+        [$driverUser, $driver] = $this->createActiveDriver('shopping-cancel-merchant');
+        $order = $this->createShoppingOrder($driver, 'ARRIVED_MERCHANT');
+        $pickup = $this->createPickupLocation($order, -7.001, 110.401, 'Resto Cancel Merchant');
+        $this->createDropoffLocation($order, -7.004, 110.404, 'Customer Cancel Merchant');
+
+        OrderItem::query()->create([
+            'order_id' => $order->id,
+            'pickup_location_id' => $pickup->id,
+            'item_source' => 'MANUAL',
+            'menu_name' => 'Ayam geprek',
+            'quantity' => 1,
+            'unit_price' => 12000,
+            'subtotal' => 12000,
+            'is_available' => true,
+            'is_heavy' => false,
+        ]);
+
+        Sanctum::actingAs($driverUser);
+        $this->postJson('/api/v1/driver/orders/'.$order->id.'/shopping/price-quote', [
+            'pickup_location_id' => $pickup->id,
+            'amount' => 20000,
+        ])->assertOk();
+
+        Sanctum::actingAs($order->user);
+        $response = $this->postJson('/api/v1/orders/'.$order->id.'/shopping/price-quote/respond', [
+            'action' => 'CANCEL_MERCHANT',
+            'pickup_location_id' => $pickup->id,
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.status_ref.code', 'ARRIVED_MERCHANT')
+            ->assertJsonPath('data.shopping_stops.0.fulfillment_status', 'FAILED')
+            ->assertJsonPath('data.shopping_stops.0.failed_attempt_count', 1);
+
+        $this->assertDatabaseHas('order_locations', [
+            'id' => $pickup->id,
+            'failed_attempt_count' => 1,
+            'failure_reason' => 'Resto tutup/order batal.',
+        ]);
+        $this->assertDatabaseMissing('order_fee_lines', [
+            'order_id' => $order->id,
+            'code' => 'CANCELLATION_PENALTY_AFTER_FAILED_ATTEMPTS',
+        ]);
+    }
+
+    public function test_customer_cancel_merchant_at_third_attempt_creates_cancelled_with_fee_payment(): void
+    {
+        [$driverUser, $driver] = $this->createActiveDriver('shopping-cancel-fee');
+        $order = $this->createShoppingOrder($driver, 'ARRIVED_MERCHANT');
+        $pickup = $this->createPickupLocation($order, -7.001, 110.401, 'Resto Cancel Fee');
+        $this->createDropoffLocation($order, -7.004, 110.404, 'Customer Cancel Fee');
+        $pickup->update(['failed_attempt_count' => 2]);
+
+        OrderItem::query()->create([
+            'order_id' => $order->id,
+            'pickup_location_id' => $pickup->id,
+            'item_source' => 'MANUAL',
+            'menu_name' => 'Ayam geprek',
+            'quantity' => 1,
+            'unit_price' => 12000,
+            'subtotal' => 12000,
+            'is_available' => true,
+            'is_heavy' => false,
+        ]);
+
+        Sanctum::actingAs($driverUser);
+        $this->postJson('/api/v1/driver/orders/'.$order->id.'/shopping/price-quote', [
+            'pickup_location_id' => $pickup->id,
+            'amount' => 20000,
+        ])->assertOk();
+
+        Sanctum::actingAs($order->user);
+        $response = $this->postJson('/api/v1/orders/'.$order->id.'/shopping/price-quote/respond', [
+            'action' => 'CANCEL_MERCHANT',
+            'pickup_location_id' => $pickup->id,
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.status_ref.code', 'CANCELLED_WITH_FEE')
+            ->assertJsonPath('data.payment_method', 'TRANSFER')
+            ->assertJsonPath('data.payment_status', 'unpaid');
+
+        $this->assertDatabaseHas('order_locations', [
+            'id' => $pickup->id,
+            'failed_attempt_count' => 3,
+        ]);
+        $this->assertDatabaseHas('order_fee_lines', [
+            'order_id' => $order->id,
+            'code' => 'CANCELLATION_PENALTY_AFTER_FAILED_ATTEMPTS',
+            'amount' => 3000,
+        ]);
+        $this->assertDatabaseHas('order_payments', [
+            'order_id' => $order->id,
+            'payment_method' => 'TRANSFER',
+            'payment_status' => 'PENDING',
+            'amount' => 3000,
+        ]);
     }
 
     public function test_driver_can_cancel_shopping_with_fee_after_three_failed_pickups(): void
@@ -1678,6 +1839,36 @@ class DriverOrderWorkflowTest extends TestCase
             'evidence_type' => $evidenceType,
             'file_url' => 'http://localhost/storage/test-proof.jpg',
             'uploaded_at' => now(),
+        ]);
+    }
+
+    private function approveShoppingQuoteForTest(Order $order, User $driverUser, User $customer, float $amount = 12000): void
+    {
+        $quote = OrderLog::query()->create([
+            'order_id' => $order->id,
+            'log_type' => 'SHOPPING_NEGOTIATION',
+            'trigger_type' => 'DRIVER_PRICE_QUOTED',
+            'changed_by_user_id' => $driverUser->id,
+            'note' => 'Quote test.',
+            'metadata' => [
+                'quoted_amount' => $amount,
+                'approved_amount' => null,
+                'status' => 'PENDING_CUSTOMER',
+            ],
+        ]);
+
+        OrderLog::query()->create([
+            'order_id' => $order->id,
+            'log_type' => 'SHOPPING_NEGOTIATION',
+            'trigger_type' => 'CUSTOMER_PRICE_APPROVED',
+            'changed_by_user_id' => $customer->id,
+            'note' => 'Approval test.',
+            'metadata' => [
+                'quote_log_id' => $quote->id,
+                'quoted_amount' => $amount,
+                'approved_amount' => $amount,
+                'status' => 'APPROVED',
+            ],
         ]);
     }
 

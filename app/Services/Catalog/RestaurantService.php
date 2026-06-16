@@ -51,6 +51,8 @@ class RestaurantService
                 'slug' => $restaurant->slug,
                 'merchant_type' => $restaurant->merchant_type,
                 'address' => $restaurant->address,
+                'latitude' => (float) $restaurant->latitude,
+                'longitude' => (float) $restaurant->longitude,
                 'banner_image' => $restaurant->banner_image,
                 'is_open_now' => $this->isOpenNow($restaurant),
                 'distance_km' => $this->distanceKm($restaurant, $latitude, $longitude),

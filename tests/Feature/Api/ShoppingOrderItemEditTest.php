@@ -110,6 +110,126 @@ class ShoppingOrderItemEditTest extends TestCase
         ]);
     }
 
+    public function test_customer_can_add_manual_item_from_google_place_without_creating_restaurant(): void
+    {
+        Config::set('bangdeliv.google_maps_api_key', 'test-key');
+        $this->fakeDistance(2500);
+
+        $customer = User::factory()->create(['role' => 'customer']);
+        $order = $this->createShoppingOrder($customer, 'DRIVER_ASSIGNED');
+
+        Sanctum::actingAs($customer);
+
+        $response = $this->postJson('/api/v1/orders/'.$order->id.'/items/bulk', [
+            'items' => [
+                [
+                    'merchant_place' => [
+                        'place_id' => 'google-place-warung-baru',
+                        'name' => 'Warung Google Baru',
+                        'address' => 'Jl. Warung Google Baru, Semarang',
+                        'latitude' => -7.0061,
+                        'longitude' => 110.4061,
+                        'types' => ['food', 'store'],
+                    ],
+                    'item_source' => 'MANUAL',
+                    'menu_name' => 'Es teh jumbo',
+                    'quantity' => 2,
+                ],
+            ],
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.delivery_fee', '15000.00')
+            ->assertJsonPath('data.total_price', '35000.00')
+            ->assertJsonPath('data.shopping_stops.1.merchant.id', null)
+            ->assertJsonPath('data.shopping_stops.1.merchant.name', 'Warung Google Baru')
+            ->assertJsonPath('data.shopping_stops.1.items.0.menu_name', 'Es teh jumbo');
+
+        $pickupId = (int) $response->json('data.shopping_stops.1.pickup_location_id');
+        $this->assertDatabaseHas('order_locations', [
+            'id' => $pickupId,
+            'order_id' => $order->id,
+            'restaurant_id' => null,
+            'contact_name' => 'Warung Google Baru',
+            'full_address' => 'Jl. Warung Google Baru, Semarang',
+        ]);
+
+        $item = OrderItem::query()
+            ->where('order_id', $order->id)
+            ->where('menu_name', 'Es teh jumbo')
+            ->firstOrFail();
+
+        $this->assertSame($pickupId, (int) $item->pickup_location_id);
+        $this->assertSame('CUSTOMER_GOOGLE_PLACE', $item->metadata['source'] ?? null);
+        $this->assertSame('google-place-warung-baru', $item->metadata['place_id'] ?? null);
+    }
+
+    public function test_google_place_item_cannot_use_menu_db_source(): void
+    {
+        $customer = User::factory()->create(['role' => 'customer']);
+        $order = $this->createShoppingOrder($customer, 'DRIVER_ASSIGNED');
+
+        Sanctum::actingAs($customer);
+
+        $response = $this->postJson('/api/v1/orders/'.$order->id.'/items/bulk', [
+            'items' => [
+                [
+                    'merchant_place' => [
+                        'place_id' => 'google-place-resto',
+                        'name' => 'Resto Google',
+                        'address' => 'Jl. Resto Google, Semarang',
+                        'latitude' => -7.0061,
+                        'longitude' => 110.4061,
+                    ],
+                    'item_source' => 'MENU_DB',
+                    'quantity' => 1,
+                ],
+            ],
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('message', 'Menu database hanya tersedia untuk merchant resmi BangDeliv.');
+    }
+
+    public function test_google_place_item_still_respects_maximum_shopping_route_distance(): void
+    {
+        Config::set('bangdeliv.google_maps_api_key', 'test-key');
+        $this->fakeDistance(26000);
+
+        $customer = User::factory()->create(['role' => 'customer']);
+        $order = $this->createShoppingOrder($customer, 'DRIVER_ASSIGNED');
+
+        Sanctum::actingAs($customer);
+
+        $response = $this->postJson('/api/v1/orders/'.$order->id.'/items/bulk', [
+            'items' => [
+                [
+                    'merchant_place' => [
+                        'place_id' => 'google-place-far',
+                        'name' => 'Tempat Google Jauh',
+                        'address' => 'Jl. Terlalu Jauh',
+                        'latitude' => -7.7061,
+                        'longitude' => 110.9061,
+                    ],
+                    'item_source' => 'MANUAL',
+                    'menu_name' => 'Air mineral',
+                    'quantity' => 1,
+                ],
+            ],
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJsonPath('success', false);
+
+        $this->assertStringContainsString('melebihi batas layanan', (string) $response->json('message'));
+        $this->assertDatabaseMissing('order_locations', [
+            'order_id' => $order->id,
+            'contact_name' => 'Tempat Google Jauh',
+        ]);
+    }
+
     public function test_customer_can_bulk_add_manual_items_from_same_merchant_without_recalculating_delivery_fee(): void
     {
         Config::set('bangdeliv.google_maps_api_key', 'test-key');

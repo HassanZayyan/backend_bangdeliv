@@ -2,84 +2,35 @@
 
 namespace App\Services\Notification;
 
-use App\Models\DeviceToken;
 use App\Models\Order;
-use Illuminate\Contracts\Container\Container;
-use Illuminate\Support\Facades\Log;
-use Kreait\Firebase\Contract\Messaging;
 use Kreait\Firebase\Messaging\CloudMessage;
 use Kreait\Firebase\Messaging\Notification;
 
 class OrderStatusPushNotificationService
 {
-    public function __construct(private readonly Container $container) {}
+    public function __construct(private readonly UserPushNotificationSender $sender) {}
 
     /**
      * @param  array<string, bool|int|string|null>  $statusPayload
      */
     public function sendOrderStatusNotification(Order $order, array $statusPayload): bool
     {
-        try {
-            $order->loadMissing(['user', 'statusRef', 'serviceType']);
-            $recipient = $order->user;
-            if ($recipient === null) {
-                return false;
-            }
-
-            $tokens = DeviceToken::query()
-                ->where('user_id', $recipient->id)
-                ->where('device_type', 'android')
-                ->where('is_active', true)
-                ->pluck('token')
-                ->filter()
-                ->unique()
-                ->values()
-                ->all();
-
-            if ($tokens === []) {
-                return false;
-            }
-
-            $report = $this->messaging()->sendMulticast(
-                $this->buildMessage($order, $statusPayload),
-                $tokens,
-            );
-
-            $inactiveTokens = array_values(array_unique([
-                ...$report->invalidTokens(),
-                ...$report->unknownTokens(),
-            ]));
-
-            if ($inactiveTokens !== []) {
-                DeviceToken::query()
-                    ->whereIn('token', $inactiveTokens)
-                    ->update(['is_active' => false]);
-            }
-
-            if ($report->hasFailures()) {
-                Log::warning('Sebagian notifikasi status order FCM gagal terkirim.', [
-                    'order_id' => $order->id,
-                    'status_code' => $statusPayload['status_code'] ?? null,
-                    'recipient_user_id' => $recipient->id,
-                    'failed_count' => $report->failures()->count(),
-                ]);
-            }
-
-            return $report->successes()->count() > 0;
-        } catch (\Throwable $exception) {
-            Log::warning('Notifikasi status order FCM gagal dikirim.', [
-                'order_id' => $order->id,
-                'status_code' => $statusPayload['status_code'] ?? null,
-                'error' => $exception->getMessage(),
-            ]);
-
+        $order->loadMissing(['user', 'statusRef', 'serviceType']);
+        $recipient = $order->user;
+        if ($recipient === null) {
             return false;
         }
-    }
 
-    private function messaging(): Messaging
-    {
-        return $this->container->make(Messaging::class);
+        return $this->sender->send(
+            $recipient,
+            $this->buildMessage($order, $statusPayload),
+            'Notifikasi status order FCM gagal dikirim.',
+            'Sebagian notifikasi status order FCM gagal terkirim.',
+            [
+                'order_id' => $order->id,
+                'status_code' => $statusPayload['status_code'] ?? null,
+            ],
+        );
     }
 
     /**

@@ -2,84 +2,35 @@
 
 namespace App\Services\Notification;
 
-use App\Models\DeviceToken;
 use App\Models\Order;
 use App\Models\OrderChatMessage;
 use App\Models\User;
-use Illuminate\Contracts\Container\Container;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
-use Kreait\Firebase\Contract\Messaging;
 use Kreait\Firebase\Messaging\CloudMessage;
 use Kreait\Firebase\Messaging\Notification;
 
 class ChatPushNotificationService
 {
-    public function __construct(private readonly Container $container) {}
+    public function __construct(private readonly UserPushNotificationSender $sender) {}
 
     public function sendOrderChatNotification(Order $order, User $sender, OrderChatMessage $message): bool
     {
-        try {
-            $recipient = $this->resolveRecipient($order, $sender);
-            if ($recipient === null) {
-                return false;
-            }
+        $recipient = $this->resolveRecipient($order, $sender);
+        if ($recipient === null) {
+            return false;
+        }
 
-            $tokens = DeviceToken::query()
-                ->where('user_id', $recipient->id)
-                ->where('device_type', 'android')
-                ->where('is_active', true)
-                ->pluck('token')
-                ->filter()
-                ->unique()
-                ->values()
-                ->all();
-
-            if ($tokens === []) {
-                return false;
-            }
-
-            $report = $this->messaging()->sendMulticast(
-                $this->buildMessage($order, $sender, $message),
-                $tokens,
-            );
-
-            $inactiveTokens = array_values(array_unique([
-                ...$report->invalidTokens(),
-                ...$report->unknownTokens(),
-            ]));
-
-            if ($inactiveTokens !== []) {
-                DeviceToken::query()
-                    ->whereIn('token', $inactiveTokens)
-                    ->update(['is_active' => false]);
-            }
-
-            if ($report->hasFailures()) {
-                Log::warning('Sebagian notifikasi chat FCM gagal terkirim.', [
-                    'order_id' => $order->id,
-                    'message_id' => $message->id,
-                    'recipient_user_id' => $recipient->id,
-                    'failed_count' => $report->failures()->count(),
-                ]);
-            }
-
-            return $report->successes()->count() > 0;
-        } catch (\Throwable $exception) {
-            Log::warning('Notifikasi chat FCM gagal dikirim.', [
+        return $this->sender->send(
+            $recipient,
+            $this->buildMessage($order, $sender, $message),
+            'Notifikasi chat FCM gagal dikirim.',
+            'Sebagian notifikasi chat FCM gagal terkirim.',
+            [
                 'order_id' => $order->id,
                 'message_id' => $message->id,
                 'sender_user_id' => $sender->id,
-                'error' => $exception->getMessage(),
-            ]);
-
-            return false;
-        }
-    }
-
-    private function messaging(): Messaging
-    {
-        return $this->container->make(Messaging::class);
+            ],
+        );
     }
 
     private function resolveRecipient(Order $order, User $sender): ?User
