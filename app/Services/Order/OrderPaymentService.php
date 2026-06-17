@@ -4,6 +4,7 @@ namespace App\Services\Order;
 
 use App\Models\Order;
 use App\Models\OrderPayment;
+use Carbon\CarbonInterface;
 
 class OrderPaymentService
 {
@@ -64,6 +65,32 @@ class OrderPaymentService
                 'metadata' => [
                     'source' => $source,
                 ],
+            ],
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $metadata
+     */
+    public function markPaid(
+        Order $order,
+        string $method,
+        float $amount,
+        ?int $recordedByUserId,
+        ?int $driverId,
+        CarbonInterface $paidAt,
+        array $metadata = [],
+    ): OrderPayment {
+        return OrderPayment::query()->updateOrCreate(
+            ['order_id' => $order->id],
+            [
+                'payment_method' => $this->normalizePaymentMethod($method),
+                'payment_status' => self::STATUS_PAID,
+                'amount' => round(max(0.0, $amount), 2),
+                'recorded_by_user_id' => $recordedByUserId,
+                'driver_id' => $driverId,
+                'paid_at' => $paidAt,
+                'metadata' => $metadata,
             ],
         );
     }

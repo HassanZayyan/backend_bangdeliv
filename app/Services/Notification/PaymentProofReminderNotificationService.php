@@ -2,6 +2,7 @@
 
 namespace App\Services\Notification;
 
+use App\Jobs\SendPaymentProofReminderJob;
 use App\Models\Order;
 use App\Models\OrderEvidence;
 use App\Models\OrderPayment;
@@ -13,7 +14,11 @@ use Kreait\Firebase\Messaging\Notification;
 
 class PaymentProofReminderNotificationService
 {
-    private const THROTTLE_SECONDS = 600;
+    public const THROTTLE_SECONDS = 60;
+
+    public const MAX_REMINDER_SECONDS = 900;
+
+    public const INITIAL_DELAY_SECONDS = 12;
 
     public function __construct(private readonly UserPushNotificationSender $sender) {}
 
@@ -29,7 +34,7 @@ class PaymentProofReminderNotificationService
             return false;
         }
 
-        if (! $this->needsTransferProof($order)) {
+        if (! $this->shouldRemind($order, $actor)) {
             return false;
         }
 
@@ -49,6 +54,44 @@ class PaymentProofReminderNotificationService
                 'type' => 'payment_proof_required',
             ],
         );
+    }
+
+    public function scheduleAfterDelivered(Order $order): void
+    {
+        $order->loadMissing(['statusRef', 'payments', 'evidences', 'user']);
+        if (strtoupper((string) ($order->statusRef?->code ?? '')) !== 'DELIVERED') {
+            return;
+        }
+
+        if (! $this->shouldRemind($order)) {
+            return;
+        }
+
+        $cacheKey = 'payment-proof-reminder-chain:'.$order->id;
+        if (Cache::has($cacheKey)) {
+            return;
+        }
+
+        Cache::put($cacheKey, true, self::MAX_REMINDER_SECONDS + self::INITIAL_DELAY_SECONDS + self::THROTTLE_SECONDS);
+
+        SendPaymentProofReminderJob::dispatch($order->id, now()->timestamp)
+            ->delay(now()->addSeconds(self::INITIAL_DELAY_SECONDS));
+    }
+
+    public function shouldRemind(Order $order, ?User $actor = null): bool
+    {
+        $order->loadMissing(['statusRef', 'payments', 'evidences']);
+
+        if ($actor instanceof User && (int) $actor->id === (int) $order->user_id) {
+            return false;
+        }
+
+        $statusCode = strtoupper((string) ($order->statusRef?->code ?? ''));
+        if (in_array($statusCode, ['COMPLETED', 'CANCELLED', 'CANCELLED_WITH_FEE'], true)) {
+            return false;
+        }
+
+        return $this->needsTransferProof($order);
     }
 
     private function needsTransferProof(Order $order): bool

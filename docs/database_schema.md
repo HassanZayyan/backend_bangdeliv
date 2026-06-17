@@ -11,16 +11,16 @@ Dokumen ini menjelaskan alasan tabel utama BangDeliv disimpan di database setela
 
 ## Transactional Snapshot
 
-- `orders`: header transaksi, status aktif, driver aktif, total harga, dan `route_snapshot`.
+- `orders`: header transaksi, status aktif, driver aktif, total harga, timestamp cancel/deliver, dan `route_snapshot`. Order tidak memakai soft delete karena pembatalan adalah status terminal yang diaudit.
 - `route_snapshot` adalah snapshot rute/ongkir dari Google Maps saat order dibuat atau dihitung ulang. Field ini tetap disimpan agar harga, jarak, polyline, dan audit tidak berubah saat hasil API eksternal berubah.
-- `order_locations`: snapshot pickup/dropoff order, termasuk multi-pickup untuk shopping.
+- `order_locations`: snapshot pickup/dropoff order, termasuk multi-pickup untuk shopping. `contact_name`, `contact_phone`, `restaurant_id`, dan field failed/resolved dipertahankan karena stop order harus tetap bisa dibaca walaupun profil user/merchant berubah atau merchant gagal diproses.
 - `shopping_order_items`: snapshot item saat order. `menu_name`, `unit_price`, dan `subtotal` sengaja disimpan agar riwayat tidak berubah saat menu berubah.
 - `order_fee_lines`: breakdown biaya final pada order.
 - `ride_order_details`, `courier_order_details`, `shopping_order_receipts`: detail khusus service type.
 
 ## Audit Log And Evidence
 
-- `order_events`: audit trail status, payment update, shopping stop update, price recalculation, dan aksi penting lain.
+- `order_events`: audit trail status, payment update, shopping stop update, price recalculation, dan aksi penting lain. Snapshot driver saat accept order disimpan di `metadata.driver_snapshot`, sehingga histori tetap jelas jika data driver berubah.
 - `order_evidence`: foto bukti pickup/delivery/receipt/store closed/payment transfer.
 - `order_payments`: catatan pembayaran final, collector, waktu bayar, dan metadata audit.
 - `ai_chat_sessions`, `ai_chat_messages`, `ai_message_details`: riwayat chatbot dan draft AI untuk recovery/debug.

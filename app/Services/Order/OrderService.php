@@ -147,12 +147,7 @@ class OrderService
             }
 
             $cancelledStatusId = $this->resolveStatusId($cancelledStatusCode);
-
-            $order->update([
-                'status_id' => $cancelledStatusId,
-                'cancellation_reason' => $reason,
-                'cancelled_by' => 'customer',
-            ]);
+            $order->update($this->cancelledOrderUpdateAttributes($cancelledStatusCode, 'customer', $reason));
 
             OrderStatusHistory::query()->create([
                 'order_id' => $order->id,
@@ -872,6 +867,9 @@ class OrderService
                 'event_type' => 'STATUS_CHANGE',
                 'changed_by_user_id' => $actor->id,
                 'note' => 'Order diterima oleh driver.',
+                'price_snapshot' => [
+                    'driver_snapshot' => $this->driverSnapshot($lockedDriver),
+                ],
             ]);
 
             $this->markDriverBusy($lockedDriver);
@@ -1045,6 +1043,7 @@ class OrderService
     ): array {
         $driver = $this->resolveActiveDriverProfile($actor);
         $statusChangeEventPayload = null;
+        $shouldSchedulePaymentReminder = false;
 
         $order = DB::transaction(function () use (
             $actor,
@@ -1054,6 +1053,7 @@ class OrderService
             $targetStatusCode,
             $note,
             &$statusChangeEventPayload,
+            &$shouldSchedulePaymentReminder,
         ): Order {
             $order = Order::query()
                 ->with(['statusRef', 'serviceType', 'rideOrder', 'evidences', 'orderLocations', 'feeLines',  'shoppingReceipt'])
@@ -1179,6 +1179,7 @@ class OrderService
             if (in_array($resolvedTargetStatusCode, ['CANCELLED', 'CANCELLED_WITH_FEE'], true)) {
                 $updates['cancelled_by'] = 'driver';
                 $updates['cancellation_reason'] = $eventNote;
+                $updates['cancelled_at'] = now();
             }
 
             $order->update($updates);
@@ -1207,6 +1208,7 @@ class OrderService
                 strtoupper($currentStatusCode),
                 $statusHistory,
             );
+            $shouldSchedulePaymentReminder = $resolvedTargetStatusCode === 'DELIVERED';
 
             if ($shoppingCancellationPenalty !== null) {
                 $this->shoppingPricingService->syncFeeLines($order, [[
@@ -1248,6 +1250,9 @@ class OrderService
 
         $this->broadcastOrderStatusChanged($statusChangeEventPayload);
         $this->sendOrderStatusPushNotification($order, $statusChangeEventPayload);
+        if ($shouldSchedulePaymentReminder) {
+            $this->paymentProofReminderNotificationService->scheduleAfterDelivered($order->refresh());
+        }
 
         return $this->driverOrderPayloadFactory->serialize(
             $order->fresh($this->driverOrderPayloadFactory->relations()),
@@ -2097,11 +2102,7 @@ class OrderService
             ]]);
         }
 
-        $order->update([
-            'status_id' => $statusId,
-            'cancelled_by' => 'customer',
-            'cancellation_reason' => $reason,
-        ]);
+        $order->update($this->cancelledOrderUpdateAttributes($statusCode, 'customer', $reason));
 
         $statusHistory = OrderStatusHistory::query()->create([
             'order_id' => $order->id,
@@ -2720,11 +2721,7 @@ class OrderService
             ]
         );
 
-        $order->update([
-            'status_id' => $statusId,
-            'cancelled_by' => 'customer',
-            'cancellation_reason' => $reason,
-        ]);
+        $order->update($this->cancelledOrderUpdateAttributes('CANCELLED', 'customer', $reason));
 
         $statusHistory = OrderStatusHistory::query()->create([
             'order_id' => $order->id,
@@ -2942,20 +2939,17 @@ class OrderService
                 ? Carbon::parse((string) $payload['paid_at'])
                 : now();
 
-            OrderPayment::query()->updateOrCreate(
-                ['order_id' => $order->id],
+            $this->orderPaymentService->markPaid(
+                $order,
+                OrderPaymentService::METHOD_TRANSFER,
+                $amount,
+                $actor->id,
+                $driver->id,
+                $paidAt,
                 [
-                    'payment_method' => 'TRANSFER',
-                    'payment_status' => 'PAID',
-                    'amount' => $amount,
-                    'recorded_by_user_id' => $actor->id,
-                    'driver_id' => $driver->id,
-                    'paid_at' => $paidAt,
-                    'metadata' => [
-                        'recorded_by_role' => $actor->role,
-                        'source' => 'DRIVER_QRIS_CONFIRMATION',
-                        'expected_amount' => $expectedAmount,
-                    ],
+                    'recorded_by_role' => $actor->role,
+                    'source' => 'DRIVER_QRIS_CONFIRMATION',
+                    'expected_amount' => $expectedAmount,
                 ],
             );
 
@@ -3993,12 +3987,40 @@ class OrderService
 
     private function syncPendingPaymentAmount(Order $order): void
     {
-        OrderPayment::query()
-            ->where('order_id', $order->id)
-            ->where('payment_status', 'PENDING')
-            ->update([
-                'amount' => round((float) $order->total_price, 2),
-            ]);
+        $this->orderPaymentService->syncPendingAmount($order);
+    }
+
+    /**
+     * @return array{status_id:int,cancelled_by:string,cancellation_reason:string,cancelled_at:\Illuminate\Support\Carbon}
+     */
+    private function cancelledOrderUpdateAttributes(string $statusCode, string $cancelledBy, string $reason): array
+    {
+        return [
+            'status_id' => $this->resolveStatusId($statusCode),
+            'cancelled_by' => $cancelledBy,
+            'cancellation_reason' => $reason,
+            'cancelled_at' => now(),
+        ];
+    }
+
+    /**
+     * @return array<string, int|string|null>
+     */
+    private function driverSnapshot(Driver $driver): array
+    {
+        $driver->loadMissing('user');
+        $user = $driver->user;
+
+        return [
+            'driver_id' => (int) $driver->id,
+            'user_id' => (int) $driver->user_id,
+            'name' => $user->name,
+            'phone' => $user->phone,
+            'vehicle_type' => $driver->vehicle_type,
+            'vehicle_brand' => $driver->vehicle_brand,
+            'vehicle_model' => $driver->vehicle_model,
+            'vehicle_plate' => $driver->vehicle_plate,
+        ];
     }
 
     private function orderServiceCode(Order $order): string
@@ -4192,22 +4214,19 @@ class OrderService
                 ? Carbon::parse((string) $payload['paid_at'])
                 : now();
 
-            OrderPayment::query()->updateOrCreate(
-                ['order_id' => $order->id],
+            $this->orderPaymentService->markPaid(
+                $order,
+                OrderPaymentService::METHOD_COD,
+                $amount,
+                $actor->id,
+                $orderDriverId > 0 ? $orderDriverId : null,
+                $paidAt,
                 [
-                    'payment_method' => 'COD',
-                    'payment_status' => 'PAID',
-                    'amount' => $amount,
-                    'recorded_by_user_id' => $actor->id,
-                    'driver_id' => $orderDriverId > 0 ? $orderDriverId : null,
-                    'paid_at' => $paidAt,
-                    'metadata' => [
-                        'recorded_by_role' => $actor->role,
-                        'source' => $isCourierPickupCollection
-                            ? 'COURIER_PICKUP_COLLECTION'
-                            : ($enforceAssignedDriver ? 'DRIVER_COLLECTION' : 'ADMIN_MANUAL_RECORD'),
-                        'extra' => $payload['metadata'] ?? null,
-                    ],
+                    'recorded_by_role' => $actor->role,
+                    'source' => $isCourierPickupCollection
+                        ? 'COURIER_PICKUP_COLLECTION'
+                        : ($enforceAssignedDriver ? 'DRIVER_COLLECTION' : 'ADMIN_MANUAL_RECORD'),
+                    'extra' => $payload['metadata'] ?? null,
                 ],
             );
 

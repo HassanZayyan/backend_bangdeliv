@@ -33,7 +33,6 @@ return new class extends Migration
             $table->foreignId('status_id')->constrained('order_statuses');
 
             $table->timestamps();
-            $table->softDeletes();
 
             // Composite indexes for efficient querying
             $table->index(['user_id', 'id'], 'orders_user_id_id_idx');

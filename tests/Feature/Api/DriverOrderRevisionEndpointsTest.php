@@ -811,6 +811,7 @@ class DriverOrderRevisionEndpointsTest extends TestCase
             'cancelled_by' => 'customer',
             'cancellation_reason' => 'Customer membatalkan order karena menolak revisi ongkir.',
         ]);
+        $this->assertNotNull($order->fresh()->cancelled_at);
     }
 
     public function test_driver_can_record_transfer_payment(): void
@@ -828,6 +829,7 @@ class DriverOrderRevisionEndpointsTest extends TestCase
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.payment_status', 'paid')
             ->assertJsonPath('data.payment_method', 'TRANSFER');
+        $this->assertSame(1, OrderPayment::query()->where('order_id', $order->id)->count());
 
         $this->assertDatabaseHas('order_payments', [
             'order_id' => $order->id,

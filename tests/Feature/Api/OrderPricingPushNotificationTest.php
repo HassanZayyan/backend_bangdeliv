@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Api;
 
+use App\Jobs\SendPaymentProofReminderJob;
 use App\Models\DeviceToken;
 use App\Models\Driver;
 use App\Models\Order;
@@ -12,6 +13,7 @@ use App\Models\OrderStatus;
 use App\Models\ServiceType;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
 use Kreait\Firebase\Contract\Messaging;
 use Kreait\Firebase\Exception\Messaging\NotFound;
 use Kreait\Firebase\Messaging\MessageTarget;
@@ -252,6 +254,31 @@ class OrderPricingPushNotificationTest extends TestCase
             ])->assertStatus(409)
                 ->assertJsonPath('message', 'Pembayaran belum dicatat.');
         }
+    }
+
+    public function test_delivered_qris_unpaid_order_schedules_payment_reminder_loop(): void
+    {
+        Queue::fake();
+        [$driverUser, , , $order] = $this->createAssignedOrder('RIDE', 'ARRIVED_DROPOFF', 12000);
+        OrderPayment::query()->create([
+            'order_id' => $order->id,
+            'payment_method' => 'TRANSFER',
+            'payment_status' => 'PENDING',
+            'amount' => 12000,
+        ]);
+
+        Sanctum::actingAs($driverUser);
+
+        $this->postJson('/api/v1/driver/orders/'.$order->id.'/status-transition', [
+            'action_code' => 'CONFIRM_DELIVERED',
+            'target_status_code' => 'DELIVERED',
+        ])->assertOk()
+            ->assertJsonPath('data.status_code', 'DELIVERED');
+
+        Queue::assertPushed(
+            SendPaymentProofReminderJob::class,
+            fn (SendPaymentProofReminderJob $job): bool => $job->orderId === $order->id
+        );
     }
 
     public function test_payment_reminder_skips_cod_and_existing_qris_evidence(): void

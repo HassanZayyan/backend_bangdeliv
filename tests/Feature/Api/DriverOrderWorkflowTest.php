@@ -120,6 +120,16 @@ class DriverOrderWorkflowTest extends TestCase
             'event_type' => 'STATUS_CHANGE',
             'changed_by_user_id' => $driverUser->id,
         ]);
+        $acceptEvent = OrderStatusHistory::query()
+            ->where('order_id', $order->id)
+            ->where('new_status_id', $assignedStatusId)
+            ->firstOrFail();
+        $driverSnapshot = $acceptEvent->price_snapshot['driver_snapshot'] ?? [];
+        $this->assertSame($driver->id, $driverSnapshot['driver_id'] ?? null);
+        $this->assertSame($driverUser->id, $driverSnapshot['user_id'] ?? null);
+        $this->assertSame('Driver Workflow', $driverSnapshot['name'] ?? null);
+        $this->assertSame('081211119991', $driverSnapshot['phone'] ?? null);
+        $this->assertSame('B 4567 WFL', $driverSnapshot['vehicle_plate'] ?? null);
 
         $this->assertDatabaseHas('drivers', [
             'id' => $driver->id,
@@ -1032,6 +1042,7 @@ class DriverOrderWorkflowTest extends TestCase
             'cancelled_by' => 'driver',
             'cancellation_reason' => 'Barang lebih besar dari deskripsi dan tidak muat motor.',
         ]);
+        $this->assertNotNull($order->fresh()->cancelled_at);
     }
 
     public function test_driver_history_returns_completed_order(): void
