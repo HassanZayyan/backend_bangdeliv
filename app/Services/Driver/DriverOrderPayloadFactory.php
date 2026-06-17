@@ -7,11 +7,14 @@ use App\Enums\PaymentMethod;
 use App\Enums\ProofType;
 use App\Enums\ServiceTypeCode;
 use App\Models\Order;
+use App\Models\OrderLog;
 use App\Models\OrderStatusHistory;
 use App\Services\Driver\Dispatch\OrderPickupPointResolver;
 use App\Services\Order\DeliveryFeeNegotiationService;
 use App\Services\Order\OrderProofPolicyService;
 use App\Services\Pricing\ShoppingPricingService;
+use App\Services\Shopping\ShoppingItemChangeRequestService;
+use App\Services\Shopping\ShoppingOrderCapabilityService;
 use Illuminate\Database\Eloquent\Relations\Relation;
 
 class DriverOrderPayloadFactory
@@ -21,6 +24,8 @@ class DriverOrderPayloadFactory
         private readonly OrderProofPolicyService $proofPolicyService,
         private readonly OrderPickupPointResolver $pickupPointResolver,
         private readonly DeliveryFeeNegotiationService $deliveryFeeNegotiationService,
+        private readonly ShoppingOrderCapabilityService $shoppingOrderCapabilityService,
+        private readonly ShoppingItemChangeRequestService $shoppingItemChangeRequestService,
     ) {}
 
     /**
@@ -64,7 +69,7 @@ class DriverOrderPayloadFactory
         $dropoff = $this->resolveDropoffPoint($order);
         $proofs = $this->serializeProofs($order);
         $proofStatus = $this->proofStatus($proofs);
-        $hasDriverShoppingTotal = $serviceCode === 'SHOPPING' && $this->shoppingPricingService->hasDriverShoppingTotal($order);
+        $hasDriverShoppingTotal = $serviceCode === 'SHOPPING' && $this->shoppingPricingService->hasShoppingReceipt($order);
         $hasPendingShoppingPrices = $serviceCode === 'SHOPPING' && $this->hasPendingManualShoppingPrices($order);
         $shoppingNegotiation = $serviceCode === 'SHOPPING'
             ? $order->shopping_negotiation
@@ -145,6 +150,7 @@ class DriverOrderPayloadFactory
         }
 
         if ($serviceCode === ServiceTypeCode::Shopping->value) {
+            $shoppingCapabilities = $this->shoppingOrderCapabilityService->capabilities($order);
             $payload['merchant'] = [
                 'id' => $order->restaurant?->id,
                 'name' => $order->restaurant?->name,
@@ -158,6 +164,8 @@ class DriverOrderPayloadFactory
             $payload['shopping_stops'] = $this->serializeShoppingStops($order);
             $payload['shopping_route'] = $payload['route'] ?? $this->shoppingRouteSnapshot($order);
             $payload['shopping_negotiation'] = $shoppingNegotiation;
+            $payload['shopping_item_change_request'] = $this->shoppingItemChangeRequestService->snapshot($order);
+            $payload['shopping_capabilities'] = $shoppingCapabilities;
             $payload['pricing'] = [
                 'subtotal' => round((float) $order->subtotal, 2),
                 'delivery_fee' => round((float) $order->delivery_fee, 2),
@@ -439,7 +447,7 @@ class DriverOrderPayloadFactory
                 $actionCode === DriverActionCode::ConfirmPickedUp->value &&
                 ! $hasDriverShoppingTotal
             ) {
-                $blockedReasons[] = 'Total belanja di struk belum diisi.';
+                $blockedReasons[] = 'Checkout Nitip belum disimpan.';
             }
 
             if (
@@ -682,6 +690,7 @@ class DriverOrderPayloadFactory
      */
     private function serializeShoppingStops(Order $order): array
     {
+        $availabilityConfirmedPickupIds = $this->availabilityConfirmedPickupIds($order);
         $pickups = $order->orderLocations
             ->filter(fn ($location): bool => strtoupper((string) $location->location_role) === 'PICKUP')
             ->sortBy([['sequence_no', 'asc'], ['id', 'asc']])
@@ -694,7 +703,7 @@ class DriverOrderPayloadFactory
         $firstPickupId = (int) $pickups->first()->id;
 
         return $pickups
-            ->map(function ($pickup) use ($order, $firstPickupId): array {
+            ->map(function ($pickup) use ($order, $firstPickupId, $availabilityConfirmedPickupIds): array {
                 $pickupId = (int) $pickup->id;
                 $restaurantId = $pickup->restaurant_id !== null ? (int) $pickup->restaurant_id : null;
 
@@ -723,6 +732,7 @@ class DriverOrderPayloadFactory
                     'failure_reason' => $pickup->failure_reason,
                     'failed_at' => $pickup->failed_at?->toIso8601String(),
                     'resolved_at' => $pickup->resolved_at?->toIso8601String(),
+                    'availability_confirmed' => isset($availabilityConfirmedPickupIds[$pickupId]),
                     'merchant' => [
                         'id' => $restaurantId,
                         'name' => $pickup->restaurant?->name ?? $pickup->contact_name ?? $pickup->label,
@@ -737,6 +747,26 @@ class DriverOrderPayloadFactory
             })
             ->values()
             ->all();
+    }
+
+    /**
+     * @return array<int, true>
+     */
+    private function availabilityConfirmedPickupIds(Order $order): array
+    {
+        return OrderLog::query()
+            ->where('order_id', $order->id)
+            ->where('event_type', 'SHOPPING_ITEM_AVAILABILITY')
+            ->where('trigger_type', 'DRIVER_CONFIRMED_ITEM_AVAILABILITY')
+            ->get()
+            ->reduce(function (array $carry, OrderLog $event): array {
+                $pickupLocationId = data_get($event->metadata, 'pickup_location_id');
+                if (is_numeric($pickupLocationId) && (int) $pickupLocationId > 0) {
+                    $carry[(int) $pickupLocationId] = true;
+                }
+
+                return $carry;
+            }, []);
     }
 
     /**

@@ -58,6 +58,53 @@ class ShoppingMerchantCandidate
         return $this->restaurant instanceof Restaurant;
     }
 
+    public function merchantType(): string
+    {
+        if ($this->restaurant instanceof Restaurant) {
+            return (string) ($this->restaurant->merchant_type ?: 'restaurant');
+        }
+
+        $normalized = collect($this->placeTypes)
+            ->map(fn (mixed $type): string => strtolower(trim((string) $type)))
+            ->filter()
+            ->values();
+        $normalizedName = mb_strtolower($this->name);
+
+        if (
+            $normalized->contains(fn (string $type): bool => in_array($type, ['convenience_store', 'supermarket', 'grocery_or_supermarket'], true))
+            || str_contains($normalizedName, 'alfamart')
+            || str_contains($normalizedName, 'indomaret')
+            || str_contains($normalizedName, 'minimarket')
+        ) {
+            return 'convenience_store';
+        }
+
+        if (
+            str_contains($normalizedName, 'foto copy')
+            || str_contains($normalizedName, 'fotocopy')
+            || str_contains($normalizedName, 'print')
+            || str_contains($normalizedName, 'atk')
+        ) {
+            return 'other';
+        }
+
+        if (
+            $normalized->contains(fn (string $type): bool => in_array($type, ['restaurant', 'meal_takeaway', 'cafe'], true))
+            || ($normalized->contains('food') && (
+                str_contains($normalizedName, 'resto')
+                || str_contains($normalizedName, 'warung')
+                || str_contains($normalizedName, 'kedai')
+                || str_contains($normalizedName, 'ayam')
+                || str_contains($normalizedName, 'bakso')
+                || str_contains($normalizedName, 'mie')
+            ))
+        ) {
+            return 'restaurant';
+        }
+
+        return 'other';
+    }
+
     public function key(): string
     {
         if ($this->restaurant instanceof Restaurant) {

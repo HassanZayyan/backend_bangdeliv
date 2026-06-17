@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use App\Services\Order\DeliveryFeeNegotiationService;
+use App\Services\Shopping\ShoppingItemChangeRequestService;
+use App\Services\Shopping\ShoppingOrderCapabilityService;
 use App\Services\Shopping\ShoppingPriceNegotiationService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -101,6 +103,8 @@ class Order extends Model
         'shopping_route',
         'delivery_fee_negotiation',
         'shopping_negotiation',
+        'shopping_item_change_request',
+        'shopping_capabilities',
         'delivery_distance_km',
         'delivery_distance_text',
         'pricing_snapshot',
@@ -610,6 +614,22 @@ class Order extends Model
     public function getShoppingNegotiationAttribute(): ?array
     {
         return app(ShoppingPriceNegotiationService::class)->snapshot($this);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function getShoppingItemChangeRequestAttribute(): ?array
+    {
+        return app(ShoppingItemChangeRequestService::class)->snapshot($this);
+    }
+
+    /**
+     * @return array<string, bool>
+     */
+    public function getShoppingCapabilitiesAttribute(): array
+    {
+        return app(ShoppingOrderCapabilityService::class)->capabilities($this);
     }
 
     /**

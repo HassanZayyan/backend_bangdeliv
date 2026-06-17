@@ -3,6 +3,7 @@
 namespace Tests\Feature\Api;
 
 use App\Events\OrderContentUpdated;
+use App\Models\Driver;
 use App\Models\Menu;
 use App\Models\Order;
 use App\Models\OrderItem;
@@ -22,10 +23,10 @@ class ShoppingOrderItemEditTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_customer_can_add_manual_item_until_driver_arrived_merchant(): void
+    public function test_customer_can_add_manual_item_while_order_is_pending(): void
     {
         $customer = User::factory()->create(['role' => 'customer']);
-        $order = $this->createShoppingOrder($customer, 'ARRIVED_MERCHANT');
+        $order = $this->createShoppingOrder($customer, 'PENDING');
 
         Sanctum::actingAs($customer);
 
@@ -53,13 +54,13 @@ class ShoppingOrderItemEditTest extends TestCase
         ]);
     }
 
-    public function test_customer_can_add_manual_item_from_new_merchant_before_driver_shops(): void
+    public function test_customer_can_add_manual_item_from_new_merchant_before_driver_is_assigned(): void
     {
         Config::set('bangdeliv.google_maps_api_key', 'test-key');
         $this->fakeDistance(2500);
 
         $customer = User::factory()->create(['role' => 'customer']);
-        $order = $this->createShoppingOrder($customer, 'DRIVER_ASSIGNED');
+        $order = $this->createShoppingOrder($customer, 'PENDING');
         $warung = $this->createMerchant('Warung Madura Barokah', 'warung-madura-barokah-test', -7.006, 110.406, 'warung');
         Event::fake([OrderContentUpdated::class]);
 
@@ -116,7 +117,7 @@ class ShoppingOrderItemEditTest extends TestCase
         $this->fakeDistance(2500);
 
         $customer = User::factory()->create(['role' => 'customer']);
-        $order = $this->createShoppingOrder($customer, 'DRIVER_ASSIGNED');
+        $order = $this->createShoppingOrder($customer, 'PENDING');
 
         Sanctum::actingAs($customer);
 
@@ -168,7 +169,7 @@ class ShoppingOrderItemEditTest extends TestCase
     public function test_google_place_item_cannot_use_menu_db_source(): void
     {
         $customer = User::factory()->create(['role' => 'customer']);
-        $order = $this->createShoppingOrder($customer, 'DRIVER_ASSIGNED');
+        $order = $this->createShoppingOrder($customer, 'PENDING');
 
         Sanctum::actingAs($customer);
 
@@ -199,7 +200,7 @@ class ShoppingOrderItemEditTest extends TestCase
         $this->fakeDistance(26000);
 
         $customer = User::factory()->create(['role' => 'customer']);
-        $order = $this->createShoppingOrder($customer, 'DRIVER_ASSIGNED');
+        $order = $this->createShoppingOrder($customer, 'PENDING');
 
         Sanctum::actingAs($customer);
 
@@ -236,7 +237,7 @@ class ShoppingOrderItemEditTest extends TestCase
         Http::fake();
 
         $customer = User::factory()->create(['role' => 'customer']);
-        $order = $this->createShoppingOrder($customer, 'ARRIVED_MERCHANT');
+        $order = $this->createShoppingOrder($customer, 'PENDING');
 
         Sanctum::actingAs($customer);
 
@@ -288,7 +289,7 @@ class ShoppingOrderItemEditTest extends TestCase
         $this->fakeDistance(2500);
 
         $customer = User::factory()->create(['role' => 'customer']);
-        $order = $this->createShoppingOrder($customer, 'DRIVER_ASSIGNED');
+        $order = $this->createShoppingOrder($customer, 'PENDING');
         $warung = $this->createMerchant('Warung Madura Bulk', 'warung-madura-bulk-test', -7.006, 110.406, 'warung');
         $alfa = $this->createMerchant('Alfamart Bulk', 'alfamart-bulk-test', -7.008, 110.408, 'convenience_store');
 
@@ -349,7 +350,7 @@ class ShoppingOrderItemEditTest extends TestCase
         $this->fakeDistance(2500);
 
         $customer = User::factory()->create(['role' => 'customer']);
-        $order = $this->createShoppingOrder($customer, 'DRIVER_ASSIGNED');
+        $order = $this->createShoppingOrder($customer, 'PENDING');
         $restaurant = $this->createMerchant('Resto Soto Baru', 'resto-soto-baru-test', -7.007, 110.407);
 
         Sanctum::actingAs($customer);
@@ -392,7 +393,7 @@ class ShoppingOrderItemEditTest extends TestCase
         Http::fake();
 
         $customer = User::factory()->create(['role' => 'customer']);
-        $order = $this->createShoppingOrder($customer, 'ARRIVED_MERCHANT');
+        $order = $this->createShoppingOrder($customer, 'PENDING');
         $menu = Menu::query()->create([
             'restaurant_id' => $order->restaurant_id,
             'name' => 'Soto Ayam',
@@ -439,7 +440,7 @@ class ShoppingOrderItemEditTest extends TestCase
     public function test_customer_menu_database_item_requires_menu_id(): void
     {
         $customer = User::factory()->create(['role' => 'customer']);
-        $order = $this->createShoppingOrder($customer, 'ARRIVED_MERCHANT');
+        $order = $this->createShoppingOrder($customer, 'PENDING');
 
         Sanctum::actingAs($customer);
 
@@ -456,7 +457,7 @@ class ShoppingOrderItemEditTest extends TestCase
     public function test_customer_cannot_add_menu_database_item_from_different_merchant(): void
     {
         $customer = User::factory()->create(['role' => 'customer']);
-        $order = $this->createShoppingOrder($customer, 'ARRIVED_MERCHANT');
+        $order = $this->createShoppingOrder($customer, 'PENDING');
         $otherRestaurant = $this->createMerchant('Resto Lain', 'resto-lain-menu-test', -7.009, 110.409);
         $otherMenu = Menu::query()->create([
             'restaurant_id' => $otherRestaurant->id,
@@ -485,7 +486,7 @@ class ShoppingOrderItemEditTest extends TestCase
         Http::fake();
 
         $customer = User::factory()->create(['role' => 'customer']);
-        $order = $this->createShoppingOrder($customer, 'ARRIVED_MERCHANT');
+        $order = $this->createShoppingOrder($customer, 'PENDING');
 
         Sanctum::actingAs($customer);
 
@@ -526,7 +527,7 @@ class ShoppingOrderItemEditTest extends TestCase
 
         $response->assertStatus(409)
             ->assertJsonPath('success', false)
-            ->assertJsonPath('message', 'Merchant baru hanya bisa ditambahkan sebelum driver mulai belanja.');
+            ->assertJsonPath('message', 'Item tidak bisa diubah pada status order saat ini.');
     }
 
     public function test_customer_cannot_bulk_add_new_merchant_after_driver_arrived_merchant(): void
@@ -553,13 +554,13 @@ class ShoppingOrderItemEditTest extends TestCase
 
         $response->assertStatus(409)
             ->assertJsonPath('success', false)
-            ->assertJsonPath('message', 'Merchant baru hanya bisa ditambahkan sebelum driver mulai belanja.');
+            ->assertJsonPath('message', 'Item tidak bisa diubah pada status order saat ini.');
     }
 
     public function test_customer_update_cannot_change_item_heavy_status(): void
     {
         $customer = User::factory()->create(['role' => 'customer']);
-        $order = $this->createShoppingOrder($customer, 'DRIVER_ASSIGNED');
+        $order = $this->createShoppingOrder($customer, 'PENDING');
         $item = $order->items()->firstOrFail();
 
         Sanctum::actingAs($customer);
@@ -597,6 +598,106 @@ class ShoppingOrderItemEditTest extends TestCase
         $response->assertStatus(409)
             ->assertJsonPath('success', false)
             ->assertJsonPath('message', 'Item tidak bisa diubah pada status order saat ini.');
+    }
+
+    public function test_customer_direct_item_edit_is_rejected_after_driver_assigned(): void
+    {
+        $customer = User::factory()->create(['role' => 'customer']);
+        $order = $this->createShoppingOrder($customer, 'DRIVER_ASSIGNED');
+
+        Sanctum::actingAs($customer);
+
+        $response = $this->postJson('/api/v1/orders/'.$order->id.'/items', [
+            'item_source' => 'MANUAL',
+            'menu_name' => 'Es teh',
+            'quantity' => 1,
+        ]);
+
+        $response->assertStatus(409)
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('message', 'Item tidak bisa diubah pada status order saat ini.');
+    }
+
+    public function test_customer_item_change_request_can_be_approved_by_driver_and_requires_requote(): void
+    {
+        [$driverUser, $driver] = $this->createDriver();
+        $customer = User::factory()->create(['role' => 'customer']);
+        $order = $this->createShoppingOrder($customer, 'ARRIVED_MERCHANT');
+        $order->forceFill(['driver_id' => $driver->id])->save();
+        $pickup = $order->orderLocations()->where('location_role', 'PICKUP')->firstOrFail();
+        $order->items()->firstOrFail()->update(['is_available' => false]);
+        $menu = Menu::query()->create([
+            'restaurant_id' => $order->restaurant_id,
+            'name' => 'Es Teh Manis',
+            'price' => 6000,
+            'is_available' => true,
+        ]);
+
+        $order->logs()->create([
+            'event_type' => 'SHOPPING_NEGOTIATION',
+            'trigger_type' => 'CUSTOMER_PRICE_APPROVED',
+            'changed_by_user_id' => $customer->id,
+            'note' => 'Harga disetujui untuk test.',
+            'metadata' => [
+                'status' => 'APPROVED',
+                'pickup_location_id' => $pickup->id,
+                'approved_amount' => 20000,
+            ],
+        ]);
+
+        Sanctum::actingAs($customer);
+
+        $request = $this->postJson('/api/v1/orders/'.$order->id.'/shopping/item-change-request', [
+            'action' => 'ADD',
+            'request_kind' => 'EDIT_UNAVAILABLE',
+            'target_pickup_location_id' => $pickup->id,
+            'items' => [
+                [
+                    'merchant_id' => $order->restaurant_id,
+                    'item_source' => 'MENU_DB',
+                    'menu_id' => $menu->id,
+                    'quantity' => 1,
+                ],
+            ],
+        ]);
+
+        $request->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.shopping_item_change_request.status', 'PENDING_DRIVER')
+            ->assertJsonPath('data.shopping_item_change_request.requested_stops.0.pickup_location_id', $pickup->id)
+            ->assertJsonPath('data.shopping_item_change_request.requested_stops.0.merchant_name', 'Resto Test Shopping')
+            ->assertJsonPath('data.shopping_item_change_request.requested_stops.0.merchant_address', 'Jl. Resto Test Shopping')
+            ->assertJsonPath('data.shopping_item_change_request.requested_stops.0.items.0.name', 'Es Teh Manis')
+            ->assertJsonPath('data.shopping_capabilities.has_pending_item_change_request', true);
+
+        Sanctum::actingAs($driverUser);
+
+        $response = $this->postJson('/api/v1/driver/orders/'.$order->id.'/shopping/item-change-request/respond', [
+            'action' => 'APPROVE',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.shopping_item_change_request.status', 'APPROVED')
+            ->assertJsonPath('data.shopping_negotiation.checkout_allowed', false);
+
+        $this->assertDatabaseHas('shopping_order_items', [
+            'order_id' => $order->id,
+            'menu_id' => $menu->id,
+            'menu_name' => 'Es Teh Manis',
+            'unit_price' => 6000,
+            'is_available' => true,
+        ]);
+        $this->assertDatabaseHas('order_events', [
+            'order_id' => $order->id,
+            'event_type' => 'SHOPPING_ITEM_CHANGE_REQUEST',
+            'trigger_type' => 'DRIVER_ITEM_CHANGE_APPROVED',
+        ]);
+        $this->assertDatabaseHas('order_events', [
+            'order_id' => $order->id,
+            'event_type' => 'SHOPPING_NEGOTIATION',
+            'trigger_type' => 'SHOPPING_ITEM_CHANGE_REQUIRES_REQUOTE',
+        ]);
     }
 
     public function test_customer_can_skip_failed_merchant_when_other_items_remain(): void
@@ -805,6 +906,30 @@ class ShoppingOrderItemEditTest extends TestCase
         ]);
 
         return $order;
+    }
+
+    /**
+     * @return array{0: User, 1: Driver}
+     */
+    private function createDriver(): array
+    {
+        $driverUser = User::factory()->create([
+            'role' => 'driver',
+            'is_active' => true,
+        ]);
+
+        $driver = Driver::query()->create([
+            'user_id' => $driverUser->id,
+            'vehicle_type' => 'Motor Matic',
+            'vehicle_brand' => 'Honda',
+            'vehicle_model' => 'Beat',
+            'vehicle_plate' => 'H '.random_int(1000, 9999).' TST',
+            'license_number' => 'SIMC-TST-'.random_int(1000, 9999),
+            'registration_status' => 'active',
+            'status' => 'busy',
+        ]);
+
+        return [$driverUser, $driver];
     }
 
     private function createMerchant(

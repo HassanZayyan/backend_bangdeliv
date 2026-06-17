@@ -214,7 +214,7 @@ class DriverOrderRevisionEndpointsTest extends TestCase
             ->assertJsonPath('data.delivery_fee_change_note', 'Rute sistem kurang akurat.');
     }
 
-    public function test_courier_manual_delivery_fee_is_final_current_fee(): void
+    public function test_courier_manual_delivery_fee_includes_careful_carry_surcharge(): void
     {
         [$driverUser, $driver] = $this->createDriver();
         $order = $this->createAssignedOrder($driver, 'COURIER', 'DRIVER_ASSIGNED', 5000);
@@ -232,26 +232,28 @@ class DriverOrderRevisionEndpointsTest extends TestCase
             ->assertJsonPath('data.delivery_fee', 5000)
             ->assertJsonPath('data.delivery_fee_source', 'system')
             ->assertJsonPath('data.delivery_fee_negotiation.status', 'PENDING_CUSTOMER')
-            ->assertJsonPath('data.delivery_fee_negotiation.quoted_amount', 8000);
+            ->assertJsonPath('data.delivery_fee_negotiation.base_amount', 8000)
+            ->assertJsonPath('data.delivery_fee_negotiation.careful_carry_surcharge', 4000)
+            ->assertJsonPath('data.delivery_fee_negotiation.quoted_amount', 12000);
 
         Sanctum::actingAs(User::query()->findOrFail($order->user_id));
 
         $this->postJson('/api/v1/orders/'.$order->id.'/delivery-fee-override/respond', [
             'action' => 'APPROVE',
         ])->assertOk()
-            ->assertJsonPath('data.delivery_fee', '8000.00')
+            ->assertJsonPath('data.delivery_fee', '12000.00')
             ->assertJsonPath('data.delivery_fee_source', 'driver_manual');
 
         $this->assertDatabaseHas('orders', [
             'id' => $order->id,
-            'delivery_fee' => 8000,
-            'total_price' => 8000,
+            'delivery_fee' => 12000,
+            'total_price' => 12000,
             'delivery_fee_source' => 'driver_manual',
         ]);
         $this->assertDatabaseHas('order_payments', [
             'order_id' => $order->id,
             'payment_status' => 'PENDING',
-            'amount' => 8000,
+            'amount' => 12000,
         ]);
         $this->assertDatabaseHas('courier_order_details', [
             'order_id' => $order->id,
@@ -262,8 +264,33 @@ class DriverOrderRevisionEndpointsTest extends TestCase
         $detail = $this->getJson('/api/v1/driver/orders/'.$order->id)
             ->assertOk();
         $breakdown = collect($detail->json('data.fee_breakdown'));
-        $this->assertSame(8000.0, (float) $breakdown->firstWhere('code', 'manual_override')['amount']);
+        $this->assertSame(12000.0, (float) $breakdown->firstWhere('code', 'manual_override')['amount']);
         $this->assertNull($breakdown->firstWhere('code', 'careful_carry'));
+    }
+
+    public function test_courier_careful_carry_only_quote_uses_default_delivery_fee(): void
+    {
+        [$driverUser, $driver] = $this->createDriver();
+        $order = $this->createAssignedOrder($driver, 'COURIER', 'DRIVER_ASSIGNED', 10000);
+
+        Sanctum::actingAs($driverUser);
+
+        $this->postJson('/api/v1/driver/orders/'.$order->id.'/delivery-fee-override', [
+            'careful_carry_required' => true,
+        ])->assertOk()
+            ->assertJsonPath('data.delivery_fee', 10000)
+            ->assertJsonPath('data.delivery_fee_negotiation.status', 'PENDING_CUSTOMER')
+            ->assertJsonPath('data.delivery_fee_negotiation.base_amount', 10000)
+            ->assertJsonPath('data.delivery_fee_negotiation.careful_carry_surcharge', 5000)
+            ->assertJsonPath('data.delivery_fee_negotiation.quoted_amount', 15000);
+
+        Sanctum::actingAs(User::query()->findOrFail($order->user_id));
+
+        $this->postJson('/api/v1/orders/'.$order->id.'/delivery-fee-override/respond', [
+            'action' => 'APPROVE',
+        ])->assertOk()
+            ->assertJsonPath('data.delivery_fee', '15000.00')
+            ->assertJsonPath('data.delivery_fee_source', 'driver_manual');
     }
 
     public function test_shopping_rejects_careful_carry_delivery_fee(): void
@@ -505,6 +532,16 @@ class DriverOrderRevisionEndpointsTest extends TestCase
     {
         [$driverUser, $driver] = $this->createDriver();
         $order = $this->createAssignedOrder($driver, 'SHOPPING', 'ARRIVED_MERCHANT', 6000);
+        $pickup = $order->orderLocations()->create([
+            'location_role' => 'PICKUP',
+            'label' => 'Merchant',
+            'contact_name' => 'Merchant Test',
+            'full_address' => 'Jl. Merchant Test',
+            'latitude' => -7.001,
+            'longitude' => 110.401,
+            'sequence_no' => 1,
+            'fulfillment_status' => 'PENDING',
+        ]);
 
         $order->shoppingReceipt()->create([
             'total_amount' => 25000,
@@ -515,6 +552,7 @@ class DriverOrderRevisionEndpointsTest extends TestCase
 
         OrderItem::query()->create([
             'order_id' => $order->id,
+            'pickup_location_id' => $pickup->id,
             'item_source' => 'MANUAL',
             'menu_name' => 'Telur 1 kg',
             'quantity' => 1,
@@ -549,9 +587,20 @@ class DriverOrderRevisionEndpointsTest extends TestCase
         Storage::fake('public');
         [$driverUser, $driver] = $this->createDriver();
         $order = $this->createAssignedOrder($driver, 'SHOPPING', 'ARRIVED_MERCHANT', 5000);
+        $pickup = $order->orderLocations()->create([
+            'location_role' => 'PICKUP',
+            'label' => 'Merchant',
+            'contact_name' => 'Merchant Test',
+            'full_address' => 'Jl. Merchant Test',
+            'latitude' => -7.001,
+            'longitude' => 110.401,
+            'sequence_no' => 1,
+            'fulfillment_status' => 'PENDING',
+        ]);
 
         $item = OrderItem::query()->create([
             'order_id' => $order->id,
+            'pickup_location_id' => $pickup->id,
             'item_source' => 'MANUAL',
             'menu_name' => 'Sepatu',
             'quantity' => 1,
@@ -576,7 +625,6 @@ class DriverOrderRevisionEndpointsTest extends TestCase
 
         $checkoutResponse = $this->patchJson('/api/v1/driver/orders/'.$order->id.'/shopping-checkout', [
             'shopping_total_amount' => 56000,
-            'receipt_note' => 'item kosong',
             'items' => [
                 [
                     'id' => $item->id,
@@ -874,6 +922,8 @@ class DriverOrderRevisionEndpointsTest extends TestCase
 
     private function approveShoppingQuoteForTest(Order $order, User $driverUser, User $customer, float $amount): void
     {
+        $pickup = $order->orderLocations()->where('location_role', 'PICKUP')->first();
+
         $quote = OrderLog::query()->create([
             'order_id' => $order->id,
             'log_type' => 'SHOPPING_NEGOTIATION',
@@ -881,6 +931,7 @@ class DriverOrderRevisionEndpointsTest extends TestCase
             'changed_by_user_id' => $driverUser->id,
             'note' => 'Quote test.',
             'metadata' => [
+                'pickup_location_id' => $pickup?->id,
                 'quoted_amount' => $amount,
                 'status' => 'PENDING_CUSTOMER',
             ],
@@ -894,6 +945,7 @@ class DriverOrderRevisionEndpointsTest extends TestCase
             'note' => 'Approval test.',
             'metadata' => [
                 'quote_log_id' => $quote->id,
+                'pickup_location_id' => $pickup?->id,
                 'quoted_amount' => $amount,
                 'approved_amount' => $amount,
                 'status' => 'APPROVED',

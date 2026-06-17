@@ -5,7 +5,9 @@ namespace Tests\Feature\Api;
 use App\Models\DeviceToken;
 use App\Models\Driver;
 use App\Models\Order;
+use App\Models\OrderEvidence;
 use App\Models\OrderLog;
+use App\Models\OrderPayment;
 use App\Models\OrderStatus;
 use App\Models\ServiceType;
 use App\Models\User;
@@ -44,7 +46,8 @@ class OrderPricingPushNotificationTest extends TestCase
                     && $payload['data']['recipient_role'] === 'customer'
                     && $payload['data']['requires_response'] === '1'
                     && $payload['data']['amount'] === '25000.00'
-                    && $payload['data']['route'] === "/orders/{$order->id}/track"
+                    && $payload['data']['focus'] === 'shopping_price'
+                    && $payload['data']['route'] === "/orders/{$order->id}/track?focus=shopping_price"
                     && $payload['android']['notification']['channel_id'] === 'bangdeliv_order_status_high';
             })
             ->andReturn($this->successfulReport(['customer-price-token']));
@@ -114,7 +117,8 @@ class OrderPricingPushNotificationTest extends TestCase
                     && $payload['data']['recipient_role'] === 'customer'
                     && $payload['data']['requires_response'] === '1'
                     && $payload['data']['amount'] === '15000.00'
-                    && $payload['data']['route'] === "/orders/{$order->id}/track";
+                    && $payload['data']['focus'] === 'delivery_fee'
+                    && $payload['data']['route'] === "/orders/{$order->id}/track?focus=delivery_fee";
             })
             ->andReturn($this->successfulReport(['customer-fee-token']));
         $this->app->instance(Messaging::class, $messaging);
@@ -208,6 +212,84 @@ class OrderPricingPushNotificationTest extends TestCase
             'reason' => 'Rute aktual lebih jauh.',
         ])->assertOk()
             ->assertJsonPath('success', true);
+    }
+
+    public function test_unpaid_qris_blocked_driver_action_sends_throttled_payment_reminder(): void
+    {
+        [$driverUser, , $customer, $order] = $this->createAssignedOrder('RIDE', 'DELIVERED', 12000);
+        $this->createToken($customer, 'customer-payment-token');
+        OrderPayment::query()->create([
+            'order_id' => $order->id,
+            'payment_method' => 'TRANSFER',
+            'payment_status' => 'PENDING',
+            'amount' => 12000,
+        ]);
+
+        $messaging = Mockery::mock(Messaging::class);
+        $messaging
+            ->shouldReceive('sendMulticast')
+            ->once()
+            ->withArgs(function ($message, $tokens) use ($order): bool {
+                $payload = json_decode(json_encode($message), true);
+
+                return $tokens === ['customer-payment-token']
+                    && $payload['notification']['title'] === 'Upload bukti QRIS'
+                    && $payload['data']['type'] === 'payment_proof_required'
+                    && $payload['data']['order_id'] === (string) $order->id
+                    && $payload['data']['recipient_role'] === 'customer'
+                    && $payload['data']['route'] === "/orders/{$order->id}/track?focus=payment"
+                    && $payload['android']['notification']['channel_id'] === 'bangdeliv_order_status_high';
+            })
+            ->andReturn($this->successfulReport(['customer-payment-token']));
+        $this->app->instance(Messaging::class, $messaging);
+
+        Sanctum::actingAs($driverUser);
+
+        for ($attempt = 0; $attempt < 2; $attempt++) {
+            $this->postJson('/api/v1/driver/orders/'.$order->id.'/status-transition', [
+                'action_code' => 'COMPLETE_ORDER',
+                'target_status_code' => 'COMPLETED',
+            ])->assertStatus(409)
+                ->assertJsonPath('message', 'Pembayaran belum dicatat.');
+        }
+    }
+
+    public function test_payment_reminder_skips_cod_and_existing_qris_evidence(): void
+    {
+        [$driverUser, , , $codOrder] = $this->createAssignedOrder('RIDE', 'DELIVERED', 12000);
+        OrderPayment::query()->create([
+            'order_id' => $codOrder->id,
+            'payment_method' => 'COD',
+            'payment_status' => 'PENDING',
+            'amount' => 12000,
+        ]);
+
+        [$transferDriverUser, , , $transferOrder] = $this->createAssignedOrder('RIDE', 'DELIVERED', 13000);
+        OrderPayment::query()->create([
+            'order_id' => $transferOrder->id,
+            'payment_method' => 'TRANSFER',
+            'payment_status' => 'PENDING',
+            'amount' => 13000,
+        ]);
+        OrderEvidence::query()->create([
+            'order_id' => $transferOrder->id,
+            'evidence_type' => 'PAYMENT_TRANSFER_PHOTO',
+            'file_url' => '/storage/orders/payment.jpg',
+        ]);
+
+        $messaging = Mockery::mock(Messaging::class);
+        $messaging->shouldReceive('sendMulticast')->never();
+        $this->app->instance(Messaging::class, $messaging);
+
+        foreach ([[$driverUser, $codOrder], [$transferDriverUser, $transferOrder]] as [$actingUser, $order]) {
+            Sanctum::actingAs($actingUser);
+
+            $this->postJson('/api/v1/driver/orders/'.$order->id.'/status-transition', [
+                'action_code' => 'COMPLETE_ORDER',
+                'target_status_code' => 'COMPLETED',
+            ])->assertStatus(409)
+                ->assertJsonPath('message', 'Pembayaran belum dicatat.');
+        }
     }
 
     /**

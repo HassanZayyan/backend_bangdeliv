@@ -117,6 +117,209 @@ class ChatbotShoppingFlowTest extends TestCase
             ->assertJsonPath('data.validation.next_actions.0', 'OPEN_ADDRESSES');
     }
 
+    public function test_chatbot_shopping_without_merchant_returns_merchant_picker_action(): void
+    {
+        Config::set('bangdeliv.google_maps_api_key', 'test-key');
+
+        $customer = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        Address::query()->create([
+            'user_id' => $customer->id,
+            'label' => 'Rumah',
+            'recipient_name' => 'Customer Test',
+            'phone' => '081200000011',
+            'full_address' => 'Jl. Customer No. 11',
+            'latitude' => -7.003,
+            'longitude' => 110.403,
+            'is_default' => true,
+        ]);
+
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'merchant' => null,
+            'items' => [
+                ['name' => 'sembako', 'quantity' => 1],
+            ],
+        ]);
+
+        Sanctum::actingAs($customer);
+
+        $response = $this->postJson('/api/chatbot/process', [
+            'session_id' => 'shopping-missing-merchant-session',
+            'service_type' => 'nitip',
+            'message' => 'beli sembako',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.shopping.ready_to_confirm', false)
+            ->assertJsonPath('data.validation.missing_fields.0', 'merchant')
+            ->assertJsonPath('data.validation.next_actions.0', 'OPEN_MERCHANT_PICKER')
+            ->assertJsonPath('data.action_payloads.OPEN_MERCHANT_PICKER.label', 'Pilih Merchant di Map');
+    }
+
+    public function test_chatbot_shopping_merchant_picker_guides_item_completion(): void
+    {
+        Config::set('bangdeliv.google_maps_api_key', 'test-key');
+
+        $customer = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        Address::query()->create([
+            'user_id' => $customer->id,
+            'label' => 'Rumah',
+            'recipient_name' => 'Customer Test',
+            'phone' => '081200000013',
+            'full_address' => 'Jl. Customer No. 13',
+            'latitude' => -7.003,
+            'longitude' => 110.403,
+            'is_default' => true,
+        ]);
+
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'merchant' => null,
+            'items' => [],
+        ]);
+
+        Sanctum::actingAs($customer);
+        $sessionId = 'shopping-merchant-picker-items-guide-session';
+
+        $draftResponse = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'halo',
+        ]);
+        $draftResponse->assertOk()
+            ->assertJsonPath('data.validation.next_actions.0', 'OPEN_MERCHANT_PICKER');
+
+        $merchantResponse = $this->postJson("/api/chatbot/sessions/{$sessionId}/merchant", [
+            'service_type' => 'nitip',
+            'merchant_place' => [
+                'place_id' => 'google-place-kedai-tinari',
+                'name' => 'Kedai Tinari',
+                'address' => 'Jl. Kedai Tinari, Kota Semarang',
+                'latitude' => -7.054932,
+                'longitude' => 110.434739,
+                'types' => ['restaurant', 'food'],
+            ],
+        ]);
+
+        $merchantResponse->assertOk()
+            ->assertJsonPath('model_used', 'merchant-picker-action')
+            ->assertJsonPath('data.shopping.ready_to_confirm', false)
+            ->assertJsonPath('data.validation.missing_fields.0', 'items')
+            ->assertJsonPath('data.shopping.merchant.name', 'Kedai Tinari');
+
+        $assistantText = (string) $merchantResponse->json('data.assistant_text');
+        $this->assertStringContainsString('Merchant', $assistantText);
+        $this->assertStringContainsString('Kedai Tinari', $assistantText);
+        $this->assertStringContainsString('Contoh: Beli di Kedai Tinari:', $assistantText);
+        $this->assertStringContainsString('- ayam geprek 2', $assistantText);
+        $this->assertStringContainsString('- es teh 1', $assistantText);
+    }
+
+    public function test_chatbot_shopping_patch_google_place_merchant_completes_external_merchant_draft(): void
+    {
+        Config::set('bangdeliv.google_maps_api_key', 'test-key');
+
+        $customer = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        Address::query()->create([
+            'user_id' => $customer->id,
+            'label' => 'Rumah',
+            'recipient_name' => 'Customer Test',
+            'phone' => '081200000012',
+            'full_address' => 'Jl. Customer No. 12',
+            'latitude' => -7.003,
+            'longitude' => 110.403,
+            'is_default' => true,
+        ]);
+
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'merchant' => null,
+            'items' => [
+                ['name' => 'sembako', 'quantity' => 1],
+            ],
+        ]);
+
+        Sanctum::actingAs($customer);
+        $sessionId = 'shopping-google-place-merchant-session';
+
+        $draftResponse = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'beli sembako',
+        ]);
+        $draftResponse->assertOk()
+            ->assertJsonPath('data.validation.next_actions.0', 'OPEN_MERCHANT_PICKER');
+
+        $merchantResponse = $this->postJson("/api/chatbot/sessions/{$sessionId}/merchant", [
+            'service_type' => 'nitip',
+            'merchant_place' => [
+                'place_id' => 'google-place-alfamart-undip',
+                'name' => 'Alfamart Undip Prof. Soedarto',
+                'address' => 'Jl. Prof. Soedarto, Tembalang, Kota Semarang',
+                'latitude' => -7.054932,
+                'longitude' => 110.434739,
+                'types' => ['convenience_store', 'store'],
+            ],
+        ]);
+
+        $merchantResponse->assertOk()
+            ->assertJsonPath('model_used', 'merchant-picker-action')
+            ->assertJsonPath('data.shopping.ready_to_confirm', true)
+            ->assertJsonPath('data.shopping.merchant.id', null)
+            ->assertJsonPath('data.shopping.merchant.name', 'Alfamart Undip Prof. Soedarto')
+            ->assertJsonPath('data.shopping.merchant.merchant_type', 'convenience_store')
+            ->assertJsonPath('data.shopping.merchant.merchant_place.place_id', 'google-place-alfamart-undip')
+            ->assertJsonPath('data.shopping.items.0.item_source', 'MANUAL')
+            ->assertJsonPath('data.action_payloads.OPEN_MAP_PICKER_DELIVERY.label', 'Ganti Titik Antar');
+
+        $codResponse = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'COD',
+        ]);
+        $codResponse->assertOk()
+            ->assertJsonPath('data.shopping.payment_method', 'COD');
+
+        $confirmResponse = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'konfirmasi',
+        ]);
+
+        $confirmResponse->assertOk()
+            ->assertJsonPath('data.order.created', true);
+
+        $orderId = (int) $confirmResponse->json('data.order.id');
+        $this->assertDatabaseHas('order_locations', [
+            'order_id' => $orderId,
+            'restaurant_id' => null,
+            'location_role' => 'PICKUP',
+            'contact_name' => 'Alfamart Undip Prof. Soedarto',
+        ]);
+
+        $item = OrderItem::query()->where('order_id', $orderId)->firstOrFail();
+        $this->assertSame('MANUAL', $item->item_source);
+        $this->assertSame('google-place-alfamart-undip', $item->metadata['place_id'] ?? null);
+    }
+
     public function test_chatbot_shopping_creates_menu_database_restaurant_order_after_confirmation(): void
     {
         Config::set('bangdeliv.google_maps_api_key', 'test-key');

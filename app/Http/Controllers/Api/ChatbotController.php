@@ -357,6 +357,89 @@ class ChatbotController extends Controller
         ], 200);
     }
 
+    public function patchSessionMerchant(Request $request, string $sessionId): JsonResponse
+    {
+        $validated = $request->validate([
+            'service_type' => ['required', Rule::in(['nitip'])],
+            'merchant_id' => ['nullable', 'integer', 'min:1'],
+            'merchant_place' => ['nullable', 'array', 'required_without:merchant_id'],
+            'merchant_place.place_id' => ['nullable', 'string', 'max:255'],
+            'merchant_place.name' => ['required_with:merchant_place', 'string', 'max:255'],
+            'merchant_place.address' => ['required_with:merchant_place', 'string', 'max:1000'],
+            'merchant_place.latitude' => ['required_with:merchant_place', 'numeric', 'between:-90,90'],
+            'merchant_place.longitude' => ['required_with:merchant_place', 'numeric', 'between:-180,180'],
+            'merchant_place.types' => ['nullable', 'array', 'max:12'],
+            'merchant_place.types.*' => ['string', 'max:80'],
+        ]);
+
+        $user = $request->user();
+        $normalizedSessionId = substr(trim($sessionId), 0, 100);
+        if ($normalizedSessionId === '') {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Session ID tidak valid.',
+            ], 422);
+        }
+
+        $merchantPayload = [];
+        if (isset($validated['merchant_id'])) {
+            $merchantPayload['merchant_id'] = (int) $validated['merchant_id'];
+        }
+        if (isset($validated['merchant_place']) && is_array($validated['merchant_place'])) {
+            $merchantPayload['merchant_place'] = $validated['merchant_place'];
+        }
+
+        try {
+            $patchedPayload = $this->shoppingOrderService->applyMerchantPatch(
+                $user,
+                $normalizedSessionId,
+                $merchantPayload
+            );
+        } catch (ApiException $exception) {
+            return response()->json([
+                'status' => 'error',
+                'message' => $exception->getMessage(),
+                'errors' => $exception->errors(),
+            ], $exception->status());
+        }
+
+        $intent = (string) ($patchedPayload['intent'] ?? 'unknown');
+        $orderId = $this->resolveOrderId($patchedPayload);
+        $merchantName = trim((string) data_get($patchedPayload, 'shopping.merchant.name', ''));
+        $assistantText = trim((string) ($patchedPayload['assistant_text'] ?? 'Merchant Nitip berhasil diperbarui.'));
+
+        $this->recordChatMessage(
+            user: $user,
+            sessionId: $normalizedSessionId,
+            role: 'user',
+            message: '[MERCHANT_PICKER] merchant => '.($merchantName !== '' ? $merchantName : 'Merchant dipilih'),
+            intent: $intent,
+            orderId: $orderId
+        );
+
+        $this->recordChatMessage(
+            user: $user,
+            sessionId: $normalizedSessionId,
+            role: 'assistant',
+            message: $assistantText,
+            aiResponse: $patchedPayload,
+            modelUsed: 'merchant-picker-action',
+            intent: $intent,
+            orderId: $orderId
+        );
+
+        return response()->json([
+            'status' => 'success',
+            'session_id' => $normalizedSessionId,
+            'service_context' => [
+                'service_type' => 'nitip',
+                'service_code' => self::SERVICE_TYPE_MAP['nitip'],
+            ],
+            'data' => $patchedPayload,
+            'model_used' => 'merchant-picker-action',
+        ], 200);
+    }
+
     public function patchSessionLocations(Request $request, string $sessionId): JsonResponse
     {
         $validated = $request->validate([

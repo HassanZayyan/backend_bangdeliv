@@ -21,6 +21,7 @@ class OrderPricingPushNotificationService
         ?int $priceEventId = null,
         ?float $oldTotalPrice = null,
         ?float $newTotalPrice = null,
+        ?int $pickupLocationId = null,
     ): bool {
         $recipientRole = $this->normalizeRecipientRole($recipientRole);
         $order->loadMissing(['user', 'driver.user', 'statusRef', 'serviceType']);
@@ -45,6 +46,7 @@ class OrderPricingPushNotificationService
                 priceEventId: $priceEventId,
                 oldTotalPrice: $oldTotalPrice,
                 newTotalPrice: $newTotalPrice,
+                pickupLocationId: $pickupLocationId,
             ),
             'Notifikasi perubahan harga FCM gagal dikirim.',
             'Sebagian notifikasi perubahan harga FCM gagal terkirim.',
@@ -92,11 +94,13 @@ class OrderPricingPushNotificationService
         ?int $priceEventId,
         ?float $oldTotalPrice,
         ?float $newTotalPrice,
+        ?int $pickupLocationId,
     ): CloudMessage {
         [$title, $body] = $this->notificationCopy($changeType, $recipientRole, $requiresResponse, $amount);
+        $focus = $this->focusTarget($changeType, $recipientRole, $requiresResponse);
         $route = $recipientRole === 'driver'
             ? "/driver/orders/{$order->id}/active"
-            : "/orders/{$order->id}/track";
+            : $this->customerRoute($order, $focus, $pickupLocationId);
 
         return CloudMessage::new()
             ->withNotification(Notification::create($title, $body))
@@ -110,6 +114,8 @@ class OrderPricingPushNotificationService
                 'old_total_price' => $oldTotalPrice !== null ? $this->amountData($oldTotalPrice) : '',
                 'new_total_price' => $newTotalPrice !== null ? $this->amountData($newTotalPrice) : '',
                 'price_event_id' => $priceEventId !== null ? (string) $priceEventId : '',
+                'focus' => $focus ?? '',
+                'pickup_location_id' => $pickupLocationId !== null ? (string) $pickupLocationId : '',
                 'route' => $route,
             ])
             ->withAndroidConfig([
@@ -187,6 +193,32 @@ class OrderPricingPushNotificationService
     private function normalizeRecipientRole(string $role): string
     {
         return strtolower(trim($role)) === 'driver' ? 'driver' : 'customer';
+    }
+
+    private function focusTarget(string $changeType, string $recipientRole, bool $requiresResponse): ?string
+    {
+        if (! $requiresResponse || $recipientRole !== 'customer') {
+            return null;
+        }
+
+        $type = strtoupper($changeType);
+
+        return str_contains($type, 'DELIVERY_FEE') || str_contains($type, 'FEE')
+            ? 'delivery_fee'
+            : 'shopping_price';
+    }
+
+    private function customerRoute(Order $order, ?string $focus, ?int $pickupLocationId): string
+    {
+        $query = [];
+        if ($focus !== null && $focus !== '') {
+            $query['focus'] = $focus;
+        }
+        if ($focus === 'shopping_price' && $pickupLocationId !== null && $pickupLocationId > 0) {
+            $query['pickup_location_id'] = (string) $pickupLocationId;
+        }
+
+        return "/orders/{$order->id}/track".($query === [] ? '' : '?'.http_build_query($query));
     }
 
     private function formatCurrency(float $amount): string

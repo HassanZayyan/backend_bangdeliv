@@ -11,6 +11,7 @@ use App\Models\ServiceFeeRule;
 use App\Services\Notification\OrderPricingPushNotificationService;
 use App\Services\Notification\OrderRealtimeBroadcaster;
 use App\Services\Order\OrderPaymentService;
+use App\Services\Shopping\ShoppingPriceNegotiationService;
 use Illuminate\Support\Facades\DB;
 
 class ShoppingPricingService
@@ -126,7 +127,7 @@ class ShoppingPricingService
         $cancellationPenalty = $this->feeLineAmount($order, self::CANCELLATION_PENALTY);
         $statusCode = strtoupper((string) ($order->statusRef?->code ?? ''));
         $penaltyOnly = $cancellationPenalty > 0 && $statusCode === 'CANCELLED_WITH_FEE';
-        $subtotalOverride = $penaltyOnly ? null : $this->driverShoppingTotalAmount($order);
+        $subtotalOverride = $penaltyOnly ? null : $this->approvedShoppingSubtotalAmount($order);
 
         $pricing = $this->calculateForItems(
             (int) $order->service_type_id,
@@ -143,6 +144,7 @@ class ShoppingPricingService
 
         $orderUpdates = [
             'subtotal' => $pricing['subtotal'],
+            'service_fee' => $pricing['service_fee'],
             'total_price' => $pricing['total_price'],
         ];
 
@@ -309,13 +311,24 @@ class ShoppingPricingService
 
     public function hasDriverShoppingTotal(Order $order): bool
     {
-        return $this->driverShoppingTotalAmount($order) !== null;
+        return $this->approvedShoppingSubtotalAmount($order) !== null;
+    }
+
+    public function hasShoppingReceipt(Order $order): bool
+    {
+        $order->loadMissing('shoppingReceipt');
+
+        return $order->shoppingReceipt !== null;
     }
 
     public function driverShoppingTotalAmount(Order $order): ?float
     {
-        $order->loadMissing('shoppingReceipt');
-        $amount = $order->shoppingReceipt?->total_amount;
+        return $this->approvedShoppingSubtotalAmount($order);
+    }
+
+    public function approvedShoppingSubtotalAmount(Order $order): ?float
+    {
+        $amount = app(ShoppingPriceNegotiationService::class)->approvedSubtotal($order);
 
         if (! is_numeric($amount) || (float) $amount <= 0) {
             return null;

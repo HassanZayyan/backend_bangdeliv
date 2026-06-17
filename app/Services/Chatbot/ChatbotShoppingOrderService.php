@@ -15,6 +15,8 @@ use App\Services\Driver\DriverOrderRealtimeService;
 use App\Services\Maps\GoogleMapsGeocodingService;
 use App\Services\Order\OrderPaymentService;
 use App\Services\Pricing\ShoppingPricingService;
+use App\Services\Shopping\ShoppingMerchantCandidate;
+use App\Services\Shopping\ShoppingMerchantCandidateResolver;
 use App\Services\Shopping\ShoppingRouteService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
@@ -39,6 +41,7 @@ class ChatbotShoppingOrderService
         private readonly DriverOrderRealtimeService $driverOrderRealtimeService,
         private readonly ChatbotAddressReadinessService $addressReadinessService,
         private readonly ChatbotShoppingItemIntentParser $itemIntentParser,
+        private readonly ShoppingMerchantCandidateResolver $merchantCandidateResolver,
     ) {}
 
     /**
@@ -89,6 +92,23 @@ class ChatbotShoppingOrderService
                     'address_id' => null,
                 ],
             ],
+        );
+
+        return $this->buildDraftPayload($user, $draftSeed);
+    }
+
+    /**
+     * @param  array<string, mixed>  $merchantPayload
+     * @return array<string, mixed>
+     */
+    public function applyMerchantPatch(User $user, string $sessionId, array $merchantPayload): array
+    {
+        $this->assertCustomerCanOrder($user);
+
+        $candidate = $this->merchantCandidateResolver->resolveStandalone($merchantPayload);
+        $draftSeed = $this->mergeDraftSeed(
+            $this->resolveLatestDraftSeed($user, $sessionId),
+            $this->draftSeedFromCandidate($candidate),
         );
 
         return $this->buildDraftPayload($user, $draftSeed);
@@ -225,15 +245,29 @@ class ChatbotShoppingOrderService
      */
     private function mergeDraftSeed(array $base, array $incoming): array
     {
-        $merchantChanged = isset($incoming['merchant_name']) &&
-            strtolower((string) ($incoming['merchant_name'] ?? '')) !== strtolower((string) ($base['merchant_name'] ?? ''));
+        $incomingMerchantKey = $this->merchantSeedKey($incoming);
+        $baseMerchantKey = $this->merchantSeedKey($base);
+        $incomingMerchantName = $this->normalizeOptionalString($incoming['merchant_name'] ?? null);
+        $baseMerchantName = $this->normalizeOptionalString($base['merchant_name'] ?? null);
+        $sameMerchantName = $incomingMerchantName !== null
+            && $baseMerchantName !== null
+            && Str::of($incomingMerchantName)->lower()->squish()->toString()
+                === Str::of($baseMerchantName)->lower()->squish()->toString();
+        $merchantChanged = ! $sameMerchantName
+            && $incomingMerchantKey !== null
+            && $baseMerchantKey !== null
+            && $incomingMerchantKey !== $baseMerchantKey;
 
         $merged = $merchantChanged ? [] : $base;
 
-        foreach (['merchant_id', 'merchant_name'] as $key) {
+        foreach (['merchant_id', 'merchant_name', 'merchant_place'] as $key) {
             if (array_key_exists($key, $incoming) && $incoming[$key] !== null && $incoming[$key] !== '') {
                 $merged[$key] = $incoming[$key];
             }
+        }
+
+        if (array_key_exists('merchant_place', $incoming) && is_array($incoming['merchant_place'] ?? null)) {
+            unset($merged['merchant_id']);
         }
 
         if (is_array($incoming['delivery'] ?? null)) {
@@ -259,6 +293,35 @@ class ChatbotShoppingOrderService
         }
 
         return $merged;
+    }
+
+    /**
+     * @param  array<string, mixed>  $seed
+     */
+    private function merchantSeedKey(array $seed): ?string
+    {
+        if (isset($seed['merchant_id']) && is_numeric($seed['merchant_id']) && (int) $seed['merchant_id'] > 0) {
+            return 'restaurant:'.(int) $seed['merchant_id'];
+        }
+
+        if (isset($seed['merchant_place']) && is_array($seed['merchant_place'])) {
+            $place = $seed['merchant_place'];
+            $placeId = $this->normalizeOptionalString($place['place_id'] ?? null);
+            if ($placeId !== null) {
+                return 'place:'.$placeId;
+            }
+
+            $name = $this->normalizeOptionalString($place['name'] ?? null);
+            $latitude = $this->nullableCoordinate($place['latitude'] ?? null);
+            $longitude = $this->nullableCoordinate($place['longitude'] ?? null);
+            if ($name !== null && $latitude !== null && $longitude !== null) {
+                return sprintf('external:%s:%0.6f:%0.6f', Str::of($name)->lower()->squish()->toString(), $latitude, $longitude);
+            }
+        }
+
+        $merchantName = $this->normalizeOptionalString($seed['merchant_name'] ?? null);
+
+        return $merchantName === null ? null : 'name:'.Str::of($merchantName)->lower()->squish()->toString();
     }
 
     /**
@@ -331,17 +394,18 @@ class ChatbotShoppingOrderService
      */
     private function buildDraftPayload(User $user, array $draftSeed): array
     {
-        $merchant = $this->resolveMerchant($draftSeed);
+        $merchantCandidate = $this->resolveMerchantCandidate($draftSeed);
+        $merchant = $merchantCandidate?->restaurant;
         $delivery = $this->resolveDelivery($user, $draftSeed);
         $items = $this->resolveItems($merchant, is_array($draftSeed['items'] ?? null) ? $draftSeed['items'] : []);
 
         $missingFields = [];
         $rejectionReasons = [];
 
-        if ($merchant === null) {
+        if ($merchantCandidate === null) {
             $missingFields[] = 'merchant';
-            $rejectionReasons[] = 'Merchant/toko belum ditemukan di database.';
-        } elseif ($merchant->latitude === null || $merchant->longitude === null) {
+            $rejectionReasons[] = 'Merchant/toko belum dipilih.';
+        } elseif (! $this->hasUsableCoordinatePair($merchantCandidate->latitude, $merchantCandidate->longitude)) {
             $missingFields[] = 'merchant_location';
             $rejectionReasons[] = 'Koordinat merchant belum lengkap.';
         }
@@ -358,8 +422,15 @@ class ChatbotShoppingOrderService
 
         $route = null;
         $pricing = $this->emptyPricing();
-        if ($missingFields === [] && $merchant !== null) {
-            $route = $this->shoppingRouteService->calculateForMerchantAndDelivery($merchant, $delivery);
+        if ($missingFields === [] && $merchantCandidate !== null) {
+            $route = $this->shoppingRouteService->calculateForPoints(
+                [$this->routePointFromCandidate($merchantCandidate)],
+                [
+                    'label' => $delivery['address'] ?? 'Titik Antar',
+                    'latitude' => $delivery['latitude'] ?? null,
+                    'longitude' => $delivery['longitude'] ?? null,
+                ]
+            );
             $serviceTypeId = $this->resolveServiceTypeId();
             $pricing = $this->shoppingPricingService->calculateForItems(
                 $serviceTypeId,
@@ -370,9 +441,18 @@ class ChatbotShoppingOrderService
 
         $ready = $missingFields === [] && $route !== null;
         $nextActions = [];
-        $needsAddressBook = in_array('delivery_address', $missingFields, true)
+        $missingDeliveryAddress = in_array('delivery_address', $missingFields, true);
+        $needsAddressBook = $missingDeliveryAddress
             && ! $this->addressReadinessService->hasUsableSavedAddress($user);
-        $nextActions[] = $needsAddressBook ? 'OPEN_ADDRESSES' : 'OPEN_MAP_PICKER_DELIVERY';
+        if ($needsAddressBook) {
+            $nextActions[] = 'OPEN_ADDRESSES';
+        }
+        if (in_array('merchant', $missingFields, true) || in_array('merchant_location', $missingFields, true)) {
+            $nextActions[] = 'OPEN_MERCHANT_PICKER';
+        }
+        if (($missingDeliveryAddress && ! $needsAddressBook) || $ready) {
+            $nextActions[] = 'OPEN_MAP_PICKER_DELIVERY';
+        }
         $paymentMethod = $this->normalizePaymentMethodOrNull($draftSeed['payment_method'] ?? null);
         if ($ready && $paymentMethod === null) {
             $nextActions[] = 'SET_PAYMENT_COD';
@@ -382,14 +462,20 @@ class ChatbotShoppingOrderService
         }
         $deliveryActionLabel = $ready ? 'Ganti Titik Antar' : 'Pilih Titik Antar';
 
-        $merchantPayload = $merchant === null ? [
+        $merchantPayload = $merchantCandidate === null ? [
             'id' => null,
             'name' => $this->normalizeOptionalString($draftSeed['merchant_name'] ?? null),
-        ] : $this->merchantPayload($merchant);
+        ] : $this->merchantPayload($merchantCandidate);
 
         $actionPayloads = [
             'OPEN_ADDRESSES' => [
                 'label' => 'Isi Alamat Saya',
+            ],
+            'OPEN_MERCHANT_PICKER' => [
+                'label' => 'Pilih Merchant di Map',
+                'query' => $this->normalizeOptionalString($draftSeed['merchant_name'] ?? null),
+                'initial_latitude' => $merchantCandidate?->latitude ?? $delivery['latitude'],
+                'initial_longitude' => $merchantCandidate?->longitude ?? $delivery['longitude'],
             ],
             'OPEN_MAP_PICKER_DELIVERY' => [
                 'target' => 'delivery',
@@ -460,16 +546,18 @@ class ChatbotShoppingOrderService
     /**
      * @param  array<string, mixed>  $draftSeed
      */
-    private function resolveMerchant(array $draftSeed): ?Restaurant
+    private function resolveMerchantCandidate(array $draftSeed): ?ShoppingMerchantCandidate
     {
+        if (isset($draftSeed['merchant_place']) && is_array($draftSeed['merchant_place'])) {
+            return $this->merchantCandidateResolver->resolveStandalone([
+                'merchant_place' => $draftSeed['merchant_place'],
+            ]);
+        }
+
         if (isset($draftSeed['merchant_id']) && is_numeric($draftSeed['merchant_id'])) {
-            $merchant = Restaurant::query()
-                ->where('status', 'active')
-                ->where('id', (int) $draftSeed['merchant_id'])
-                ->first();
-            if ($merchant) {
-                return $merchant;
-            }
+            return $this->merchantCandidateResolver->resolveStandalone([
+                'merchant_id' => (int) $draftSeed['merchant_id'],
+            ]);
         }
 
         $merchantName = $this->normalizeOptionalString($draftSeed['merchant_name'] ?? null);
@@ -480,7 +568,7 @@ class ChatbotShoppingOrderService
         $normalized = Str::of($merchantName)->lower()->squish()->toString();
         $slug = Str::slug($merchantName);
 
-        return Restaurant::query()
+        $merchant = Restaurant::query()
             ->where('status', 'active')
             ->where(function (Builder $query) use ($merchantName, $normalized, $slug): void {
                 $query
@@ -490,6 +578,46 @@ class ChatbotShoppingOrderService
             })
             ->orderByRaw('CASE WHEN LOWER(name) = ? THEN 0 ELSE 1 END', [$normalized])
             ->first();
+
+        return $merchant instanceof Restaurant ? ShoppingMerchantCandidate::fromRestaurant($merchant) : null;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function draftSeedFromCandidate(ShoppingMerchantCandidate $candidate): array
+    {
+        if ($candidate->restaurant instanceof Restaurant) {
+            return [
+                'merchant_id' => (int) $candidate->restaurant->id,
+                'merchant_name' => $candidate->name,
+            ];
+        }
+
+        return [
+            'merchant_id' => null,
+            'merchant_name' => $candidate->name,
+            'merchant_place' => [
+                'place_id' => $candidate->placeId,
+                'name' => $candidate->name,
+                'address' => $candidate->address,
+                'latitude' => $candidate->latitude,
+                'longitude' => $candidate->longitude,
+                'types' => $candidate->placeTypes,
+            ],
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function routePointFromCandidate(ShoppingMerchantCandidate $candidate): array
+    {
+        return [
+            'label' => $candidate->name,
+            'latitude' => $candidate->latitude,
+            'longitude' => $candidate->longitude,
+        ];
     }
 
     /**
@@ -692,11 +820,8 @@ class ChatbotShoppingOrderService
             return $pendingPayload;
         }
 
-        $merchant = Restaurant::query()
-            ->where('status', 'active')
-            ->find((int) ($merchantPayload['id'] ?? 0));
-
-        if (! $merchant) {
+        $candidate = $this->resolveMerchantCandidate($this->draftSeedFromMerchantPayload($merchantPayload));
+        if (! $candidate instanceof ShoppingMerchantCandidate) {
             throw new ApiException('Merchant draft tidak ditemukan.', 404);
         }
 
@@ -711,7 +836,7 @@ class ChatbotShoppingOrderService
 
         $order = DB::transaction(function () use (
             $user,
-            $merchant,
+            $candidate,
             $delivery,
             $items,
             $pricing,
@@ -723,7 +848,6 @@ class ChatbotShoppingOrderService
             $order = Order::query()->create([
                 'order_number' => $this->generateOrderNumber(),
                 'user_id' => $user->id,
-                'restaurant_id' => $merchant->id,
                 'service_type_id' => $serviceTypeId,
                 'subtotal' => round((float) ($pricing['subtotal'] ?? 0), 2),
                 'delivery_fee' => round((float) ($pricing['delivery_fee'] ?? 0), 2),
@@ -734,14 +858,14 @@ class ChatbotShoppingOrderService
             ]);
 
             $pickupLocation = $order->orderLocations()->create([
-                'restaurant_id' => $merchant->id,
+                'restaurant_id' => $candidate->restaurant instanceof Restaurant ? (int) $candidate->restaurant->id : null,
                 'location_role' => 'PICKUP',
                 'label' => 'Merchant',
-                'contact_name' => $merchant->name,
-                'contact_phone' => $merchant->phone,
-                'full_address' => $merchant->address,
-                'latitude' => $merchant->latitude,
-                'longitude' => $merchant->longitude,
+                'contact_name' => $candidate->name,
+                'contact_phone' => $candidate->restaurant instanceof Restaurant ? $candidate->restaurant->phone : null,
+                'full_address' => $candidate->address,
+                'latitude' => $candidate->latitude,
+                'longitude' => $candidate->longitude,
                 'sequence_no' => 1,
             ]);
 
@@ -783,6 +907,10 @@ class ChatbotShoppingOrderService
                         'price_status' => $itemSource === 'MENU_DB' ? 'CONFIRMED' : 'PENDING_DRIVER_INPUT',
                         'source' => $itemSource === 'MENU_DB' ? 'CHATBOT_MENU_MATCH' : 'CHATBOT_MANUAL_CONTEXT',
                     ];
+                $metadata = [
+                    ...$candidate->metadata(),
+                    ...$metadata,
+                ];
 
                 $order->items()->create([
                     'menu_id' => $itemSource === 'MENU_DB' ? ($item['menu_id'] ?? null) : null,
@@ -897,6 +1025,7 @@ class ChatbotShoppingOrderService
         return [
             'merchant_id' => $merchant['id'] ?? null,
             'merchant_name' => $merchant['name'] ?? null,
+            'merchant_place' => is_array($merchant['merchant_place'] ?? null) ? $merchant['merchant_place'] : null,
             'delivery' => $delivery,
             'items' => array_map(fn ($item): array => [
                 'name' => (string) ($item['name'] ?? $item['menu_name'] ?? ''),
@@ -911,16 +1040,63 @@ class ChatbotShoppingOrderService
     /**
      * @return array<string, mixed>
      */
-    private function merchantPayload(Restaurant $merchant): array
+    private function draftSeedFromMerchantPayload(array $merchantPayload): array
     {
+        if (isset($merchantPayload['id']) && is_numeric($merchantPayload['id']) && (int) $merchantPayload['id'] > 0) {
+            return [
+                'merchant_id' => (int) $merchantPayload['id'],
+                'merchant_name' => $this->normalizeOptionalString($merchantPayload['name'] ?? null),
+            ];
+        }
+
+        if (isset($merchantPayload['merchant_place']) && is_array($merchantPayload['merchant_place'])) {
+            return [
+                'merchant_id' => null,
+                'merchant_name' => $this->normalizeOptionalString($merchantPayload['name'] ?? $merchantPayload['merchant_place']['name'] ?? null),
+                'merchant_place' => $merchantPayload['merchant_place'],
+            ];
+        }
+
         return [
-            'id' => (int) $merchant->id,
-            'name' => $merchant->name,
-            'merchant_type' => $merchant->merchant_type,
-            'address' => $merchant->address,
-            'phone' => $merchant->phone,
-            'latitude' => $this->nullableCoordinate($merchant->latitude),
-            'longitude' => $this->nullableCoordinate($merchant->longitude),
+            'merchant_name' => $this->normalizeOptionalString($merchantPayload['name'] ?? null),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function merchantPayload(ShoppingMerchantCandidate $candidate): array
+    {
+        if ($candidate->restaurant instanceof Restaurant) {
+            $merchant = $candidate->restaurant;
+
+            return [
+                'id' => (int) $merchant->id,
+                'name' => $merchant->name,
+                'merchant_type' => $merchant->merchant_type,
+                'address' => $merchant->address,
+                'phone' => $merchant->phone,
+                'latitude' => $this->nullableCoordinate($merchant->latitude),
+                'longitude' => $this->nullableCoordinate($merchant->longitude),
+            ];
+        }
+
+        return [
+            'id' => null,
+            'name' => $candidate->name,
+            'merchant_type' => $candidate->merchantType(),
+            'address' => $candidate->address,
+            'phone' => null,
+            'latitude' => $candidate->latitude,
+            'longitude' => $candidate->longitude,
+            'merchant_place' => [
+                'place_id' => $candidate->placeId,
+                'name' => $candidate->name,
+                'address' => $candidate->address,
+                'latitude' => $candidate->latitude,
+                'longitude' => $candidate->longitude,
+                'types' => $candidate->placeTypes,
+            ],
         ];
     }
 
@@ -954,9 +1130,7 @@ class ChatbotShoppingOrderService
         $validation = is_array($payload['validation'] ?? null) ? $payload['validation'] : [];
 
         if (($validation['is_valid_order'] ?? false) !== true) {
-            $missing = implode(', ', $validation['missing_fields'] ?? []);
-
-            return 'Draft Nitip belum lengkap. Lengkapi: '.$missing.'.';
+            return $this->buildIncompleteDraftText($validation, $merchant);
         }
 
         $name = trim($userName) === '' ? 'Kak' : trim($userName);
@@ -994,6 +1168,36 @@ class ChatbotShoppingOrderService
         $lines[] = 'Ketik "konfirmasi" kalau sudah oke.';
 
         return implode("\n", $lines);
+    }
+
+    /**
+     * @param  array<string, mixed>  $validation
+     * @param  array<string, mixed>  $merchant
+     */
+    private function buildIncompleteDraftText(array $validation, array $merchant): string
+    {
+        $missingFields = array_values(array_filter(array_map(
+            static fn (mixed $field): string => trim((string) $field),
+            is_array($validation['missing_fields'] ?? null) ? $validation['missing_fields'] : []
+        )));
+        $missing = implode(', ', $missingFields);
+        $baseText = 'Draft Nitip belum lengkap. Lengkapi: '.($missing === '' ? 'draft' : $missing).'.';
+        $merchantName = trim((string) ($merchant['name'] ?? ''));
+
+        if ($merchantName === '' || ! in_array('items', $missingFields, true)) {
+            return $baseText;
+        }
+
+        return implode("\n", [
+            $baseText,
+            '',
+            'Merchant',
+            $merchantName,
+            '',
+            'Contoh: Beli di '.$merchantName.':',
+            '- ayam geprek 2',
+            '- es teh 1',
+        ]);
     }
 
     private function resolveCommand(string $message, ?array $nluPayload): string

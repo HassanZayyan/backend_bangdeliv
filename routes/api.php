@@ -22,6 +22,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/chatbot/sessions/{sessionId}/history', [ChatbotController::class, 'sessionHistory'])->name('api.chatbot.sessions.history');
     Route::post('/chatbot/sessions/{sessionId}/location', [ChatbotController::class, 'patchSessionLocation'])->name('api.chatbot.sessions.location');
     Route::post('/chatbot/sessions/{sessionId}/locations', [ChatbotController::class, 'patchSessionLocations'])->name('api.chatbot.sessions.locations');
+    Route::post('/chatbot/sessions/{sessionId}/merchant', [ChatbotController::class, 'patchSessionMerchant'])->name('api.chatbot.sessions.merchant');
     Route::delete('/chatbot/sessions/{sessionId}', [ChatbotController::class, 'clearSession'])->name('api.chatbot.sessions.destroy');
     Route::post('/auth/logout', [AuthController::class, 'logout'])->name('api.auth.logout');
     Route::get('/user', [AuthController::class, 'me'])->name('api.user.show');
@@ -61,6 +62,7 @@ Route::prefix('v1')->group(function () {
         Route::post('/orders/{orderId}/items/bulk', [OrderController::class, 'addShoppingItems'])->name('api.v1.orders.items.bulk-store');
         Route::patch('/orders/{orderId}/items/{itemId}', [OrderController::class, 'updateShoppingItem'])->name('api.v1.orders.items.update');
         Route::delete('/orders/{orderId}/items/{itemId}', [OrderController::class, 'removeShoppingItem'])->name('api.v1.orders.items.destroy');
+        Route::post('/orders/{orderId}/shopping/item-change-request', [OrderController::class, 'requestShoppingItemChange'])->name('api.v1.orders.shopping.item-change-request.store');
         Route::post('/orders/{orderId}/shopping-stops/{pickupLocationId}/skip', [OrderController::class, 'skipFailedShoppingStop'])->name('api.v1.orders.shopping-stops.skip');
         Route::post('/orders/{orderId}/shopping/price-quote/respond', [OrderController::class, 'respondShoppingPriceQuote'])->name('api.v1.orders.shopping.price-quote.respond');
         Route::post('/orders/{orderId}/delivery-fee-override/respond', [OrderController::class, 'respondDeliveryFeeOverride'])->name('api.v1.orders.delivery-fee-override.respond');
@@ -83,6 +85,7 @@ Route::prefix('v1')->group(function () {
             Route::patch('/driver/orders/{orderId}/shopping-checkout', [OrderController::class, 'updateShoppingCheckout'])->name('api.v1.driver.orders.shopping-checkout.update');
             Route::post('/driver/orders/{orderId}/shopping/price-quote', [OrderController::class, 'submitShoppingPriceQuote'])->name('api.v1.driver.orders.shopping.price-quote.store');
             Route::post('/driver/orders/{orderId}/shopping/price-quote/accept-counter', [OrderController::class, 'acceptShoppingCounter'])->name('api.v1.driver.orders.shopping.price-quote.accept-counter');
+            Route::post('/driver/orders/{orderId}/shopping/item-change-request/respond', [OrderController::class, 'respondShoppingItemChange'])->name('api.v1.driver.orders.shopping.item-change-request.respond');
             Route::post('/driver/orders/{orderId}/delivery-fee-override', [OrderController::class, 'updateDeliveryFeeOverride'])->name('api.v1.driver.orders.delivery-fee-override');
             Route::post('/driver/orders/{orderId}/delivery-fee-override/accept-counter', [OrderController::class, 'acceptDeliveryFeeCounter'])->name('api.v1.driver.orders.delivery-fee-override.accept-counter');
             Route::patch('/driver/orders/{orderId}/location', [OrderController::class, 'updateDriverLocation'])->name('api.v1.driver.orders.location.update');

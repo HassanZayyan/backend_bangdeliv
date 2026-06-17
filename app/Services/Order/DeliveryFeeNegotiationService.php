@@ -95,11 +95,19 @@ class DeliveryFeeNegotiationService
             'quoted_amount' => $this->negotiationLogs->floatOrNull(
                 $metadata['quoted_amount'] ?? $metadata['amount'] ?? null
             ),
+            'base_amount' => $this->negotiationLogs->floatOrNull($metadata['base_amount'] ?? null),
+            'final_amount' => $this->negotiationLogs->floatOrNull(
+                $metadata['final_amount'] ?? $metadata['quoted_amount'] ?? $metadata['amount'] ?? null
+            ),
             'counter_amount' => $this->negotiationLogs->floatOrNull($metadata['counter_amount'] ?? null),
+            'counter_base_amount' => $this->negotiationLogs->floatOrNull($metadata['counter_base_amount'] ?? null),
             'approved_amount' => $this->negotiationLogs->floatOrNull($metadata['approved_amount'] ?? null),
             'old_delivery_fee' => $this->negotiationLogs->floatOrNull($metadata['old_delivery_fee'] ?? null),
             'careful_carry_required' => $this->negotiationLogs->boolOrNull(
                 $metadata['careful_carry_required'] ?? null
+            ),
+            'careful_carry_surcharge' => $this->negotiationLogs->floatOrNull(
+                $metadata['careful_carry_surcharge'] ?? null
             ),
             'note' => $log->note,
             'updated_at' => $this->negotiationLogs->iso($log->created_at),
@@ -117,6 +125,21 @@ class DeliveryFeeNegotiationService
         $snapshot = $this->snapshot($order);
 
         return is_array($snapshot) && (bool) ($snapshot['is_pending'] ?? false);
+    }
+
+    /**
+     * @return array{base_amount: float, careful_carry_surcharge: float, final_amount: float}
+     */
+    public function quoteAmounts(Order $order, ?float $baseAmount, bool $carefulCarryRequired): array
+    {
+        $base = round(max(0.0, $baseAmount ?? $this->defaultDeliveryFee($order)), 2);
+        $surcharge = $carefulCarryRequired ? round($base * 0.5, 2) : 0.0;
+
+        return [
+            'base_amount' => $base,
+            'careful_carry_surcharge' => $surcharge,
+            'final_amount' => round($base + $surcharge, 2),
+        ];
     }
 
     public function blocksDriverProgress(Order $order, string $actionCode): bool
@@ -218,6 +241,16 @@ class DeliveryFeeNegotiationService
     {
         return ServiceTypeCode::normalize((string) ($order->serviceType?->code ?? '')) === ServiceTypeCode::Courier->value
             && (bool) ($order->courierOrder?->careful_carry_required ?? false);
+    }
+
+    private function defaultDeliveryFee(Order $order): float
+    {
+        $route = $order->route;
+        $routeFee = is_array($route) ? data_get($route, 'delivery_pricing.total_fee') : null;
+
+        return is_numeric($routeFee)
+            ? (float) $routeFee
+            : (float) $order->delivery_fee;
     }
 
     private function hasPaidPayment(Order $order): bool

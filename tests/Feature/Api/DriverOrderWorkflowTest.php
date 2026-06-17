@@ -1226,9 +1226,11 @@ class DriverOrderWorkflowTest extends TestCase
     {
         [$driverUser, $driver] = $this->createActiveDriver('shopping-pending-price');
         $order = $this->createShoppingOrder($driver, 'ARRIVED_MERCHANT');
+        $pickup = $this->createPickupLocation($order, -7.002, 110.402, 'Merchant Test');
 
         OrderItem::query()->create([
             'order_id' => $order->id,
+            'pickup_location_id' => $pickup->id,
             'item_source' => 'MANUAL',
             'menu_name' => 'Telur 1 kg',
             'quantity' => 1,
@@ -1249,7 +1251,7 @@ class DriverOrderWorkflowTest extends TestCase
 
         $response->assertStatus(409)
             ->assertJsonPath('success', false)
-            ->assertJsonPath('message', 'Total belanja di struk belum diisi.');
+            ->assertJsonPath('message', 'Checkout Nitip belum disimpan.');
     }
 
     public function test_driver_bulk_updates_shopping_receipt_prices_and_recalculates_cod(): void
@@ -1289,12 +1291,12 @@ class DriverOrderWorkflowTest extends TestCase
                     'notes' => 'Harga dari nota',
                 ],
             ],
-            'receipt_note' => 'Nota Alfamart',
         ]);
 
         $response->assertOk()
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.pricing.subtotal', 30000)
+            ->assertJsonPath('data.pricing.service_fee', 6000)
             ->assertJsonPath('data.pricing.overweight_surcharge', 6000)
             ->assertJsonPath('data.pricing.total_price', 42000)
             ->assertJsonPath('data.has_pending_shopping_prices', false);
@@ -1310,6 +1312,7 @@ class DriverOrderWorkflowTest extends TestCase
         $this->assertDatabaseHas('orders', [
             'id' => $order->id,
             'subtotal' => 30000,
+            'service_fee' => 6000,
             'total_price' => 42000,
         ]);
         $this->assertDatabaseHas('order_fee_lines', [
@@ -1374,7 +1377,9 @@ class DriverOrderWorkflowTest extends TestCase
 
         Sanctum::actingAs($driverUser);
 
-        $approved = $this->postJson('/api/v1/driver/orders/'.$order->id.'/shopping/price-quote/accept-counter');
+        $approved = $this->postJson('/api/v1/driver/orders/'.$order->id.'/shopping/price-quote/accept-counter', [
+            'pickup_location_id' => $pickup->id,
+        ]);
 
         $approved->assertOk()
             ->assertJsonPath('data.shopping_negotiation.status', 'APPROVED')
@@ -1844,6 +1849,8 @@ class DriverOrderWorkflowTest extends TestCase
 
     private function approveShoppingQuoteForTest(Order $order, User $driverUser, User $customer, float $amount = 12000): void
     {
+        $pickup = $order->orderLocations()->where('location_role', 'PICKUP')->first();
+
         $quote = OrderLog::query()->create([
             'order_id' => $order->id,
             'log_type' => 'SHOPPING_NEGOTIATION',
@@ -1851,6 +1858,7 @@ class DriverOrderWorkflowTest extends TestCase
             'changed_by_user_id' => $driverUser->id,
             'note' => 'Quote test.',
             'metadata' => [
+                'pickup_location_id' => $pickup?->id,
                 'quoted_amount' => $amount,
                 'approved_amount' => null,
                 'status' => 'PENDING_CUSTOMER',
@@ -1865,6 +1873,7 @@ class DriverOrderWorkflowTest extends TestCase
             'note' => 'Approval test.',
             'metadata' => [
                 'quote_log_id' => $quote->id,
+                'pickup_location_id' => $pickup?->id,
                 'quoted_amount' => $amount,
                 'approved_amount' => $amount,
                 'status' => 'APPROVED',

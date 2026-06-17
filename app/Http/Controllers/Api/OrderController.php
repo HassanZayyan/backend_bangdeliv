@@ -201,6 +201,44 @@ class OrderController extends Controller
         }
     }
 
+    public function requestShoppingItemChange(Request $request, int $orderId): JsonResponse
+    {
+        $validated = $request->validate([
+            'action' => ['required', 'string', 'in:ADD,UPDATE,REMOVE'],
+            'request_kind' => ['nullable', 'string', 'in:ADD_NEW_STOP,EDIT_UNAVAILABLE'],
+            'target_pickup_location_id' => ['nullable', 'integer', 'min:1'],
+            'item_id' => ['nullable', 'integer', 'min:1'],
+            'note' => ['nullable', 'string', 'max:500'],
+            'items' => ['nullable', 'array', 'max:30'],
+            'items.*.merchant_id' => ['nullable', 'integer', 'exists:restaurants,id'],
+            'items.*.merchant_place' => ['nullable', 'array'],
+            'items.*.merchant_place.place_id' => ['nullable', 'string', 'max:255'],
+            'items.*.merchant_place.name' => ['required_with:items.*.merchant_place', 'string', 'max:255'],
+            'items.*.merchant_place.address' => ['required_with:items.*.merchant_place', 'string', 'max:1000'],
+            'items.*.merchant_place.latitude' => ['required_with:items.*.merchant_place', 'numeric', 'between:-90,90'],
+            'items.*.merchant_place.longitude' => ['required_with:items.*.merchant_place', 'numeric', 'between:-180,180'],
+            'items.*.merchant_place.types' => ['nullable', 'array', 'max:12'],
+            'items.*.merchant_place.types.*' => ['string', 'max:80'],
+            'items.*.item_source' => ['required_with:items', 'in:MANUAL,MENU_DB'],
+            'items.*.menu_id' => ['nullable', 'integer', 'exists:menus,id'],
+            'items.*.menu_name' => ['nullable', 'string', 'max:255'],
+            'items.*.quantity' => ['nullable', 'integer', 'min:1', 'max:99'],
+            'items.*.notes' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        try {
+            $order = $this->orderService->requestShoppingItemChange(
+                $request->user(),
+                $orderId,
+                $validated
+            );
+
+            return $this->success($order, 'Request perubahan item berhasil dikirim.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
     public function skipFailedShoppingStop(Request $request, int $orderId, int $pickupLocationId): JsonResponse
     {
         try {
@@ -272,6 +310,7 @@ class OrderController extends Controller
     public function acceptShoppingCounter(Request $request, int $orderId): JsonResponse
     {
         $validated = $request->validate([
+            'pickup_location_id' => ['nullable', 'integer', 'min:1'],
             'note' => ['nullable', 'string', 'max:1000'],
         ]);
 
@@ -283,6 +322,26 @@ class OrderController extends Controller
             );
 
             return $this->success($payload, 'Tawaran harga customer berhasil disetujui.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
+    public function respondShoppingItemChange(Request $request, int $orderId): JsonResponse
+    {
+        $validated = $request->validate([
+            'action' => ['required', 'string', 'in:APPROVE,REJECT'],
+            'note' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        try {
+            $payload = $this->orderService->respondShoppingItemChangeByDriver(
+                $request->user(),
+                $orderId,
+                $validated
+            );
+
+            return $this->success($payload, 'Respons perubahan item berhasil diproses.');
         } catch (ApiException $exception) {
             return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
         }
@@ -376,7 +435,6 @@ class OrderController extends Controller
         $validated = $request->validate([
             'shopping_total_amount' => ['nullable', 'numeric', 'min:1', 'max:99999999'],
             'delivery_fee_override' => ['nullable', 'numeric', 'min:1', 'max:99999999'],
-            'receipt_note' => ['nullable', 'string', 'max:1000'],
             'receipt_photo' => ['nullable', 'image', 'max:5120'],
             'items' => ['nullable'],
         ]);

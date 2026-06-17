@@ -26,6 +26,33 @@ class ShoppingMerchantCandidateResolver
     }
 
     /**
+     * Resolve a merchant payload before an order exists, such as chatbot draft creation.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    public function resolveStandalone(array $payload): ShoppingMerchantCandidate
+    {
+        if (isset($payload['merchant_place']) && is_array($payload['merchant_place'])) {
+            return $this->resolveGooglePlaceCandidate($payload['merchant_place']);
+        }
+
+        if (isset($payload['merchant_id']) && is_numeric($payload['merchant_id'])) {
+            $merchant = Restaurant::query()
+                ->where('status', 'active')
+                ->whereKey((int) $payload['merchant_id'])
+                ->first();
+
+            if (! $merchant) {
+                throw new ApiException('Merchant tidak ditemukan atau tidak aktif.', 404);
+            }
+
+            return ShoppingMerchantCandidate::fromRestaurant($merchant);
+        }
+
+        throw new ApiException('Merchant wajib dipilih.', 422);
+    }
+
+    /**
      * @param  array<string, mixed>  $payload
      */
     private function resolveRestaurant(Order $order, array $payload): Restaurant
