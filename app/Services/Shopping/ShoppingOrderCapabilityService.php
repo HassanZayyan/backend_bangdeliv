@@ -14,28 +14,35 @@ class ShoppingOrderCapabilityService
         $status = $this->statusCode($order);
         $isShopping = $this->isShopping($order);
         $hasPendingItemChangeRequest = $this->hasPendingItemChangeRequest($order);
-        $canRequestAddStop = $isShopping
-            && $status === 'DRIVER_ASSIGNED'
-            && ! $hasPendingItemChangeRequest;
         $canEditUnavailableItems = $isShopping
             && $status === 'ARRIVED_MERCHANT'
             && ! $hasPendingItemChangeRequest
             && $this->hasUnavailableActiveItems($order);
         $canDriverSubmitQuote = $isShopping
             && $status === 'ARRIVED_MERCHANT'
-            && ! $hasPendingItemChangeRequest;
-        $canDriverUploadReceipt = $canDriverSubmitQuote
+            && ! $hasPendingItemChangeRequest
+            && $this->hasMerchantReadyForQuote($order);
+        $canDriverUploadReceipt = $isShopping
+            && $status === 'ARRIVED_MERCHANT'
+            && ! $hasPendingItemChangeRequest
             && app(ShoppingPriceNegotiationService::class)->isApproved($order);
 
         return [
             'can_customer_direct_edit_items' => $isShopping && $status === 'PENDING',
-            'can_customer_request_item_change' => $canRequestAddStop || $canEditUnavailableItems,
-            'can_customer_request_add_stop' => $canRequestAddStop,
+            'can_customer_request_item_change' => $canEditUnavailableItems,
+            'can_customer_request_add_stop' => false,
             'can_customer_edit_unavailable_items' => $canEditUnavailableItems,
-            'can_customer_resolve_failed_merchant' => $isShopping && in_array($status, ['DRIVER_ASSIGNED', 'ARRIVED_MERCHANT'], true),
+            'can_customer_resolve_failed_merchant' => false,
+            'can_driver_mark_merchant_open' => $isShopping
+                && in_array($status, ['DRIVER_ASSIGNED', 'ARRIVED_MERCHANT'], true)
+                && $this->hasPendingMerchant($order),
+            'can_driver_mark_merchant_closed' => $isShopping
+                && in_array($status, ['DRIVER_ASSIGNED', 'ARRIVED_MERCHANT'], true)
+                && $this->hasNonTerminalMerchant($order),
             'can_driver_update_item_availability' => $isShopping
                 && $status === 'ARRIVED_MERCHANT'
-                && ! $hasPendingItemChangeRequest,
+                && ! $hasPendingItemChangeRequest
+                && $this->hasOpenMerchant($order),
             'can_driver_submit_shopping_quote' => $canDriverSubmitQuote,
             'can_driver_submit_merchant_quote' => $canDriverSubmitQuote,
             'can_driver_upload_receipt' => $canDriverUploadReceipt,
@@ -103,5 +110,52 @@ class ShoppingOrderCapabilityService
         $order->loadMissing('items');
 
         return $order->items->contains(fn ($item): bool => ! (bool) ($item->is_available ?? true));
+    }
+
+    private function hasPendingMerchant(Order $order): bool
+    {
+        return $this->hasMerchantWithStatus($order, ['PENDING']);
+    }
+
+    private function hasOpenMerchant(Order $order): bool
+    {
+        return $this->hasMerchantWithStatus($order, ['OPEN_CONFIRMED', 'ITEMS_PENDING_CUSTOMER', 'ITEMS_CONFIRMED']);
+    }
+
+    private function hasMerchantReadyForQuote(Order $order): bool
+    {
+        return $this->hasMerchantWithStatus($order, ['ITEMS_CONFIRMED']);
+    }
+
+    private function hasNonTerminalMerchant(Order $order): bool
+    {
+        $order->loadMissing('orderLocations');
+
+        return $order->orderLocations->contains(function ($location): bool {
+            if (strtoupper((string) $location->location_role) !== 'PICKUP') {
+                return false;
+            }
+
+            $status = strtoupper((string) ($location->fulfillment_status ?? 'PENDING'));
+
+            return ! in_array($status, ['FAILED', 'SKIPPED', 'REPLACED', 'COMPLETED'], true);
+        });
+    }
+
+    /**
+     * @param  array<int, string>  $statuses
+     */
+    private function hasMerchantWithStatus(Order $order, array $statuses): bool
+    {
+        $order->loadMissing('orderLocations');
+        $allowed = array_map('strtoupper', $statuses);
+
+        return $order->orderLocations->contains(function ($location) use ($allowed): bool {
+            if (strtoupper((string) $location->location_role) !== 'PICKUP') {
+                return false;
+            }
+
+            return in_array(strtoupper((string) ($location->fulfillment_status ?? 'PENDING')), $allowed, true);
+        });
     }
 }

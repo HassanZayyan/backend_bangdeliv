@@ -6,6 +6,7 @@ use App\Services\Order\DeliveryFeeNegotiationService;
 use App\Services\Shopping\ShoppingItemChangeRequestService;
 use App\Services\Shopping\ShoppingOrderCapabilityService;
 use App\Services\Shopping\ShoppingPriceNegotiationService;
+use App\Services\Shopping\ShoppingUnavailableItemDecisionService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -546,6 +547,8 @@ class Order extends Model
                     ->map(fn (OrderItem $item): array => $this->serializeShoppingStopItem($item, $pickupId))
                     ->values()
                     ->all();
+                $unavailableItemActions = app(ShoppingUnavailableItemDecisionService::class)
+                    ->actionsForPickup($this, $pickupId);
 
                 return [
                     'pickup_location_id' => $pickupId,
@@ -555,6 +558,7 @@ class Order extends Model
                     'failure_reason' => $pickup->failure_reason,
                     'failed_at' => $pickup->failed_at?->toIso8601String(),
                     'resolved_at' => $pickup->resolved_at?->toIso8601String(),
+                    'unavailable_item_actions' => $unavailableItemActions,
                     'merchant' => [
                         'id' => $restaurantId,
                         'name' => $pickup->restaurant?->name ?? $pickup->contact_name ?? $pickup->label,

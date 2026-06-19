@@ -19,6 +19,8 @@ class ShoppingPriceNegotiationService
 
     public const DRIVER_COUNTER_APPROVED = 'DRIVER_COUNTER_APPROVED';
 
+    public const MERCHANT_PRICE_APPROVED_BY_DRIVER_BYPASS = 'MERCHANT_PRICE_APPROVED_BY_DRIVER_BYPASS';
+
     public const DRIVER_PRICE_REQUOTED = 'DRIVER_PRICE_REQUOTED';
 
     public const CUSTOMER_CANCEL_MERCHANT = 'CUSTOMER_CANCEL_MERCHANT';
@@ -120,7 +122,6 @@ class ShoppingPriceNegotiationService
         $metadata = is_array($log->metadata) ? $log->metadata : [];
         $status = $this->statusForTrigger($trigger);
         $isPendingCustomer = $status === 'PENDING_CUSTOMER';
-        $isPendingDriver = $status === 'PENDING_DRIVER';
         $isApproved = $status === 'APPROVED';
         $hasPendingItemChangeRequest = app(ShoppingItemChangeRequestService::class)->hasPending($order);
         $pickupId = $pickupLocationId ?? $this->negotiationLogs->intOrNull($metadata['pickup_location_id'] ?? null);
@@ -141,7 +142,7 @@ class ShoppingPriceNegotiationService
             'updated_at' => $this->negotiationLogs->iso($log->created_at),
             'can_customer_respond' => $isPendingCustomer,
             'can_driver_submit_quote' => $this->canDriverSubmitQuote($order, $pickupId),
-            'can_driver_accept_counter' => $isPendingDriver,
+            'can_driver_accept_counter' => false,
             'checkout_allowed' => $isApproved && ! $hasPendingItemChangeRequest,
         ];
     }
@@ -170,9 +171,8 @@ class ShoppingPriceNegotiationService
         $latest = $pickupLocationId !== null
             ? $this->latestForPickup($order, $pickupLocationId)
             : $this->latest($order);
-        $trigger = strtoupper((string) ($latest?->trigger_type ?? ''));
 
-        return $trigger === self::CUSTOMER_PRICE_COUNTERED
+        return $latest !== null
             ? self::DRIVER_PRICE_REQUOTED
             : self::DRIVER_PRICE_QUOTED;
     }
@@ -228,9 +228,27 @@ class ShoppingPriceNegotiationService
             return false;
         }
 
-        return strtoupper((string) ($order->serviceType?->code ?? '')) === 'SHOPPING'
-            && strtoupper((string) ($order->statusRef?->code ?? '')) === 'ARRIVED_MERCHANT'
-            && ! app(ShoppingItemChangeRequestService::class)->hasPending($order);
+        if (
+            strtoupper((string) ($order->serviceType?->code ?? '')) !== 'SHOPPING'
+            || strtoupper((string) ($order->statusRef?->code ?? '')) !== 'ARRIVED_MERCHANT'
+            || app(ShoppingItemChangeRequestService::class)->hasPending($order)
+        ) {
+            return false;
+        }
+
+        if ($pickupLocationId === null) {
+            foreach ($this->activePickupLocations($order) as $pickup) {
+                if ($this->pickupReadyForQuote($pickup)) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        $pickup = $this->pickupById($order, $pickupLocationId);
+
+        return $pickup instanceof OrderLocation && $this->pickupReadyForQuote($pickup);
     }
 
     private function statusForTrigger(string $trigger): string
@@ -238,7 +256,7 @@ class ShoppingPriceNegotiationService
         return match ($trigger) {
             self::DRIVER_PRICE_QUOTED, self::DRIVER_PRICE_REQUOTED => 'PENDING_CUSTOMER',
             self::CUSTOMER_PRICE_COUNTERED => 'PENDING_DRIVER',
-            self::CUSTOMER_PRICE_APPROVED, self::DRIVER_COUNTER_APPROVED => 'APPROVED',
+            self::CUSTOMER_PRICE_APPROVED, self::DRIVER_COUNTER_APPROVED, self::MERCHANT_PRICE_APPROVED_BY_DRIVER_BYPASS => 'APPROVED',
             self::CUSTOMER_CANCEL_MERCHANT => 'CANCELLED_MERCHANT',
             self::CUSTOMER_CANCEL_ORDER => 'CANCELLED_ORDER',
             self::SHOPPING_ITEM_CHANGE_REQUIRES_REQUOTE, self::DRIVER_ITEM_CHANGE_REQUIRES_REQUOTE => 'NEEDS_REQUOTE',
@@ -381,5 +399,10 @@ class ShoppingPriceNegotiationService
             fn ($item): bool => (int) ($item->pickup_location_id ?? 0) === $pickupLocationId
                 && (bool) ($item->is_available ?? true)
         );
+    }
+
+    private function pickupReadyForQuote(OrderLocation $pickup): bool
+    {
+        return strtoupper((string) ($pickup->fulfillment_status ?? 'PENDING')) === 'ITEMS_CONFIRMED';
     }
 }

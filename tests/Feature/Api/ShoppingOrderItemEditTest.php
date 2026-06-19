@@ -618,14 +618,15 @@ class ShoppingOrderItemEditTest extends TestCase
             ->assertJsonPath('message', 'Item tidak bisa diubah pada status order saat ini.');
     }
 
-    public function test_customer_item_change_request_can_be_approved_by_driver_and_requires_requote(): void
+    public function test_customer_edit_unavailable_item_applies_immediately_and_requires_requote(): void
     {
-        [$driverUser, $driver] = $this->createDriver();
+        [, $driver] = $this->createDriver();
         $customer = User::factory()->create(['role' => 'customer']);
         $order = $this->createShoppingOrder($customer, 'ARRIVED_MERCHANT');
         $order->forceFill(['driver_id' => $driver->id])->save();
         $pickup = $order->orderLocations()->where('location_role', 'PICKUP')->firstOrFail();
-        $order->items()->firstOrFail()->update(['is_available' => false]);
+        $unavailableItem = $order->items()->firstOrFail();
+        $unavailableItem->update(['is_available' => false]);
         $menu = Menu::query()->create([
             'restaurant_id' => $order->restaurant_id,
             'name' => 'Es Teh Manis',
@@ -663,22 +664,12 @@ class ShoppingOrderItemEditTest extends TestCase
 
         $request->assertOk()
             ->assertJsonPath('success', true)
-            ->assertJsonPath('data.shopping_item_change_request.status', 'PENDING_DRIVER')
+            ->assertJsonPath('data.shopping_item_change_request.status', 'APPROVED')
             ->assertJsonPath('data.shopping_item_change_request.requested_stops.0.pickup_location_id', $pickup->id)
             ->assertJsonPath('data.shopping_item_change_request.requested_stops.0.merchant_name', 'Resto Test Shopping')
             ->assertJsonPath('data.shopping_item_change_request.requested_stops.0.merchant_address', 'Jl. Resto Test Shopping')
             ->assertJsonPath('data.shopping_item_change_request.requested_stops.0.items.0.name', 'Es Teh Manis')
-            ->assertJsonPath('data.shopping_capabilities.has_pending_item_change_request', true);
-
-        Sanctum::actingAs($driverUser);
-
-        $response = $this->postJson('/api/v1/driver/orders/'.$order->id.'/shopping/item-change-request/respond', [
-            'action' => 'APPROVE',
-        ]);
-
-        $response->assertOk()
-            ->assertJsonPath('success', true)
-            ->assertJsonPath('data.shopping_item_change_request.status', 'APPROVED')
+            ->assertJsonPath('data.shopping_capabilities.has_pending_item_change_request', false)
             ->assertJsonPath('data.shopping_negotiation.checkout_allowed', false);
 
         $this->assertDatabaseHas('shopping_order_items', [
@@ -688,10 +679,13 @@ class ShoppingOrderItemEditTest extends TestCase
             'unit_price' => 6000,
             'is_available' => true,
         ]);
+        $this->assertDatabaseMissing('shopping_order_items', [
+            'id' => $unavailableItem->id,
+        ]);
         $this->assertDatabaseHas('order_events', [
             'order_id' => $order->id,
             'event_type' => 'SHOPPING_ITEM_CHANGE_REQUEST',
-            'trigger_type' => 'DRIVER_ITEM_CHANGE_APPROVED',
+            'trigger_type' => 'CUSTOMER_ITEM_CHANGE_APPLIED',
         ]);
         $this->assertDatabaseHas('order_events', [
             'order_id' => $order->id,
@@ -700,7 +694,225 @@ class ShoppingOrderItemEditTest extends TestCase
         ]);
     }
 
-    public function test_customer_can_skip_failed_merchant_when_other_items_remain(): void
+    public function test_customer_can_add_replacement_item_to_fixed_external_merchant_without_merchant_payload(): void
+    {
+        [, $driver] = $this->createDriver();
+        $customer = User::factory()->create(['role' => 'customer']);
+        $order = $this->createShoppingOrder($customer, 'ARRIVED_MERCHANT');
+        $order->forceFill(['driver_id' => $driver->id])->save();
+        $externalPickup = $order->orderLocations()->create([
+            'restaurant_id' => null,
+            'location_role' => 'PICKUP',
+            'label' => 'Merchant',
+            'contact_name' => 'Kedai Tinari',
+            'contact_phone' => null,
+            'full_address' => 'Kedai Tinari, Jl. Sawunggaling III No.44',
+            'latitude' => -7.0015,
+            'longitude' => 110.4025,
+            'sequence_no' => 2,
+            'fulfillment_status' => 'ITEMS_PENDING_CUSTOMER',
+        ]);
+        $unavailableItem = OrderItem::query()->create([
+            'order_id' => $order->id,
+            'pickup_location_id' => $externalPickup->id,
+            'item_source' => 'MANUAL',
+            'menu_name' => 'Es jeruk',
+            'quantity' => 1,
+            'unit_price' => 0,
+            'subtotal' => 0,
+            'is_available' => false,
+            'is_heavy' => false,
+        ]);
+
+        Sanctum::actingAs($customer);
+
+        $request = $this->postJson('/api/v1/orders/'.$order->id.'/shopping/item-change-request', [
+            'action' => 'ADD',
+            'request_kind' => 'EDIT_UNAVAILABLE',
+            'target_pickup_location_id' => $externalPickup->id,
+            'items' => [
+                [
+                    'item_source' => 'MANUAL',
+                    'menu_name' => 'Es teh',
+                    'quantity' => 1,
+                ],
+            ],
+        ]);
+
+        $request->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.shopping_item_change_request.status', 'APPROVED')
+            ->assertJsonPath('data.shopping_item_change_request.requested_stops.0.pickup_location_id', $externalPickup->id)
+            ->assertJsonPath('data.shopping_item_change_request.requested_stops.0.merchant_name', 'Kedai Tinari')
+            ->assertJsonPath('data.shopping_item_change_request.requested_stops.0.items.0.name', 'Es teh')
+            ->assertJsonPath('data.shopping_capabilities.has_pending_item_change_request', false);
+
+        $this->assertDatabaseHas('shopping_order_items', [
+            'order_id' => $order->id,
+            'pickup_location_id' => $externalPickup->id,
+            'item_source' => 'MANUAL',
+            'menu_name' => 'Es teh',
+            'is_available' => true,
+        ]);
+        $this->assertDatabaseMissing('shopping_order_items', [
+            'id' => $unavailableItem->id,
+        ]);
+    }
+
+    public function test_customer_can_continue_without_unavailable_item(): void
+    {
+        [, $driver] = $this->createDriver();
+        $customer = User::factory()->create(['role' => 'customer']);
+        $order = $this->createShoppingOrder($customer, 'ARRIVED_MERCHANT');
+        $order->forceFill(['driver_id' => $driver->id])->save();
+        $pickup = $order->orderLocations()->where('location_role', 'PICKUP')->firstOrFail();
+        $unavailableItem = $order->items()->firstOrFail();
+        $unavailableItem->update(['is_available' => false]);
+        OrderItem::query()->create([
+            'order_id' => $order->id,
+            'pickup_location_id' => $pickup->id,
+            'item_source' => 'MANUAL',
+            'menu_name' => 'Ramen mala',
+            'quantity' => 1,
+            'unit_price' => 20000,
+            'subtotal' => 20000,
+            'is_available' => true,
+            'is_heavy' => false,
+        ]);
+
+        Sanctum::actingAs($customer);
+
+        $request = $this->postJson('/api/v1/orders/'.$order->id.'/shopping/item-change-request', [
+            'action' => 'REMOVE',
+            'request_kind' => 'EDIT_UNAVAILABLE',
+            'target_pickup_location_id' => $pickup->id,
+            'item_id' => $unavailableItem->id,
+        ]);
+
+        $request->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.shopping_item_change_request.status', 'APPROVED')
+            ->assertJsonPath('data.shopping_item_change_request.action', 'REMOVE')
+            ->assertJsonPath('data.shopping_item_change_request.target_pickup_location_id', $pickup->id)
+            ->assertJsonPath('data.shopping_capabilities.has_pending_item_change_request', false);
+
+        $this->assertDatabaseMissing('shopping_order_items', [
+            'id' => $unavailableItem->id,
+        ]);
+        $this->assertDatabaseHas('order_locations', [
+            'id' => $pickup->id,
+            'fulfillment_status' => 'ITEMS_CONFIRMED',
+        ]);
+        $this->assertDatabaseHas('order_events', [
+            'order_id' => $order->id,
+            'event_type' => 'SHOPPING_NEGOTIATION',
+            'trigger_type' => 'SHOPPING_ITEM_CHANGE_REQUIRES_REQUOTE',
+        ]);
+    }
+
+    public function test_customer_cannot_continue_without_only_unavailable_item_in_merchant(): void
+    {
+        [, $driver] = $this->createDriver();
+        $customer = User::factory()->create(['role' => 'customer']);
+        $order = $this->createShoppingOrder($customer, 'ARRIVED_MERCHANT');
+        $order->forceFill(['driver_id' => $driver->id])->save();
+        $pickup = $order->orderLocations()->where('location_role', 'PICKUP')->firstOrFail();
+        $unavailableItem = $order->items()->firstOrFail();
+        $unavailableItem->update([
+            'is_available' => false,
+            'unit_price' => 0,
+            'subtotal' => 0,
+        ]);
+
+        Sanctum::actingAs($customer);
+
+        $response = $this->postJson('/api/v1/orders/'.$order->id.'/shopping/item-change-request', [
+            'action' => 'REMOVE',
+            'request_kind' => 'EDIT_UNAVAILABLE',
+            'target_pickup_location_id' => $pickup->id,
+            'item_id' => $unavailableItem->id,
+        ]);
+
+        $response->assertStatus(409)
+            ->assertJsonPath('message', 'Merchant hanya punya item tidak tersedia. Pilih edit item atau batal merchant.');
+
+        $this->assertDatabaseHas('shopping_order_items', [
+            'id' => $unavailableItem->id,
+            'is_available' => false,
+        ]);
+    }
+
+    public function test_customer_can_cancel_unavailable_item_merchant(): void
+    {
+        Config::set('bangdeliv.google_maps_api_key', 'test-key');
+        $this->fakeDistance(0);
+
+        $customer = User::factory()->create(['role' => 'customer']);
+        $order = $this->createShoppingOrder($customer, 'ARRIVED_MERCHANT');
+        $firstPickup = $order->orderLocations()->where('location_role', 'PICKUP')->firstOrFail();
+        $order->items()->where('pickup_location_id', $firstPickup->id)->update([
+            'is_available' => false,
+            'unit_price' => 0,
+            'subtotal' => 0,
+        ]);
+
+        $secondMerchant = $this->createMerchant('Warung Tetap Jalan', 'warung-tetap-jalan', -7.006, 110.406, 'warung');
+        $secondPickup = $order->orderLocations()->create([
+            'restaurant_id' => $secondMerchant->id,
+            'location_role' => 'PICKUP',
+            'label' => 'Merchant',
+            'contact_name' => $secondMerchant->name,
+            'contact_phone' => $secondMerchant->phone,
+            'full_address' => $secondMerchant->address,
+            'latitude' => $secondMerchant->latitude,
+            'longitude' => $secondMerchant->longitude,
+            'sequence_no' => 2,
+        ]);
+        OrderItem::query()->create([
+            'order_id' => $order->id,
+            'pickup_location_id' => $secondPickup->id,
+            'item_source' => 'MANUAL',
+            'menu_name' => 'Kopi susu',
+            'quantity' => 1,
+            'unit_price' => 18000,
+            'subtotal' => 18000,
+            'is_available' => true,
+            'is_heavy' => false,
+        ]);
+
+        Sanctum::actingAs($customer);
+
+        $response = $this->postJson('/api/v1/orders/'.$order->id.'/shopping/item-change-request', [
+            'action' => 'CANCEL_MERCHANT',
+            'request_kind' => 'EDIT_UNAVAILABLE',
+            'target_pickup_location_id' => $firstPickup->id,
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('message', 'Merchant Nitip berhasil dibatalkan.')
+            ->assertJsonFragment([
+                'pickup_location_id' => $firstPickup->id,
+                'fulfillment_status' => 'FAILED',
+            ]);
+
+        $this->assertDatabaseHas('order_locations', [
+            'id' => $firstPickup->id,
+            'fulfillment_status' => 'FAILED',
+            'failure_reason' => 'Resto tutup/order batal.',
+        ]);
+        $this->assertDatabaseHas('order_locations', [
+            'id' => $secondPickup->id,
+            'fulfillment_status' => 'PENDING',
+        ]);
+        $this->assertDatabaseHas('order_events', [
+            'order_id' => $order->id,
+            'event_type' => 'SHOPPING_NEGOTIATION',
+            'trigger_type' => 'CUSTOMER_CANCEL_MERCHANT',
+        ]);
+    }
+
+    public function test_customer_cannot_skip_failed_merchant_in_new_flow(): void
     {
         Config::set('bangdeliv.google_maps_api_key', 'test-key');
         $this->fakeDistance(0);
@@ -749,26 +961,16 @@ class ShoppingOrderItemEditTest extends TestCase
 
         $response = $this->postJson('/api/v1/orders/'.$order->id.'/shopping-stops/'.$failedPickup->id.'/skip');
 
-        $response->assertOk()
-            ->assertJsonPath('data.total_price', '15000.00');
-        $failedStop = collect($response->json('data.shopping_stops'))
-            ->firstWhere('pickup_location_id', $failedPickup->id);
-        $this->assertNotNull($failedStop);
-        $this->assertSame('SKIPPED', $failedStop['fulfillment_status'] ?? null);
+        $response->assertStatus(410)
+            ->assertJsonPath('message', 'Endpoint skip merchant sudah deprecated pada flow Nitip baru.');
 
         $this->assertDatabaseHas('order_locations', [
             'id' => $failedPickup->id,
-            'fulfillment_status' => 'SKIPPED',
-        ]);
-
-        $this->assertDatabaseHas('order_payments', [
-            'order_id' => $order->id,
-            'payment_status' => 'PENDING',
-            'amount' => 15000,
+            'fulfillment_status' => 'FAILED',
         ]);
     }
 
-    public function test_customer_can_replace_failed_merchant_after_driver_arrived(): void
+    public function test_customer_cannot_replace_failed_merchant_after_driver_arrived(): void
     {
         Config::set('bangdeliv.google_maps_api_key', 'test-key');
         $this->fakeDistance(2500);
@@ -804,44 +1006,21 @@ class ShoppingOrderItemEditTest extends TestCase
             ],
         ]);
 
-        $response->assertOk()
-            ->assertJsonPath('success', true)
-            ->assertJsonPath('data.delivery_fee', '9000.00')
-            ->assertJsonPath('data.total_price', '9000.00');
-
-        $stops = collect($response->json('data.shopping_stops'));
-        $failedStop = $stops->firstWhere('pickup_location_id', $failedPickup->id);
-        $replacementStop = $stops->firstWhere('merchant.id', $replacementMerchant->id);
-        $this->assertNotNull($failedStop);
-        $this->assertNotNull($replacementStop);
-        $this->assertSame('REPLACED', $failedStop['fulfillment_status'] ?? null);
-        $this->assertSame('PENDING', $replacementStop['fulfillment_status'] ?? null);
-        $this->assertSame('PENDING_DRIVER_INPUT', $replacementStop['items'][0]['price_status'] ?? null);
-        $this->assertSame(
-            $replacementStop['pickup_location_id'] ?? null,
-            $response->json('data.shopping_route.ordered_pickup_location_ids.0')
-        );
-        $this->assertSame($response->json('data.route'), $response->json('data.shopping_route'));
+        $response->assertStatus(409)
+            ->assertJsonPath('message', 'Item tidak bisa diubah pada status order saat ini.');
 
         $this->assertDatabaseHas('order_locations', [
             'id' => $failedPickup->id,
-            'fulfillment_status' => 'REPLACED',
+            'fulfillment_status' => 'FAILED',
         ]);
-        $this->assertDatabaseHas('order_locations', [
+        $this->assertDatabaseMissing('order_locations', [
             'order_id' => $order->id,
             'restaurant_id' => $replacementMerchant->id,
             'location_role' => 'PICKUP',
         ]);
-        $this->assertDatabaseHas('shopping_order_items', [
+        $this->assertDatabaseMissing('shopping_order_items', [
             'order_id' => $order->id,
             'menu_name' => 'Beras 1 kg',
-            'unit_price' => 0,
-            'is_available' => true,
-        ]);
-        $this->assertDatabaseHas('order_payments', [
-            'order_id' => $order->id,
-            'payment_status' => 'PENDING',
-            'amount' => 9000,
         ]);
     }
 

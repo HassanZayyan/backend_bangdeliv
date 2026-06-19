@@ -11,6 +11,7 @@ use App\Models\ServiceFeeRule;
 use App\Services\Notification\OrderPricingPushNotificationService;
 use App\Services\Notification\OrderRealtimeBroadcaster;
 use App\Services\Order\OrderPaymentService;
+use App\Services\Shopping\ShoppingDeliveryFeeLockResolver;
 use App\Services\Shopping\ShoppingPriceNegotiationService;
 use Illuminate\Support\Facades\DB;
 
@@ -35,6 +36,7 @@ class ShoppingPricingService
         private readonly OrderPaymentService $orderPaymentService,
         private readonly OrderRealtimeBroadcaster $realtimeBroadcaster,
         private readonly OrderPricingPushNotificationService $pricingPushNotificationService,
+        private readonly ShoppingDeliveryFeeLockResolver $deliveryFeeLockResolver,
     ) {}
 
     /**
@@ -48,6 +50,7 @@ class ShoppingPricingService
         float $cancellationPenalty = 0.0,
         ?float $subtotalOverride = null,
         bool $penaltyOnly = false,
+        bool $preserveDeliveryFeeWhenPenaltyOnly = false,
     ): array {
         $itemBlockRule = $this->getRuleConfig($serviceTypeId, self::ITEM_SURCHARGE);
         $overweightRule = $this->getRuleConfig($serviceTypeId, self::OVERWEIGHT_SURCHARGE);
@@ -83,7 +86,9 @@ class ShoppingPricingService
 
         if ($penaltyOnly && $cancellationPenalty > 0) {
             $subtotal = 0.0;
-            $deliveryFee = 0.0;
+            if (! $preserveDeliveryFeeWhenPenaltyOnly) {
+                $deliveryFee = 0.0;
+            }
             $itemSurcharge = 0.0;
             $overweightSurcharge = 0.0;
             $hasOverweightItem = false;
@@ -123,7 +128,11 @@ class ShoppingPricingService
         $order->loadMissing(['items', 'serviceType', 'statusRef', 'feeLines', 'shoppingReceipt']);
 
         $oldAmounts = $this->pricingAmounts($order);
-        $deliveryFee = (float) $order->delivery_fee;
+        $deliveryFeeLock = $this->deliveryFeeLockResolver->resolve($order);
+        $isDeliveryFeeLocked = (bool) $deliveryFeeLock['is_locked'] && is_numeric($deliveryFeeLock['amount']);
+        $deliveryFee = $isDeliveryFeeLocked
+            ? (float) $deliveryFeeLock['amount']
+            : (float) $order->delivery_fee;
         $cancellationPenalty = $this->feeLineAmount($order, self::CANCELLATION_PENALTY);
         $statusCode = strtoupper((string) ($order->statusRef?->code ?? ''));
         $penaltyOnly = $cancellationPenalty > 0 && $statusCode === 'CANCELLED_WITH_FEE';
@@ -136,6 +145,7 @@ class ShoppingPricingService
             $cancellationPenalty,
             $subtotalOverride,
             $penaltyOnly,
+            $isDeliveryFeeLocked,
         );
 
         $nextVersion = $this->latestRecalculationVersion($order) + 1;
@@ -149,7 +159,9 @@ class ShoppingPricingService
         ];
 
         if ($penaltyOnly) {
-            $orderUpdates['delivery_fee'] = 0;
+            $orderUpdates['delivery_fee'] = $isDeliveryFeeLocked ? $pricing['delivery_fee'] : 0;
+        } elseif ($isDeliveryFeeLocked) {
+            $orderUpdates['delivery_fee'] = $pricing['delivery_fee'];
         }
 
         $order->update($orderUpdates);
@@ -277,7 +289,12 @@ class ShoppingPricingService
             return 0.0;
         }
 
-        return round((float) $order->delivery_fee * ($percent / 100), 2);
+        $deliveryFeeLock = $this->deliveryFeeLockResolver->resolve($order);
+        $deliveryFee = (bool) $deliveryFeeLock['is_locked'] && is_numeric($deliveryFeeLock['amount'])
+            ? (float) $deliveryFeeLock['amount']
+            : (float) $order->delivery_fee;
+
+        return round($deliveryFee * ($percent / 100), 2);
     }
 
     public function cancellationFailedAttemptThreshold(int $serviceTypeId): int

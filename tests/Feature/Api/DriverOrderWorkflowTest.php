@@ -1085,9 +1085,9 @@ class DriverOrderWorkflowTest extends TestCase
             'delivery_longitude' => 110.420300,
             'subtotal' => 15000,
             'delivery_fee' => 6000,
-            'service_fee' => 0,
-            'total_amount' => 21000,
-            'total_price' => 21000,
+            'service_fee' => 2500,
+            'total_amount' => 23500,
+            'total_price' => 23500,
             'status_id' => $completedStatusId,
             'payment_status' => 'paid',
             'payment_method' => 'COD',
@@ -1104,6 +1104,10 @@ class DriverOrderWorkflowTest extends TestCase
             ->assertJsonPath('data.history_orders.0.order_id', $order->id)
             ->assertJsonPath('data.history_orders.0.order_number', 'BD-DRV-HST-0001')
             ->assertJsonPath('data.history_orders.0.customer_name', 'Customer Riwayat')
+            ->assertJsonPath('data.history_orders.0.delivery_fee', 6000)
+            ->assertJsonPath('data.history_orders.0.service_fee', 2500)
+            ->assertJsonPath('data.history_orders.0.driver_income', 6000)
+            ->assertJsonPath('data.history_orders.0.total_price', 23500)
             ->assertJsonPath('data.history_orders.0.status', 'Selesai');
 
         $this->getJson('/api/v1/driver/orders/'.$order->id)
@@ -1269,9 +1273,13 @@ class DriverOrderWorkflowTest extends TestCase
     {
         [$driverUser, $driver] = $this->createActiveDriver('shopping-receipt');
         $order = $this->createShoppingOrder($driver, 'ARRIVED_MERCHANT');
+        $pickup = $this->createPickupLocation($order, -7.001, 110.401, 'Resto Receipt');
+        $pickup->update(['fulfillment_status' => 'OPEN_CONFIRMED']);
+        $this->createDropoffLocation($order, -7.004, 110.404, 'Customer Receipt');
 
         $item = OrderItem::query()->create([
             'order_id' => $order->id,
+            'pickup_location_id' => $pickup->id,
             'item_source' => 'MANUAL',
             'menu_name' => 'Telur 1 kg',
             'quantity' => 1,
@@ -1344,12 +1352,13 @@ class DriverOrderWorkflowTest extends TestCase
             ->exists());
     }
 
-    public function test_shopping_price_quote_counter_and_driver_approval_flow(): void
+    public function test_driver_can_bypass_pending_customer_shopping_price_quote(): void
     {
-        [$driverUser, $driver] = $this->createActiveDriver('shopping-counter');
+        [$driverUser, $driver] = $this->createActiveDriver('shopping-bypass');
         $order = $this->createShoppingOrder($driver, 'ARRIVED_MERCHANT');
-        $pickup = $this->createPickupLocation($order, -7.001, 110.401, 'Resto Counter');
-        $this->createDropoffLocation($order, -7.004, 110.404, 'Customer Counter');
+        $pickup = $this->createPickupLocation($order, -7.001, 110.401, 'Resto Bypass');
+        $pickup->update(['fulfillment_status' => 'ITEMS_CONFIRMED']);
+        $this->createDropoffLocation($order, -7.004, 110.404, 'Customer Bypass');
 
         OrderItem::query()->create([
             'order_id' => $order->id,
@@ -1374,33 +1383,21 @@ class DriverOrderWorkflowTest extends TestCase
             ->assertJsonPath('data.shopping_negotiation.status', 'PENDING_CUSTOMER')
             ->assertJsonPath('data.shopping_negotiation.quoted_amount', 20000);
 
-        Sanctum::actingAs($order->user);
-
-        $counter = $this->postJson('/api/v1/orders/'.$order->id.'/shopping/price-quote/respond', [
-            'action' => 'COUNTER',
-            'counter_amount' => 18000,
-        ]);
-
-        $counter->assertOk()
-            ->assertJsonPath('data.shopping_negotiation.status', 'PENDING_DRIVER')
-            ->assertJsonPath('data.shopping_negotiation.counter_amount', 18000)
-            ->assertJsonPath('data.shopping_negotiation.checkout_allowed', false);
-
         Sanctum::actingAs($driverUser);
 
-        $approved = $this->postJson('/api/v1/driver/orders/'.$order->id.'/shopping/price-quote/accept-counter', [
+        $approved = $this->postJson('/api/v1/driver/orders/'.$order->id.'/shopping/price-quote/bypass', [
             'pickup_location_id' => $pickup->id,
         ]);
 
         $approved->assertOk()
             ->assertJsonPath('data.shopping_negotiation.status', 'APPROVED')
-            ->assertJsonPath('data.shopping_negotiation.approved_amount', 18000)
+            ->assertJsonPath('data.shopping_negotiation.approved_amount', 20000)
             ->assertJsonPath('data.shopping_negotiation.checkout_allowed', true);
 
         $this->assertDatabaseHas('order_events', [
             'order_id' => $order->id,
             'event_type' => 'SHOPPING_NEGOTIATION',
-            'trigger_type' => 'DRIVER_COUNTER_APPROVED',
+            'trigger_type' => 'MERCHANT_PRICE_APPROVED_BY_DRIVER_BYPASS',
         ]);
     }
 
@@ -1409,6 +1406,20 @@ class DriverOrderWorkflowTest extends TestCase
         [$driverUser, $driver] = $this->createActiveDriver('shopping-cancel-merchant');
         $order = $this->createShoppingOrder($driver, 'ARRIVED_MERCHANT');
         $pickup = $this->createPickupLocation($order, -7.001, 110.401, 'Resto Cancel Merchant');
+        $pickup->update(['fulfillment_status' => 'ITEMS_CONFIRMED']);
+        $secondPickup = OrderLocation::query()->create([
+            'order_id' => $order->id,
+            'restaurant_id' => null,
+            'location_role' => 'PICKUP',
+            'label' => 'Resto Masih Aktif',
+            'contact_name' => 'Merchant Test',
+            'contact_phone' => '081234567890',
+            'full_address' => 'Resto Masih Aktif',
+            'latitude' => -7.002,
+            'longitude' => 110.402,
+            'sequence_no' => 2,
+            'fulfillment_status' => 'ITEMS_CONFIRMED',
+        ]);
         $this->createDropoffLocation($order, -7.004, 110.404, 'Customer Cancel Merchant');
 
         OrderItem::query()->create([
@@ -1419,6 +1430,17 @@ class DriverOrderWorkflowTest extends TestCase
             'quantity' => 1,
             'unit_price' => 12000,
             'subtotal' => 12000,
+            'is_available' => true,
+            'is_heavy' => false,
+        ]);
+        OrderItem::query()->create([
+            'order_id' => $order->id,
+            'pickup_location_id' => $secondPickup->id,
+            'item_source' => 'MANUAL',
+            'menu_name' => 'Es teh',
+            'quantity' => 1,
+            'unit_price' => 6000,
+            'subtotal' => 6000,
             'is_available' => true,
             'is_heavy' => false,
         ]);
@@ -1436,9 +1458,12 @@ class DriverOrderWorkflowTest extends TestCase
         ]);
 
         $response->assertOk()
-            ->assertJsonPath('data.status_ref.code', 'ARRIVED_MERCHANT')
-            ->assertJsonPath('data.shopping_stops.0.fulfillment_status', 'FAILED')
-            ->assertJsonPath('data.shopping_stops.0.failed_attempt_count', 1);
+            ->assertJsonPath('data.status_ref.code', 'ARRIVED_MERCHANT');
+
+        $failedStop = collect($response->json('data.shopping_stops'))
+            ->firstWhere('pickup_location_id', $pickup->id);
+        $this->assertSame('FAILED', $failedStop['fulfillment_status'] ?? null);
+        $this->assertSame(1, $failedStop['failed_attempt_count'] ?? null);
 
         $this->assertDatabaseHas('order_locations', [
             'id' => $pickup->id,
@@ -1457,7 +1482,10 @@ class DriverOrderWorkflowTest extends TestCase
         $order = $this->createShoppingOrder($driver, 'ARRIVED_MERCHANT');
         $pickup = $this->createPickupLocation($order, -7.001, 110.401, 'Resto Cancel Fee');
         $this->createDropoffLocation($order, -7.004, 110.404, 'Customer Cancel Fee');
-        $pickup->update(['failed_attempt_count' => 2]);
+        $pickup->update([
+            'failed_attempt_count' => 2,
+            'fulfillment_status' => 'ITEMS_CONFIRMED',
+        ]);
 
         OrderItem::query()->create([
             'order_id' => $order->id,
@@ -1532,6 +1560,7 @@ class DriverOrderWorkflowTest extends TestCase
             'latitude' => $merchant->latitude,
             'longitude' => $merchant->longitude,
             'sequence_no' => 1,
+            'fulfillment_status' => 'ITEMS_CONFIRMED',
         ]);
 
         $order->orderLocations()->create([
@@ -1573,7 +1602,8 @@ class DriverOrderWorkflowTest extends TestCase
         ]);
 
         $failedResponse->assertOk()
-            ->assertJsonPath('success', true);
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.status_ref.code', 'CANCELLED_WITH_FEE');
 
         $this->assertDatabaseHas('order_locations', [
             'id' => $pickup->id,
@@ -1594,26 +1624,9 @@ class DriverOrderWorkflowTest extends TestCase
 
         $detailResponse = $this->getJson('/api/v1/driver/orders/'.$order->id);
         $detailResponse->assertOk()
-            ->assertJsonPath('data.pricing.can_cancel_with_fee', true)
+            ->assertJsonPath('data.status_code', 'CANCELLED_WITH_FEE')
             ->assertJsonPath('data.pricing.failed_attempt_count', 3)
             ->assertJsonPath('data.shopping_stops.0.fulfillment_status', 'FAILED');
-
-        $this->assertContains(
-            'CANCEL_WITH_FEE',
-            collect($detailResponse->json('data.available_actions'))->pluck('action_code')->all()
-        );
-
-        $cancelResponse = $this->postJson('/api/v1/driver/orders/'.$order->id.'/status-transition', [
-            'action_code' => 'CANCEL_WITH_FEE',
-            'target_status_code' => 'CANCELLED_WITH_FEE',
-            'note' => 'Tiga merchant gagal pickup.',
-        ]);
-
-        $cancelResponse->assertOk()
-            ->assertJsonPath('data.status_code', 'CANCELLED_WITH_FEE')
-            ->assertJsonPath('data.pricing.cancellation_penalty', 3000)
-            ->assertJsonPath('data.pricing.delivery_fee', 0)
-            ->assertJsonPath('data.pricing.total_price', 3000);
 
         $this->assertDatabaseHas('orders', [
             'id' => $order->id,
@@ -1696,6 +1709,85 @@ class DriverOrderWorkflowTest extends TestCase
             collect($historyResponse->json('data.history_orders'))
                 ->contains(fn (array $historyOrder): bool => (string) $historyOrder['id'] === (string) ($order->order_number ?: $order->id))
         );
+    }
+
+    public function test_locked_delivery_fee_is_preserved_when_all_shopping_merchants_fail(): void
+    {
+        [$driverUser, $driver] = $this->createActiveDriver('shopping-locked-fee');
+        $order = $this->createShoppingOrder($driver, 'ARRIVED_MERCHANT');
+        $order->forceFill([
+            'delivery_fee' => 18000,
+            'delivery_fee_source' => 'driver_manual',
+            'total_price' => 30000,
+        ])->save();
+
+        $pickup = $this->createPickupLocation($order, -7.002, 110.402, 'Merchant Locked Fee');
+        $this->createDropoffLocation($order, -7.003, 110.403, 'Customer Locked Fee');
+        $pickup->update([
+            'failed_attempt_count' => 2,
+            'fulfillment_status' => 'ITEMS_CONFIRMED',
+        ]);
+
+        OrderItem::query()->create([
+            'order_id' => $order->id,
+            'pickup_location_id' => $pickup->id,
+            'item_source' => 'MANUAL',
+            'menu_name' => 'Ayam Geprek',
+            'quantity' => 1,
+            'unit_price' => 12000,
+            'subtotal' => 12000,
+            'is_available' => true,
+            'is_heavy' => false,
+        ]);
+
+        OrderLog::query()->create([
+            'order_id' => $order->id,
+            'event_type' => 'DELIVERY_FEE_NEGOTIATION',
+            'trigger_type' => 'CUSTOMER_FEE_APPROVED',
+            'changed_by_user_id' => $order->user_id,
+            'note' => 'Customer menyetujui revisi ongkir.',
+            'metadata' => [
+                'approved_amount' => 18000,
+                'final_amount' => 18000,
+                'delivery_fee_source' => 'driver_manual',
+                'status' => 'APPROVED',
+            ],
+            'created_at' => now(),
+        ]);
+
+        OrderPayment::query()->create([
+            'order_id' => $order->id,
+            'payment_method' => 'COD',
+            'payment_status' => 'PENDING',
+            'amount' => 30000,
+        ]);
+
+        Sanctum::actingAs($driverUser);
+
+        $response = $this->postJson('/api/v1/orders/'.$order->id.'/attempt-failed', [
+            'failure_type' => 'PICKUP',
+            'reason' => 'Merchant tutup saat driver tiba.',
+            'pickup_location_id' => $pickup->id,
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.status_ref.code', 'CANCELLED_WITH_FEE')
+            ->assertJsonPath('data.delivery_fee', '18000.00')
+            ->assertJsonPath('data.service_fee', '9000.00')
+            ->assertJsonPath('data.total_price', '27000.00');
+
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
+            'delivery_fee' => 18000,
+            'service_fee' => 9000,
+            'total_price' => 27000,
+        ]);
+        $this->assertDatabaseHas('order_payments', [
+            'order_id' => $order->id,
+            'payment_method' => 'TRANSFER',
+            'payment_status' => 'PENDING',
+            'amount' => 27000,
+        ]);
     }
 
     /**

@@ -15,6 +15,8 @@ class ShoppingItemChangeRequestService
 
     public const DRIVER_REJECTED = 'DRIVER_ITEM_CHANGE_REJECTED';
 
+    public const CUSTOMER_APPLIED = 'CUSTOMER_ITEM_CHANGE_APPLIED';
+
     /**
      * @param  array<string, mixed>  $metadata
      */
@@ -42,6 +44,25 @@ class ShoppingItemChangeRequestService
     public function reject(Order $order, int $actorId, OrderLog $requestLog, ?string $note = null): OrderLog
     {
         return $this->recordResponse($order, $actorId, $requestLog, self::DRIVER_REJECTED, 'REJECTED', $note ?: 'Driver menolak perubahan item Nitip.');
+    }
+
+    /**
+     * @param  array<string, mixed>  $metadata
+     */
+    public function recordApplied(Order $order, int $actorId, array $metadata, ?string $note = null): OrderLog
+    {
+        return OrderLog::query()->create([
+            'order_id' => $order->id,
+            'event_type' => self::EVENT_TYPE,
+            'trigger_type' => self::CUSTOMER_APPLIED,
+            'changed_by_user_id' => $actorId,
+            'note' => $note ?: 'Customer langsung memperbarui item Nitip yang tidak tersedia.',
+            'metadata' => [
+                ...$metadata,
+                'status' => 'APPROVED',
+            ],
+            'created_at' => now(),
+        ]);
     }
 
     public function latest(Order|int $order): ?OrderLog
@@ -108,7 +129,7 @@ class ShoppingItemChangeRequestService
             'status' => $status,
             'trigger_type' => $trigger,
             'request_log_id' => (int) ($metadata['request_log_id'] ?? $latest->id),
-            'request_kind' => strtoupper((string) ($metadata['request_kind'] ?? 'ADD_NEW_STOP')),
+            'request_kind' => strtoupper((string) ($metadata['request_kind'] ?? 'EDIT_UNAVAILABLE')),
             'target_pickup_location_id' => is_numeric($metadata['target_pickup_location_id'] ?? null)
                 ? (int) $metadata['target_pickup_location_id']
                 : null,
@@ -129,7 +150,7 @@ class ShoppingItemChangeRequestService
      */
     private function requestedStops(Order $order, array $metadata, array $items): array
     {
-        $requestKind = strtoupper((string) ($metadata['request_kind'] ?? 'ADD_NEW_STOP'));
+        $requestKind = strtoupper((string) ($metadata['request_kind'] ?? 'EDIT_UNAVAILABLE'));
         $targetPickupLocationId = is_numeric($metadata['target_pickup_location_id'] ?? null)
             ? (int) $metadata['target_pickup_location_id']
             : null;

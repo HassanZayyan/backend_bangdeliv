@@ -18,6 +18,7 @@ class ShoppingRouteService
     public function __construct(
         private readonly GoogleMapsDistanceMatrixService $distanceMatrixService,
         private readonly DeliveryPricingService $deliveryPricingService,
+        private readonly ShoppingDeliveryFeeLockResolver $deliveryFeeLockResolver,
     ) {}
 
     /**
@@ -140,6 +141,10 @@ class ShoppingRouteService
     public function applyRouteToOrder(Order $order): ?array
     {
         $order->refresh()->load(['orderLocations.restaurant']);
+        $deliveryFeeLock = $this->deliveryFeeLockResolver->resolve($order);
+        $lockedDeliveryFee = (bool) $deliveryFeeLock['is_locked']
+            ? (float) $deliveryFeeLock['amount']
+            : null;
 
         if ($this->activePickupLocations($order)->isEmpty()) {
             $this->storeRouteSnapshot($order, [
@@ -148,7 +153,7 @@ class ShoppingRouteService
                 'distance_text' => null,
                 'duration_seconds' => null,
                 'duration_text' => null,
-                'delivery_fee' => round((float) $order->delivery_fee, 2),
+                'delivery_fee' => round($lockedDeliveryFee ?? (float) $order->delivery_fee, 2),
                 'segments' => [],
                 'ordered_pickup_location_ids' => [],
                 'encoded_polyline' => null,
@@ -161,6 +166,12 @@ class ShoppingRouteService
 
         $route = $this->calculateForOrder($order);
         $this->resequenceStops($order, $route['ordered_pickup_location_ids'] ?? null);
+
+        if ($lockedDeliveryFee !== null) {
+            $route['delivery_fee'] = round($lockedDeliveryFee, 2);
+            $route['delivery_fee_locked'] = true;
+            $route['delivery_fee_lock_source'] = $deliveryFeeLock['source'];
+        }
 
         $order->update([
             'delivery_fee' => round((float) $route['delivery_fee'], 2),

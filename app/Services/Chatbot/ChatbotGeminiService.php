@@ -13,7 +13,7 @@ class ChatbotGeminiService
      */
     public function parseFoodOrder(string $message, ?array $context = null): array
     {
-        $systemInstruction = 'Kamu adalah NLU assistant BangDeliv untuk layanan Nitip. Keluarkan hanya JSON sesuai schema. intent valid: "shopping_order" atau "out_of_domain". command valid: "confirm" atau "none"; gunakan confirm hanya untuk pesan konfirmasi singkat seperti "konfirmasi", "confirm", atau "lanjut". Ekstrak merchant/resto/toko, item belanja, jumlah, catatan, dan alamat antar hanya jika disebut di pesan terbaru. Jika user menambah item, operation item adalah "add"; jika user mengubah jumlah final dengan kata seperti "saja", "cukup", atau "jadi", operation adalah "set"; jika user menghapus/membatalkan item, operation adalah "remove". Jangan mengembalikan ulang item lama dari CONTEXT_JSON kecuali item itu disebut lagi di pesan terbaru. Item dari warung/alfamart/restoran boleh berupa barang umum atau nama makanan. Jangan menentukan item berat; berat akan dikonfirmasi driver. Jika disediakan CONTEXT_JSON, gunakan untuk menjaga kesinambungan draft tanpa menyalin ulang semua item lama. Dilarang merespon teks biasa.';
+        $systemInstruction = 'Kamu adalah NLU assistant BangDeliv untuk layanan Nitip. Keluarkan hanya JSON sesuai schema. intent valid: "shopping_order" atau "out_of_domain". command valid: "confirm", "add_merchant", atau "none"; gunakan confirm hanya untuk pesan konfirmasi singkat seperti "konfirmasi", "confirm", atau "lanjut". Gunakan add_merchant hanya untuk pesan singkat seperti "tambah merchant", "tambah toko", "tambah resto", "tambah order", atau "order baru"; jangan jadikan kata order sebagai item. Ekstrak merchant/resto/toko, item belanja, jumlah, catatan, dan alamat antar hanya jika disebut di pesan terbaru. Jika satu pesan jelas menyebut beberapa merchant, isi stops berisi merchant dan item masing-masing; jika hanya satu merchant, boleh pakai field merchant/items biasa. Jika user menambah item, operation item adalah "add"; jika user mengubah jumlah final dengan kata seperti "saja", "cukup", atau "jadi", operation adalah "set"; jika user menghapus/membatalkan item, operation adalah "remove". Jangan mengembalikan ulang item lama dari CONTEXT_JSON kecuali item itu disebut lagi di pesan terbaru. Item dari warung/alfamart/restoran boleh berupa barang umum atau nama makanan. Jangan menentukan item berat; berat akan dikonfirmasi driver. Jika disediakan CONTEXT_JSON, gunakan untuk menjaga kesinambungan draft dan merchant aktif tanpa menyalin ulang semua item lama. Dilarang merespon teks biasa.';
 
         $schema = [
             'type' => 'OBJECT',
@@ -38,6 +38,32 @@ class ChatbotGeminiService
                         'required' => ['name', 'quantity'],
                     ],
                 ],
+                'stops' => [
+                    'type' => 'ARRAY',
+                    'items' => [
+                        'type' => 'OBJECT',
+                        'properties' => [
+                            'merchant' => ['type' => 'STRING', 'nullable' => true],
+                            'resto' => ['type' => 'STRING', 'nullable' => true],
+                            'items' => [
+                                'type' => 'ARRAY',
+                                'items' => [
+                                    'type' => 'OBJECT',
+                                    'properties' => [
+                                        'name' => ['type' => 'STRING'],
+                                        'menu' => ['type' => 'STRING'],
+                                        'quantity' => ['type' => 'INTEGER'],
+                                        'qty' => ['type' => 'INTEGER'],
+                                        'operation' => ['type' => 'STRING', 'nullable' => true],
+                                        'notes' => ['type' => 'STRING', 'nullable' => true],
+                                    ],
+                                    'required' => ['name', 'quantity'],
+                                ],
+                            ],
+                        ],
+                        'required' => ['items'],
+                    ],
+                ],
             ],
             'required' => ['intent', 'command', 'items'],
         ];
@@ -49,6 +75,7 @@ class ChatbotGeminiService
             'resto' => null,
             'delivery_address' => null,
             'items' => [],
+            'stops' => [],
         ], $context);
 
         return [
@@ -279,6 +306,53 @@ class ChatbotGeminiService
             }
         }
 
+        $stops = [];
+        if (is_array($payload['stops'] ?? null)) {
+            foreach ($payload['stops'] as $stop) {
+                if (! is_array($stop)) {
+                    continue;
+                }
+
+                $stopMerchant = $this->normalizeOptionalString($stop['merchant'] ?? $stop['resto'] ?? null);
+                $stopItems = [];
+                if (is_array($stop['items'] ?? null)) {
+                    foreach ($stop['items'] as $item) {
+                        if (! is_array($item)) {
+                            continue;
+                        }
+
+                        $name = trim((string) ($item['name'] ?? $item['menu'] ?? ''));
+                        if ($name === '') {
+                            continue;
+                        }
+
+                        $quantity = max(1, (int) ($item['quantity'] ?? $item['qty'] ?? 1));
+                        $operation = $this->normalizeItemOperation($item['operation'] ?? null);
+                        $normalizedItem = [
+                            'name' => $name,
+                            'menu' => $name,
+                            'quantity' => $quantity,
+                            'qty' => $quantity,
+                            'notes' => $this->normalizeOptionalString($item['notes'] ?? null),
+                        ];
+                        if ($operation !== null) {
+                            $normalizedItem['operation'] = $operation;
+                        }
+
+                        $stopItems[] = $normalizedItem;
+                    }
+                }
+
+                if ($stopMerchant !== null || $stopItems !== []) {
+                    $stops[] = [
+                        'merchant' => $stopMerchant,
+                        'resto' => $stopMerchant,
+                        'items' => $stopItems,
+                    ];
+                }
+            }
+        }
+
         return [
             'intent' => $intent,
             'command' => $this->normalizeCommand($payload['command'] ?? null),
@@ -286,6 +360,7 @@ class ChatbotGeminiService
             'resto' => $merchant,
             'delivery_address' => $this->normalizeOptionalString($payload['delivery_address'] ?? null),
             'items' => $items,
+            'stops' => $stops,
         ];
     }
 
@@ -381,6 +456,7 @@ class ChatbotGeminiService
 
         return match ($normalized) {
             'confirm', 'konfirmasi', 'lanjut' => 'confirm',
+            'add_merchant', 'tambah_merchant', 'tambah merchant', 'tambah toko', 'tambah resto', 'tambah order', 'order baru' => 'add_merchant',
             'reset_destination', 'ubah tujuan', 'ganti tujuan', 'reset tujuan' => 'reset_destination',
             default => 'none',
         };

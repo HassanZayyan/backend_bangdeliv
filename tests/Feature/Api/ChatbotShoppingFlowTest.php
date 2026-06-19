@@ -222,9 +222,9 @@ class ChatbotShoppingFlowTest extends TestCase
         $assistantText = (string) $merchantResponse->json('data.assistant_text');
         $this->assertStringContainsString('Merchant', $assistantText);
         $this->assertStringContainsString('Kedai Tinari', $assistantText);
-        $this->assertStringContainsString('Contoh: Beli di Kedai Tinari:', $assistantText);
-        $this->assertStringContainsString('- ayam geprek 2', $assistantText);
-        $this->assertStringContainsString('- es teh 1', $assistantText);
+        $this->assertStringContainsString('Tulis item dan jumlah untuk merchant ini.', $assistantText);
+        $this->assertStringContainsString('- susu 1', $assistantText);
+        $this->assertStringContainsString('- roti tawar 2', $assistantText);
     }
 
     public function test_chatbot_shopping_patch_google_place_merchant_completes_external_merchant_draft(): void
@@ -422,7 +422,7 @@ class ChatbotShoppingFlowTest extends TestCase
             ->assertJsonPath('data.shopping.payment_method', 'COD')
             ->assertJsonPath('model_used', 'deterministic-payment');
         $this->assertSame(
-            ['OPEN_MAP_PICKER_DELIVERY', 'CONFIRM_DRAFT'],
+            ['OPEN_ADD_MERCHANT_PICKER', 'OPEN_MAP_PICKER_DELIVERY', 'CONFIRM_DRAFT'],
             $codResponse->json('data.validation.next_actions')
         );
         $this->assertArrayNotHasKey('SET_PAYMENT_COD', $codResponse->json('data.action_payloads'));
@@ -479,6 +479,168 @@ class ChatbotShoppingFlowTest extends TestCase
 
         $routeSnapshot = Order::query()->findOrFail($orderId)->route_snapshot;
         $this->assertSame('_p~iF~ps|U_ulLnnqC_mqNvxq`@', $routeSnapshot['encoded_polyline'] ?? null);
+    }
+
+    public function test_chatbot_shopping_can_add_second_merchant_after_first_is_ready(): void
+    {
+        Config::set('bangdeliv.google_maps_api_key', 'test-key');
+
+        $customer = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        Address::query()->create([
+            'user_id' => $customer->id,
+            'label' => 'Rumah',
+            'recipient_name' => 'Customer Test',
+            'phone' => '081200000021',
+            'full_address' => 'Jl. Customer No. 21',
+            'latitude' => -7.003,
+            'longitude' => 110.403,
+            'is_default' => true,
+        ]);
+
+        $firstRestaurant = Restaurant::query()->create([
+            'name' => 'Kedai Tinari',
+            'slug' => 'kedai-tinari-chatbot-test',
+            'description' => 'Kedai ramen',
+            'merchant_type' => 'restaurant',
+            'address' => 'Jl. Kedai Tinari',
+            'latitude' => -7.001,
+            'longitude' => 110.401,
+            'phone' => '081200000022',
+            'status' => 'active',
+        ]);
+        $secondRestaurant = Restaurant::query()->create([
+            'name' => 'Warung Sembako Maju',
+            'slug' => 'warung-sembako-maju-chatbot-test',
+            'description' => 'Warung sembako',
+            'merchant_type' => 'warung',
+            'address' => 'Jl. Warung Sembako',
+            'latitude' => -7.004,
+            'longitude' => 110.404,
+            'phone' => '081200000023',
+            'status' => 'active',
+        ]);
+
+        Sanctum::actingAs($customer);
+        $sessionId = 'shopping-add-second-merchant-session';
+
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'merchant' => 'Kedai Tinari',
+            'items' => [
+                ['name' => 'ramen mala', 'quantity' => 1],
+                ['name' => 'es jeruk', 'quantity' => 1],
+            ],
+        ]);
+        $firstDraftResponse = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'beli ramen mala 1 dan es jeruk 1 di Kedai Tinari',
+        ]);
+
+        $firstDraftResponse->assertOk()
+            ->assertJsonPath('data.shopping.ready_to_confirm', true)
+            ->assertJsonPath('data.shopping.stops.0.merchant.name', 'Kedai Tinari')
+            ->assertJsonPath('data.action_payloads.OPEN_ADD_MERCHANT_PICKER.label', 'Tambah Merchant')
+            ->assertJsonPath('data.action_payloads.OPEN_ADD_MERCHANT_PICKER.mode', 'add');
+        $this->assertStringContainsString(
+            'Mau tambah merchant lain? Pilih merchantnya dulu.',
+            (string) $firstDraftResponse->json('data.assistant_text')
+        );
+
+        $addCommandResponse = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'tambah order',
+        ]);
+
+        $addCommandResponse->assertOk()
+            ->assertJsonPath('model_used', 'deterministic-command')
+            ->assertJsonPath('data.action_payloads.OPEN_ADD_MERCHANT_PICKER.mode', 'add');
+        $this->assertArrayNotHasKey('order', $this->shoppingItemQuantities($addCommandResponse));
+
+        $secondMerchantResponse = $this->postJson("/api/chatbot/sessions/{$sessionId}/merchant", [
+            'service_type' => 'nitip',
+            'mode' => 'add',
+            'merchant_id' => $secondRestaurant->id,
+        ]);
+
+        $secondMerchantResponse->assertOk()
+            ->assertJsonPath('data.shopping.ready_to_confirm', false)
+            ->assertJsonPath('data.shopping.stops.1.is_active', true)
+            ->assertJsonPath('data.shopping.stops.1.merchant.name', 'Warung Sembako Maju')
+            ->assertJsonPath('data.validation.missing_fields.0', 'items');
+        $this->assertStringContainsString(
+            'Tulis item dan jumlah untuk merchant ini.',
+            (string) $secondMerchantResponse->json('data.assistant_text')
+        );
+
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'merchant' => null,
+            'items' => [
+                ['name' => 'susu', 'quantity' => 1],
+                ['name' => 'roti tawar', 'quantity' => 2],
+            ],
+        ]);
+        $secondItemsResponse = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'tambah susu 1x dan roti tawar 2x',
+        ]);
+
+        $secondItemsResponse->assertOk()
+            ->assertJsonPath('data.shopping.ready_to_confirm', true)
+            ->assertJsonPath('data.shopping.stops.1.items.0.name', 'susu')
+            ->assertJsonPath('data.shopping.stops.1.items.1.name', 'roti tawar');
+
+        $codResponse = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'COD',
+        ]);
+        $codResponse->assertOk()
+            ->assertJsonPath('data.shopping.payment_method', 'COD');
+
+        $confirmResponse = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'konfirmasi',
+        ]);
+        $confirmResponse->assertOk()
+            ->assertJsonPath('data.order.created', true);
+
+        $order = Order::query()
+            ->with(['orderLocations', 'items'])
+            ->findOrFail((int) $confirmResponse->json('data.order.id'));
+        $pickups = $order->orderLocations
+            ->where('location_role', 'PICKUP')
+            ->sortBy('sequence_no')
+            ->values();
+
+        $this->assertCount(2, $pickups);
+        $this->assertSame($firstRestaurant->id, (int) $pickups[0]->restaurant_id);
+        $this->assertSame($secondRestaurant->id, (int) $pickups[1]->restaurant_id);
+        $this->assertDatabaseHas('order_locations', [
+            'order_id' => $order->id,
+            'location_role' => 'DROPOFF',
+            'sequence_no' => 3,
+        ]);
+        $this->assertSame(
+            [(int) $pickups[0]->id, (int) $pickups[1]->id],
+            $order->route_snapshot['ordered_pickup_location_ids'] ?? []
+        );
+        $this->assertTrue(
+            $order->items
+                ->where('pickup_location_id', $pickups[1]->id)
+                ->contains(fn (OrderItem $item): bool => $item->menu_name === 'susu')
+        );
     }
 
     public function test_chatbot_shopping_item_edit_context_add_set_and_remove(): void
@@ -703,7 +865,7 @@ class ChatbotShoppingFlowTest extends TestCase
             ->assertJsonPath('data.shopping.payment_method', 'COD')
             ->assertJsonPath('model_used', 'deterministic-payment');
         $this->assertSame(
-            ['OPEN_MAP_PICKER_DELIVERY', 'CONFIRM_DRAFT'],
+            ['OPEN_ADD_MERCHANT_PICKER', 'OPEN_MAP_PICKER_DELIVERY', 'CONFIRM_DRAFT'],
             $codResponse->json('data.validation.next_actions')
         );
         $this->assertArrayNotHasKey('SET_PAYMENT_COD', $codResponse->json('data.action_payloads'));

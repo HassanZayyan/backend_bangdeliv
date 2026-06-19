@@ -15,6 +15,7 @@ use App\Services\Order\OrderProofPolicyService;
 use App\Services\Pricing\ShoppingPricingService;
 use App\Services\Shopping\ShoppingItemChangeRequestService;
 use App\Services\Shopping\ShoppingOrderCapabilityService;
+use App\Services\Shopping\ShoppingUnavailableItemDecisionService;
 use Illuminate\Database\Eloquent\Relations\Relation;
 
 class DriverOrderPayloadFactory
@@ -26,6 +27,7 @@ class DriverOrderPayloadFactory
         private readonly DeliveryFeeNegotiationService $deliveryFeeNegotiationService,
         private readonly ShoppingOrderCapabilityService $shoppingOrderCapabilityService,
         private readonly ShoppingItemChangeRequestService $shoppingItemChangeRequestService,
+        private readonly ShoppingUnavailableItemDecisionService $shoppingUnavailableItemDecisionService,
     ) {}
 
     /**
@@ -451,14 +453,6 @@ class DriverOrderPayloadFactory
             }
 
             if (
-                $this->supportsDriverProofType($serviceCode, 'receipt') &&
-                $actionCode === DriverActionCode::ConfirmPickedUp->value &&
-                ! (bool) ($proofStatus['receipt'] ?? false)
-            ) {
-                $blockedReasons[] = 'Foto struk belanja belum diupload.';
-            }
-
-            if (
                 $this->supportsDriverProofType($serviceCode, 'delivery') &&
                 $actionCode === DriverActionCode::CompleteOrder->value &&
                 ! (bool) ($proofStatus['delivery'] ?? false)
@@ -723,6 +717,8 @@ class DriverOrderPayloadFactory
                     ])
                     ->values()
                     ->all();
+                $unavailableItemActions = $this->shoppingUnavailableItemDecisionService
+                    ->actionsForPickup($order, $pickupId);
 
                 return [
                     'pickup_location_id' => $pickupId,
@@ -733,6 +729,7 @@ class DriverOrderPayloadFactory
                     'failed_at' => $pickup->failed_at?->toIso8601String(),
                     'resolved_at' => $pickup->resolved_at?->toIso8601String(),
                     'availability_confirmed' => isset($availabilityConfirmedPickupIds[$pickupId]),
+                    'unavailable_item_actions' => $unavailableItemActions,
                     'merchant' => [
                         'id' => $restaurantId,
                         'name' => $pickup->restaurant?->name ?? $pickup->contact_name ?? $pickup->label,

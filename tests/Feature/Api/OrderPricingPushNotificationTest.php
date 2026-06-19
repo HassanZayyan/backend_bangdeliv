@@ -7,6 +7,7 @@ use App\Models\DeviceToken;
 use App\Models\Driver;
 use App\Models\Order;
 use App\Models\OrderEvidence;
+use App\Models\OrderItem;
 use App\Models\OrderLog;
 use App\Models\OrderPayment;
 use App\Models\OrderStatus;
@@ -32,12 +33,13 @@ class OrderPricingPushNotificationTest extends TestCase
         [$driverUser, , $customer, $order] = $this->createAssignedOrder('SHOPPING', 'ARRIVED_MERCHANT');
         $this->createToken($customer, 'customer-price-token');
         $this->createToken($driverUser, 'driver-price-token');
+        $pickup = $order->orderLocations()->where('location_role', 'PICKUP')->firstOrFail();
 
         $messaging = Mockery::mock(Messaging::class);
         $messaging
             ->shouldReceive('sendMulticast')
             ->once()
-            ->withArgs(function ($message, $tokens) use ($order): bool {
+            ->withArgs(function ($message, $tokens) use ($order, $pickup): bool {
                 $payload = json_decode(json_encode($message), true);
 
                 return $tokens === ['customer-price-token']
@@ -49,7 +51,8 @@ class OrderPricingPushNotificationTest extends TestCase
                     && $payload['data']['requires_response'] === '1'
                     && $payload['data']['amount'] === '25000.00'
                     && $payload['data']['focus'] === 'shopping_price'
-                    && $payload['data']['route'] === "/orders/{$order->id}/track?focus=shopping_price"
+                    && $payload['data']['pickup_location_id'] === (string) $pickup->id
+                    && $payload['data']['route'] === "/orders/{$order->id}/track?focus=shopping_price&pickup_location_id={$pickup->id}"
                     && $payload['android']['notification']['channel_id'] === 'bangdeliv_order_status_high';
             })
             ->andReturn($this->successfulReport(['customer-price-token']));
@@ -58,18 +61,20 @@ class OrderPricingPushNotificationTest extends TestCase
         Sanctum::actingAs($driverUser);
 
         $this->postJson('/api/v1/driver/orders/'.$order->id.'/shopping/price-quote', [
+            'pickup_location_id' => $pickup->id,
             'amount' => 25000,
         ])->assertOk()
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.shopping_negotiation.status', 'PENDING_CUSTOMER');
     }
 
-    public function test_customer_shopping_counter_sends_push_to_driver_only(): void
+    public function test_customer_shopping_price_approval_sends_push_to_driver_only(): void
     {
         [$driverUser, , $customer, $order] = $this->createAssignedOrder('SHOPPING', 'ARRIVED_MERCHANT');
         $this->createToken($customer, 'customer-price-token');
         $this->createToken($driverUser, 'driver-price-token');
         $this->seedShoppingQuote($order, $driverUser, 25000);
+        $pickup = $order->orderLocations()->where('location_role', 'PICKUP')->firstOrFail();
 
         $messaging = Mockery::mock(Messaging::class);
         $messaging
@@ -79,12 +84,12 @@ class OrderPricingPushNotificationTest extends TestCase
                 $payload = json_decode(json_encode($message), true);
 
                 return $tokens === ['driver-price-token']
-                    && $payload['notification']['title'] === 'Customer mengirim tawaran'
+                    && $payload['notification']['title'] === 'Harga disetujui'
                     && $payload['data']['type'] === 'order_price_changed'
-                    && $payload['data']['change_type'] === 'CUSTOMER_PRICE_COUNTERED'
+                    && $payload['data']['change_type'] === 'CUSTOMER_PRICE_APPROVED'
                     && $payload['data']['recipient_role'] === 'driver'
-                    && $payload['data']['requires_response'] === '1'
-                    && $payload['data']['amount'] === '22000.00'
+                    && $payload['data']['requires_response'] === '0'
+                    && $payload['data']['amount'] === '25000.00'
                     && $payload['data']['route'] === "/driver/orders/{$order->id}/active";
             })
             ->andReturn($this->successfulReport(['driver-price-token']));
@@ -93,11 +98,11 @@ class OrderPricingPushNotificationTest extends TestCase
         Sanctum::actingAs($customer);
 
         $this->postJson('/api/v1/orders/'.$order->id.'/shopping/price-quote/respond', [
-            'action' => 'COUNTER',
-            'counter_amount' => 22000,
+            'action' => 'APPROVE',
+            'pickup_location_id' => $pickup->id,
         ])->assertOk()
             ->assertJsonPath('success', true)
-            ->assertJsonPath('data.shopping_negotiation.status', 'PENDING_DRIVER');
+            ->assertJsonPath('data.shopping_negotiation.status', 'APPROVED');
     }
 
     public function test_driver_delivery_fee_quote_sends_customer_push(): void
@@ -357,6 +362,42 @@ class OrderPricingPushNotificationTest extends TestCase
             'status_id' => $statusId,
         ]);
 
+        if ($serviceCode === 'SHOPPING') {
+            $pickup = $order->orderLocations()->create([
+                'location_role' => 'PICKUP',
+                'label' => 'Merchant Pricing Push',
+                'contact_name' => 'Merchant Pricing Push',
+                'contact_phone' => '081234567890',
+                'full_address' => 'Merchant Pricing Push',
+                'latitude' => -7.001,
+                'longitude' => 110.401,
+                'sequence_no' => 1,
+                'fulfillment_status' => 'ITEMS_CONFIRMED',
+            ]);
+            $order->orderLocations()->create([
+                'location_role' => 'DROPOFF',
+                'label' => 'Customer Pricing Push',
+                'contact_name' => 'Customer Pricing Push',
+                'contact_phone' => '081234567891',
+                'full_address' => 'Customer Pricing Push',
+                'latitude' => -7.004,
+                'longitude' => 110.404,
+                'sequence_no' => 99,
+                'fulfillment_status' => 'PENDING',
+            ]);
+            OrderItem::query()->create([
+                'order_id' => $order->id,
+                'pickup_location_id' => $pickup->id,
+                'item_source' => 'MANUAL',
+                'menu_name' => 'Item pricing push',
+                'quantity' => 1,
+                'unit_price' => 12000,
+                'subtotal' => 12000,
+                'is_available' => true,
+                'is_heavy' => false,
+            ]);
+        }
+
         return [$driverUser, $driver, $customer, $order];
     }
 
@@ -372,6 +413,8 @@ class OrderPricingPushNotificationTest extends TestCase
 
     private function seedShoppingQuote(Order $order, User $driverUser, float $amount): void
     {
+        $pickup = $order->orderLocations()->where('location_role', 'PICKUP')->first();
+
         OrderLog::query()->create([
             'order_id' => $order->id,
             'log_type' => 'SHOPPING_NEGOTIATION',
@@ -379,6 +422,7 @@ class OrderPricingPushNotificationTest extends TestCase
             'changed_by_user_id' => $driverUser->id,
             'note' => 'Quote test.',
             'metadata' => [
+                'pickup_location_id' => $pickup?->id,
                 'quoted_amount' => $amount,
                 'status' => 'PENDING_CUSTOMER',
             ],

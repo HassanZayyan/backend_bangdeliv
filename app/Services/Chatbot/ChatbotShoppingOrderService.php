@@ -24,6 +24,8 @@ use Illuminate\Support\Str;
 
 class ChatbotShoppingOrderService
 {
+    private const MAX_MERCHANT_STOPS = 3;
+
     /**
      * @var array<int, string>
      */
@@ -101,14 +103,16 @@ class ChatbotShoppingOrderService
      * @param  array<string, mixed>  $merchantPayload
      * @return array<string, mixed>
      */
-    public function applyMerchantPatch(User $user, string $sessionId, array $merchantPayload): array
+    public function applyMerchantPatch(User $user, string $sessionId, array $merchantPayload, string $mode = 'select'): array
     {
         $this->assertCustomerCanOrder($user);
 
         $candidate = $this->merchantCandidateResolver->resolveStandalone($merchantPayload);
+        $incomingSeed = $this->draftSeedFromCandidate($candidate);
+        $incomingSeed['merchant_mode'] = $mode === 'add' ? 'add' : 'select';
         $draftSeed = $this->mergeDraftSeed(
             $this->resolveLatestDraftSeed($user, $sessionId),
-            $this->draftSeedFromCandidate($candidate),
+            $incomingSeed,
         );
 
         return $this->buildDraftPayload($user, $draftSeed);
@@ -134,6 +138,10 @@ class ChatbotShoppingOrderService
     private function buildIncomingDraftSeed(string $message, ?array $nluPayload): array
     {
         $nluPayload ??= [];
+        if ($this->isAddMerchantCommand($message, $nluPayload)) {
+            return ['draft_action' => 'add_merchant'];
+        }
+
         $paymentMethod = $this->extractPaymentMethod($message)
             ?? $this->normalizePaymentMethodOrNull($nluPayload['payment_method'] ?? null);
         if ($this->isPaymentMethodOnlyMessage($message, $paymentMethod)) {
@@ -141,13 +149,19 @@ class ChatbotShoppingOrderService
         }
 
         $parsedItemIntents = $this->itemIntentParser->parse($message);
+        $incomingStops = $parsedItemIntents === []
+            ? $this->normalizeIncomingStops($nluPayload['stops'] ?? [])
+            : [];
         $seed = [
             'merchant_name' => $this->normalizeOptionalString($nluPayload['merchant'] ?? $nluPayload['resto'] ?? null),
-            'items' => $parsedItemIntents === []
+            'items' => $parsedItemIntents === [] && $incomingStops === []
                 ? $this->normalizeIncomingItems($nluPayload['items'] ?? [])
                 : $parsedItemIntents,
             'payment_method' => $paymentMethod,
         ];
+        if ($incomingStops !== []) {
+            $seed['stops'] = $incomingStops;
+        }
 
         $deliveryAddress = $this->normalizeOptionalString($nluPayload['delivery_address'] ?? null);
         if ($deliveryAddress !== null) {
@@ -203,6 +217,38 @@ class ChatbotShoppingOrderService
     /**
      * @return array<int, array<string, mixed>>
      */
+    private function normalizeIncomingStops(mixed $stops): array
+    {
+        if (! is_array($stops)) {
+            return [];
+        }
+
+        $normalized = [];
+        foreach ($stops as $stop) {
+            if (! is_array($stop)) {
+                continue;
+            }
+
+            $merchantName = $this->normalizeOptionalString(
+                $stop['merchant'] ?? $stop['resto'] ?? $stop['merchant_name'] ?? null
+            );
+            $items = $this->normalizeIncomingItems($stop['items'] ?? []);
+            if ($merchantName === null && $items === []) {
+                continue;
+            }
+
+            $normalized[] = array_filter([
+                'merchant_name' => $merchantName,
+                'items' => $items,
+            ], fn (mixed $value): bool => $value !== null && $value !== []);
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
     private function extractItemsFromMessage(string $message): array
     {
         $message = preg_replace('/\b(di|dari)\s+[\pL\pN\s.&-]+$/iu', '', $message) ?: $message;
@@ -245,43 +291,12 @@ class ChatbotShoppingOrderService
      */
     private function mergeDraftSeed(array $base, array $incoming): array
     {
-        $incomingMerchantKey = $this->merchantSeedKey($incoming);
-        $baseMerchantKey = $this->merchantSeedKey($base);
-        $incomingMerchantName = $this->normalizeOptionalString($incoming['merchant_name'] ?? null);
-        $baseMerchantName = $this->normalizeOptionalString($base['merchant_name'] ?? null);
-        $sameMerchantName = $incomingMerchantName !== null
-            && $baseMerchantName !== null
-            && Str::of($incomingMerchantName)->lower()->squish()->toString()
-                === Str::of($baseMerchantName)->lower()->squish()->toString();
-        $merchantChanged = ! $sameMerchantName
-            && $incomingMerchantKey !== null
-            && $baseMerchantKey !== null
-            && $incomingMerchantKey !== $baseMerchantKey;
-
-        $merged = $merchantChanged ? [] : $base;
-
-        foreach (['merchant_id', 'merchant_name', 'merchant_place'] as $key) {
-            if (array_key_exists($key, $incoming) && $incoming[$key] !== null && $incoming[$key] !== '') {
-                $merged[$key] = $incoming[$key];
-            }
-        }
-
-        if (array_key_exists('merchant_place', $incoming) && is_array($incoming['merchant_place'] ?? null)) {
-            unset($merged['merchant_id']);
-        }
+        $merged = $this->normalizeDraftSeed($base);
 
         if (is_array($incoming['delivery'] ?? null)) {
             $merged['delivery'] = array_merge(
                 is_array($merged['delivery'] ?? null) ? $merged['delivery'] : [],
                 $incoming['delivery'],
-            );
-        }
-
-        $incomingItems = is_array($incoming['items'] ?? null) ? $incoming['items'] : [];
-        if ($incomingItems !== []) {
-            $merged['items'] = $this->mergeItems(
-                is_array($merged['items'] ?? null) ? $merged['items'] : [],
-                $incomingItems,
             );
         }
 
@@ -292,7 +307,283 @@ class ChatbotShoppingOrderService
             }
         }
 
-        return $merged;
+        if (($incoming['draft_action'] ?? null) === 'add_merchant') {
+            $merged['draft_action'] = 'add_merchant';
+            $merged['active_stop_index'] = max(0, count($merged['stops'] ?? []) - 1);
+
+            return $merged;
+        }
+
+        $incomingStops = is_array($incoming['stops'] ?? null) ? $incoming['stops'] : [];
+        if ($incomingStops !== []) {
+            foreach ($incomingStops as $incomingStop) {
+                if (! is_array($incomingStop)) {
+                    continue;
+                }
+
+                $merged = $this->mergeIncomingStop($merged, $incomingStop, 'auto');
+            }
+
+            return $this->syncLegacySeedFields($merged);
+        }
+
+        $incomingStop = array_intersect_key($incoming, array_flip([
+            'merchant_id',
+            'merchant_name',
+            'merchant_place',
+            'items',
+        ]));
+        if ($incomingStop !== []) {
+            $merged = $this->mergeIncomingStop(
+                $merged,
+                $incomingStop,
+                (string) ($incoming['merchant_mode'] ?? 'auto')
+            );
+        }
+
+        return $this->syncLegacySeedFields($merged);
+    }
+
+    /**
+     * @param  array<string, mixed>  $seed
+     * @return array<string, mixed>
+     */
+    private function normalizeDraftSeed(array $seed): array
+    {
+        $stops = [];
+        if (is_array($seed['stops'] ?? null)) {
+            foreach ($seed['stops'] as $stop) {
+                if (! is_array($stop)) {
+                    continue;
+                }
+
+                $normalized = $this->normalizeStopSeed($stop);
+                if ($normalized !== []) {
+                    $stops[] = $normalized;
+                }
+            }
+        }
+
+        if ($stops === []) {
+            $legacyStop = $this->normalizeStopSeed($seed);
+            if ($legacyStop !== []) {
+                $stops[] = $legacyStop;
+            }
+        }
+
+        $activeStopIndex = isset($seed['active_stop_index']) && is_numeric($seed['active_stop_index'])
+            ? max(0, (int) $seed['active_stop_index'])
+            : max(0, count($stops) - 1);
+        if ($stops !== []) {
+            $activeStopIndex = min($activeStopIndex, count($stops) - 1);
+        }
+
+        return array_filter([
+            'stops' => $stops,
+            'active_stop_index' => $activeStopIndex,
+            'delivery' => is_array($seed['delivery'] ?? null) ? $seed['delivery'] : null,
+            'payment_method' => $this->normalizePaymentMethodOrNull($seed['payment_method'] ?? null),
+            'draft_action' => $seed['draft_action'] ?? null,
+            'merchant_limit_reached' => $seed['merchant_limit_reached'] ?? null,
+        ], fn (mixed $value): bool => $value !== null && $value !== []);
+    }
+
+    /**
+     * @param  array<string, mixed>  $seed
+     * @return array<string, mixed>
+     */
+    private function normalizeStopSeed(array $seed): array
+    {
+        $stop = [];
+        foreach (['merchant_id', 'merchant_name', 'merchant_place'] as $key) {
+            if (array_key_exists($key, $seed) && $seed[$key] !== null && $seed[$key] !== '') {
+                $stop[$key] = $seed[$key];
+            }
+        }
+
+        if (array_key_exists('merchant_place', $stop) && is_array($stop['merchant_place'] ?? null)) {
+            unset($stop['merchant_id']);
+        }
+
+        $items = is_array($seed['items'] ?? null) ? $seed['items'] : [];
+        if ($items !== []) {
+            $stop['items'] = array_values(array_filter(
+                $items,
+                fn (mixed $item): bool => is_array($item)
+                    && $this->normalizeOptionalString($item['name'] ?? $item['menu_name'] ?? null) !== null
+            ));
+        }
+
+        return $stop;
+    }
+
+    /**
+     * @param  array<string, mixed>  $draft
+     * @param  array<string, mixed>  $incomingStop
+     * @return array<string, mixed>
+     */
+    private function mergeIncomingStop(array $draft, array $incomingStop, string $mode): array
+    {
+        $incomingStop = $this->normalizeStopSeed($incomingStop);
+        if ($incomingStop === []) {
+            return $draft;
+        }
+
+        $stops = is_array($draft['stops'] ?? null) ? $draft['stops'] : [];
+        $incomingMerchantKey = $this->merchantSeedKey($incomingStop);
+        $incomingItems = is_array($incomingStop['items'] ?? null) ? $incomingStop['items'] : [];
+        $targetIndex = null;
+        $ignoreIncomingMerchant = false;
+
+        if ($incomingItems !== [] && $mode === 'auto') {
+            foreach ($stops as $index => $stop) {
+                if (! is_array($stop)) {
+                    continue;
+                }
+
+                $hasMerchant = $this->merchantSeedKey($stop) !== null;
+                $hasItems = is_array($stop['items'] ?? null) && $stop['items'] !== [];
+                if ($hasMerchant && ! $hasItems) {
+                    $targetIndex = $index;
+                    $ignoreIncomingMerchant = true;
+                    break;
+                }
+            }
+        }
+
+        if ($targetIndex === null && $incomingMerchantKey !== null) {
+            foreach ($stops as $index => $stop) {
+                if (! is_array($stop)) {
+                    continue;
+                }
+
+                if ($this->sameMerchantSeed($stop, $incomingStop)) {
+                    $targetIndex = $index;
+                    break;
+                }
+            }
+        }
+
+        if ($targetIndex === null) {
+            if ($incomingMerchantKey === null) {
+                foreach ($stops as $index => $stop) {
+                    if (! is_array($stop)) {
+                        continue;
+                    }
+
+                    $hasMerchant = $this->merchantSeedKey($stop) !== null;
+                    $hasItems = is_array($stop['items'] ?? null) && $stop['items'] !== [];
+                    if ($hasMerchant && ! $hasItems) {
+                        $targetIndex = $index;
+                        break;
+                    }
+                }
+                $targetIndex ??= isset($draft['active_stop_index']) && is_numeric($draft['active_stop_index'])
+                    ? min(max(0, (int) $draft['active_stop_index']), max(0, count($stops) - 1))
+                    : max(0, count($stops) - 1);
+                if ($stops === []) {
+                    $stops[] = [];
+                    $targetIndex = 0;
+                }
+            } else {
+                $activeIndex = isset($draft['active_stop_index']) && is_numeric($draft['active_stop_index'])
+                    ? min(max(0, (int) $draft['active_stop_index']), max(0, count($stops) - 1))
+                    : max(0, count($stops) - 1);
+                $activeStop = is_array($stops[$activeIndex] ?? null) ? $stops[$activeIndex] : [];
+                $activeHasItems = is_array($activeStop['items'] ?? null) && $activeStop['items'] !== [];
+                $activeHasMerchant = $this->merchantSeedKey($activeStop) !== null;
+                $shouldReplaceActive = $stops === []
+                    || $mode === 'select'
+                    || (! $activeHasMerchant && ! $activeHasItems)
+                    || ($activeHasMerchant && ! $activeHasItems && $mode !== 'add');
+
+                if ($shouldReplaceActive) {
+                    if ($stops === []) {
+                        $stops[] = [];
+                        $activeIndex = 0;
+                    }
+                    $targetIndex = $activeIndex;
+                    $existingItems = is_array($stops[$targetIndex]['items'] ?? null)
+                        ? $stops[$targetIndex]['items']
+                        : [];
+                    $stops[$targetIndex] = array_filter([
+                        'merchant_id' => $incomingStop['merchant_id'] ?? null,
+                        'merchant_name' => $incomingStop['merchant_name'] ?? null,
+                        'merchant_place' => $incomingStop['merchant_place'] ?? null,
+                        'items' => $incomingItems === [] ? $existingItems : $incomingItems,
+                    ], fn (mixed $value): bool => $value !== null && $value !== []);
+                    $draft['stops'] = $stops;
+                    $draft['active_stop_index'] = $targetIndex;
+
+                    return $draft;
+                }
+
+                if (count($stops) >= self::MAX_MERCHANT_STOPS) {
+                    $draft['merchant_limit_reached'] = true;
+                    $draft['active_stop_index'] = $activeIndex;
+
+                    return $draft;
+                }
+
+                $stops[] = array_filter([
+                    'merchant_id' => $incomingStop['merchant_id'] ?? null,
+                    'merchant_name' => $incomingStop['merchant_name'] ?? null,
+                    'merchant_place' => $incomingStop['merchant_place'] ?? null,
+                    'items' => $incomingItems,
+                ], fn (mixed $value): bool => $value !== null && $value !== []);
+                $targetIndex = count($stops) - 1;
+            }
+        }
+
+        $targetStop = is_array($stops[$targetIndex] ?? null) ? $stops[$targetIndex] : [];
+        if (! $ignoreIncomingMerchant) {
+            foreach (['merchant_id', 'merchant_name', 'merchant_place'] as $key) {
+                if (array_key_exists($key, $incomingStop) && $incomingStop[$key] !== null && $incomingStop[$key] !== '') {
+                    $targetStop[$key] = $incomingStop[$key];
+                }
+            }
+            if (array_key_exists('merchant_place', $incomingStop) && is_array($incomingStop['merchant_place'] ?? null)) {
+                unset($targetStop['merchant_id']);
+            }
+        }
+
+        if ($incomingItems !== []) {
+            $targetStop['items'] = $this->mergeItems(
+                is_array($targetStop['items'] ?? null) ? $targetStop['items'] : [],
+                $incomingItems,
+            );
+        }
+
+        $stops[$targetIndex] = $targetStop;
+        $draft['stops'] = array_values($stops);
+        $draft['active_stop_index'] = $targetIndex;
+        unset($draft['draft_action']);
+
+        return $draft;
+    }
+
+    /**
+     * @param  array<string, mixed>  $draft
+     * @return array<string, mixed>
+     */
+    private function syncLegacySeedFields(array $draft): array
+    {
+        $stops = is_array($draft['stops'] ?? null) ? $draft['stops'] : [];
+        $activeIndex = isset($draft['active_stop_index']) && is_numeric($draft['active_stop_index'])
+            ? min(max(0, (int) $draft['active_stop_index']), max(0, count($stops) - 1))
+            : max(0, count($stops) - 1);
+        $activeStop = is_array($stops[$activeIndex] ?? null) ? $stops[$activeIndex] : [];
+
+        foreach (['merchant_id', 'merchant_name', 'merchant_place', 'items'] as $key) {
+            unset($draft[$key]);
+        }
+        foreach (['merchant_id', 'merchant_name', 'merchant_place', 'items'] as $key) {
+            if (array_key_exists($key, $activeStop)) {
+                $draft[$key] = $activeStop[$key];
+            }
+        }
+
+        return $draft;
     }
 
     /**
@@ -322,6 +613,27 @@ class ChatbotShoppingOrderService
         $merchantName = $this->normalizeOptionalString($seed['merchant_name'] ?? null);
 
         return $merchantName === null ? null : 'name:'.Str::of($merchantName)->lower()->squish()->toString();
+    }
+
+    /**
+     * @param  array<string, mixed>  $left
+     * @param  array<string, mixed>  $right
+     */
+    private function sameMerchantSeed(array $left, array $right): bool
+    {
+        $leftKey = $this->merchantSeedKey($left);
+        $rightKey = $this->merchantSeedKey($right);
+        if ($leftKey !== null && $rightKey !== null && $leftKey === $rightKey) {
+            return true;
+        }
+
+        $leftName = $this->normalizeOptionalString($left['merchant_name'] ?? data_get($left, 'merchant_place.name'));
+        $rightName = $this->normalizeOptionalString($right['merchant_name'] ?? data_get($right, 'merchant_place.name'));
+
+        return $leftName !== null
+            && $rightName !== null
+            && Str::of($leftName)->lower()->squish()->toString()
+                === Str::of($rightName)->lower()->squish()->toString();
     }
 
     /**
@@ -394,24 +706,82 @@ class ChatbotShoppingOrderService
      */
     private function buildDraftPayload(User $user, array $draftSeed): array
     {
-        $merchantCandidate = $this->resolveMerchantCandidate($draftSeed);
-        $merchant = $merchantCandidate?->restaurant;
+        $draftSeed = $this->normalizeDraftSeed($draftSeed);
         $delivery = $this->resolveDelivery($user, $draftSeed);
-        $items = $this->resolveItems($merchant, is_array($draftSeed['items'] ?? null) ? $draftSeed['items'] : []);
-
+        $stopSeeds = is_array($draftSeed['stops'] ?? null) ? $draftSeed['stops'] : [];
+        $activeStopIndex = isset($draftSeed['active_stop_index']) && is_numeric($draftSeed['active_stop_index'])
+            ? min(max(0, (int) $draftSeed['active_stop_index']), max(0, count($stopSeeds) - 1))
+            : max(0, count($stopSeeds) - 1);
+        $resolvedStops = [];
+        $routePoints = [];
+        $items = [];
         $missingFields = [];
         $rejectionReasons = [];
 
-        if ($merchantCandidate === null) {
-            $missingFields[] = 'merchant';
-            $rejectionReasons[] = 'Merchant/toko belum dipilih.';
-        } elseif (! $this->hasUsableCoordinatePair($merchantCandidate->latitude, $merchantCandidate->longitude)) {
-            $missingFields[] = 'merchant_location';
-            $rejectionReasons[] = 'Koordinat merchant belum lengkap.';
+        foreach ($stopSeeds as $index => $stopSeed) {
+            if (! is_array($stopSeed)) {
+                continue;
+            }
+
+            $candidate = $this->resolveMerchantCandidate($stopSeed);
+            $merchant = $candidate?->restaurant;
+            $stopItems = $this->resolveItems($merchant, is_array($stopSeed['items'] ?? null) ? $stopSeed['items'] : []);
+            $merchantPayload = $candidate === null
+                ? [
+                    'id' => null,
+                    'name' => $this->normalizeOptionalString($stopSeed['merchant_name'] ?? data_get($stopSeed, 'merchant_place.name')),
+                    'merchant_place' => is_array($stopSeed['merchant_place'] ?? null) ? $stopSeed['merchant_place'] : null,
+                ]
+                : $this->merchantPayload($candidate);
+            if (! is_array($merchantPayload['merchant_place'] ?? null)) {
+                unset($merchantPayload['merchant_place']);
+            }
+            $stopNumber = $index + 1;
+
+            if ($candidate === null) {
+                $missingFields[] = 'merchant';
+                $rejectionReasons[] = $stopNumber === 1
+                    ? 'Merchant/toko belum dipilih.'
+                    : "Merchant ke-{$stopNumber} belum dipilih.";
+            } elseif (! $this->hasUsableCoordinatePair($candidate->latitude, $candidate->longitude)) {
+                $missingFields[] = 'merchant_location';
+                $rejectionReasons[] = "Koordinat {$candidate->name} belum lengkap.";
+            } else {
+                $routePoints[] = $this->routePointFromCandidate($candidate);
+            }
+
+            if ($stopItems === []) {
+                $missingFields[] = 'items';
+                $merchantName = trim((string) ($merchantPayload['name'] ?? 'merchant ini'));
+                $rejectionReasons[] = "Item belanja untuk {$merchantName} belum disebutkan.";
+            }
+
+            foreach ($stopItems as $item) {
+                if (! is_array($item)) {
+                    continue;
+                }
+                $items[] = [
+                    ...$item,
+                    'stop_index' => $stopNumber,
+                    'merchant_name' => (string) ($merchantPayload['name'] ?? ''),
+                ];
+            }
+
+            $resolvedStops[] = [
+                'index' => $stopNumber,
+                'is_active' => $index === $activeStopIndex,
+                'merchant' => $merchantPayload,
+                'items' => $stopItems,
+                'ready' => $candidate !== null
+                    && $this->hasUsableCoordinatePair($candidate->latitude, $candidate->longitude)
+                    && $stopItems !== [],
+            ];
         }
 
-        if ($items === []) {
+        if ($resolvedStops === []) {
+            $missingFields[] = 'merchant';
             $missingFields[] = 'items';
+            $rejectionReasons[] = 'Merchant/toko belum dipilih.';
             $rejectionReasons[] = 'Item belanja belum disebutkan.';
         }
 
@@ -420,11 +790,13 @@ class ChatbotShoppingOrderService
             $rejectionReasons[] = 'Titik antar belum lengkap.';
         }
 
+        $missingFields = array_values(array_unique($missingFields));
+        $rejectionReasons = array_values(array_unique($rejectionReasons));
         $route = null;
         $pricing = $this->emptyPricing();
-        if ($missingFields === [] && $merchantCandidate !== null) {
+        if ($missingFields === [] && $routePoints !== []) {
             $route = $this->shoppingRouteService->calculateForPoints(
-                [$this->routePointFromCandidate($merchantCandidate)],
+                $routePoints,
                 [
                     'label' => $delivery['address'] ?? 'Titik Antar',
                     'latitude' => $delivery['latitude'] ?? null,
@@ -447,8 +819,24 @@ class ChatbotShoppingOrderService
         if ($needsAddressBook) {
             $nextActions[] = 'OPEN_ADDRESSES';
         }
-        if (in_array('merchant', $missingFields, true) || in_array('merchant_location', $missingFields, true)) {
-            $nextActions[] = 'OPEN_MERCHANT_PICKER';
+        $draftActionAddMerchant = ($draftSeed['draft_action'] ?? null) === 'add_merchant';
+        $completeStopCount = count(array_filter(
+            $resolvedStops,
+            static fn (array $stop): bool => ($stop['ready'] ?? false) === true
+        ));
+        $merchantCount = count(array_filter(
+            $resolvedStops,
+            static fn (array $stop): bool => trim((string) data_get($stop, 'merchant.name', '')) !== ''
+        ));
+        $needsMerchantPicker = in_array('merchant', $missingFields, true)
+            || in_array('merchant_location', $missingFields, true)
+            || $draftActionAddMerchant;
+        if ($needsMerchantPicker) {
+            $nextActions[] = ($completeStopCount > 0 || $draftActionAddMerchant)
+                ? 'OPEN_ADD_MERCHANT_PICKER'
+                : 'OPEN_MERCHANT_PICKER';
+        } elseif ($ready && $merchantCount < self::MAX_MERCHANT_STOPS) {
+            $nextActions[] = 'OPEN_ADD_MERCHANT_PICKER';
         }
         if (($missingDeliveryAddress && ! $needsAddressBook) || $ready) {
             $nextActions[] = 'OPEN_MAP_PICKER_DELIVERY';
@@ -462,10 +850,23 @@ class ChatbotShoppingOrderService
         }
         $deliveryActionLabel = $ready ? 'Ganti Titik Antar' : 'Pilih Titik Antar';
 
-        $merchantPayload = $merchantCandidate === null ? [
-            'id' => null,
-            'name' => $this->normalizeOptionalString($draftSeed['merchant_name'] ?? null),
-        ] : $this->merchantPayload($merchantCandidate);
+        $legacyStop = is_array($resolvedStops[0] ?? null) ? $resolvedStops[0] : [];
+        $merchantPayload = is_array($legacyStop['merchant'] ?? null)
+            ? $legacyStop['merchant']
+            : [
+                'id' => null,
+                'name' => null,
+            ];
+        $initialLatitude = $delivery['latitude'];
+        $initialLongitude = $delivery['longitude'];
+        $activeStop = is_array($resolvedStops[$activeStopIndex] ?? null) ? $resolvedStops[$activeStopIndex] : [];
+        $activeMerchant = is_array($activeStop['merchant'] ?? null) ? $activeStop['merchant'] : [];
+        $activeLatitude = $this->nullableCoordinate($activeMerchant['latitude'] ?? null);
+        $activeLongitude = $this->nullableCoordinate($activeMerchant['longitude'] ?? null);
+        if ($activeLatitude !== null && $activeLongitude !== null) {
+            $initialLatitude = $activeLatitude;
+            $initialLongitude = $activeLongitude;
+        }
 
         $actionPayloads = [
             'OPEN_ADDRESSES' => [
@@ -473,9 +874,17 @@ class ChatbotShoppingOrderService
             ],
             'OPEN_MERCHANT_PICKER' => [
                 'label' => 'Pilih Merchant di Map',
+                'mode' => 'select',
                 'query' => $this->normalizeOptionalString($draftSeed['merchant_name'] ?? null),
-                'initial_latitude' => $merchantCandidate?->latitude ?? $delivery['latitude'],
-                'initial_longitude' => $merchantCandidate?->longitude ?? $delivery['longitude'],
+                'initial_latitude' => $initialLatitude,
+                'initial_longitude' => $initialLongitude,
+            ],
+            'OPEN_ADD_MERCHANT_PICKER' => [
+                'label' => 'Tambah Merchant',
+                'mode' => 'add',
+                'query' => null,
+                'initial_latitude' => $initialLatitude,
+                'initial_longitude' => $initialLongitude,
             ],
             'OPEN_MAP_PICKER_DELIVERY' => [
                 'target' => 'delivery',
@@ -505,6 +914,10 @@ class ChatbotShoppingOrderService
                 'merchant' => $merchantPayload,
                 'delivery' => $delivery,
                 'items' => $items,
+                'stops' => $resolvedStops,
+                'active_stop_index' => $activeStopIndex,
+                'merchant_limit' => self::MAX_MERCHANT_STOPS,
+                'merchant_limit_reached' => (bool) ($draftSeed['merchant_limit_reached'] ?? false),
                 'route' => $route,
                 'ready_to_confirm' => $ready,
                 'payment_method' => $paymentMethod,
@@ -795,9 +1208,7 @@ class ChatbotShoppingOrderService
         }
 
         $shopping = $pendingPayload['shopping'];
-        $merchantPayload = $shopping['merchant'];
         $delivery = $shopping['delivery'];
-        $items = $shopping['items'];
         $pricing = $pendingPayload['pricing'];
         $route = is_array($shopping['route'] ?? null) ? $shopping['route'] : [];
         $paymentMethod = $this->normalizePaymentMethodOrNull($shopping['payment_method'] ?? ($pendingPayload['order']['payment_method'] ?? null));
@@ -820,9 +1231,37 @@ class ChatbotShoppingOrderService
             return $pendingPayload;
         }
 
-        $candidate = $this->resolveMerchantCandidate($this->draftSeedFromMerchantPayload($merchantPayload));
-        if (! $candidate instanceof ShoppingMerchantCandidate) {
-            throw new ApiException('Merchant draft tidak ditemukan.', 404);
+        $stopPayloads = is_array($shopping['stops'] ?? null) && $shopping['stops'] !== []
+            ? $shopping['stops']
+            : [[
+                'merchant' => is_array($shopping['merchant'] ?? null) ? $shopping['merchant'] : [],
+                'items' => is_array($shopping['items'] ?? null) ? $shopping['items'] : [],
+            ]];
+        $orderStops = [];
+        foreach ($stopPayloads as $stopPayload) {
+            if (! is_array($stopPayload)) {
+                continue;
+            }
+
+            $merchantPayload = is_array($stopPayload['merchant'] ?? null) ? $stopPayload['merchant'] : [];
+            $candidate = $this->resolveMerchantCandidate($this->draftSeedFromMerchantPayload($merchantPayload));
+            if (! $candidate instanceof ShoppingMerchantCandidate) {
+                throw new ApiException('Merchant draft tidak ditemukan.', 404);
+            }
+
+            $stopItems = is_array($stopPayload['items'] ?? null) ? $stopPayload['items'] : [];
+            if ($stopItems === []) {
+                throw new ApiException('Item draft Nitip belum lengkap.', 422);
+            }
+
+            $orderStops[] = [
+                'candidate' => $candidate,
+                'items' => $stopItems,
+            ];
+        }
+
+        if ($orderStops === []) {
+            throw new ApiException('Draft Nitip belum lengkap.', 422);
         }
 
         $serviceTypeId = $this->resolveServiceTypeId();
@@ -836,9 +1275,8 @@ class ChatbotShoppingOrderService
 
         $order = DB::transaction(function () use (
             $user,
-            $candidate,
+            $orderStops,
             $delivery,
-            $items,
             $pricing,
             $serviceTypeId,
             $pendingStatusId,
@@ -857,22 +1295,30 @@ class ChatbotShoppingOrderService
                 'status_id' => $pendingStatusId,
             ]);
 
-            $pickupLocation = $order->orderLocations()->create([
-                'restaurant_id' => $candidate->restaurant instanceof Restaurant ? (int) $candidate->restaurant->id : null,
-                'location_role' => 'PICKUP',
-                'label' => 'Merchant',
-                'contact_name' => $candidate->name,
-                'contact_phone' => $candidate->restaurant instanceof Restaurant ? $candidate->restaurant->phone : null,
-                'full_address' => $candidate->address,
-                'latitude' => $candidate->latitude,
-                'longitude' => $candidate->longitude,
-                'sequence_no' => 1,
-            ]);
+            $pickupLocations = [];
+            foreach ($orderStops as $index => $orderStop) {
+                /** @var ShoppingMerchantCandidate $candidate */
+                $candidate = $orderStop['candidate'];
+                $pickupLocations[$index] = $order->orderLocations()->create([
+                    'restaurant_id' => $candidate->restaurant instanceof Restaurant ? (int) $candidate->restaurant->id : null,
+                    'location_role' => 'PICKUP',
+                    'label' => 'Merchant '.($index + 1),
+                    'contact_name' => $candidate->name,
+                    'contact_phone' => $candidate->restaurant instanceof Restaurant ? $candidate->restaurant->phone : null,
+                    'full_address' => $candidate->address,
+                    'latitude' => $candidate->latitude,
+                    'longitude' => $candidate->longitude,
+                    'sequence_no' => $index + 1,
+                ]);
+            }
 
             if ($routeSnapshot !== null) {
                 $routeSnapshot = [
                     ...$routeSnapshot,
-                    'ordered_pickup_location_ids' => [(int) $pickupLocation->id],
+                    'ordered_pickup_location_ids' => array_map(
+                        static fn ($pickupLocation): int => (int) $pickupLocation->id,
+                        $pickupLocations
+                    ),
                 ];
                 $order->update(['route_snapshot' => $routeSnapshot]);
             }
@@ -885,46 +1331,52 @@ class ChatbotShoppingOrderService
                 'full_address' => (string) ($delivery['address'] ?? ''),
                 'latitude' => (float) ($delivery['latitude'] ?? 0),
                 'longitude' => (float) ($delivery['longitude'] ?? 0),
-                'sequence_no' => 2,
+                'sequence_no' => count($orderStops) + 1,
             ]);
 
-            foreach ($items as $item) {
-                if (! is_array($item)) {
-                    continue;
-                }
+            foreach ($orderStops as $index => $orderStop) {
+                /** @var ShoppingMerchantCandidate $candidate */
+                $candidate = $orderStop['candidate'];
+                $pickupLocation = $pickupLocations[$index];
+                $items = is_array($orderStop['items'] ?? null) ? $orderStop['items'] : [];
+                foreach ($items as $item) {
+                    if (! is_array($item)) {
+                        continue;
+                    }
 
-                $quantity = max(1, (int) ($item['quantity'] ?? 1));
-                $unitPrice = round((float) ($item['unit_price'] ?? 0), 2);
-                $subtotal = array_key_exists('subtotal', $item)
-                    ? round((float) $item['subtotal'], 2)
-                    : round($unitPrice * $quantity, 2);
-                $itemSource = strtoupper((string) ($item['item_source'] ?? 'MANUAL')) === 'MENU_DB'
-                    ? 'MENU_DB'
-                    : 'MANUAL';
-                $metadata = is_array($item['metadata'] ?? null)
-                    ? $item['metadata']
-                    : [
-                        'price_status' => $itemSource === 'MENU_DB' ? 'CONFIRMED' : 'PENDING_DRIVER_INPUT',
-                        'source' => $itemSource === 'MENU_DB' ? 'CHATBOT_MENU_MATCH' : 'CHATBOT_MANUAL_CONTEXT',
+                    $quantity = max(1, (int) ($item['quantity'] ?? 1));
+                    $unitPrice = round((float) ($item['unit_price'] ?? 0), 2);
+                    $subtotal = array_key_exists('subtotal', $item)
+                        ? round((float) $item['subtotal'], 2)
+                        : round($unitPrice * $quantity, 2);
+                    $itemSource = strtoupper((string) ($item['item_source'] ?? 'MANUAL')) === 'MENU_DB'
+                        ? 'MENU_DB'
+                        : 'MANUAL';
+                    $metadata = is_array($item['metadata'] ?? null)
+                        ? $item['metadata']
+                        : [
+                            'price_status' => $itemSource === 'MENU_DB' ? 'CONFIRMED' : 'PENDING_DRIVER_INPUT',
+                            'source' => $itemSource === 'MENU_DB' ? 'CHATBOT_MENU_MATCH' : 'CHATBOT_MANUAL_CONTEXT',
+                        ];
+                    $metadata = [
+                        ...$candidate->metadata(),
+                        ...$metadata,
                     ];
-                $metadata = [
-                    ...$candidate->metadata(),
-                    ...$metadata,
-                ];
 
-                $order->items()->create([
-                    'menu_id' => $itemSource === 'MENU_DB' ? ($item['menu_id'] ?? null) : null,
-                    'pickup_location_id' => $pickupLocation->id,
-                    'item_source' => $itemSource,
-                    'menu_name' => (string) ($item['menu_name'] ?? $item['name'] ?? 'Item belanja'),
-                    'quantity' => $quantity,
-                    'unit_price' => $unitPrice,
-                    'subtotal' => $subtotal,
-                    'notes' => $item['notes'] ?? null,
-                    'metadata' => $metadata,
-                    'is_available' => (bool) ($item['is_available'] ?? true),
-                    'is_heavy' => (bool) ($item['is_heavy'] ?? false),
-                ]);
+                    $order->items()->create([
+                        'menu_id' => $itemSource === 'MENU_DB' ? ($item['menu_id'] ?? null) : null,
+                        'pickup_location_id' => $pickupLocation->id,
+                        'item_source' => $itemSource,
+                        'menu_name' => (string) ($item['menu_name'] ?? $item['name'] ?? 'Item belanja'),
+                        'quantity' => $quantity,
+                        'unit_price' => $unitPrice,
+                        'subtotal' => $subtotal,
+                        'notes' => $item['notes'] ?? null,
+                        'metadata' => $metadata,
+                        'is_available' => (bool) ($item['is_available'] ?? true),
+                        'is_heavy' => (bool) ($item['is_heavy'] ?? false),
+                    ]);
+                }
             }
 
             $this->shoppingPricingService->syncFeeLines($order, $pricing['fee_breakdown'] ?? []);
@@ -1021,12 +1473,38 @@ class ChatbotShoppingOrderService
         $merchant = is_array($shopping['merchant'] ?? null) ? $shopping['merchant'] : [];
         $delivery = is_array($shopping['delivery'] ?? null) ? $shopping['delivery'] : [];
         $items = is_array($shopping['items'] ?? null) ? $shopping['items'] : [];
+        $stops = [];
+        if (is_array($shopping['stops'] ?? null) && $shopping['stops'] !== []) {
+            foreach ($shopping['stops'] as $stop) {
+                if (! is_array($stop)) {
+                    continue;
+                }
+
+                $stopMerchant = is_array($stop['merchant'] ?? null) ? $stop['merchant'] : [];
+                $stopItems = is_array($stop['items'] ?? null) ? $stop['items'] : [];
+                $stops[] = [
+                    'merchant_id' => $stopMerchant['id'] ?? null,
+                    'merchant_name' => $stopMerchant['name'] ?? null,
+                    'merchant_place' => is_array($stopMerchant['merchant_place'] ?? null) ? $stopMerchant['merchant_place'] : null,
+                    'items' => array_map(fn ($item): array => [
+                        'name' => (string) ($item['name'] ?? $item['menu_name'] ?? ''),
+                        'quantity' => max(1, (int) ($item['quantity'] ?? 1)),
+                        'notes' => $item['notes'] ?? null,
+                        'is_heavy' => false,
+                    ], $stopItems),
+                ];
+            }
+        }
 
         return [
             'merchant_id' => $merchant['id'] ?? null,
             'merchant_name' => $merchant['name'] ?? null,
             'merchant_place' => is_array($merchant['merchant_place'] ?? null) ? $merchant['merchant_place'] : null,
             'delivery' => $delivery,
+            'stops' => $stops,
+            'active_stop_index' => isset($shopping['active_stop_index']) && is_numeric($shopping['active_stop_index'])
+                ? (int) $shopping['active_stop_index']
+                : max(0, count($stops) - 1),
             'items' => array_map(fn ($item): array => [
                 'name' => (string) ($item['name'] ?? $item['menu_name'] ?? ''),
                 'quantity' => max(1, (int) ($item['quantity'] ?? 1)),
@@ -1127,36 +1605,55 @@ class ChatbotShoppingOrderService
         $merchant = is_array($shopping['merchant'] ?? null) ? $shopping['merchant'] : [];
         $delivery = is_array($shopping['delivery'] ?? null) ? $shopping['delivery'] : [];
         $items = is_array($shopping['items'] ?? null) ? $shopping['items'] : [];
+        $stops = is_array($shopping['stops'] ?? null) ? $shopping['stops'] : [];
         $validation = is_array($payload['validation'] ?? null) ? $payload['validation'] : [];
 
         if (($validation['is_valid_order'] ?? false) !== true) {
-            return $this->buildIncompleteDraftText($validation, $merchant);
+            return $this->buildIncompleteDraftText($validation, $merchant, $shopping);
         }
 
         $name = trim($userName) === '' ? 'Kak' : trim($userName);
+        if ($stops === []) {
+            $stops = [[
+                'merchant' => $merchant,
+                'items' => $items,
+            ]];
+        }
 
         $lines = [
-            "Baik {$name}, saya sudah siapkan draft Nitip.",
+            count($stops) === 1
+                ? 'Draft Nitip merchant pertama sudah aman.'
+                : "Baik {$name}, saya sudah siapkan draft Nitip multi-merchant.",
             '',
-            'Merchant',
-            (string) ($merchant['name'] ?? '-'),
-            '',
-            'Alamat antar',
-            (string) ($delivery['address'] ?? '-'),
-            '',
-            'Daftar belanja',
         ];
-        $itemNumber = 1;
-        foreach ($items as $item) {
-            if (! is_array($item)) {
+
+        foreach ($stops as $stopIndex => $stop) {
+            if (! is_array($stop)) {
                 continue;
             }
-            $priceText = ((string) ($item['item_source'] ?? '')) === 'MANUAL'
-                ? 'harga menyusul dari nota'
-                : 'Rp'.number_format((float) ($item['unit_price'] ?? 0), 0, ',', '.');
-            $lines[] = $itemNumber.'. '.max(1, (int) ($item['quantity'] ?? 1)).'x '.(string) ($item['name'] ?? $item['menu_name'] ?? 'Item').' ('.$priceText.')';
-            $itemNumber++;
+
+            $stopMerchant = is_array($stop['merchant'] ?? null) ? $stop['merchant'] : [];
+            $stopItems = is_array($stop['items'] ?? null) ? $stop['items'] : [];
+            $lines[] = count($stops) === 1 ? 'Merchant' : 'Merchant '.($stopIndex + 1);
+            $lines[] = (string) ($stopMerchant['name'] ?? '-');
+            $lines[] = '';
+            $lines[] = 'Daftar belanja';
+
+            $itemNumber = 1;
+            foreach ($stopItems as $item) {
+                if (! is_array($item)) {
+                    continue;
+                }
+                $priceText = ((string) ($item['item_source'] ?? '')) === 'MANUAL'
+                    ? 'harga menyusul dari nota'
+                    : 'Rp'.number_format((float) ($item['unit_price'] ?? 0), 0, ',', '.');
+                $lines[] = $itemNumber.'. '.max(1, (int) ($item['quantity'] ?? 1)).'x '.(string) ($item['name'] ?? $item['menu_name'] ?? 'Item').' ('.$priceText.')';
+                $itemNumber++;
+            }
+            $lines[] = '';
         }
+        $lines[] = 'Alamat antar';
+        $lines[] = (string) ($delivery['address'] ?? '-');
         $lines[] = '';
         $lines[] = 'Estimasi ongkir sementara: Rp '.number_format((float) data_get($payload, 'pricing.delivery_fee', 0), 0, ',', '.');
         $lines[] = 'Estimasi total sementara: Rp '.number_format((float) data_get($payload, 'pricing.total_price', 0), 0, ',', '.');
@@ -1165,6 +1662,16 @@ class ChatbotShoppingOrderService
             ? 'Metode pembayaran: pilih COD atau QRIS.'
             : 'Metode pembayaran: '.$this->paymentMethodLabel($paymentMethod).'.';
         $lines[] = '';
+        if ((bool) data_get($payload, 'shopping.merchant_limit_reached', false)) {
+            $lines[] = 'Maksimal 3 merchant dalam satu pesanan Nitip. Draft yang sudah ada tetap aman.';
+            $lines[] = '';
+        } elseif (count($stops) < self::MAX_MERCHANT_STOPS) {
+            $lines[] = 'Mau tambah merchant lain? Pilih merchantnya dulu.';
+            $lines[] = 'Contoh setelah merchant berikutnya dipilih:';
+            $lines[] = '- susu 1';
+            $lines[] = '- roti tawar 2';
+            $lines[] = '';
+        }
         $lines[] = 'Ketik "konfirmasi" kalau sudah oke.';
 
         return implode("\n", $lines);
@@ -1174,7 +1681,7 @@ class ChatbotShoppingOrderService
      * @param  array<string, mixed>  $validation
      * @param  array<string, mixed>  $merchant
      */
-    private function buildIncompleteDraftText(array $validation, array $merchant): string
+    private function buildIncompleteDraftText(array $validation, array $merchant, array $shopping = []): string
     {
         $missingFields = array_values(array_filter(array_map(
             static fn (mixed $field): string => trim((string) $field),
@@ -1182,9 +1689,40 @@ class ChatbotShoppingOrderService
         )));
         $missing = implode(', ', $missingFields);
         $baseText = 'Draft Nitip belum lengkap. Lengkapi: '.($missing === '' ? 'draft' : $missing).'.';
-        $merchantName = trim((string) ($merchant['name'] ?? ''));
+        if ((bool) ($shopping['merchant_limit_reached'] ?? false)) {
+            return 'Maksimal 3 merchant dalam satu pesanan Nitip. Draft yang sudah ada tetap aman, kamu bisa pilih pembayaran atau konfirmasi.';
+        }
 
-        if ($merchantName === '' || ! in_array('items', $missingFields, true)) {
+        $stops = is_array($shopping['stops'] ?? null) ? $shopping['stops'] : [];
+        $completeStopCount = count(array_filter(
+            $stops,
+            static fn (array $stop): bool => ($stop['ready'] ?? false) === true
+        ));
+        if (in_array('merchant', $missingFields, true) && $completeStopCount > 0) {
+            return implode("\n", [
+                'Mau tambah merchant lain? Pilih merchantnya dulu.',
+                '',
+                'Contoh setelah merchant berikutnya dipilih:',
+                '- susu 1',
+                '- roti tawar 2',
+            ]);
+        }
+
+        $activeStop = null;
+        foreach ($stops as $stop) {
+            if (is_array($stop) && ($stop['is_active'] ?? false) === true) {
+                $activeStop = $stop;
+                break;
+            }
+        }
+        if ($activeStop === null && $stops !== []) {
+            $activeStop = is_array($stops[array_key_last($stops)] ?? null) ? $stops[array_key_last($stops)] : null;
+        }
+        $activeMerchant = is_array($activeStop['merchant'] ?? null) ? $activeStop['merchant'] : $merchant;
+        $merchantName = trim((string) ($merchant['name'] ?? ''));
+        $activeMerchantName = trim((string) ($activeMerchant['name'] ?? $merchantName));
+
+        if ($activeMerchantName === '' || ! in_array('items', $missingFields, true)) {
             return $baseText;
         }
 
@@ -1192,11 +1730,13 @@ class ChatbotShoppingOrderService
             $baseText,
             '',
             'Merchant',
-            $merchantName,
+            $activeMerchantName,
             '',
-            'Contoh: Beli di '.$merchantName.':',
-            '- ayam geprek 2',
-            '- es teh 1',
+            'Tulis item dan jumlah untuk merchant ini.',
+            'Contoh:',
+            '- susu 1',
+            '- roti tawar 2',
+            '- air mineral 1',
         ]);
     }
 
@@ -1210,6 +1750,23 @@ class ChatbotShoppingOrderService
         $normalized = strtolower(trim((string) preg_replace('/\s+/', ' ', $message)));
 
         return in_array($normalized, $this->confirmCommands, true) ? 'confirm' : 'none';
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $nluPayload
+     */
+    private function isAddMerchantCommand(string $message, ?array $nluPayload = null): bool
+    {
+        $command = strtolower(trim((string) ($nluPayload['command'] ?? '')));
+        if (in_array($command, ['add_merchant', 'tambah_merchant'], true)) {
+            return true;
+        }
+
+        $normalized = strtolower(trim((string) preg_replace('/[^\p{L}\p{N}\s]+/u', ' ', $message)));
+        $normalized = $this->normalizeWhitespace($normalized);
+
+        return preg_match('/\b(?:tambah|nambah|add)\s+(?:merchant|toko|resto|restaurant|warung|minimarket|order)\b/u', $normalized) === 1
+            || preg_match('/\border\s+baru\b/u', $normalized) === 1;
     }
 
     private function extractPaymentMethod(string $message): ?string

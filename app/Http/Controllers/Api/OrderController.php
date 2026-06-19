@@ -148,10 +148,7 @@ class OrderController extends Controller
             $order = $this->orderService->addShoppingItem(
                 $request->user(),
                 $orderId,
-                $validated,
-                isset($validated['replacement_for_pickup_location_id'])
-                    ? (int) $validated['replacement_for_pickup_location_id']
-                    : null
+                $validated
             );
 
             return $this->success($order, 'Item belanja berhasil ditambahkan.');
@@ -167,10 +164,7 @@ class OrderController extends Controller
             $order = $this->orderService->addShoppingItems(
                 $request->user(),
                 $orderId,
-                $validated['items'] ?? [],
-                isset($validated['replacement_for_pickup_location_id'])
-                    ? (int) $validated['replacement_for_pickup_location_id']
-                    : null
+                $validated['items'] ?? []
             );
 
             return $this->success($order, 'Item belanja berhasil ditambahkan.');
@@ -204,8 +198,8 @@ class OrderController extends Controller
     public function requestShoppingItemChange(Request $request, int $orderId): JsonResponse
     {
         $validated = $request->validate([
-            'action' => ['required', 'string', 'in:ADD,UPDATE,REMOVE'],
-            'request_kind' => ['nullable', 'string', 'in:ADD_NEW_STOP,EDIT_UNAVAILABLE'],
+            'action' => ['required', 'string', 'in:ADD,UPDATE,REMOVE,CANCEL_MERCHANT'],
+            'request_kind' => ['nullable', 'string', 'in:EDIT_UNAVAILABLE'],
             'target_pickup_location_id' => ['nullable', 'integer', 'min:1'],
             'item_id' => ['nullable', 'integer', 'min:1'],
             'note' => ['nullable', 'string', 'max:500'],
@@ -233,7 +227,11 @@ class OrderController extends Controller
                 $validated
             );
 
-            return $this->success($order, 'Request perubahan item berhasil dikirim.');
+            $message = strtoupper((string) ($validated['action'] ?? '')) === 'CANCEL_MERCHANT'
+                ? 'Merchant Nitip berhasil dibatalkan.'
+                : 'Request perubahan item berhasil dikirim.';
+
+            return $this->success($order, $message);
         } catch (ApiException $exception) {
             return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
         }
@@ -241,20 +239,13 @@ class OrderController extends Controller
 
     public function skipFailedShoppingStop(Request $request, int $orderId, int $pickupLocationId): JsonResponse
     {
-        try {
-            $order = $this->orderService->skipFailedShoppingStop($request->user(), $orderId, $pickupLocationId);
-
-            return $this->success($order, 'Merchant gagal pickup dilewati.');
-        } catch (ApiException $exception) {
-            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
-        }
+        return $this->error('Endpoint skip merchant sudah deprecated pada flow Nitip baru.', 410);
     }
 
     public function respondShoppingPriceQuote(Request $request, int $orderId): JsonResponse
     {
         $validated = $request->validate([
-            'action' => ['required', 'string', 'in:APPROVE,COUNTER,CANCEL_MERCHANT,CANCEL_ORDER'],
-            'counter_amount' => ['nullable', 'numeric', 'min:1', 'max:99999999'],
+            'action' => ['required', 'string', 'in:APPROVE,CANCEL_MERCHANT'],
             'pickup_location_id' => ['nullable', 'integer', 'min:1'],
         ]);
 
@@ -289,7 +280,7 @@ class OrderController extends Controller
     public function submitShoppingPriceQuote(Request $request, int $orderId): JsonResponse
     {
         $validated = $request->validate([
-            'pickup_location_id' => ['nullable', 'integer', 'min:1'],
+            'pickup_location_id' => ['required', 'integer', 'min:1'],
             'amount' => ['required', 'numeric', 'min:1', 'max:99999999'],
             'note' => ['nullable', 'string', 'max:1000'],
         ]);
@@ -309,19 +300,39 @@ class OrderController extends Controller
 
     public function acceptShoppingCounter(Request $request, int $orderId): JsonResponse
     {
+        return $this->error('Endpoint accept counter harga merchant sudah deprecated pada flow Nitip baru.', 410);
+    }
+
+    public function openShoppingStop(Request $request, int $orderId, int $pickupLocationId): JsonResponse
+    {
+        try {
+            $payload = $this->orderService->markShoppingMerchantOpen(
+                $request->user(),
+                $orderId,
+                $pickupLocationId
+            );
+
+            return $this->success($payload, 'Merchant ditandai buka.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
+    public function bypassShoppingPriceQuote(Request $request, int $orderId): JsonResponse
+    {
         $validated = $request->validate([
-            'pickup_location_id' => ['nullable', 'integer', 'min:1'],
+            'pickup_location_id' => ['required', 'integer', 'min:1'],
             'note' => ['nullable', 'string', 'max:1000'],
         ]);
 
         try {
-            $payload = $this->orderService->acceptShoppingCounterByDriver(
+            $payload = $this->orderService->bypassShoppingPriceQuoteByDriver(
                 $request->user(),
                 $orderId,
                 $validated
             );
 
-            return $this->success($payload, 'Tawaran harga customer berhasil disetujui.');
+            return $this->success($payload, 'Harga merchant dilanjutkan oleh driver.');
         } catch (ApiException $exception) {
             return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
         }

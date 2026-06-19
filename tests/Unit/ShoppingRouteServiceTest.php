@@ -5,6 +5,7 @@ namespace Tests\Unit;
 use App\Exceptions\ApiException;
 use App\Services\Maps\GoogleMapsDistanceMatrixService;
 use App\Services\Pricing\DeliveryPricingService;
+use App\Services\Shopping\ShoppingDeliveryFeeLockResolver;
 use App\Services\Shopping\ShoppingRouteService;
 use Tests\TestCase;
 
@@ -24,7 +25,11 @@ class ShoppingRouteServiceTest extends TestCase
             }
         };
 
-        $service = new ShoppingRouteService($maps, new DeliveryPricingService);
+        $service = new ShoppingRouteService(
+            $maps,
+            new DeliveryPricingService,
+            new ShoppingDeliveryFeeLockResolver
+        );
 
         $this->expectException(ApiException::class);
         $this->expectExceptionMessage('Titik antar terlalu dekat dengan merchant. Pilih titik antar yang berbeda.');

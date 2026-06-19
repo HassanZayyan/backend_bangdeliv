@@ -361,6 +361,7 @@ class ChatbotController extends Controller
     {
         $validated = $request->validate([
             'service_type' => ['required', Rule::in(['nitip'])],
+            'mode' => ['nullable', Rule::in(['select', 'add'])],
             'merchant_id' => ['nullable', 'integer', 'min:1'],
             'merchant_place' => ['nullable', 'array', 'required_without:merchant_id'],
             'merchant_place.place_id' => ['nullable', 'string', 'max:255'],
@@ -393,7 +394,8 @@ class ChatbotController extends Controller
             $patchedPayload = $this->shoppingOrderService->applyMerchantPatch(
                 $user,
                 $normalizedSessionId,
-                $merchantPayload
+                $merchantPayload,
+                (string) ($validated['mode'] ?? 'select')
             );
         } catch (ApiException $exception) {
             return response()->json([
@@ -405,14 +407,22 @@ class ChatbotController extends Controller
 
         $intent = (string) ($patchedPayload['intent'] ?? 'unknown');
         $orderId = $this->resolveOrderId($patchedPayload);
-        $merchantName = trim((string) data_get($patchedPayload, 'shopping.merchant.name', ''));
+        $mode = (string) ($validated['mode'] ?? 'select');
+        $activeStop = collect(data_get($patchedPayload, 'shopping.stops', []))
+            ->first(static fn ($stop): bool => is_array($stop) && ($stop['is_active'] ?? false) === true);
+        $merchantName = trim((string) data_get(
+            is_array($activeStop) ? $activeStop : $patchedPayload,
+            is_array($activeStop) ? 'merchant.name' : 'shopping.merchant.name',
+            ''
+        ));
         $assistantText = trim((string) ($patchedPayload['assistant_text'] ?? 'Merchant Nitip berhasil diperbarui.'));
 
         $this->recordChatMessage(
             user: $user,
             sessionId: $normalizedSessionId,
             role: 'user',
-            message: '[MERCHANT_PICKER] merchant => '.($merchantName !== '' ? $merchantName : 'Merchant dipilih'),
+            message: ($mode === 'add' ? '[MERCHANT_PICKER] tambah merchant => ' : '[MERCHANT_PICKER] merchant => ')
+                .($merchantName !== '' ? $merchantName : 'Merchant dipilih'),
             intent: $intent,
             orderId: $orderId
         );
@@ -900,6 +910,14 @@ class ChatbotController extends Controller
             ];
         }
 
+        if (preg_match('/\b(?:tambah|nambah|add)\s+(?:merchant|toko|resto|restaurant|warung|minimarket|order)\b/u', $normalized) === 1
+            || preg_match('/\border\s+baru\b/u', $normalized) === 1) {
+            return [
+                'payload' => ['command' => 'add_merchant'],
+                'model_used' => 'deterministic-command',
+            ];
+        }
+
         if (in_array($normalized, ['cod', 'cash', 'tunai'], true)) {
             return [
                 'payload' => ['payment_method' => 'COD'],
@@ -1006,10 +1024,30 @@ class ChatbotController extends Controller
             $merchant = is_array($shopping['merchant'] ?? null) ? $shopping['merchant'] : [];
             $delivery = is_array($shopping['delivery'] ?? null) ? $shopping['delivery'] : [];
             $items = is_array($shopping['items'] ?? null) ? $shopping['items'] : [];
+            $stops = is_array($shopping['stops'] ?? null) ? $shopping['stops'] : [];
+            $activeStop = collect($stops)
+                ->first(static fn ($stop): bool => is_array($stop) && ($stop['is_active'] ?? false) === true);
             $summary['shopping'] = [
                 'merchant_name' => $this->normalizeOptionalContextString($merchant['name'] ?? null),
+                'merchant_count' => count(array_filter(
+                    $stops,
+                    static fn ($stop): bool => is_array($stop)
+                        && trim((string) data_get($stop, 'merchant.name', '')) !== ''
+                )),
+                'active_merchant_name' => $this->normalizeOptionalContextString(
+                    is_array($activeStop) ? data_get($activeStop, 'merchant.name') : null
+                ),
                 'delivery_address' => $this->normalizeOptionalContextString($delivery['address'] ?? null),
                 'item_count' => count($items),
+                'stops' => collect($stops)
+                    ->filter(static fn ($stop): bool => is_array($stop))
+                    ->map(static fn (array $stop): array => [
+                        'merchant_name' => data_get($stop, 'merchant.name'),
+                        'item_count' => is_array($stop['items'] ?? null) ? count($stop['items']) : 0,
+                        'is_active' => ($stop['is_active'] ?? false) === true,
+                    ])
+                    ->values()
+                    ->all(),
                 'ready_to_confirm' => (bool) ($shopping['ready_to_confirm'] ?? false),
                 'payment_method' => $this->normalizeOptionalContextString(
                     $shopping['payment_method'] ?? data_get($payload, 'order.payment_method')
