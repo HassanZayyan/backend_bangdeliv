@@ -37,7 +37,6 @@ class ChatbotShoppingFlowTest extends TestCase
             'latitude' => -7.002,
             'longitude' => 110.402,
             'phone' => '081200000004',
-            'status' => 'active',
         ]);
 
         $this->fakeGeminiAndDistance([
@@ -91,7 +90,6 @@ class ChatbotShoppingFlowTest extends TestCase
             'latitude' => -7.002,
             'longitude' => 110.402,
             'phone' => '081200000005',
-            'status' => 'active',
         ]);
 
         $this->fakeGeminiAndDistance([
@@ -327,7 +325,6 @@ class ChatbotShoppingFlowTest extends TestCase
             'latitude' => -7.054932,
             'longitude' => 110.434739,
             'phone' => '081200000015',
-            'status' => 'active',
         ]);
 
         $this->fakeGeminiAndDistance([
@@ -482,7 +479,6 @@ class ChatbotShoppingFlowTest extends TestCase
             'latitude' => -7.001,
             'longitude' => 110.401,
             'phone' => '081200000002',
-            'status' => 'active',
         ]);
 
         $category = MenuCategory::query()->create([
@@ -637,7 +633,6 @@ class ChatbotShoppingFlowTest extends TestCase
             'latitude' => -7.001,
             'longitude' => 110.401,
             'phone' => '081200000022',
-            'status' => 'active',
         ]);
         $secondRestaurant = Restaurant::query()->create([
             'name' => 'Warung Sembako Maju',
@@ -648,7 +643,6 @@ class ChatbotShoppingFlowTest extends TestCase
             'latitude' => -7.004,
             'longitude' => 110.404,
             'phone' => '081200000023',
-            'status' => 'active',
         ]);
 
         Sanctum::actingAs($customer);
@@ -799,7 +793,6 @@ class ChatbotShoppingFlowTest extends TestCase
             'latitude' => -7.001,
             'longitude' => 110.401,
             'phone' => '081200000007',
-            'status' => 'active',
         ]);
 
         Sanctum::actingAs($customer);
@@ -954,7 +947,6 @@ class ChatbotShoppingFlowTest extends TestCase
             'latitude' => -7.002,
             'longitude' => 110.402,
             'phone' => '081200000004',
-            'status' => 'active',
         ]);
 
         $this->fakeGeminiAndDistance([

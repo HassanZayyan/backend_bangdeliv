@@ -976,7 +976,6 @@ class ChatbotShoppingOrderService
         $slug = Str::slug($merchantName);
 
         $merchant = Restaurant::query()
-            ->where('status', 'active')
             ->where(function (Builder $query) use ($merchantName, $normalized, $slug): void {
                 $query
                     ->whereRaw('LOWER(name) = ?', [$normalized])

@@ -4,66 +4,35 @@
 @section('page-title', 'Manajemen Pelanggan')
 
 @section('content')
-@php
-    $statusCodeToId = \App\Models\OrderStatus::query()->pluck('id', 'code');
-    $successStatusIds = collect(['DELIVERED', 'COMPLETED'])->map(fn ($code) => $statusCodeToId[$code] ?? null)->filter()->values()->all();
-    $cancelledStatusIds = collect(['CANCELLED', 'CANCELLED_WITH_FEE'])->map(fn ($code) => $statusCodeToId[$code] ?? null)->filter()->values()->all();
+@if(session('success'))
+    <div class="panel" style="margin-bottom: 10px; padding: 12px 14px; color: var(--color-success); font-weight: 600;">
+        {{ session('success') }}
+    </div>
+@endif
 
-    $statusFilter = request()->query('status', 'semua');
-
-    $query = \App\Models\User::query()
-        ->where('role', 'customer')
-        ->withCount([
-            'orders as success_orders_count' => fn ($query) => $query->whereIn('status_id', $successStatusIds),
-            'orders as cancelled_orders_count' => fn ($query) => $query->whereIn('status_id', $cancelledStatusIds),
-        ])
-        ->latest('created_at');
-
-    $searchQuery = request()->query('q');
-    if ($searchQuery) {
-        $query->where(function ($q) use ($searchQuery) {
-            $q->where('name', 'like', "%{$searchQuery}%")
-              ->orWhere('email', 'like', "%{$searchQuery}%")
-              ->orWhere('phone', 'like', "%{$searchQuery}%");
-        });
-    }
-
-    if ($statusFilter === 'aktif') {
-        $query->where('is_active', true)->where('is_blacklisted', false);
-    } elseif ($statusFilter === 'baru') {
-        $query->whereDate('created_at', now()->toDateString());
-    } elseif ($statusFilter === 'blacklisted') {
-        $query->where('is_blacklisted', true);
-    }
-
-    $customers = $query->get();
-
-    $activeCount = \App\Models\User::where('role', 'customer')->where('is_active', true)->where('is_blacklisted', false)->count();
-    $newCount = \App\Models\User::where('role', 'customer')->whereDate('created_at', now()->toDateString())->count();
-    $blacklistedCount = \App\Models\User::where('role', 'customer')->where('is_blacklisted', true)->count();
-@endphp
 <div class="panel">
     <div class="panel-header" style="flex-direction: column; align-items: stretch; gap: 20px;">
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <div class="panel-title">Daftar Pengguna App (Customer)</div>
             
             <div style="display: flex; gap: 10px;">
-                <button class="btn" style="background: var(--bg-hover); color: var(--text-main); border: 1px solid var(--border-color);">
-                    <i class='bx bx-filter-alt'></i> Filter
-                </button>
                 <form class="search-bar" style="width: 280px;" method="GET" action="{{ route('admin.customers.index') }}">
-                    <input type="hidden" name="status" value="{{ $statusFilter }}">
+                    <input type="hidden" name="status" value="{{ $selectedStatus }}">
                     <i class='bx bx-search'></i>
-                    <input type="text" name="q" value="{{ request('q') }}" placeholder="Cari Nama, Email, atau HP..." style="width: 100%;">
+                    <input type="text" name="q" value="{{ $search }}" placeholder="Cari Nama, Email, atau HP..." style="width: 100%;">
                 </form>
             </div>
         </div>
 
         <div class="tabs">
-            <button onclick="window.location.href='{{ route('admin.customers.index', ['status' => 'semua', 'q' => request('q')]) }}'" class="tab-btn {{ $statusFilter === 'semua' ? 'active' : '' }}">Semua</button>
-            <button onclick="window.location.href='{{ route('admin.customers.index', ['status' => 'aktif', 'q' => request('q')]) }}'" class="tab-btn {{ $statusFilter === 'aktif' ? 'active' : '' }}">Aktif <span class="badge badge-success" style="margin-left:5px;">{{ $activeCount }}</span></button>
-            <button onclick="window.location.href='{{ route('admin.customers.index', ['status' => 'baru', 'q' => request('q')]) }}'" class="tab-btn {{ $statusFilter === 'baru' ? 'active' : '' }}">Pelanggan Baru <span class="badge badge-info" style="margin-left:5px;">{{ $newCount }}</span></button>
-            <button onclick="window.location.href='{{ route('admin.customers.index', ['status' => 'blacklisted', 'q' => request('q')]) }}'" class="tab-btn {{ $statusFilter === 'blacklisted' ? 'active' : '' }}">Blacklisted <span class="badge badge-danger" style="margin-left:5px;">{{ $blacklistedCount }}</span></button>
+            @foreach($statusFilters as $statusKey => $statusConfig)
+                <a href="{{ route('admin.customers.index', ['status' => $statusKey, 'q' => $search]) }}" class="tab-btn {{ $selectedStatus === $statusKey ? 'active' : '' }}" style="text-decoration:none;">
+                    {{ $statusConfig['label'] }}
+                    @if($statusKey !== 'semua')
+                        <span class="badge {{ $statusConfig['badge_class'] }}" style="margin-left:5px;">{{ $statusCounts[$statusKey] ?? 0 }}</span>
+                    @endif
+                </a>
+            @endforeach
         </div>
     </div>
     
@@ -82,13 +51,12 @@
                 @forelse($customers as $customer)
                     @php
                         $isBlacklisted = (bool) $customer->is_blacklisted;
-                        $isNew = optional($customer->created_at)->isToday();
-                        $initial = strtoupper(substr($customer->name, 0, 2));
+                        $status = $customer->admin_status ?? ['label' => 'Aktif', 'class' => 'badge-success'];
                     @endphp
                     <tr @if($isBlacklisted) style="background-color: rgba(239, 68, 68, 0.02);" @endif>
                         <td>
                             <div style="display: flex; align-items: center; gap: 12px;">
-                                <div class="driver-avatar" style="width: 45px; height: 45px; flex-shrink: 0; {{ $isBlacklisted ? 'background-color: var(--color-danger);' : '' }}">{{ $initial }}</div>
+                                <div class="driver-avatar" style="width: 45px; height: 45px; flex-shrink: 0; {{ $isBlacklisted ? 'background-color: var(--color-danger);' : '' }}">{{ $customer->admin_initial }}</div>
                                 <div class="td-user">
                                     <span class="td-strong">{{ $customer->name }}</span>
                                     <span class="td-sub">Bergabung: {{ $customer->created_at?->format('d M Y') }}</span>
@@ -104,17 +72,82 @@
                             <span class="td-sub" style="display:block; {{ $customer->cancelled_orders_count > 0 ? 'color:var(--color-danger); font-weight:600;' : '' }}">{{ $customer->cancelled_orders_count }} Dibatalkan</span>
                         </td>
                         <td>
-                            @if($isBlacklisted)
-                                <span class="badge badge-danger">Blacklisted</span>
-                            @elseif($isNew)
-                                <span class="badge badge-info">Pelanggan Baru</span>
-                            @else
-                                <span class="badge badge-success">Aktif</span>
-                            @endif
+                            <span class="badge {{ $status['class'] }}">{{ $status['label'] }}</span>
                         </td>
                         <td class="td-action">
-                            <div style="display:flex; gap: 8px;">
-                                <button onclick="window.location.href='{{ route('admin.orders.index', ['q' => $customer->phone ?? $customer->name]) }}'" class="btn-action detail" title="Lihat History & Detail"><i class='bx bx-show'></i></button>
+                            <div class="customer-actions">
+                                <button
+                                    type="button"
+                                    class="btn-action detail js-customer-toggle"
+                                    title="Lihat detail pelanggan"
+                                    aria-label="Lihat detail pelanggan {{ $customer->name }}"
+                                    aria-controls="customer-detail-{{ $customer->id }}"
+                                    aria-expanded="false"
+                                >
+                                    <i class='bx bx-show' aria-hidden="true"></i>
+                                </button>
+                                <a
+                                    href="{{ route('admin.orders.index', ['q' => $customer->phone ?: $customer->name]) }}"
+                                    class="btn-action warning"
+                                    title="Lihat pesanan pelanggan"
+                                    aria-label="Lihat pesanan {{ $customer->name }}"
+                                >
+                                    <i class='bx bx-receipt' aria-hidden="true"></i>
+                                </a>
+                                <form
+                                    method="POST"
+                                    action="{{ route('admin.customers.blacklist', $customer) }}"
+                                    onsubmit="return confirm('{{ $isBlacklisted ? 'Keluarkan pelanggan ini dari blacklist?' : 'Masukkan pelanggan ini ke blacklist?' }}');"
+                                >
+                                    @csrf
+                                    @method('PATCH')
+                                    <input type="hidden" name="is_blacklisted" value="{{ $isBlacklisted ? 0 : 1 }}">
+                                    <input type="hidden" name="status" value="{{ $selectedStatus }}">
+                                    <input type="hidden" name="q" value="{{ $search }}">
+                                    <button
+                                        type="submit"
+                                        class="btn-action {{ $isBlacklisted ? 'warning' : 'danger' }}"
+                                        title="{{ $isBlacklisted ? 'Buka blacklist' : 'Blacklist pelanggan' }}"
+                                        aria-label="{{ $isBlacklisted ? 'Buka blacklist ' : 'Blacklist ' }}{{ $customer->name }}"
+                                    >
+                                        <i class='bx {{ $isBlacklisted ? 'bx-user-check' : 'bx-block' }}' aria-hidden="true"></i>
+                                    </button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                    <tr id="customer-detail-{{ $customer->id }}" class="customer-detail-row" hidden>
+                        <td colspan="5">
+                            <div class="customer-detail-panel">
+                                <div class="customer-detail-grid">
+                                    <div>
+                                        <span class="td-sub">Nama</span>
+                                        <strong>{{ $customer->name }}</strong>
+                                    </div>
+                                    <div>
+                                        <span class="td-sub">Email</span>
+                                        <strong>{{ $customer->email }}</strong>
+                                    </div>
+                                    <div>
+                                        <span class="td-sub">Nomor HP</span>
+                                        <strong>{{ $customer->phone ?? '-' }}</strong>
+                                    </div>
+                                    <div>
+                                        <span class="td-sub">Bergabung</span>
+                                        <strong>{{ $customer->created_at?->format('d M Y, H:i') ?? '-' }}</strong>
+                                    </div>
+                                    <div>
+                                        <span class="td-sub">Pesanan sukses</span>
+                                        <strong>{{ $customer->success_orders_count }}</strong>
+                                    </div>
+                                    <div>
+                                        <span class="td-sub">Pesanan dibatalkan</span>
+                                        <strong>{{ $customer->cancelled_orders_count }}</strong>
+                                    </div>
+                                </div>
+                                <div class="customer-detail-actions">
+                                    <span class="badge {{ $status['class'] }}">{{ $status['label'] }}</span>
+                                </div>
                             </div>
                         </td>
                     </tr>
@@ -127,11 +160,40 @@
         </table>
     </div>
     
-    <div class="panel-pagination" style="padding: 20px; border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center;">
-        <span style="font-size: 13px; color: var(--text-muted); font-weight: 500;">Menampilkan {{ $customers->count() }} Pelanggan</span>
-        <div class="pagination-controls" style="display: flex; gap: 6px;">
-            <button class="btn-page active">1</button>
-        </div>
-    </div>
+    <x-admin-pagination :paginator="$customers" label="pelanggan" />
 </div>
 @endsection
+
+@push('scripts')
+<script>
+document.addEventListener('click', function (event) {
+    const button = event.target.closest('.js-customer-toggle');
+    if (!button) {
+        return;
+    }
+
+    const targetId = button.getAttribute('aria-controls');
+    const target = document.getElementById(targetId);
+    if (!target) {
+        return;
+    }
+
+    const shouldOpen = target.hidden;
+
+    document.querySelectorAll('.customer-detail-row').forEach((row) => {
+        if (row !== target) {
+            row.hidden = true;
+        }
+    });
+
+    document.querySelectorAll('.js-customer-toggle').forEach((toggle) => {
+        if (toggle !== button) {
+            toggle.setAttribute('aria-expanded', 'false');
+        }
+    });
+
+    target.hidden = !shouldOpen;
+    button.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+});
+</script>
+@endpush

@@ -14,8 +14,7 @@ class RestaurantService
      */
     public function paginate(array $filters): LengthAwarePaginator
     {
-        $query = Restaurant::query()
-            ->where('status', 'active');
+        $query = Restaurant::query();
 
         if (! empty($filters['search'])) {
             $search = trim((string) $filters['search']);
@@ -71,7 +70,6 @@ class RestaurantService
     public function findByIdOrSlug(string $restaurantIdOrSlug): Restaurant
     {
         $restaurant = Restaurant::query()
-            ->where('status', 'active')
             ->where(function (Builder $query) use ($restaurantIdOrSlug): void {
                 $query->where('id', $restaurantIdOrSlug)
                     ->orWhere('slug', $restaurantIdOrSlug);
@@ -160,7 +158,7 @@ class RestaurantService
 
     private function isOpenNow(Restaurant $restaurant): bool
     {
-        return $restaurant->status === 'active';
+        return true;
     }
 
     private function distanceKm(Restaurant $restaurant, ?float $latitude, ?float $longitude): ?float

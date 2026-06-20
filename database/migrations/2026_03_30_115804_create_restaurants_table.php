@@ -24,12 +24,10 @@ return new class extends Migration
             $table->decimal('longitude', 11, 8);
             $table->string('phone', 20); // NOT NULL — driver wajib telepon untuk konfirmasi ketersediaan
             $table->string('banner_image')->nullable();
-            $table->enum('status', ['active', 'inactive'])->default('active');
             $table->timestamps();
             $table->softDeletes();
 
-            $table->index('status');
-            $table->index(['merchant_type', 'status'], 'restaurants_type_status_idx');
+            $table->index('merchant_type');
         });
 
         DatabaseCheckConstraints::add('restaurants', [

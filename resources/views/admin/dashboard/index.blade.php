@@ -4,51 +4,6 @@
 @section('page-title', 'Dashboard Utama')
 
 @section('content')
-@php
-    $now = now();
-    $monthStart = $now->copy()->startOfMonth();
-    $statusCodeToId = \App\Models\OrderStatus::query()->pluck('id', 'code');
-    $doneStatusIds = collect(['COMPLETED', 'DELIVERED'])->map(fn ($code) => $statusCodeToId[$code] ?? null)->filter()->values()->all();
-    $activeStatusIds = collect(['PENDING', 'DRIVER_ASSIGNED', 'PICKED_UP', 'ON_THE_WAY'])->map(fn ($code) => $statusCodeToId[$code] ?? null)->filter()->values()->all();
-    $cancelledStatusIds = collect(['CANCELLED', 'CANCELLED_WITH_FEE'])->map(fn ($code) => $statusCodeToId[$code] ?? null)->filter()->values()->all();
-
-    $gmvMonth = \App\Models\Order::whereBetween('created_at', [$monthStart, $now])->sum('total_price');
-    $totalOrdersMonth = \App\Models\Order::whereBetween('created_at', [$monthStart, $now])->count();
-    $cancelledOrdersMonth = \App\Models\Order::whereBetween('created_at', [$monthStart, $now])->whereIn('status_id', $cancelledStatusIds)->count();
-    $newUsersMonth = \App\Models\User::whereBetween('created_at', [$monthStart, $now])->count();
-
-    $statusDone = \App\Models\Order::whereIn('status_id', $doneStatusIds)->count();
-    $statusActive = \App\Models\Order::whereIn('status_id', $activeStatusIds)->count();
-    $statusCancelled = \App\Models\Order::whereIn('status_id', $cancelledStatusIds)->count();
-
-    $topRestaurants = \App\Models\Restaurant::query()
-        ->withCount('orders')
-        ->orderByDesc('orders_count')
-        ->limit(5)
-        ->get();
-
-    $topDrivers = \App\Models\Driver::query()
-        ->with('user')
-        ->withCount('orders')
-        ->orderByDesc('orders_count')
-        ->limit(5)
-        ->get();
-
-    $dailyData = [];
-    $dailyLabels = [];
-    for ($i = 6; $i >= 0; $i--) {
-        $dayStart = now()->subDays($i)->startOfDay();
-        $dayEnd = now()->subDays($i)->endOfDay();
-        $dailyLabels[] = $dayStart->translatedFormat('D');
-        $dailyData[] = [
-            'revenue' => (float) \App\Models\Order::whereBetween('created_at', [$dayStart, $dayEnd])->sum('total_price'),
-            'orders' => \App\Models\Order::whereBetween('created_at', [$dayStart, $dayEnd])->count(),
-        ];
-    }
-
-    $maxRestOrders = max((int) ($topRestaurants->max('orders_count') ?? 1), 1);
-@endphp
-
 {{-- KPI Cards Row --}}
 <div class="stat-cards-wrapper">
     <x-stat-card title="GMV Bulan Ini" value="Rp {{ number_format((float) $gmvMonth, 0, ',', '.') }}" icon="bx-money" color="primary" change="Data realtime" change-type="positive" />
@@ -114,9 +69,7 @@
         <div style="padding: 0;">
             @foreach($topRestaurants as $i => $resto)
             @php
-                $restoRevenue = \App\Models\Order::query()
-                    ->whereHas('orderLocations', fn ($query) => $query->where('restaurant_id', $resto->id))
-                    ->sum('total_price');
+                $restoRevenue = (float) ($resto->orders_total_price_sum ?? 0);
                 $pct = (int) round(($resto->orders_count / $maxRestOrders) * 100);
             @endphp
             <div style="padding: 14px 20px; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; gap: 15px;">
@@ -149,7 +102,7 @@
                 $init = strtoupper(substr($driver->user->name ?? 'D', 0, 2));
             @endphp
             <div style="padding:14px 20px; border-bottom:1px solid var(--border-color); display:flex; align-items:center; gap:15px;">
-                <div style="width:38px; height:38px; border-radius:50%; background:#3b82f6; display:flex; align-items:center; justify-content:center; color:white; font-weight:700; font-size:13px; flex-shrink:0;">{{ $init }}</div>
+                <div style="width:38px; height:38px; border-radius:50%; background:var(--color-primary); display:flex; align-items:center; justify-content:center; color:white; font-weight:700; font-size:13px; flex-shrink:0;">{{ $init }}</div>
                 <div style="flex:1;">
                     <div style="display:flex; justify-content:space-between;">
                         <span style="font-size:14px; font-weight:600;">{{ $driver->user->name ?? '-' }}</span>
@@ -168,14 +121,14 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', () => {
-    const isDark = document.body.getAttribute('data-theme') === 'dark';
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
     const gridColor = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
     const labelColor = isDark ? '#92929f' : '#6b7280';
     const revCtx = document.getElementById('revenueChart').getContext('2d');
     const grad = revCtx.createLinearGradient(0,0,0,270);
     grad.addColorStop(0,'rgba(240,91,36,0.24)'); grad.addColorStop(1,'rgba(240,91,36,0)');
-    new Chart(revCtx, { type:'line', data:{ labels:@json($dailyLabels), datasets:[{label:'Pendapatan (Rp)',data:@json(collect($dailyData)->pluck('revenue')->values()),borderColor:'#F05B24',backgroundColor:grad,borderWidth:2.5,pointBackgroundColor:'#F05B24',pointRadius:4,fill:true,tension:0.4,yAxisID:'y'},{label:'Jumlah Pesanan',data:@json(collect($dailyData)->pluck('orders')->values()),borderColor:'#2563EB',backgroundColor:'transparent',borderWidth:2,pointBackgroundColor:'#2563EB',pointRadius:4,fill:false,tension:0.4,yAxisID:'y1'}]}, options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},scales:{x:{grid:{color:gridColor},ticks:{color:labelColor}},y:{grid:{color:gridColor},ticks:{color:labelColor,callback:v=>'Rp '+(v/1000000).toFixed(1)+'M'},position:'left'},y1:{grid:{drawOnChartArea:false},ticks:{color:labelColor},position:'right'}},plugins:{legend:{labels:{color:labelColor,boxWidth:12,padding:20}},tooltip:{callbacks:{label:ctx=>ctx.datasetIndex===0?' Rp '+Number(ctx.raw).toLocaleString('id-ID'):' '+ctx.raw+' Pesanan'}}}}});
-    new Chart(document.getElementById('orderStatusChart').getContext('2d'), { type:'doughnut', data:{labels:['Selesai','Berjalan','Dibatalkan'],datasets:[{data:[{{ $statusDone }},{{ $statusActive }},{{ $statusCancelled }}],backgroundColor:['#10b981','#3b82f6','#ef4444'],borderColor:isDark?'#1e1e2d':'#ffffff',borderWidth:3,hoverOffset:8}]}, options:{responsive:true,maintainAspectRatio:false,cutout:'72%',plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>' '+ctx.label+': '+ctx.raw.toLocaleString('id-ID')}}}}});
+    new Chart(revCtx, { type:'line', data:{ labels:@json($dailyLabels), datasets:[{label:'Pendapatan (Rp)',data:@json(collect($dailyData)->pluck('revenue')->values()),borderColor:'#F05B24',backgroundColor:grad,borderWidth:2.5,pointBackgroundColor:'#F05B24',pointRadius:4,fill:true,tension:0.4,yAxisID:'y'},{label:'Jumlah Pesanan',data:@json(collect($dailyData)->pluck('orders')->values()),borderColor:'#F59E0B',backgroundColor:'transparent',borderWidth:2,pointBackgroundColor:'#F59E0B',pointRadius:4,fill:false,tension:0.4,borderDash:[5,5],yAxisID:'y1'}]}, options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},scales:{x:{grid:{color:gridColor},ticks:{color:labelColor}},y:{grid:{color:gridColor},ticks:{color:labelColor,callback:v=>'Rp '+(v/1000000).toFixed(1)+'M'},position:'left'},y1:{grid:{drawOnChartArea:false},ticks:{color:labelColor},position:'right'}},plugins:{legend:{labels:{color:labelColor,boxWidth:12,padding:20}},tooltip:{callbacks:{label:ctx=>ctx.datasetIndex===0?' Rp '+Number(ctx.raw).toLocaleString('id-ID'):' '+ctx.raw+' Pesanan'}}}}});
+    new Chart(document.getElementById('orderStatusChart').getContext('2d'), { type:'doughnut', data:{labels:['Selesai','Berjalan','Dibatalkan'],datasets:[{data:[{{ $statusDone }},{{ $statusActive }},{{ $statusCancelled }}],backgroundColor:['#10b981','#f59e0b','#ef4444'],borderColor:isDark?'#1d1d1d':'#ffffff',borderWidth:3,hoverOffset:8}]}, options:{responsive:true,maintainAspectRatio:false,cutout:'72%',plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>' '+ctx.label+': '+ctx.raw.toLocaleString('id-ID')}}}}});
 });
 </script>
 @endpush

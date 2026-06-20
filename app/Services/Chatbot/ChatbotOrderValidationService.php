@@ -157,7 +157,6 @@ class ChatbotOrderValidationService
     private function findRestaurantByName(string $input): ?Restaurant
     {
         return Restaurant::query()
-            ->where('status', 'active')
             ->where(function (Builder $query) use ($input): void {
                 $query->whereRaw('LOWER(name) = ?', [strtolower($input)])
                     ->orWhere('name', 'like', "%{$input}%")
@@ -173,9 +172,6 @@ class ChatbotOrderValidationService
     {
         return Menu::query()
             ->where('is_available', true)
-            ->whereHas('restaurant', function (Builder $query): void {
-                $query->where('status', 'active');
-            })
             ->when($restaurantId !== null, function (Builder $query) use ($restaurantId): void {
                 $query->where('restaurant_id', $restaurantId);
             })

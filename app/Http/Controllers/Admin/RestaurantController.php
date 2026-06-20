@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Admin\StoreRestaurantRequest;
 use App\Http\Requests\Admin\UpdateRestaurantRequest;
 use App\Models\Restaurant;
+use App\Services\Admin\AdminPagination;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -16,17 +17,9 @@ class RestaurantController extends Controller
     public function index(Request $request): View
     {
         $search = trim((string) $request->query('q', ''));
-        $statusFilter = (string) $request->query('status', 'all');
 
         $restaurants = Restaurant::query()
             ->withCount(['menus', 'orders'])
-            ->when(in_array($statusFilter, ['active', 'inactive'], true), function ($query) use ($statusFilter): void {
-                $query->where('status', $statusFilter);
-            })
-            ->when($statusFilter === 'closed', function ($query): void {
-                // Placeholder filter: saat ini tidak ada status "closed" di schema.
-                $query->whereRaw('1 = 0');
-            })
             ->when($search !== '', function ($query) use ($search): void {
                 $query->where(function ($subQuery) use ($search): void {
                     $subQuery
@@ -37,21 +30,10 @@ class RestaurantController extends Controller
                 });
             })
             ->latest('created_at')
-            ->paginate(10)
+            ->paginate(AdminPagination::PER_PAGE)
             ->withQueryString();
 
-        $openCount = Restaurant::where('status', 'active')->count();
-        $suspendedCount = Restaurant::where('status', 'inactive')->count();
-        $closedCount = max($restaurants->total() - $openCount - $suspendedCount, 0);
-
-        return view('admin.restaurants.index', compact(
-            'restaurants',
-            'openCount',
-            'suspendedCount',
-            'closedCount',
-            'search',
-            'statusFilter'
-        ));
+        return view('admin.restaurants.index', compact('restaurants', 'search'));
     }
 
     public function create(): View
@@ -97,14 +79,4 @@ class RestaurantController extends Controller
             ->with('success', 'Restoran berhasil dihapus.');
     }
 
-    public function toggleStatus(Restaurant $restaurant): RedirectResponse
-    {
-        $restaurant->update([
-            'status' => $restaurant->status === 'active' ? 'inactive' : 'active',
-        ]);
-
-        return redirect()
-            ->route('admin.restaurants.index')
-            ->with('success', 'Status restoran berhasil diperbarui.');
-    }
 }

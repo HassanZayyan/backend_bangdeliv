@@ -473,7 +473,7 @@ class ShoppingOrderItemEditTest extends TestCase
 
         $response->assertUnprocessable()
             ->assertJsonPath('success', false)
-            ->assertJsonPath('message', 'Menu tidak ditemukan, tidak aktif, atau tidak sesuai merchant.');
+            ->assertJsonPath('message', 'Menu tidak ditemukan atau tidak sesuai merchant.');
     }
 
     public function test_customer_adds_manual_item_from_existing_restaurant_without_recalculating_delivery_fee(): void
@@ -1101,7 +1101,6 @@ class ShoppingOrderItemEditTest extends TestCase
             'latitude' => $latitude,
             'longitude' => $longitude,
             'phone' => '0812'.random_int(10000000, 99999999),
-            'status' => 'active',
         ]);
     }
 

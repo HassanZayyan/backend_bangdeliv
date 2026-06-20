@@ -1511,8 +1511,8 @@ class DriverOrderWorkflowTest extends TestCase
 
         $response->assertOk()
             ->assertJsonPath('data.status_ref.code', 'CANCELLED_WITH_FEE')
-            ->assertJsonPath('data.delivery_fee', '3000.00')
-            ->assertJsonPath('data.service_fee', '0.00')
+            ->assertJsonPath('data.delivery_fee', '0.00')
+            ->assertJsonPath('data.service_fee', '3000.00')
             ->assertJsonPath('data.total_price', '3000.00')
             ->assertJsonPath('data.payment_method', 'TRANSFER')
             ->assertJsonPath('data.payment_status', 'unpaid');
@@ -1547,7 +1547,6 @@ class DriverOrderWorkflowTest extends TestCase
             'latitude' => -7.001,
             'longitude' => 110.401,
             'phone' => '0812'.random_int(10000000, 99999999),
-            'status' => 'active',
         ]);
 
         $pickup = $order->orderLocations()->create([
@@ -1623,15 +1622,15 @@ class DriverOrderWorkflowTest extends TestCase
         $detailResponse->assertOk()
             ->assertJsonPath('data.status_code', 'CANCELLED_WITH_FEE')
             ->assertJsonPath('data.fee', 7500)
-            ->assertJsonPath('data.delivery_fee', 7500)
-            ->assertJsonPath('data.pricing.service_fee', 0)
+            ->assertJsonPath('data.delivery_fee', 0)
+            ->assertJsonPath('data.pricing.service_fee', 7500)
             ->assertJsonPath('data.pricing.total_price', 7500)
             ->assertJsonPath('data.pricing.failed_attempt_count', 3)
             ->assertJsonPath('data.shopping_stops.0.fulfillment_status', 'FAILED');
 
         $this->assertDatabaseHas('orders', [
             'id' => $order->id,
-            'delivery_fee' => 7500,
+            'delivery_fee' => 0,
             'total_price' => 7500,
         ]);
         $this->assertDatabaseHas('orders', [
@@ -1769,13 +1768,13 @@ class DriverOrderWorkflowTest extends TestCase
 
         $response->assertOk()
             ->assertJsonPath('data.status_ref.code', 'CANCELLED_WITH_FEE')
-            ->assertJsonPath('data.delivery_fee', '10000.00')
-            ->assertJsonPath('data.service_fee', '0.00')
+            ->assertJsonPath('data.delivery_fee', '0.00')
+            ->assertJsonPath('data.service_fee', '10000.00')
             ->assertJsonPath('data.total_price', '10000.00');
 
         $this->assertDatabaseHas('orders', [
             'id' => $order->id,
-            'delivery_fee' => 10000,
+            'delivery_fee' => 0,
             'total_price' => 10000,
         ]);
         $this->assertDatabaseHas('order_payments', [

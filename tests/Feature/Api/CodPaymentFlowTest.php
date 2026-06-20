@@ -16,7 +16,7 @@ class CodPaymentFlowTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_admin_can_record_cod_and_report_only_counts_paid_cod(): void
+    public function test_admin_can_view_cod_settlement_report_for_paid_cod(): void
     {
         $admin = User::factory()->create([
             'role' => 'admin',
@@ -60,26 +60,14 @@ class CodPaymentFlowTest extends TestCase
         OrderPayment::query()->create([
             'order_id' => $order->id,
             'payment_method' => 'COD',
-            'payment_status' => 'PENDING',
+            'payment_status' => 'PAID',
             'amount' => 31000,
+            'recorded_by_user_id' => $driverUser->id,
+            'driver_id' => $driver->id,
+            'paid_at' => now(),
         ]);
 
         Sanctum::actingAs($admin);
-
-        $this->postJson('/api/v1/admin/orders/'.$order->id.'/payment/record-cod', [
-            'amount' => 31000,
-            'note' => 'Dikoreksi admin.',
-        ])->assertOk()
-            ->assertJsonPath('data.payment_status', 'paid');
-
-        $this->assertDatabaseHas('order_payments', [
-            'order_id' => $order->id,
-            'payment_method' => 'COD',
-            'payment_status' => 'PAID',
-            'amount' => 31000,
-            'recorded_by_user_id' => $admin->id,
-            'driver_id' => $driver->id,
-        ]);
 
         $this->getJson('/api/v1/admin/payments/cod-settlement')
             ->assertOk()

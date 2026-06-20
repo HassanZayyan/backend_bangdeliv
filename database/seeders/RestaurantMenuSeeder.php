@@ -21,7 +21,6 @@ class RestaurantMenuSeeder extends Seeder
                 'latitude' => -7.0549432,
                 'longitude' => 110.4347394,
                 'phone' => '081233330101',
-                'status' => 'active',
                 'categories' => [
                     'Paket Nasi' => [
                         ['name' => 'Nasi Ayam Geprek', 'price' => 22000],
@@ -42,7 +41,6 @@ class RestaurantMenuSeeder extends Seeder
                 'latitude' => -7.0532608,
                 'longitude' => 110.4360778,
                 'phone' => '081233330102',
-                'status' => 'active',
                 'categories' => [
                     'Menu Rumahan' => [
                         ['name' => 'Nasi Ayam Kremes', 'price' => 24000],
@@ -63,7 +61,6 @@ class RestaurantMenuSeeder extends Seeder
                 'latitude' => -7.0561607,
                 'longitude' => 110.4333919,
                 'phone' => '081233330103',
-                'status' => 'active',
                 'categories' => [
                     'Paket Hemat' => [
                         ['name' => 'Nasi Oseng Ayam', 'price' => 20000],
@@ -84,7 +81,6 @@ class RestaurantMenuSeeder extends Seeder
                 'latitude' => -7.0584234,
                 'longitude' => 110.4390071,
                 'phone' => '081233330201',
-                'status' => 'active',
                 'categories' => [
                     'Sembako' => [
                         ['name' => 'Telur Ayam 1 kg', 'price' => 32000],
@@ -105,7 +101,6 @@ class RestaurantMenuSeeder extends Seeder
                 'latitude' => -7.0597279,
                 'longitude' => 110.4395979,
                 'phone' => '081233330202',
-                'status' => 'active',
                 'categories' => [
                     'Sembako' => [
                         ['name' => 'Gula Pasir 1 kg', 'price' => 17000],
@@ -126,7 +121,6 @@ class RestaurantMenuSeeder extends Seeder
                 'latitude' => -7.059877,
                 'longitude' => 110.4365384,
                 'phone' => '081233330203',
-                'status' => 'active',
                 'categories' => [
                     'Sembako' => [
                         ['name' => 'Sabun Cuci Piring', 'price' => 12000],
@@ -147,7 +141,6 @@ class RestaurantMenuSeeder extends Seeder
                 'latitude' => -7.0561494,
                 'longitude' => 110.4384112,
                 'phone' => '081233330301',
-                'status' => 'active',
                 'categories' => [
                     'Minuman' => [
                         ['name' => 'Air Mineral 600 ml', 'price' => 4000],
@@ -168,7 +161,6 @@ class RestaurantMenuSeeder extends Seeder
                 'latitude' => -7.0561674,
                 'longitude' => 110.4386352,
                 'phone' => '081233330302',
-                'status' => 'active',
                 'categories' => [
                     'Snack' => [
                         ['name' => 'Biskuit Coklat', 'price' => 9000],
@@ -193,7 +185,6 @@ class RestaurantMenuSeeder extends Seeder
                     'latitude' => $restoData['latitude'],
                     'longitude' => $restoData['longitude'],
                     'phone' => $restoData['phone'],
-                    'status' => $restoData['status'],
                 ]
             );
 

@@ -113,10 +113,10 @@ class ShoppingPricingService
 
         if ($penaltyOnly && $cancellationPenalty > 0) {
             $subtotal = 0.0;
-            $deliveryFee = $cancellationPenalty;
+            $deliveryFee = 0.0;
         }
 
-        $serviceFee = $penaltyOnly ? 0.0 : $cancellationPenalty;
+        $serviceFee = $cancellationPenalty;
         $totalPrice = round($subtotal + $deliveryFee + $serviceFee, 2);
 
         return [

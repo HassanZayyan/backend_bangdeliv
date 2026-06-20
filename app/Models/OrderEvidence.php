@@ -25,11 +25,6 @@ class OrderEvidence extends Model
         ];
     }
 
-    public function getVerificationStatusAttribute(): string
-    {
-        return 'PENDING';
-    }
-
     public function order(): BelongsTo
     {
         return $this->belongsTo(Order::class);

@@ -4,6 +4,7 @@ namespace App\Services\Order;
 
 use App\Enums\OrderStatusCode;
 use App\Enums\ServiceTypeCode;
+use App\Events\AdminNotificationUpdated;
 use App\Exceptions\ApiException;
 use App\Models\Driver;
 use App\Models\Menu;
@@ -19,6 +20,7 @@ use App\Models\User;
 use App\Services\Driver\Dispatch\DriverCandidateSelector;
 use App\Services\Driver\DriverOrderPayloadFactory;
 use App\Services\Driver\DriverOrderRealtimeService;
+use App\Services\Admin\AdminNotificationService;
 use App\Services\Notification\OrderPricingPushNotificationService;
 use App\Services\Notification\OrderRealtimeBroadcaster;
 use App\Services\Notification\OrderStatusPushNotificationService;
@@ -258,7 +260,7 @@ class OrderService
                 'note' => 'Customer upload bukti QRIS.',
                 'metadata' => [
                     'payment_method' => OrderPaymentService::METHOD_TRANSFER,
-                    'verification_status' => 'PENDING',
+                    'payment_proof_status' => 'PENDING',
                 ],
             ]);
 
@@ -270,6 +272,7 @@ class OrderService
             'payment_method' => OrderPaymentService::METHOD_TRANSFER,
             'payment_status' => 'unpaid',
         ]);
+        broadcast(new AdminNotificationUpdated(app(AdminNotificationService::class)->summary()));
 
         return $order->fresh([
             'restaurant',
@@ -449,18 +452,6 @@ class OrderService
         }
 
         return $this->recordCodPayment($actor, $orderId, $payload, true);
-    }
-
-    /**
-     * @param  array<string, mixed>  $payload
-     */
-    public function recordCodPaymentByAdmin(User $actor, int $orderId, array $payload): Order
-    {
-        if ($actor->role !== 'admin') {
-            throw new ApiException('Hanya admin yang dapat mencatat pembayaran COD di endpoint ini.', 403);
-        }
-
-        return $this->recordCodPayment($actor, $orderId, $payload, false);
     }
 
     /**
@@ -3705,7 +3696,7 @@ class OrderService
             ->first();
 
         if (! $menu) {
-            throw new ApiException('Menu tidak ditemukan, tidak aktif, atau tidak sesuai merchant.', 422);
+            throw new ApiException('Menu tidak ditemukan atau tidak sesuai merchant.', 422);
         }
 
         return $menu;

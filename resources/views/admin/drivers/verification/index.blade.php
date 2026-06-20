@@ -104,12 +104,11 @@
             </tbody>
         </table>
     </div>
-    <div class="panel-pagination" style="padding: 20px; border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center;">
-        <span style="font-size: 13px; color: var(--text-muted); font-weight: 500;">Menampilkan {{ $verificationDrivers->count() }} dari {{ $verificationDrivers->total() }} antrean</span>
-        <div class="pagination-controls" style="display: flex; gap: 6px;">
-            {{ $verificationDrivers->appends(['status' => $statusFilter, 'search' => $search])->links() }}
-        </div>
-    </div>
+    <x-admin-pagination
+        :paginator="$verificationDrivers"
+        label="antrean"
+        :query="['status' => $statusFilter, 'search' => $search]"
+    />
     
 </div>
 @endsection

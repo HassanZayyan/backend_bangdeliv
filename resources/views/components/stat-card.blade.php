@@ -10,7 +10,7 @@
 @php
     $colorMap = [
         'primary' => ['bg' => 'rgba(240,91,36,0.1)',  'color' => 'var(--color-primary)'],
-        'info'    => ['bg' => 'rgba(59,130,246,0.1)', 'color' => 'var(--color-info)'],
+        'info'    => ['bg' => 'rgba(234,88,12,0.1)', 'color' => 'var(--color-info)'],
         'success' => ['bg' => 'rgba(16,185,129,0.1)', 'color' => 'var(--color-success)'],
         'warning' => ['bg' => 'rgba(245,158,11,0.1)', 'color' => 'var(--color-warning)'],
         'danger'  => ['bg' => 'rgba(239,68,68,0.1)',  'color' => 'var(--color-danger)'],

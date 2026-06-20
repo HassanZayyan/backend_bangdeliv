@@ -1,10 +1,16 @@
 <?php
 
+use App\Http\Controllers\Admin\DashboardController;
+use App\Http\Controllers\Admin\CustomerController;
+use App\Http\Controllers\Admin\DriverController;
 use App\Http\Controllers\Admin\DriverVerificationController;
+use App\Http\Controllers\Admin\NotificationController;
+use App\Http\Controllers\Admin\OrderController as AdminOrderController;
+use App\Http\Controllers\Admin\PaymentProofController;
 use App\Http\Controllers\Admin\RestaurantController;
 use App\Http\Controllers\Admin\RestaurantMenuController;
+use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\AdminAuthController;
-use App\Models\Order;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -20,45 +26,24 @@ Route::post('/admin/logout', [AdminAuthController::class, 'logout'])->name('logo
 Route::prefix('admin')->middleware(['auth', 'role:admin'])->group(function () {
 
     // Dashboard
-    Route::get('/dashboard', fn () => view('admin.dashboard.index'))
-        ->name('admin.dashboard');
+    Route::get('/dashboard', DashboardController::class)->name('admin.dashboard');
 
     // Orders
-    Route::get('/pesanan', fn () => view('admin.orders.index'))
+    Route::get('/pesanan', [AdminOrderController::class, 'index'])
         ->name('admin.orders.index');
-    Route::get('/pesanan/{order}', function (Order $order) {
-        $order->load([
-            'user',
-            'driver.user',
-            'restaurant',
-            'serviceType',
-            'statusRef',
-            'items',
-            'shoppingReceipt',
-            'courierOrder',
-            'rideOrder',
-            'orderLocations',
-            'evidences',
-            'payments.recordedBy',
-            'payments.driver.user',
-            'statusHistories.statusRef',
-            'statusHistories.changedBy',
-            'logs.changedBy',
-        ]);
+    Route::get('/pesanan/{order}', [AdminOrderController::class, 'show'])
+        ->name('admin.orders.show');
+    Route::post('/pesanan/{order}/payment-proofs/{evidence}/approve', [PaymentProofController::class, 'approve'])
+        ->name('admin.orders.payment-proofs.approve');
+    Route::post('/pesanan/{order}/payment-proofs/{evidence}/reject', [PaymentProofController::class, 'reject'])
+        ->name('admin.orders.payment-proofs.reject');
 
-        $backUrl = request()->query('back');
-        if (! is_string($backUrl) || ! str_starts_with($backUrl, url('/admin/pesanan'))) {
-            $backUrl = route('admin.orders.index');
-        }
-
-        return view('admin.orders.show', [
-            'order' => $order,
-            'backUrl' => $backUrl,
-        ]);
-    })->name('admin.orders.show');
+    // Notifications
+    Route::get('/notifikasi/pending', [NotificationController::class, 'index'])
+        ->name('admin.notifications.pending');
 
     // Drivers
-    Route::get('/driver', fn () => view('admin.drivers.index'))
+    Route::get('/driver', [DriverController::class, 'index'])
         ->name('admin.drivers.index');
     Route::get('/driver/verifikasi', [DriverVerificationController::class, 'index'])
         ->name('admin.verification');
@@ -72,8 +57,10 @@ Route::prefix('admin')->middleware(['auth', 'role:admin'])->group(function () {
         ->name('admin.verification.documents.destroy');
 
     // Customers
-    Route::get('/pelanggan', fn () => view('admin.customers.index'))
+    Route::get('/pelanggan', [CustomerController::class, 'index'])
         ->name('admin.customers.index');
+    Route::patch('/pelanggan/{customer}/blacklist', [CustomerController::class, 'toggleBlacklist'])
+        ->name('admin.customers.blacklist');
 
     // Restaurants + nested Menus
     Route::prefix('restoran')->name('admin.restaurants.')->group(function () {
@@ -83,7 +70,6 @@ Route::prefix('admin')->middleware(['auth', 'role:admin'])->group(function () {
         Route::get('/{restaurant}/edit', [RestaurantController::class, 'edit'])->name('edit');
         Route::put('/{restaurant}', [RestaurantController::class, 'update'])->name('update');
         Route::delete('/{restaurant}', [RestaurantController::class, 'destroy'])->name('destroy');
-        Route::patch('/{restaurant}/toggle-status', [RestaurantController::class, 'toggleStatus'])->name('toggle-status');
 
         Route::get('/{restaurant}/menus', [RestaurantMenuController::class, 'index'])->name('menus.index');
         Route::post('/{restaurant}/menus', [RestaurantMenuController::class, 'store'])->name('menus.store');
@@ -92,7 +78,6 @@ Route::prefix('admin')->middleware(['auth', 'role:admin'])->group(function () {
     });
 
     // Settings
-    Route::get('/pengaturan', fn () => view('admin.settings.index'))
-        ->name('admin.settings');
+    Route::get('/pengaturan', SettingsController::class)->name('admin.settings');
 
 });

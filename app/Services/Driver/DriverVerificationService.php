@@ -6,6 +6,7 @@ use App\Exceptions\ApiException;
 use App\Models\Driver;
 use App\Models\DriverDocument;
 use App\Models\User;
+use App\Services\Admin\AdminPagination;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\UploadedFile;
@@ -138,7 +139,7 @@ class DriverVerificationService
             });
         }
 
-        $perPage = (int) ($filters['per_page'] ?? 10);
+        $perPage = (int) ($filters['per_page'] ?? AdminPagination::PER_PAGE);
         $paginator = $query->paginate(max(1, min($perPage, 50)));
 
         $paginator->setCollection(

@@ -22,7 +22,6 @@ class HomeService
         $hasLocation = $latitude !== null && $longitude !== null;
 
         $restaurantsQuery = Restaurant::query()
-            ->where('status', 'active')
             ->when($search !== '', function (Builder $query) use ($search): void {
                 $query->where(function (Builder $inner) use ($search): void {
                     $inner->where('name', 'like', "%{$search}%")

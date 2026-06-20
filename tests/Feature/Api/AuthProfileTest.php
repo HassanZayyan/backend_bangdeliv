@@ -61,7 +61,6 @@ class AuthProfileTest extends TestCase
             'longitude' => 106.81666600,
             'phone' => '081234567890',
             'banner_image' => null,
-            'status' => 'active',
         ]);
 
         $serviceType = ServiceType::query()->firstOrCreate(
@@ -155,7 +154,6 @@ class AuthProfileTest extends TestCase
             'longitude' => 106.81666600,
             'phone' => '081234567890',
             'banner_image' => null,
-            'status' => 'active',
         ]);
 
         $serviceType = ServiceType::query()->firstOrCreate(

@@ -4,334 +4,64 @@
 @section('page-title', 'Pengaturan Sistem')
 
 @section('content')
-@php
-    $deliveryPricingRows = [
-        [
-            'label' => 'Tarif dasar',
-            'value' => 'Rp '.number_format((int) config('bangdeliv.base_delivery_fee', 5000), 0, ',', '.'),
-            'note' => 'Biaya awal sebelum tarif jarak dihitung.',
-        ],
-        [
-            'label' => 'Rate 0-10 km',
-            'value' => 'Rp '.number_format((int) config('bangdeliv.delivery_rate_0_10_per_km', 2000), 0, ',', '.').'/km',
-            'note' => 'Dipakai untuk jarak pendek.',
-        ],
-        [
-            'label' => 'Rate 10-25 km',
-            'value' => 'Rp '.number_format((int) config('bangdeliv.delivery_rate_10_25_per_km', 2500), 0, ',', '.').'/km',
-            'note' => 'Dipakai untuk jarak menengah.',
-        ],
-        [
-            'label' => 'Rate 25-50 km',
-            'value' => 'Rp '.number_format((int) config('bangdeliv.delivery_rate_25_50_per_km', 3000), 0, ',', '.').'/km',
-            'note' => 'Dipakai untuk jarak jauh.',
-        ],
-        [
-            'label' => 'Jarak maksimum',
-            'value' => rtrim(rtrim((string) config('bangdeliv.max_delivery_distance', 50), '0'), '.').' km',
-            'note' => 'Order di luar batas ini ditolak oleh pricing service.',
-        ],
-    ];
-@endphp
-<div style="display: flex; flex-direction: column; gap: 24px;">
-
-    {{-- =====================================================
-         SEKSI 1: KONFIGURASI TARIF ONGKOS KIRIM
-         ===================================================== --}}
-    <div class="panel">
-        <div class="panel-header">
-            <div style="display: flex; align-items: center; gap: 12px;">
-                <div style="width: 38px; height: 38px; border-radius: 10px; background: rgba(240,91,36,0.1); color: var(--color-primary); display: flex; align-items: center; justify-content: center; font-size: 20px;">
-                    <i class='bx bx-money-withdraw'></i>
-                </div>
-                <div>
-                    <div class="panel-title">Konfigurasi Tarif Ongkos Kirim</div>
-                    <div style="font-size: 12px; color: var(--text-muted);">Nilai di bawah ini hanya snapshot konfigurasi aktif; perubahan dilakukan lewat env/config backend.</div>
-                    <div style="font-size: 12px; color: var(--text-muted);">Tarif dihitung otomatis: <code style="background:var(--bg-body); padding: 2px 6px; border-radius:4px; font-size:11px;">Ongkir = Tarif Dasar + (Jarak km × Tarif/km)</code></div>
-                </div>
-            </div>
-            <span style="display:inline-flex; align-items:center; gap:6px; padding:8px 12px; border-radius:999px; background:var(--bg-body); color:var(--text-muted); font-size:12px; font-weight:700;">
-                <i class='bx bx-lock-alt'></i> Tidak diedit di dashboard
-            </span>
+<section class="panel settings-overview-panel">
+    <div class="panel-header">
+        <div class="panel-title">Pengaturan Sistem</div>
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+            <span class="badge badge-info">Read-only</span>
+            <span class="badge badge-warning">Dikelola sistem</span>
         </div>
-        <div style="padding: 24px; display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 16px;">
+    </div>
+
+    <div class="settings-overview">
+        <div class="settings-section">
+            <div class="settings-section-title">Konfigurasi Tarif Ongkos Kirim</div>
+            <div class="settings-metric-grid">
             @foreach ($deliveryPricingRows as $row)
-                <div style="padding: 16px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-body);">
-                    <div style="font-size: 12px; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px;">{{ $row['label'] }}</div>
-                    <div style="font-size: 20px; color: var(--text-main); font-weight: 800; margin-top: 8px;">{{ $row['value'] }}</div>
-                    <div style="font-size: 12px; color: var(--text-muted); margin-top: 6px; line-height: 1.5;">{{ $row['note'] }}</div>
+                <div class="setting-metric">
+                    <span>{{ $row['label'] }}</span>
+                    <strong>{{ $row['value'] }}</strong>
+                    <small>{{ $row['note'] }}</small>
                 </div>
             @endforeach
-        </div>
-        <div style="margin: 0 24px 24px; padding: 14px 16px; background: rgba(59,130,246,0.08); border: 1px solid rgba(59,130,246,0.18); border-radius: 10px; color: var(--text-main); font-size: 13px; line-height: 1.6;">
-            <div style="font-weight: 700; margin-bottom: 4px;">Catatan pricing aktif</div>
-            <div>
-                Perubahan tarif dilakukan lewat env/config backend dan dipakai oleh <code>DeliveryPricingService</code>. Dashboard ini hanya menampilkan konfigurasi saat ini agar tidak ada tombol simpan palsu.
             </div>
         </div>
 
-        @if (false)
-            {{-- Tarif Dasar --}}
-            <div class="form-group" style="margin: 0;">
-                <label for="tarif_dasar">
-                    <i class='bx bx-flag' style="color:var(--color-primary);"></i> Tarif Dasar (Biaya Minimum)
-                </label>
-                <div style="position: relative; display: flex; align-items: center;">
-                    <span style="position: absolute; left: 14px; font-size: 14px; color: var(--text-muted); font-weight: 600; pointer-events:none;">Rp</span>
-                    <input id="tarif_dasar" type="number" class="form-control" value="5000" style="padding-left: 40px;" placeholder="Contoh: 5000">
+        <div class="settings-section">
+            <div class="settings-section-title">Notifikasi Admin</div>
+            <div class="settings-list settings-list-grid">
+                <div class="settings-row">
+                    <span>Driver pending</span>
+                    <strong>{{ $adminNotificationSummary['pending_drivers'] ?? 0 }}</strong>
                 </div>
-                <p style="font-size: 11px; color: var(--text-muted); margin-top: 5px;">Dikenakan untuk jarak ≤ 2 km pertama</p>
-            </div>
-
-            {{-- Tarif Per KM --}}
-            <div class="form-group" style="margin: 0;">
-                <label for="tarif_per_km">
-                    <i class='bx bx-cycling' style="color:var(--color-info);"></i> Tarif per Kilometer
-                </label>
-                <div style="position: relative; display: flex; align-items: center;">
-                    <span style="position: absolute; left: 14px; font-size: 14px; color: var(--text-muted); font-weight: 600; pointer-events:none;">Rp</span>
-                    <input id="tarif_per_km" type="number" class="form-control" value="2500" style="padding-left: 40px;" placeholder="Contoh: 2500">
+                <div class="settings-row">
+                    <span>Bukti QRIS pending</span>
+                    <strong>{{ $adminNotificationSummary['pending_payment_proofs'] ?? 0 }}</strong>
                 </div>
-                <p style="font-size: 11px; color: var(--text-muted); margin-top: 5px;">Dikenakan per km tambahan setelah 2 km pertama</p>
-            </div>
-
-            {{-- Batas Jarak --}}
-            <div class="form-group" style="margin: 0;">
-                <label for="batas_jarak">
-                    <i class='bx bx-map-alt' style="color:var(--color-danger);"></i> Batas Radius Maksimum
-                </label>
-                <div style="position: relative; display: flex; align-items: center;">
-                    <input id="batas_jarak" type="number" class="form-control" value="15" style="padding-right: 50px;" placeholder="Contoh: 15">
-                    <span style="position: absolute; right: 14px; font-size: 14px; color: var(--text-muted); font-weight: 600; pointer-events:none;">km</span>
-                </div>
-                <p style="font-size: 11px; color: var(--text-muted); margin-top: 5px;">Pesanan di luar radius ini akan ditolak otomatis</p>
-            </div>
-        @endif
-
-    </div>
-
-    {{-- =====================================================
-         SEKSI 2: BANNER & PENGUMUMAN DARURAT
-         ===================================================== --}}
-    <div class="panel">
-        <div class="panel-header">
-            <div style="display: flex; align-items: center; gap: 12px;">
-                <div style="width: 38px; height: 38px; border-radius: 10px; background: rgba(245,158,11,0.1); color: var(--color-warning); display: flex; align-items: center; justify-content: center; font-size: 20px;">
-                    <i class='bx bx-bell'></i>
-                </div>
-                <div>
-                    <div class="panel-title">Banner & Pengumuman Darurat</div>
-                    <div style="font-size: 12px; color: var(--text-muted);">Banner driver sibuk berjalan secara otomatis. Override manual untuk kondisi darurat.</div>
-                </div>
-            </div>
-            <button class="btn btn-primary" onclick="showSaved('banner')">
-                <i class='bx bx-save'></i> Simpan Pengaturan
-            </button>
-        </div>
-        <div style="padding: 24px; display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
-            {{-- Auto Banner Status --}}
-            <div>
-                <div style="font-size: 14px; font-weight: 600; margin-bottom: 16px; color: var(--text-main);">Status Otomatis Sistem</div>
-                
-                <div style="padding: 16px; border-radius: 10px; border: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                    <div>
-                        <div style="font-size: 14px; font-weight: 600;">Deteksi Driver Sibuk Otomatis</div>
-                        <div style="font-size: 12px; color: var(--text-muted);">Banner tampil di app Flutter jika 100% driver offline/busy</div>
-                    </div>
-                    <label class="toggle-switch">
-                        <input type="checkbox" checked>
-                        <span class="toggle-slider"></span>
-                    </label>
-                </div>
-
-                <div style="padding: 12px 16px; background: rgba(16,185,129,0.08); border-radius: 8px; border-left: 3px solid var(--color-success); display: flex; align-items: center; gap: 8px;">
-                    <i class='bx bx-check-circle' style="color: var(--color-success); font-size: 18px;"></i>
-                    <div>
-                        <div style="font-size: 13px; font-weight: 600; color: var(--color-success);">Sistem Berjalan Normal</div>
-                        <div style="font-size: 11px; color: var(--text-muted);">8 driver aktif — banner tidak terpicu</div>
-                    </div>
-                </div>
-            </div>
-
-            {{-- Manual Override --}}
-            <div>
-                <div style="font-size: 14px; font-weight: 600; margin-bottom: 16px; color: var(--text-main);">Manual Override Darurat</div>
-                
-                <div style="padding: 16px; border-radius: 10px; border: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                    <div>
-                        <div style="font-size: 14px; font-weight: 600;">Paksa Tampilkan Banner</div>
-                        <div style="font-size: 12px; color: var(--text-muted);">Override manual — banner tampil meski ada driver tersedia</div>
-                    </div>
-                    <label class="toggle-switch">
-                        <input type="checkbox" id="overrideToggle" onchange="toggleBannerWarning(this)">
-                        <span class="toggle-slider"></span>
-                    </label>
-                </div>
-
-                <div class="form-group" style="margin: 0;">
-                    <label for="banner_text">Teks Banner yang Ditampilkan di App</label>
-                    <textarea id="banner_text" class="form-control" rows="3" placeholder="Contoh: Mohon maaf, seluruh driver BangDeliv sedang sangat sibuk. Silakan coba beberapa menit lagi.">Mohon maaf, seluruh driver BangDeliv sedang sangat sibuk. Silakan coba beberapa menit lagi.</textarea>
+                <div class="settings-row">
+                    <span>Total antrean</span>
+                    <strong>{{ $adminNotificationSummary['total_pending'] ?? 0 }}</strong>
                 </div>
             </div>
         </div>
 
-        {{-- Warning saat override aktif --}}
-        <div id="bannerWarning" style="display:none; margin: 0 24px 24px; padding: 14px 16px; background: rgba(239,68,68,0.08); border-radius: 10px; border-left: 3px solid var(--color-danger); display: none; align-items: center; gap: 10px;">
-            <i class='bx bx-error' style="color: var(--color-danger); font-size: 20px; flex-shrink:0;"></i>
-            <span style="font-size: 13px; color: var(--color-danger); font-weight: 500;">Override manual aktif! Banner darurat sedang ditampilkan di aplikasi Flutter meskipun ada driver yang tersedia.</span>
-        @endif
-    </div>
-
-    {{-- =====================================================
-         SEKSI 3: PROFIL & KEAMANAN ADMIN
-         ===================================================== --}}
-    <div class="panel">
-        <div class="panel-header">
-            <div style="display: flex; align-items: center; gap: 12px;">
-                <div style="width: 38px; height: 38px; border-radius: 10px; background: rgba(59,130,246,0.1); color: var(--color-info); display: flex; align-items: center; justify-content: center; font-size: 20px;">
-                    <i class='bx bx-user-circle'></i>
-                </div>
-                <div>
-                    <div class="panel-title">Profil & Keamanan Akun Admin</div>
-                    <div style="font-size: 12px; color: var(--text-muted);">Kelola identitas dan keamanan akun Anda</div>
-                </div>
-            </div>
-        </div>
-        <div style="padding: 24px; display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
-            {{-- Profile Info --}}
-            <div>
-                <div style="font-size: 14px; font-weight: 600; margin-bottom: 16px; color: var(--text-main);">Informasi Profil</div>
+        <div class="settings-section">
+            <div class="settings-section-title">Profil Admin</div>
+            <div class="settings-form-grid">
                 <div class="form-group">
-                    <label for="admin_name">Nama Tampilan</label>
-                    <input id="admin_name" type="text" class="form-control" value="{{ Auth::user()->name ?? 'Super Admin' }}" placeholder="Nama Anda">
-                </div>
-                <div class="form-group" style="margin-bottom: 0;">
-                    <label for="admin_email">Alamat Email</label>
-                    <input id="admin_email" type="email" class="form-control" value="{{ Auth::user()->email ?? 'admin@bangdeliv.com' }}" placeholder="email@bangdeliv.com">
-                </div>
-                <button class="btn btn-primary" style="margin-top: 20px;" onclick="showSaved('profil')">
-                    <i class='bx bx-save'></i> Simpan Profil
-                </button>
-            </div>
-
-            {{-- Change Password --}}
-            <div>
-                <div style="font-size: 14px; font-weight: 600; margin-bottom: 16px; color: var(--text-main);">Ganti Password</div>
-                <div class="form-group">
-                    <label for="old_password">Password Saat Ini</label>
-                    <div style="position: relative;">
-                        <input id="old_password" type="password" class="form-control" placeholder="Masukkan password lama" style="padding-right: 40px;">
-                        <button onclick="togglePwd('old_password', this)" type="button" style="position:absolute; right:12px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:18px;">
-                            <i class='bx bx-hide'></i>
-                        </button>
-                    </div>
+                    <label for="admin_name">Nama</label>
+                    <input id="admin_name" type="text" class="form-control" value="{{ Auth::user()->name ?? 'Super Admin' }}" readonly>
                 </div>
                 <div class="form-group">
-                    <label for="new_password">Password Baru</label>
-                    <div style="position: relative;">
-                        <input id="new_password" type="password" class="form-control" placeholder="Minimal 8 karakter" style="padding-right: 40px;">
-                        <button onclick="togglePwd('new_password', this)" type="button" style="position:absolute; right:12px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:18px;">
-                            <i class='bx bx-hide'></i>
-                        </button>
-                    </div>
+                    <label for="admin_email">Email</label>
+                    <input id="admin_email" type="email" class="form-control" value="{{ Auth::user()->email ?? '-' }}" readonly>
                 </div>
-                <div class="form-group" style="margin-bottom: 0;">
-                    <label for="confirm_password">Konfirmasi Password Baru</label>
-                    <div style="position: relative;">
-                        <input id="confirm_password" type="password" class="form-control" placeholder="Ulangi password baru" style="padding-right: 40px;">
-                        <button onclick="togglePwd('confirm_password', this)" type="button" style="position:absolute; right:12px; top:50%; transform:translateY(-50%); background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:18px;">
-                            <i class='bx bx-hide'></i>
-                        </button>
-                    </div>
+                <div class="form-group">
+                    <label for="admin_role">Role</label>
+                    <input id="admin_role" type="text" class="form-control" value="{{ ucfirst(Auth::user()->role ?? 'admin') }}" readonly>
                 </div>
-                <button class="btn" style="margin-top: 20px; background: rgba(239,68,68,0.1); color: var(--color-danger); border: 1px solid rgba(239,68,68,0.2);" onclick="showSaved('password')">
-                    <i class='bx bx-lock-open-alt'></i> Perbarui Password
-                </button>
             </div>
         </div>
     </div>
-</div>
+</section>
 @endsection
-
-@push('scripts')
-<script>
-// Toggle password visibility
-function togglePwd(inputId, btn) {
-    const input = document.getElementById(inputId);
-    const icon = btn.querySelector('i');
-    if (input.type === 'password') {
-        input.type = 'text';
-        icon.className = 'bx bx-show';
-    } else {
-        input.type = 'password';
-        icon.className = 'bx bx-hide';
-    }
-}
-
-// Banner override warning
-function toggleBannerWarning(checkbox) {
-    const warning = document.getElementById('bannerWarning');
-    warning.style.display = checkbox.checked ? 'flex' : 'none';
-}
-
-// Save feedback toast
-function showSaved(section) {
-    const names = {
-        banner: 'Pengaturan Banner',
-        profil: 'Profil Admin',
-        password: 'Password',
-    };
-    const toast = document.createElement('div');
-    toast.style.cssText = `
-        position: fixed; bottom: 30px; right: 30px; z-index: 9999;
-        background: var(--color-success); color: white;
-        padding: 14px 22px; border-radius: 10px; font-weight: 600; font-size: 14px;
-        display: flex; align-items: center; gap: 10px;
-        box-shadow: 0 8px 24px rgba(0,0,0,0.2);
-        animation: slideIn 0.3s ease;
-    `;
-    toast.innerHTML = `<i class='bx bx-check-circle' style="font-size:20px;"></i> ${names[section]} berhasil disimpan!`;
-    document.body.appendChild(toast);
-    setTimeout(() => { toast.style.opacity = '0'; toast.style.transition = 'opacity 0.3s'; setTimeout(() => toast.remove(), 300); }, 2500);
-}
-</script>
-<style>
-@keyframes slideIn {
-    from { transform: translateX(40px); opacity: 0; }
-    to   { transform: translateX(0);    opacity: 1; }
-}
-
-/* Toggle Switch */
-.toggle-switch {
-    position: relative;
-    display: inline-block;
-    width: 48px;
-    height: 26px;
-    flex-shrink: 0;
-}
-.toggle-switch input { opacity: 0; width: 0; height: 0; }
-.toggle-slider {
-    position: absolute;
-    cursor: pointer;
-    top: 0; left: 0; right: 0; bottom: 0;
-    background-color: var(--border-color);
-    border-radius: 26px;
-    transition: 0.3s;
-}
-.toggle-slider:before {
-    position: absolute;
-    content: "";
-    height: 20px; width: 20px;
-    left: 3px; bottom: 3px;
-    background-color: white;
-    border-radius: 50%;
-    transition: 0.3s;
-}
-.toggle-switch input:checked + .toggle-slider {
-    background-color: var(--color-primary);
-}
-.toggle-switch input:checked + .toggle-slider:before {
-    transform: translateX(22px);
-}
-</style>
-@endpush

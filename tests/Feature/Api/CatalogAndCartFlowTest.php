@@ -10,7 +10,7 @@ class CatalogAndCartFlowTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_restaurant_list_returns_only_active_restaurants(): void
+    public function test_restaurant_list_returns_restaurants_without_status_filter(): void
     {
         Restaurant::query()->create([
             'name' => 'Resto Aktif',
@@ -21,27 +21,26 @@ class CatalogAndCartFlowTest extends TestCase
             'longitude' => 106.81666600,
             'phone' => '081234567890',
             'banner_image' => null,
-            'status' => 'active',
         ]);
 
         Restaurant::query()->create([
-            'name' => 'Resto Inaktif',
-            'slug' => 'resto-inaktif',
+            'name' => 'Resto Kedua',
+            'slug' => 'resto-kedua',
             'description' => null,
-            'address' => 'Jl. Inaktif',
+            'address' => 'Jl. Kedua',
             'latitude' => -6.21000000,
             'longitude' => 106.82666600,
             'phone' => '081111111111',
             'banner_image' => null,
-            'status' => 'inactive',
         ]);
 
-        $response = $this->getJson('/api/v1/restaurants');
+        $response = $this->getJson('/api/v1/restaurants?sort=name');
 
         $response->assertOk()
             ->assertJsonPath('success', true)
-            ->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.slug', 'resto-aktif');
+            ->assertJsonCount(2, 'data')
+            ->assertJsonPath('data.0.slug', 'resto-aktif')
+            ->assertJsonPath('data.1.slug', 'resto-kedua');
     }
 
     public function test_restaurant_list_accepts_name_sort_for_shopping_merchant_picker(): void
@@ -56,7 +55,6 @@ class CatalogAndCartFlowTest extends TestCase
             'longitude' => 106.81666600,
             'phone' => '081234567890',
             'banner_image' => null,
-            'status' => 'active',
         ]);
 
         Restaurant::query()->create([
@@ -69,7 +67,6 @@ class CatalogAndCartFlowTest extends TestCase
             'longitude' => 106.82666600,
             'phone' => '081111111111',
             'banner_image' => null,
-            'status' => 'active',
         ]);
 
         $response = $this->getJson('/api/v1/restaurants?sort=name&per_page=20');

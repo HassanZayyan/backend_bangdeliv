@@ -651,25 +651,6 @@ class OrderController extends Controller
         }
     }
 
-    public function recordFailedAttemptByAdmin(RecordFailedAttemptRequest $request, int $orderId): JsonResponse
-    {
-        try {
-            $order = $this->orderService->recordFailedAttempt(
-                $request->user(),
-                $orderId,
-                (string) $request->input('failure_type'),
-                (string) $request->input('reason'),
-                $request->filled('pickup_location_id')
-                    ? $request->integer('pickup_location_id')
-                    : null
-            );
-
-            return $this->success($order, 'Failed attempt berhasil dicatat oleh admin.');
-        } catch (ApiException $exception) {
-            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
-        }
-    }
-
     public function recordCodCollectionByDriver(RecordCodPaymentRequest $request, int $orderId): JsonResponse
     {
         try {
@@ -696,17 +677,6 @@ class OrderController extends Controller
             );
 
             return $this->success($payload, 'Pembayaran QRIS berhasil dicatat.');
-        } catch (ApiException $exception) {
-            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
-        }
-    }
-
-    public function recordCodCollectionByAdmin(RecordCodPaymentRequest $request, int $orderId): JsonResponse
-    {
-        try {
-            $order = $this->orderService->recordCodPaymentByAdmin($request->user(), $orderId, $request->validated());
-
-            return $this->success($order, 'Pembayaran COD berhasil dicatat oleh admin.');
         } catch (ApiException $exception) {
             return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
         }

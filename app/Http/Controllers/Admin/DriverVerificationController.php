@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Exceptions\ApiException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\AdminReviewDriverDocumentsRequest;
+use App\Services\Admin\AdminPagination;
 use App\Services\Driver\DriverVerificationService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -27,7 +28,7 @@ class DriverVerificationController extends Controller
             'search' => $search,
             'queue_filter' => $statusFilter,
             'page' => $request->query('page', 1),
-            'per_page' => 10,
+            'per_page' => AdminPagination::PER_PAGE,
         ]);
 
         $summaryCounts = $this->service->queueSummaryCounts();

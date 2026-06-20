@@ -97,8 +97,6 @@ Route::prefix('v1')->group(function () {
     });
 
     Route::middleware(['auth:sanctum', 'role:admin'])->group(function () {
-        Route::post('/admin/orders/{orderId}/attempt-failed', [OrderController::class, 'recordFailedAttemptByAdmin'])->name('api.v1.admin.orders.attempt-failed');
-        Route::post('/admin/orders/{orderId}/payment/record-cod', [OrderController::class, 'recordCodCollectionByAdmin'])->name('api.v1.admin.orders.payment.record-cod');
         Route::get('/admin/payments/cod-settlement', [OrderController::class, 'codSettlementReport'])->name('api.v1.admin.payments.cod-settlement');
 
         Route::get('/admin/drivers/verification', [DriverVerificationController::class, 'adminIndex'])->name('api.v1.admin.drivers.verification.index');

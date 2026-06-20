@@ -5,13 +5,14 @@ namespace Tests\Feature\Admin;
 use App\Models\Restaurant;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 class RestaurantCrudTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_admin_can_create_update_toggle_and_delete_restaurant(): void
+    public function test_admin_can_create_update_and_delete_restaurant(): void
     {
         $admin = User::factory()->create([
             'role' => 'admin',
@@ -27,7 +28,6 @@ class RestaurantCrudTest extends TestCase
                 'latitude' => -6.2,
                 'longitude' => 106.8,
                 'phone' => '081233330099',
-                'status' => 'active',
             ])
             ->assertRedirect(route('admin.restaurants.index'));
 
@@ -42,7 +42,6 @@ class RestaurantCrudTest extends TestCase
                 'latitude' => -6.21,
                 'longitude' => 106.81,
                 'phone' => '081233330099',
-                'status' => 'active',
             ])
             ->assertRedirect(route('admin.restaurants.index'));
 
@@ -50,17 +49,15 @@ class RestaurantCrudTest extends TestCase
         $this->assertSame('resto-test-admin-updated', $restaurant->slug);
 
         $this->actingAs($admin)
-            ->patch(route('admin.restaurants.toggle-status', $restaurant))
-            ->assertRedirect(route('admin.restaurants.index'));
-
-        $restaurant->refresh();
-        $this->assertSame('inactive', $restaurant->status);
-
-        $this->actingAs($admin)
             ->delete(route('admin.restaurants.destroy', $restaurant))
             ->assertRedirect(route('admin.restaurants.index'));
 
         $this->assertSoftDeleted('restaurants', ['id' => $restaurant->id]);
+    }
+
+    public function test_restaurants_table_has_no_status_column(): void
+    {
+        $this->assertFalse(Schema::hasColumn('restaurants', 'status'));
     }
 
     public function test_admin_can_create_update_and_delete_menu(): void
@@ -78,7 +75,6 @@ class RestaurantCrudTest extends TestCase
             'latitude' => -6.2,
             'longitude' => 106.8,
             'phone' => '081244440001',
-            'status' => 'active',
         ]);
 
         $this->actingAs($admin)
@@ -113,5 +109,55 @@ class RestaurantCrudTest extends TestCase
             ->assertRedirect(route('admin.restaurants.menus.index', $restaurant));
 
         $this->assertSoftDeleted('menus', ['id' => $menu->id]);
+    }
+
+    public function test_restaurant_toggle_status_route_is_removed(): void
+    {
+        $admin = User::factory()->create([
+            'role' => 'admin',
+            'phone' => '081300000003',
+        ]);
+
+        $restaurant = Restaurant::query()->create([
+            'name' => 'Resto No Status',
+            'slug' => 'resto-no-status',
+            'description' => null,
+            'address' => 'Jl. No Status',
+            'latitude' => -6.2,
+            'longitude' => 106.8,
+            'phone' => '081244440002',
+        ]);
+
+        $this->actingAs($admin)
+            ->patch('/admin/restoran/'.$restaurant->id.'/toggle-status')
+            ->assertNotFound();
+    }
+
+    public function test_restaurant_index_hides_status_ui(): void
+    {
+        $admin = User::factory()->create([
+            'role' => 'admin',
+            'phone' => '081300000004',
+        ]);
+
+        Restaurant::query()->create([
+            'name' => 'Resto Clean UI',
+            'slug' => 'resto-clean-ui',
+            'description' => null,
+            'address' => 'Jl. Clean UI',
+            'latitude' => -6.2,
+            'longitude' => 106.8,
+            'phone' => '081244440003',
+        ]);
+
+        $this->actingAs($admin)
+            ->get(route('admin.restaurants.index'))
+            ->assertOk()
+            ->assertSee('Resto Clean UI')
+            ->assertDontSee('Status Live')
+            ->assertDontSee('aktif/nonaktif')
+            ->assertDontSee('Suspended')
+            ->assertDontSee('Tutup (Luar Jam)')
+            ->assertDontSee('toggle-status');
     }
 }

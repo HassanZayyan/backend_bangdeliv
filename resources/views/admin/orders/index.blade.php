@@ -1,145 +1,10 @@
 @extends('layouts.admin')
 
 @section('title', 'Pesanan - Admin BangDeliv')
-@section('page-title', 'Manajemen Pesanan')
+@section('page-title', 'Monitoring Pesanan')
 
 @section('content')
 @php
-    $serviceTypeCodeToId = \App\Models\ServiceType::query()->pluck('id', 'code');
-    $serviceFilters = [
-        'all' => ['label' => 'Semua Layanan', 'code' => null, 'badge_class' => 'badge-info'],
-        'shopping' => ['label' => 'Titip Belanja', 'code' => 'SHOPPING', 'badge_class' => 'badge-warning'],
-        'courier' => ['label' => 'Kurir', 'code' => 'COURIER', 'badge_class' => 'badge-info'],
-        'ride' => ['label' => 'Antar Jemput', 'code' => 'RIDE', 'badge_class' => 'badge-success'],
-    ];
-
-    $selectedService = (string) request()->query('service', 'all');
-    if (!array_key_exists($selectedService, $serviceFilters)) {
-        $selectedService = 'all';
-    }
-
-    $selectedServiceCode = $serviceFilters[$selectedService]['code'];
-    $selectedServiceTypeId = $selectedServiceCode ? ($serviceTypeCodeToId[$selectedServiceCode] ?? null) : null;
-    $isCourierView = $selectedService === 'courier';
-    $isRideView = $selectedService === 'ride';
-
-    if ($isCourierView) {
-        $searchPlaceholder = 'Cari ID, pelanggan, deskripsi paket, deadline...';
-    } elseif ($isRideView) {
-        $searchPlaceholder = 'Cari ID, pelanggan, catatan perjalanan...';
-    } else {
-        $searchPlaceholder = 'Cari ID, pelanggan, alamat, resto, paket...';
-    }
-
-    $serviceCounts = [
-        'all' => \App\Models\Order::count(),
-        'shopping' => isset($serviceTypeCodeToId['SHOPPING'])
-            ? \App\Models\Order::where('service_type_id', $serviceTypeCodeToId['SHOPPING'])->count()
-            : 0,
-        'courier' => isset($serviceTypeCodeToId['COURIER'])
-            ? \App\Models\Order::where('service_type_id', $serviceTypeCodeToId['COURIER'])->count()
-            : 0,
-        'ride' => isset($serviceTypeCodeToId['RIDE'])
-            ? \App\Models\Order::where('service_type_id', $serviceTypeCodeToId['RIDE'])->count()
-            : 0,
-    ];
-
-    $statusCodeToId = \App\Models\OrderStatus::query()->pluck('id', 'code');
-    $statusFilters = [
-        'all' => ['label' => 'Semua', 'codes' => null, 'badge_class' => null],
-        'pending' => ['label' => 'Menunggu Driver', 'codes' => ['PENDING'], 'badge_class' => 'badge-warning'],
-        'driver_assigned' => ['label' => 'Driver Ditugaskan', 'codes' => ['DRIVER_ASSIGNED', 'PICKED_UP'], 'badge_class' => 'badge-info'],
-        'on_the_way' => ['label' => 'Diantar', 'codes' => ['ON_THE_WAY'], 'badge_class' => 'badge-info'],
-        'completed' => ['label' => 'Selesai', 'codes' => ['DELIVERED', 'COMPLETED'], 'badge_class' => 'badge-success'],
-        'cancelled' => ['label' => 'Batal', 'codes' => ['CANCELLED', 'CANCELLED_WITH_FEE'], 'badge_class' => 'badge-danger'],
-    ];
-
-    $selectedStatus = (string) request()->query('status', 'all');
-    if (!array_key_exists($selectedStatus, $statusFilters)) {
-        $selectedStatus = 'all';
-    }
-
-    $statusIdsByFilter = [];
-    foreach ($statusFilters as $statusKey => $config) {
-        $statusIdsByFilter[$statusKey] = collect($config['codes'] ?? [])
-            ->map(fn ($code) => $statusCodeToId[$code] ?? null)
-            ->filter()
-            ->values()
-            ->all();
-    }
-
-    $statusCountBaseQuery = \App\Models\Order::query();
-    if ($selectedService !== 'all') {
-        if ($selectedServiceTypeId) {
-            $statusCountBaseQuery->where('service_type_id', $selectedServiceTypeId);
-        } else {
-            $statusCountBaseQuery->whereRaw('1 = 0');
-        }
-    }
-
-    $statusCounts = [];
-    foreach ($statusFilters as $statusKey => $config) {
-        $query = clone $statusCountBaseQuery;
-
-        if ($statusKey !== 'all') {
-            $statusIds = $statusIdsByFilter[$statusKey] ?? [];
-            if (empty($statusIds)) {
-                $query->whereRaw('1 = 0');
-            } else {
-                $query->whereIn('status_id', $statusIds);
-            }
-        }
-
-        $statusCounts[$statusKey] = $query->count();
-    }
-
-    $search = trim((string) request()->query('q', ''));
-
-    $ordersQuery = \App\Models\Order::query()
-        ->with(['user', 'restaurant', 'driver.user', 'statusRef', 'serviceType', 'courierOrder', 'rideOrder', 'orderLocations', 'payments', 'evidences']);
-
-    if ($selectedService !== 'all') {
-        if ($selectedServiceTypeId) {
-            $ordersQuery->where('service_type_id', $selectedServiceTypeId);
-        } else {
-            $ordersQuery->whereRaw('1 = 0');
-        }
-    }
-
-    if ($selectedStatus !== 'all') {
-        $statusIds = $statusIdsByFilter[$selectedStatus] ?? [];
-        if (empty($statusIds)) {
-            $ordersQuery->whereRaw('1 = 0');
-        } else {
-            $ordersQuery->whereIn('status_id', $statusIds);
-        }
-    }
-
-    if ($search !== '') {
-        $ordersQuery->where(function ($query) use ($search) {
-            $query->where('order_number', 'like', "%{$search}%")
-                ->orWhereHas('orderLocations', function ($locationQuery) use ($search) {
-                    $locationQuery->where('full_address', 'like', "%{$search}%");
-                })
-                ->orWhereHas('user', function ($userQuery) use ($search) {
-                    $userQuery->where('name', 'like', "%{$search}%")
-                        ->orWhere('phone', 'like', "%{$search}%");
-                })
-                ->orWhereHas('restaurant', function ($restaurantQuery) use ($search) {
-                    $restaurantQuery->where('name', 'like', "%{$search}%");
-                })
-                ->orWhereHas('courierOrder', function ($courierQuery) use ($search) {
-                    $courierQuery->where('package_description', 'like', "%{$search}%")
-                        ->orWhere('complaint_reason', 'like', "%{$search}%");
-                });
-        });
-    }
-
-    $orders = $ordersQuery
-        ->latest('created_at')
-        ->paginate(20)
-        ->withQueryString();
-
     $buildQuery = function (array $overrides): array {
         $query = array_merge(request()->except('page'), $overrides);
         foreach ($query as $key => $value) {
@@ -150,284 +15,120 @@
 
         return $query;
     };
-
-    $serviceBadgeMap = [
-        'SHOPPING' => ['label' => 'Titip Belanja', 'class' => 'badge-warning'],
-        'COURIER' => ['label' => 'Kurir', 'class' => 'badge-info'],
-        'RIDE' => ['label' => 'Antar Jemput', 'class' => 'badge-success'],
-    ];
-
-    $statusMap = [
-        'PENDING' => ['label' => 'Menunggu Driver', 'class' => 'badge-warning'],
-        'DRIVER_ASSIGNED' => ['label' => 'Driver Ditugaskan', 'class' => 'badge-info'],
-        'PICKED_UP' => ['label' => 'Pickup', 'class' => 'badge-info'],
-        'ON_THE_WAY' => ['label' => 'Diantar', 'class' => 'badge-info'],
-        'DELIVERED' => ['label' => 'Terkirim', 'class' => 'badge-success'],
-        'COMPLETED' => ['label' => 'Selesai', 'class' => 'badge-success'],
-        'CANCELLED' => ['label' => 'Dibatalkan', 'class' => 'badge-danger'],
-        'CANCELLED_WITH_FEE' => ['label' => 'Batal Dengan Biaya', 'class' => 'badge-danger'],
-    ];
-
-    $resultStart = $orders->firstItem() ?? 0;
-    $resultEnd = $orders->lastItem() ?? 0;
-    $emptyColspan = $isCourierView ? 8 : ($isRideView ? 9 : 8);
 @endphp
-<div class="panel">
-    <div class="panel-header" style="flex-direction: column; align-items: stretch; gap: 20px;">
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-            <div class="panel-title">Daftar Pesanan - {{ $serviceFilters[$selectedService]['label'] }}</div>
 
-            <form class="search-bar" style="width: 360px;" method="GET" action="{{ route('admin.orders.index') }}">
+<section class="panel">
+    <div class="panel-header stack">
+        <div class="toolbar-row">
+            <div>
+                <div class="panel-title">Daftar Pesanan</div>
+                <div class="panel-description">Admin memantau status, driver, dan bukti QRIS tanpa mengubah lifecycle order.</div>
+            </div>
+
+            <form class="search-bar" method="GET" action="{{ route('admin.orders.index') }}">
                 <input type="hidden" name="service" value="{{ $selectedService }}">
                 <input type="hidden" name="status" value="{{ $selectedStatus }}">
-                <i class='bx bx-search'></i>
+                <i class="bx bx-search" aria-hidden="true"></i>
                 <input
                     type="text"
                     name="q"
                     value="{{ $search }}"
                     placeholder="{{ $searchPlaceholder }}"
-                    style="width: 100%;"
+                    aria-label="Cari pesanan"
                 >
             </form>
         </div>
 
-        <div class="tabs" style="margin-top: 0;">
-            @foreach($serviceFilters as $serviceKey => $serviceConfig)
-                <a
-                    href="{{ route('admin.orders.index', $buildQuery(['service' => $serviceKey, 'status' => 'all'])) }}"
-                    class="tab-btn {{ $selectedService === $serviceKey ? 'active' : '' }}"
-                    style="text-decoration:none;"
-                >
-                    {{ $serviceConfig['label'] }}
-                    <span class="badge {{ $serviceConfig['badge_class'] }}" style="margin-left:5px;">{{ $serviceCounts[$serviceKey] ?? 0 }}</span>
-                </a>
-            @endforeach
-        </div>
-
-        <div class="tabs">
+        <div class="tabs compact-tabs">
             @foreach($statusFilters as $statusKey => $statusConfig)
                 <a
                     href="{{ route('admin.orders.index', $buildQuery(['status' => $statusKey])) }}"
                     class="tab-btn {{ $selectedStatus === $statusKey ? 'active' : '' }}"
-                    style="text-decoration:none;"
                 >
                     {{ $statusConfig['label'] }}
                     @if($statusKey !== 'all')
-                        <span class="badge {{ $statusConfig['badge_class'] }}" style="margin-left:5px;">{{ $statusCounts[$statusKey] ?? 0 }}</span>
+                        <span class="badge {{ $statusConfig['badge_class'] }}">{{ $statusCounts[$statusKey] ?? 0 }}</span>
                     @endif
                 </a>
             @endforeach
         </div>
     </div>
-    
+
     <div class="table-responsive">
         <table class="orders-table">
             <thead>
-                @if($isCourierView)
-                    <tr>
-                        <th>ID Pesanan</th>
-                        <th>Waktu</th>
-                        <th>Pelanggan</th>
-                        <th>Ringkasan Paket</th>
-                        <th>Bukti Foto</th>
-                        <th>Total</th>
-                        <th>Status</th>
-                        <th>Aksi</th>
-                    </tr>
-                @elseif($isRideView)
-                    <tr>
-                        <th>ID Pesanan</th>
-                        <th>Waktu</th>
-                        <th>Pelanggan</th>
-                        <th>Waktu Jemput</th>
-                        <th>Waktu Tiba</th>
-                        <th>Catatan Perjalanan</th>
-                        <th>Total</th>
-                        <th>Status</th>
-                        <th>Aksi</th>
-                    </tr>
-                @else
-                    <tr>
-                        <th>ID Pesanan</th>
-                        <th>Layanan</th>
-                        <th>Waktu</th>
-                        <th>Pelanggan</th>
-                        <th>Detail Layanan</th>
-                        <th>Total</th>
-                        <th>Status</th>
-                        <th>Aksi</th>
-                    </tr>
-                @endif
+                <tr>
+                    <th>Pesanan</th>
+                    <th>Customer</th>
+                    <th>Layanan</th>
+                    <th>Total & Pembayaran</th>
+                    <th>Status</th>
+                    <th>Driver</th>
+                    <th class="td-action">Detail</th>
+                </tr>
             </thead>
             <tbody>
                 @forelse($orders as $order)
                     @php
-                        $courierOrder = $order->courierOrder;
-                        $rideOrder = $order->rideOrder;
                         $serviceCode = $order->serviceType?->code ?? 'UNKNOWN';
                         $serviceConfig = $serviceBadgeMap[$serviceCode] ?? ['label' => $serviceCode, 'class' => 'badge-info'];
                         $statusCode = $order->statusRef?->code ?? 'UNKNOWN';
                         $statusConfig = $statusMap[$statusCode] ?? ['label' => $statusCode, 'class' => 'badge-info'];
-                        $detailUrl = route('admin.orders.show', ['order' => $order->id, 'back' => url()->full()]);
-
-                        $courierEvidenceCount = $order->evidences
-                            ->filter(fn ($evidence) => in_array(strtoupper((string) $evidence->evidence_type), ['PICKUP_PHOTO', 'DELIVERY_PHOTO', 'COURIER_DELIVERY_PHOTO', 'COURIER_RECEIVER_PHOTO'], true))
-                            ->count();
-                        if ($courierEvidenceCount > 0) {
-                            $requiresPhotoLabel = $courierEvidenceCount.' bukti';
-                            $requiresPhotoClass = 'badge-success';
-                        } else {
-                            $requiresPhotoLabel = 'Belum ada';
-                            $requiresPhotoClass = 'badge-info';
-                        }
+                        $payment = $order->payment;
+                        $paymentMethod = strtoupper((string) ($payment?->payment_method ?? $order->payment_method ?? 'COD'));
+                        $paymentStatus = strtoupper((string) ($payment?->payment_status ?? $order->payment_status ?? 'UNPAID'));
+                        $pendingProofCount = (int) ($order->pending_payment_proof_count ?? 0);
 
                         if ($serviceCode === 'SHOPPING') {
-                            $detailTitle = $order->restaurant->name ?? '-';
-                            $detailSub = \Illuminate\Support\Str::limit($order->delivery_address ?? '-', 45);
+                            $serviceSummary = $order->restaurant?->name ?? 'Titip belanja';
                         } elseif ($serviceCode === 'COURIER') {
-                            $detailTitle = $courierOrder?->package_description
-                                ? \Illuminate\Support\Str::limit($courierOrder->package_description, 40)
-                                : 'Paket Kurir';
-                            $detailSub = \Illuminate\Support\Str::limit($order->delivery_address ?? '-', 45);
-                        } elseif ($serviceCode === 'RIDE') {
-                            $pickupAt = $rideOrder?->picked_up_at?->format('H:i');
-                            $arrivedAt = $rideOrder?->arrived_at?->format('H:i');
-                            $detailTitle = 'Antar Jemput Penumpang';
-                            if ($pickupAt && $arrivedAt) {
-                                $detailSub = 'Pickup '.$pickupAt.' | Tiba '.$arrivedAt;
-                            } elseif ($pickupAt) {
-                                $detailSub = 'Pickup '.$pickupAt;
-                            } elseif ($arrivedAt) {
-                                $detailSub = 'Tiba '.$arrivedAt;
-                            } else {
-                                $detailSub = 'Perjalanan belum dimulai';
-                            }
+                            $serviceSummary = \Illuminate\Support\Str::limit($order->courierOrder?->package_description ?? 'Paket kurir', 42);
                         } else {
-                            $detailTitle = '-';
-                            $detailSub = '-';
+                            $serviceSummary = 'Antar jemput';
                         }
                     @endphp
-                    @if($isCourierView)
-                        <tr>
-                            <td class="td-id">#{{ $order->order_number }}</td>
-                            <td class="td-sub">{{ $order->created_at?->format('d M Y, H:i') ?? '-' }}</td>
-                            <td>
-                                <div class="td-user">
-                                    <span class="td-strong">{{ $order->user->name ?? '-' }}</span>
-                                    <span class="td-sub"><i class='bx bx-phone'></i> {{ $order->user->phone ?? '-' }}</span>
-                                </div>
-                            </td>
-                            <td>
-                                <div class="td-resto">
-                                    <span class="td-strong">{{ \Illuminate\Support\Str::limit($courierOrder?->package_description ?? '-', 55) }}</span>
-                                    <span class="td-sub">Detail bukti ada di order evidence.</span>
-                                </div>
-                            </td>
-                            <td>
-                                <div class="td-resto">
-                                    <span class="badge {{ $requiresPhotoClass }}">{{ $requiresPhotoLabel }}</span>
-                                </div>
-                            </td>
-                            <td class="td-price">Rp {{ number_format((float) $order->total_price, 0, ',', '.') }}</td>
-                            <td>
-                                <span class="badge {{ $statusConfig['class'] }}">
-                                    {{ $statusConfig['label'] }}
-                                </span>
-                            </td>
-                            <td class="td-action">
-                                <div style="display:flex; gap: 8px;">
-                                    <a href="{{ $detailUrl }}" class="btn-action detail" title="Lihat Detail & Aksi" style="text-decoration:none;"><i class='bx bx-show'></i></a>
-                                </div>
-                            </td>
-                        </tr>
-                    @elseif($isRideView)
-                        <tr>
-                            <td class="td-id">#{{ $order->order_number }}</td>
-                            <td class="td-sub">{{ $order->created_at?->format('d M Y, H:i') ?? '-' }}</td>
-                            <td>
-                                <div class="td-user">
-                                    <span class="td-strong">{{ $order->user->name ?? '-' }}</span>
-                                    <span class="td-sub"><i class='bx bx-phone'></i> {{ $order->user->phone ?? '-' }}</span>
-                                </div>
-                            </td>
-                            <td class="td-sub">{{ $rideOrder?->picked_up_at?->format('d M Y, H:i') ?? '-' }}</td>
-                            <td class="td-sub">{{ $rideOrder?->arrived_at?->format('d M Y, H:i') ?? '-' }}</td>
-                            <td class="td-sub">-</td>
-                            <td class="td-price">Rp {{ number_format((float) $order->total_price, 0, ',', '.') }}</td>
-                            <td>
-                                <span class="badge {{ $statusConfig['class'] }}">
-                                    {{ $statusConfig['label'] }}
-                                </span>
-                            </td>
-                            <td class="td-action">
-                                <div style="display:flex; gap: 8px;">
-                                    <a href="{{ $detailUrl }}" class="btn-action detail" title="Lihat Detail & Aksi" style="text-decoration:none;"><i class='bx bx-show'></i></a>
-                                </div>
-                            </td>
-                        </tr>
-                    @else
-                        <tr>
-                            <td class="td-id">#{{ $order->order_number }}</td>
-                            <td>
-                                <span class="badge {{ $serviceConfig['class'] }}">{{ $serviceConfig['label'] }}</span>
-                            </td>
-                            <td class="td-sub">{{ $order->created_at?->format('d M Y, H:i') }}</td>
-                            <td>
-                                <div class="td-user">
-                                    <span class="td-strong">{{ $order->user->name ?? '-' }}</span>
-                                    <span class="td-sub"><i class='bx bx-phone'></i> {{ $order->user->phone ?? '-' }}</span>
-                                </div>
-                            </td>
-                            <td>
-                                <div class="td-resto">
-                                    <span class="td-strong">{{ $detailTitle }}</span>
-                                    <span class="td-sub">{{ $detailSub }}</span>
-                                </div>
-                            </td>
-                            <td class="td-price">Rp {{ number_format((float) $order->total_price, 0, ',', '.') }}</td>
-                            <td>
-                                <span class="badge {{ $statusConfig['class'] }}">
-                                    {{ $statusConfig['label'] }}
-                                </span>
-                                @if($statusCode === 'ON_THE_WAY' && $order->driver?->user)
-                                    <div class="td-sub" style="margin-top:4px;">Driver: {{ $order->driver->user->name }}</div>
-                                @endif
-                            </td>
-                            <td class="td-action">
-                                <div style="display:flex; gap: 8px;">
-                                    <a href="{{ $detailUrl }}" class="btn-action detail" title="Lihat Detail & Aksi" style="text-decoration:none;"><i class='bx bx-show'></i></a>
-                                </div>
-                            </td>
-                        </tr>
-                    @endif
+                    <tr>
+                        <td>
+                            <span class="td-strong">#{{ $order->order_number }}</span>
+                            <span class="td-sub">{{ $order->created_at?->format('d M Y, H:i') ?? '-' }}</span>
+                        </td>
+                        <td>
+                            <span class="td-strong">{{ $order->user?->name ?? '-' }}</span>
+                            <span class="td-sub">{{ $order->user?->phone ?? '-' }}</span>
+                        </td>
+                        <td>
+                            <span class="badge {{ $serviceConfig['class'] }}">{{ $serviceConfig['label'] }}</span>
+                            <span class="td-sub row-note">{{ $serviceSummary }}</span>
+                        </td>
+                        <td>
+                            <span class="td-price">Rp {{ number_format((float) $order->total_price, 0, ',', '.') }}</span>
+                            <span class="td-sub">{{ $paymentMethod }} - {{ $paymentStatus }}</span>
+                            @if($pendingProofCount > 0)
+                                <span class="badge badge-warning row-note">{{ $pendingProofCount }} bukti pending</span>
+                            @endif
+                        </td>
+                        <td>
+                            <span class="badge {{ $statusConfig['class'] }}">{{ $statusConfig['label'] }}</span>
+                        </td>
+                        <td>
+                            <span class="td-strong">{{ $order->driver?->user?->name ?? '-' }}</span>
+                            <span class="td-sub">{{ $order->driver?->user?->phone ?? '' }}</span>
+                        </td>
+                        <td class="td-action">
+                            <a href="{{ route('admin.orders.show', ['order' => $order->id, 'back' => url()->full()]) }}" class="btn-action detail" title="Lihat detail" aria-label="Lihat detail pesanan {{ $order->order_number }}">
+                                <i class="bx bx-show" aria-hidden="true"></i>
+                            </a>
+                        </td>
+                    </tr>
                 @empty
                     <tr>
-                        <td colspan="{{ $emptyColspan }}" class="td-sub" style="text-align:center; padding:24px;">Belum ada data pesanan untuk filter ini.</td>
+                        <td colspan="7" class="empty-state">Belum ada data pesanan untuk filter ini.</td>
                     </tr>
                 @endforelse
             </tbody>
         </table>
     </div>
-    
-    <div class="panel-pagination" style="padding: 20px; border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center;">
-        <span style="font-size: 13px; color: var(--text-muted); font-weight: 500;">
-            Menampilkan {{ $resultStart }}-{{ $resultEnd }} dari {{ $orders->total() }} pesanan
-        </span>
-        <div class="pagination-controls" style="display: flex; gap: 6px;">
-            @if($orders->onFirstPage())
-                <span class="btn-page" style="opacity:0.5; cursor:not-allowed;">&laquo;</span>
-            @else
-                <a href="{{ $orders->previousPageUrl() }}" class="btn-page">&laquo;</a>
-            @endif
 
-            <span class="btn-page active">{{ $orders->currentPage() }}</span>
-
-            @if($orders->hasMorePages())
-                <a href="{{ $orders->nextPageUrl() }}" class="btn-page">&raquo;</a>
-            @else
-                <span class="btn-page" style="opacity:0.5; cursor:not-allowed;">&raquo;</span>
-            @endif
-        </div>
-    </div>
-</div>
+    <x-admin-pagination :paginator="$orders" label="pesanan" />
+</section>
 @endsection

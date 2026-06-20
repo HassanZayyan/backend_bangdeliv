@@ -700,7 +700,7 @@ class Order extends Model
                     'evidence_type' => strtoupper((string) $evidence->evidence_type),
                     'photo_url' => $evidence->file_url,
                     'file_url' => $evidence->file_url,
-                    'status' => strtolower((string) ($evidence->verification_status ?? 'pending')),
+                    'status' => 'pending',
                     'uploaded_at' => $evidence->uploaded_at?->toIso8601String() ?? $evidence->created_at?->toIso8601String(),
                     'note' => $evidence->notes,
                 ];

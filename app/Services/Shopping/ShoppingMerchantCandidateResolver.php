@@ -39,12 +39,11 @@ class ShoppingMerchantCandidateResolver
 
         if (isset($payload['merchant_id']) && is_numeric($payload['merchant_id'])) {
             $merchant = Restaurant::query()
-                ->where('status', 'active')
                 ->whereKey((int) $payload['merchant_id'])
                 ->first();
 
             if (! $merchant) {
-                throw new ApiException('Merchant tidak ditemukan atau tidak aktif.', 404);
+                throw new ApiException('Merchant tidak ditemukan.', 404);
             }
 
             return ShoppingMerchantCandidate::fromRestaurant($merchant);
@@ -60,25 +59,24 @@ class ShoppingMerchantCandidateResolver
     {
         if (isset($payload['merchant_id']) && is_numeric($payload['merchant_id'])) {
             $merchant = Restaurant::query()
-                ->where('status', 'active')
                 ->whereKey((int) $payload['merchant_id'])
                 ->first();
 
             if (! $merchant) {
-                throw new ApiException('Merchant tidak ditemukan atau tidak aktif.', 404);
+                throw new ApiException('Merchant tidak ditemukan.', 404);
             }
 
             return $merchant;
         }
 
-        if ($order->restaurant instanceof Restaurant && $order->restaurant->status === 'active') {
+        if ($order->restaurant instanceof Restaurant) {
             return $order->restaurant;
         }
 
         $pickup = $order->orderLocations
             ->first(fn (OrderLocation $location): bool => strtoupper((string) $location->location_role) === 'PICKUP' && $location->restaurant instanceof Restaurant);
 
-        if ($pickup?->restaurant instanceof Restaurant && $pickup->restaurant->status === 'active') {
+        if ($pickup?->restaurant instanceof Restaurant) {
             return $pickup->restaurant;
         }
 
@@ -95,7 +93,7 @@ class ShoppingMerchantCandidateResolver
         $latitude = $this->coordinate($payload['latitude'] ?? null, -90, 90, 'Latitude tempat tidak valid.');
         $longitude = $this->coordinate($payload['longitude'] ?? null, -180, 180, 'Longitude tempat tidak valid.');
 
-        $matchedRestaurant = $this->matchActiveRestaurant($name, $latitude, $longitude);
+        $matchedRestaurant = $this->matchKnownRestaurant($name, $latitude, $longitude);
         if ($matchedRestaurant instanceof Restaurant) {
             return ShoppingMerchantCandidate::fromRestaurant($matchedRestaurant);
         }
@@ -110,7 +108,7 @@ class ShoppingMerchantCandidateResolver
         );
     }
 
-    private function matchActiveRestaurant(string $name, float $latitude, float $longitude): ?Restaurant
+    private function matchKnownRestaurant(string $name, float $latitude, float $longitude): ?Restaurant
     {
         $normalizedName = $this->normalizeText($name);
         if ($normalizedName === '') {
@@ -118,7 +116,6 @@ class ShoppingMerchantCandidateResolver
         }
 
         $candidates = Restaurant::query()
-            ->where('status', 'active')
             ->where('name', 'like', '%'.$name.'%')
             ->limit(10)
             ->get();

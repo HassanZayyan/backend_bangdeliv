@@ -56,7 +56,6 @@ class UpdateRestaurantRequest extends FormRequest
             'latitude' => ['required', 'numeric', 'between:-90,90'],
             'longitude' => ['required', 'numeric', 'between:-180,180'],
             'phone' => ['required', 'string', 'max:20'],
-            'status' => ['required', 'in:active,inactive'],
         ];
     }
 

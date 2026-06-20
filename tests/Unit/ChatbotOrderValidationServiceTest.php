@@ -23,7 +23,6 @@ class ChatbotOrderValidationServiceTest extends TestCase
             'longitude' => 106.81666600,
             'phone' => '081200000001',
             'banner_image' => null,
-            'status' => 'active',
         ]);
 
         $service = app(ChatbotOrderValidationService::class);
@@ -50,7 +49,6 @@ class ChatbotOrderValidationServiceTest extends TestCase
             'longitude' => 106.81666600,
             'phone' => '081200000001',
             'banner_image' => null,
-            'status' => 'active',
         ]);
 
         Menu::query()->create([
