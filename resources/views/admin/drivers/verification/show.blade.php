@@ -47,10 +47,6 @@
             <div class="td-strong">{{ $driver['vehicle_plate'] ?? '-' }}</div>
         </div>
         <div>
-            <div class="td-sub">Nomor SIM</div>
-            <div class="td-strong">{{ $driver['license_number'] ?? '-' }}</div>
-        </div>
-        <div>
             <div class="td-sub">Status Registrasi</div>
             @php
                 $registrationStatus = $driver['registration_status'] ?? 'pending';

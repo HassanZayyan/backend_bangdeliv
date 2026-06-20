@@ -146,7 +146,6 @@ class OrderChatTest extends TestCase
         Driver::query()->create($this->driverAttributes([
             'user_id' => $otherDriverUser->id,
             'vehicle_plate' => 'B 7788 OTH',
-            'license_number' => 'SIM-OTHER-2026',
             'registration_status' => 'active',
             'status' => 'available',
         ]));
@@ -486,7 +485,6 @@ class OrderChatTest extends TestCase
         $driver = Driver::query()->create($this->driverAttributes([
             'user_id' => $driverUser->id,
             'vehicle_plate' => 'B 1234 CHT',
-            'license_number' => 'SIM-CHAT-2026',
             'registration_status' => 'active',
             'status' => 'busy',
         ]));

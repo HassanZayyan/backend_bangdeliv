@@ -70,7 +70,6 @@
                         </td>
                         <td>
                             <span class="td-strong">{{ $driver->vehicle_plate }}</span>
-                            <span class="td-sub" style="display:block;">{{ $driver->license_number }}</span>
                         </td>
                         <td>
                             <span class="td-strong">{{ $driver->orders_count ?? 0 }} order terkait</span>

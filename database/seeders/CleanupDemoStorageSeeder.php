@@ -23,8 +23,8 @@ class CleanupDemoStorageSeeder extends Seeder
             'driver-docs',
             'orders',
             'ktp',
-            'selfie',
             'sim',
+            'selfie',
         ];
 
         foreach ($directories as $directory) {

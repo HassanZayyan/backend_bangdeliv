@@ -19,7 +19,6 @@ class UpgradeToDriverRequest extends FormRequest
             'vehicle_brand' => trim((string) $this->input('vehicle_brand', '')),
             'vehicle_model' => trim((string) $this->input('vehicle_model', '')),
             'vehicle_plate' => trim((string) $this->input('vehicle_plate', '')),
-            'license_number' => trim((string) $this->input('license_number', '')),
         ]);
     }
 
@@ -50,12 +49,6 @@ class UpgradeToDriverRequest extends FormRequest
                 'max:20',
                 Rule::unique('drivers', 'vehicle_plate')->whereNull('deleted_at'),
             ],
-            'license_number' => [
-                'required',
-                'string',
-                'max:50',
-                Rule::unique('drivers', 'license_number')->whereNull('deleted_at'),
-            ],
         ];
     }
 
@@ -69,7 +62,6 @@ class UpgradeToDriverRequest extends FormRequest
             'vehicle_brand.required' => 'Merk kendaraan wajib dipilih.',
             'vehicle_model.required' => 'Model kendaraan wajib diisi.',
             'vehicle_plate.unique' => 'Plat kendaraan sudah digunakan oleh driver lain.',
-            'license_number.unique' => 'Nomor SIM sudah terdaftar pada driver lain.',
         ];
     }
 }

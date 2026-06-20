@@ -30,7 +30,6 @@ class DriverOnboardingService
                 'vehicle_brand' => trim((string) $payload['vehicle_brand']),
                 'vehicle_model' => trim((string) $payload['vehicle_model']),
                 'vehicle_plate' => trim((string) $payload['vehicle_plate']),
-                'license_number' => trim((string) $payload['license_number']),
                 'registration_status' => 'pending',
                 'status' => 'offline',
             ]);

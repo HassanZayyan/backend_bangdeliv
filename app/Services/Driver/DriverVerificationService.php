@@ -39,48 +39,72 @@ class DriverVerificationService
         }
 
         $uploadedTypes = [];
+        $storedPaths = [];
+        $oldPathsToDelete = [];
 
-        DB::transaction(function () use ($driver, $payload, &$uploadedTypes): void {
-            $lockedDriver = Driver::query()->lockForUpdate()->find($driver->id);
-            if (! $lockedDriver) {
-                throw new ApiException('Profil driver tidak ditemukan.', 404);
-            }
-
-            foreach (self::REQUIRED_DOCUMENT_TYPES as $documentType) {
-                $file = $payload[$documentType] ?? null;
-                if (! $file instanceof UploadedFile) {
-                    continue;
+        try {
+            DB::transaction(function () use ($driver, $payload, &$uploadedTypes, &$storedPaths, &$oldPathsToDelete): void {
+                $lockedDriver = Driver::query()->lockForUpdate()->find($driver->id);
+                if (! $lockedDriver) {
+                    throw new ApiException('Profil driver tidak ditemukan.', 404);
                 }
 
-                $storedPath = $this->storeDocumentFile($lockedDriver->id, $documentType, $file);
+                foreach (self::REQUIRED_DOCUMENT_TYPES as $documentType) {
+                    $file = $payload[$documentType] ?? null;
+                    if (! $file instanceof UploadedFile) {
+                        continue;
+                    }
 
-                DriverDocument::query()->updateOrCreate(
-                    [
-                        'driver_id' => $lockedDriver->id,
-                        'document_type' => $documentType,
-                    ],
-                    [
-                        'file_path' => $storedPath,
-                        'verification_status' => 'pending',
-                        'rejection_reason' => null,
-                        'verified_at' => null,
-                        'verified_by' => null,
-                    ]
-                );
+                    $existingDocument = DriverDocument::query()
+                        ->where('driver_id', $lockedDriver->id)
+                        ->where('document_type', $documentType)
+                        ->first();
+                    $storedPath = $this->storeDocumentFile($lockedDriver->id, $documentType, $file);
+                    $storedPaths[] = $storedPath;
 
-                $uploadedTypes[] = $documentType;
-            }
+                    DriverDocument::query()->updateOrCreate(
+                        [
+                            'driver_id' => $lockedDriver->id,
+                            'document_type' => $documentType,
+                        ],
+                        [
+                            'file_path' => $storedPath,
+                            'verification_status' => 'pending',
+                            'rejection_reason' => null,
+                            'verified_at' => null,
+                            'verified_by' => null,
+                        ]
+                    );
 
-            if (empty($uploadedTypes)) {
-                throw new ApiException('Minimal satu dokumen harus diunggah.', 422);
-            }
+                    if (
+                        $existingDocument?->file_path
+                        && $existingDocument->file_path !== $storedPath
+                    ) {
+                        $oldPathsToDelete[] = (string) $existingDocument->file_path;
+                    }
 
-            // Every re-submission should return the account to pending review state.
-            $lockedDriver->update([
-                'registration_status' => 'pending',
-                'status' => 'offline',
-            ]);
-        });
+                    $uploadedTypes[] = $documentType;
+                }
+
+                if (empty($uploadedTypes)) {
+                    throw new ApiException('Minimal satu dokumen harus diunggah.', 422);
+                }
+
+                // Every re-submission should return the account to pending review state.
+                $lockedDriver->update([
+                    'registration_status' => 'pending',
+                    'status' => 'offline',
+                ]);
+            });
+        } catch (\Throwable $exception) {
+            Storage::disk('public')->delete($storedPaths);
+
+            throw $exception;
+        }
+
+        if (! empty($oldPathsToDelete)) {
+            Storage::disk('public')->delete(array_unique($oldPathsToDelete));
+        }
 
         return $this->driverDetail($driver->id);
     }
@@ -129,7 +153,6 @@ class DriverVerificationService
             $query->where(function (Builder $builder) use ($search): void {
                 $builder
                     ->where('vehicle_plate', 'like', "%{$search}%")
-                    ->orWhere('license_number', 'like', "%{$search}%")
                     ->orWhereHas('user', function (Builder $userQuery) use ($search): void {
                         $userQuery
                             ->where('name', 'like', "%{$search}%")
@@ -383,7 +406,6 @@ class DriverVerificationService
                 'vehicle_type' => $driver->vehicle_type,
                 'vehicle_brand' => $driver->vehicle_brand,
                 'vehicle_model' => $driver->vehicle_model,
-                'license_number' => $driver->license_number,
                 'registration_status' => $driver->registration_status,
                 'status' => $driver->status,
                 'submitted_at' => $driver->created_at,

@@ -1077,7 +1077,6 @@ class ShoppingOrderItemEditTest extends TestCase
             'vehicle_brand' => 'Honda',
             'vehicle_model' => 'Beat',
             'vehicle_plate' => 'H '.random_int(1000, 9999).' TST',
-            'license_number' => 'SIMC-TST-'.random_int(1000, 9999),
             'registration_status' => 'active',
             'status' => 'busy',
         ]);

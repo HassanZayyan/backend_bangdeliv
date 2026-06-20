@@ -1351,7 +1351,7 @@ class ChatbotCourierOrderService
         }
 
         if ($this->isAwaitingPackageOnly($parsed)) {
-            return 'Titik ambil dan tujuan sudah saya simpan. Barang apa yang mau dikirim? Contoh: "isi paket sabun".';
+            return 'Titik ambil dan tujuan sudah saya simpan. Barang apa yang mau dikirim? Contoh: "kirim laundry".';
         }
 
         if (
@@ -1401,14 +1401,11 @@ class ChatbotCourierOrderService
         $buffer .= 'Barang: '.(string) $parsed['package_description']."\n";
         $buffer .= "Estimasi ongkir sementara: Rp {$deliveryFee} (kalkulasi detail menyusul).\n";
         $paymentMethod = ChatbotTransportSupport::normalizePaymentMethodOrNull($parsed['payment_method'] ?? null);
-        if ($paymentMethod === null) {
-            $buffer .= "Pilih metode pembayaran dulu: COD atau QRIS.\n";
-        } else {
+        if ($paymentMethod !== null) {
             $buffer .= 'Metode pembayaran: '.ChatbotTransportSupport::paymentMethodLabel($paymentMethod)."\n";
         }
-        $buffer .= 'Ketik "Konfirmasi" untuk lanjut.';
 
-        return $buffer;
+        return trim($buffer);
     }
 
     /**

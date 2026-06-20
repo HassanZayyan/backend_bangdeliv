@@ -33,7 +33,6 @@ class DriverVerificationTest extends TestCase
         $driver = Driver::query()->create($this->driverAttributes([
             'user_id' => $driverUser->id,
             'vehicle_plate' => 'B 1010 UPL',
-            'license_number' => 'SIMC-UPL-2026',
             'registration_status' => 'rejected',
             'status' => 'offline',
         ]));
@@ -69,6 +68,90 @@ class DriverVerificationTest extends TestCase
         ]);
     }
 
+    public function test_driver_status_includes_all_required_document_slots(): void
+    {
+        $driverUser = User::query()->create([
+            'name' => 'Driver Slots',
+            'email' => 'driver.slots@example.com',
+            'phone' => '081211113333',
+            'password' => Hash::make('password123'),
+            'role' => 'driver',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        Driver::query()->create($this->driverAttributes([
+            'user_id' => $driverUser->id,
+            'vehicle_plate' => 'B 1111 SLO',
+            'registration_status' => 'pending',
+            'status' => 'offline',
+        ]));
+
+        Sanctum::actingAs($driverUser);
+
+        $response = $this->getJson('/api/v1/driver/verification');
+
+        $response->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.documents.0.document_type', 'ktp')
+            ->assertJsonPath('data.documents.1.document_type', 'sim')
+            ->assertJsonPath('data.documents.2.document_type', 'selfie')
+            ->assertJsonPath('data.documents.1.is_uploaded', false);
+    }
+
+    public function test_reuploading_document_replaces_old_storage_file(): void
+    {
+        Storage::fake('public');
+
+        $driverUser = User::query()->create([
+            'name' => 'Driver Reupload',
+            'email' => 'driver.reupload@example.com',
+            'phone' => '081211114444',
+            'password' => Hash::make('password123'),
+            'role' => 'driver',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        $driver = Driver::query()->create($this->driverAttributes([
+            'user_id' => $driverUser->id,
+            'vehicle_plate' => 'B 1212 RUP',
+            'registration_status' => 'pending',
+            'status' => 'offline',
+        ]));
+
+        Sanctum::actingAs($driverUser);
+
+        $this->post('/api/v1/driver/verification/documents', [
+            'ktp' => UploadedFile::fake()->image('ktp-old.jpg', 800, 800),
+        ], [
+            'Accept' => 'application/json',
+        ])->assertCreated();
+
+        $oldPath = DriverDocument::query()
+            ->where('driver_id', $driver->id)
+            ->where('document_type', 'ktp')
+            ->value('file_path');
+
+        $this->assertNotEmpty($oldPath);
+        Storage::disk('public')->assertExists($oldPath);
+
+        $this->post('/api/v1/driver/verification/documents', [
+            'ktp' => UploadedFile::fake()->image('ktp-new.jpg', 800, 800),
+        ], [
+            'Accept' => 'application/json',
+        ])->assertCreated();
+
+        $newPath = DriverDocument::query()
+            ->where('driver_id', $driver->id)
+            ->where('document_type', 'ktp')
+            ->value('file_path');
+
+        $this->assertNotSame($oldPath, $newPath);
+        Storage::disk('public')->assertMissing($oldPath);
+        Storage::disk('public')->assertExists($newPath);
+    }
+
     public function test_admin_can_approve_all_documents_and_activate_driver(): void
     {
         $admin = User::query()->create([
@@ -94,7 +177,6 @@ class DriverVerificationTest extends TestCase
         $driver = Driver::query()->create($this->driverAttributes([
             'user_id' => $driverUser->id,
             'vehicle_plate' => 'B 2020 VRF',
-            'license_number' => 'SIMC-VRF-2026',
             'registration_status' => 'pending',
             'status' => 'offline',
         ]));
@@ -150,7 +232,6 @@ class DriverVerificationTest extends TestCase
         Driver::query()->create($this->driverAttributes([
             'user_id' => $driverUser->id,
             'vehicle_plate' => 'B 3030 PNG',
-            'license_number' => 'SIMC-PNG-2026',
             'registration_status' => 'pending',
             'status' => 'offline',
         ]));

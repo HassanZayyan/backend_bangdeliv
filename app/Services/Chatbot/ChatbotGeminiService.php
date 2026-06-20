@@ -123,7 +123,7 @@ class ChatbotGeminiService
             ];
         }
 
-        $systemInstruction = 'Kamu adalah NLU assistant BangDeliv untuk layanan Antar Jemput. Keluarkan hanya JSON sesuai schema. command valid: "confirm", "reset_destination", atau "none". Jika user memberi tujuan dengan pola seperti "antar ke Stasiun Tawang", "tujuan ke Jalan Sudirman No 10", atau "saya mau ke Polines", isi destination_address. intent harus "ride_order" atau "out_of_domain". Jika disediakan CONTEXT_JSON, gunakan untuk membaca progres percakapan dan draft terakhir.';
+        $systemInstruction = 'Kamu adalah NLU assistant BangDeliv untuk layanan Antar Jemput. Keluarkan hanya JSON sesuai schema. command valid: "confirm", "reset_destination", atau "none". Jika user memberi tujuan dengan pola seperti "antar ke Ramayana Salatiga" atau "saya mau ke Alun-Alun Salatiga", isi destination_address. intent harus "ride_order" atau "out_of_domain". Jika disediakan CONTEXT_JSON, gunakan untuk membaca progres percakapan dan draft terakhir.';
         $schema = [
             'type' => 'OBJECT',
             'properties' => [

@@ -118,7 +118,6 @@ class OrderStatusPushNotificationTest extends TestCase
         $driver = Driver::query()->create($this->driverAttributes([
             'user_id' => $driverUser->id,
             'vehicle_plate' => 'H 1234 PUSH',
-            'license_number' => 'SIMC-PUSH-STATUS',
             'registration_status' => 'active',
             'status' => 'busy',
         ]));

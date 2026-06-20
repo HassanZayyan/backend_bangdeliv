@@ -52,10 +52,9 @@ class ChatbotRideFlowTest extends TestCase
             ->assertJsonPath('data.order.created', false)
             ->assertJsonPath('data.ride.ready_to_confirm', true);
 
-        $this->assertStringContainsString(
-            'Ketik "Konfirmasi"',
-            (string) $draftResponse->json('data.assistant_text')
-        );
+        $draftMessage = (string) $draftResponse->json('data.assistant_text');
+        $this->assertStringContainsString('Estimasi ongkir sementara', $draftMessage);
+        $this->assertStringNotContainsString('Ketik "Konfirmasi"', $draftMessage);
 
         $this->assertDatabaseCount('orders', 0);
 
@@ -303,16 +302,23 @@ class ChatbotRideFlowTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.ride.ready_to_confirm', true);
 
-        $this
+        $resetResponse = $this
             ->withHeader('Authorization', 'Bearer '.$token)
             ->postJson('/api/chatbot/process', [
                 'message' => 'ubah tujuan',
                 'service_type' => 'antar_jemput',
                 'session_id' => 'sess-ride-02',
-            ])
+            ]);
+
+        $resetResponse
             ->assertOk()
             ->assertJsonPath('data.ride.ready_to_confirm', false)
-            ->assertJsonPath('data.order.created', false);
+            ->assertJsonPath('data.order.created', false)
+            ->assertJsonPath('data.action_payloads.OPEN_ROUTE_PICKER.label', 'Pilih Tujuan Baru');
+
+        $resetMessage = (string) $resetResponse->json('data.assistant_text');
+        $this->assertStringContainsString('tujuan sebelumnya sudah saya reset', $resetMessage);
+        $this->assertStringNotContainsString('klik tombol', $resetMessage);
 
         $confirmResponse = $this
             ->withHeader('Authorization', 'Bearer '.$token)
@@ -688,7 +694,8 @@ class ChatbotRideFlowTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.ride.ready_to_confirm', false)
             ->assertJsonPath('data.ride.pickup_address', 'Ramayan Salatiga')
-            ->assertJsonPath('data.ride.destination_address', null);
+            ->assertJsonPath('data.ride.destination_address', null)
+            ->assertJsonPath('data.action_payloads.OPEN_ROUTE_PICKER.label', 'Pilih Tujuan Baru');
 
         $this
             ->withHeader('Authorization', 'Bearer '.$token)
@@ -802,10 +809,9 @@ class ChatbotRideFlowTest extends TestCase
             ->assertJsonPath('data.order.created', false)
             ->assertJsonPath('data.ride.ready_to_confirm', true);
 
-        $this->assertStringContainsString(
-            'Ketik "Konfirmasi"',
-            (string) $response->json('data.assistant_text')
-        );
+        $draftMessage = (string) $response->json('data.assistant_text');
+        $this->assertStringContainsString('Estimasi ongkir sementara', $draftMessage);
+        $this->assertStringNotContainsString('Ketik "Konfirmasi"', $draftMessage);
 
         $this->assertDatabaseCount('orders', 0);
     }

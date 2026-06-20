@@ -43,7 +43,6 @@ class AccessAccountSeeder extends Seeder
                 'vehicle_brand' => 'Honda',
                 'vehicle_model' => 'Beat',
                 'vehicle_plate' => 'B 9090 ZKY',
-                'license_number' => 'SIMC-ZKY-2026',
                 'registration_status' => 'active',
                 'status' => 'available',
             ]

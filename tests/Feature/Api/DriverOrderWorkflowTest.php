@@ -64,7 +64,6 @@ class DriverOrderWorkflowTest extends TestCase
         $driver = Driver::query()->create($this->driverAttributes([
             'user_id' => $driverUser->id,
             'vehicle_plate' => 'B 4567 WFL',
-            'license_number' => 'SIMC-WFL-2026',
             'registration_status' => 'active',
             'status' => 'available',
         ]));
@@ -801,7 +800,6 @@ class DriverOrderWorkflowTest extends TestCase
         $driver = Driver::query()->create($this->driverAttributes([
             'user_id' => $driverUser->id,
             'vehicle_plate' => 'B 3333 BRC',
-            'license_number' => 'SIMC-BRC-2026',
             'registration_status' => 'active',
             'status' => 'available',
         ]));
@@ -875,7 +873,6 @@ class DriverOrderWorkflowTest extends TestCase
         $driver = Driver::query()->create($this->driverAttributes([
             'user_id' => $driverUser->id,
             'vehicle_plate' => 'B 5555 COD',
-            'license_number' => 'SIMC-COD-2026',
             'registration_status' => 'active',
             'status' => 'busy',
         ]));
@@ -1075,7 +1072,6 @@ class DriverOrderWorkflowTest extends TestCase
         $driver = Driver::query()->create($this->driverAttributes([
             'user_id' => $driverUser->id,
             'vehicle_plate' => 'B 9991 HST',
-            'license_number' => 'SIMC-HST-2026',
             'registration_status' => 'active',
             'status' => 'available',
         ]));
@@ -1153,7 +1149,6 @@ class DriverOrderWorkflowTest extends TestCase
         $driver = Driver::query()->create($this->driverAttributes([
             'user_id' => $driverUser->id,
             'vehicle_plate' => 'B 1111 AVL',
-            'license_number' => 'SIMC-AVL-2026',
             'registration_status' => 'active',
             'status' => 'offline',
         ]));
@@ -1204,7 +1199,6 @@ class DriverOrderWorkflowTest extends TestCase
         $driver = Driver::query()->create($this->driverAttributes([
             'user_id' => $driverUser->id,
             'vehicle_plate' => 'B 2222 BSY',
-            'license_number' => 'SIMC-BSY-2026',
             'registration_status' => 'active',
             'status' => 'available',
         ]));
@@ -1802,7 +1796,6 @@ class DriverOrderWorkflowTest extends TestCase
         $driver = Driver::query()->create($this->driverAttributes([
             'user_id' => $driverUser->id,
             'vehicle_plate' => 'H '.random_int(1000, 9999).' TST',
-            'license_number' => 'SIMC-'.strtoupper($suffix),
             'registration_status' => 'active',
             'status' => 'busy',
         ]));

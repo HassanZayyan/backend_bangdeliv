@@ -197,7 +197,6 @@ class AdminOrderWebTest extends TestCase
         $driver = Driver::query()->create($this->driverAttributes([
             'user_id' => $driverUser->id,
             'vehicle_plate' => 'H 1234 WEB',
-            'license_number' => 'SIMC-WEB-2026',
             'registration_status' => 'active',
             'status' => 'busy',
         ]));

@@ -19,7 +19,6 @@ return new class extends Migration
             $table->string('vehicle_type', 50);
             $table->string('vehicle_brand', 50);
             $table->string('vehicle_model', 100);
-            $table->string('license_number', 50);
             $table->enum('registration_status', ['pending', 'active', 'rejected', 'suspended'])->default('pending');
             $table->enum('status', ['available', 'busy', 'offline'])->default('offline');
             $table->decimal('latitude', 10, 7)->nullable();

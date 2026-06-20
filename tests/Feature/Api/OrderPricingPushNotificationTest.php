@@ -421,7 +421,6 @@ class OrderPricingPushNotificationTest extends TestCase
         $driver = Driver::query()->create($this->driverAttributes([
             'user_id' => $driverUser->id,
             'vehicle_plate' => 'H '.random_int(1000, 9999).' PPN',
-            'license_number' => 'SIMC-PRICE-'.random_int(1000, 9999),
             'registration_status' => 'active',
             'status' => 'busy',
         ]));

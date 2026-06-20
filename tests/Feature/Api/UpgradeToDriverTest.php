@@ -32,7 +32,6 @@ class UpgradeToDriverTest extends TestCase
             'vehicle_brand' => 'Honda',
             'vehicle_model' => 'Vario 160',
             'vehicle_plate' => 'K 6969 MT',
-            'license_number' => '3374011201010001',
         ]);
 
         $response->assertCreated()
@@ -55,7 +54,6 @@ class UpgradeToDriverTest extends TestCase
             'vehicle_brand' => 'Honda',
             'vehicle_model' => 'Vario 160',
             'vehicle_plate' => 'K 6969 MT',
-            'license_number' => '3374011201010001',
             'registration_status' => 'pending',
         ]);
     }
@@ -76,7 +74,6 @@ class UpgradeToDriverTest extends TestCase
 
         $response = $this->postJson('/api/user/upgrade-to-driver', [
             'vehicle_plate' => 'K 7070 MT',
-            'license_number' => '3374011201010707',
         ]);
 
         $response->assertUnprocessable()
@@ -94,7 +91,6 @@ class UpgradeToDriverTest extends TestCase
             'vehicle_brand' => 'Honda',
             'vehicle_model' => 'Beat',
             'vehicle_plate' => 'K 1111 AB',
-            'license_number' => '3374011201010002',
         ]);
 
         $response->assertStatus(401);
@@ -119,7 +115,6 @@ class UpgradeToDriverTest extends TestCase
             'vehicle_brand' => 'Honda',
             'vehicle_model' => 'Beat',
             'vehicle_plate' => 'K 2222 AB',
-            'license_number' => '3374011201010003',
         ]);
 
         $response->assertStatus(403);
@@ -140,7 +135,6 @@ class UpgradeToDriverTest extends TestCase
         Driver::query()->create($this->driverAttributes([
             'user_id' => $customer->id,
             'vehicle_plate' => 'K 3333 AB',
-            'license_number' => '3374011201010004',
             'registration_status' => 'pending',
             'status' => 'offline',
         ]));
@@ -152,7 +146,6 @@ class UpgradeToDriverTest extends TestCase
             'vehicle_brand' => 'Honda',
             'vehicle_model' => 'Beat',
             'vehicle_plate' => 'K 4444 AB',
-            'license_number' => '3374011201010005',
         ]);
 
         $response->assertStatus(409)
@@ -171,7 +164,6 @@ class UpgradeToDriverTest extends TestCase
             'vehicle_brand' => 'Honda',
             'vehicle_model' => 'Beat',
             'vehicle_plate' => 'K 5555 AB',
-            'license_number' => '3374011201010006',
         ]);
 
         $response->assertStatus(404);

@@ -71,7 +71,6 @@ class AdminDriverQueryService
 
         $query->where(function ($query) use ($search): void {
             $query->where('vehicle_plate', 'like', "%{$search}%")
-                ->orWhere('license_number', 'like', "%{$search}%")
                 ->orWhereHas('user', function ($userQuery) use ($search): void {
                     $userQuery->where('name', 'like', "%{$search}%")
                         ->orWhere('phone', 'like', "%{$search}%");
