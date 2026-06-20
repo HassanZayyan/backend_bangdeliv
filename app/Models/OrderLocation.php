@@ -10,9 +10,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $order_id
  * @property int|null $restaurant_id
  * @property string $location_role
- * @property string|null $label
- * @property string|null $contact_name
- * @property string|null $contact_phone
+ * @property string $label
  * @property string $full_address
  * @property string $latitude
  * @property string $longitude
@@ -31,8 +29,6 @@ class OrderLocation extends Model
         'restaurant_id',
         'location_role',
         'label',
-        'contact_name',
-        'contact_phone',
         'full_address',
         'latitude',
         'longitude',

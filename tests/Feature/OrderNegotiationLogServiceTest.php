@@ -3,11 +3,13 @@
 namespace Tests\Feature;
 
 use App\Models\Order;
+use App\Models\OrderLog;
 use App\Models\OrderStatus;
 use App\Models\ServiceType;
 use App\Models\User;
 use App\Services\Order\OrderNegotiationLogService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 class OrderNegotiationLogServiceTest extends TestCase
@@ -59,6 +61,26 @@ class OrderNegotiationLogServiceTest extends TestCase
         $this->assertFalse($service->boolOrNull('0'));
         $this->assertNull($service->intOrNull(''));
         $this->assertNull($service->floatOrNull(null));
+    }
+
+    public function test_order_events_schema_and_model_defaults_keep_optional_fields_non_null(): void
+    {
+        $this->assertTrue(Schema::hasColumn('order_events', 'trigger_type'));
+        $this->assertTrue(Schema::hasColumn('order_events', 'note'));
+        $this->assertTrue(Schema::hasColumn('order_events', 'metadata'));
+        $this->assertFalse(Schema::hasColumn('order_locations', 'contact_name'));
+        $this->assertFalse(Schema::hasColumn('order_locations', 'contact_phone'));
+
+        $order = $this->createOrder();
+
+        $event = OrderLog::query()->create([
+            'order_id' => $order->id,
+        ])->refresh();
+
+        $this->assertSame('SYSTEM_EVENT', $event->event_type);
+        $this->assertSame('SYSTEM_EVENT', $event->trigger_type);
+        $this->assertSame('', $event->note);
+        $this->assertSame([], $event->metadata);
     }
 
     private function createOrder(): Order

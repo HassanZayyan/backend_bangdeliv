@@ -20,6 +20,7 @@ use App\Models\OrderStatusHistory;
 use App\Models\ServiceType;
 use App\Models\User;
 use App\Services\Driver\DriverOrderRealtimeService;
+use Database\Seeders\AccessAccountSeeder;
 use Illuminate\Broadcasting\BroadcastException;
 use Illuminate\Contracts\Broadcasting\Broadcaster as BroadcasterContract;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
@@ -246,6 +247,22 @@ class DriverOrderWorkflowTest extends TestCase
             ->assertJsonPath('data.driver.latitude', '-7.0560001')
             ->assertJsonPath('data.driver.longitude', '110.4320002')
             ->assertJsonMissingPath('data.driver.heading');
+    }
+
+    public function test_customer_order_detail_derives_zaky_driver_contact_from_driver_user_relation(): void
+    {
+        $this->seed(AccessAccountSeeder::class);
+
+        $driverUser = User::query()->where('email', 'zaky@gmail.com')->firstOrFail();
+        $driver = Driver::query()->where('user_id', $driverUser->id)->firstOrFail();
+        $order = $this->createShoppingOrder($driver, 'DRIVER_ASSIGNED');
+
+        Sanctum::actingAs(User::query()->findOrFail($order->user_id));
+
+        $this->getJson('/api/v1/orders/'.$order->id)
+            ->assertOk()
+            ->assertJsonPath('data.driver.user.name', 'Zaky Driver')
+            ->assertJsonPath('data.driver.user.phone', '081399990002');
     }
 
     public function test_available_driver_receives_incoming_orders(): void
@@ -1398,8 +1415,6 @@ class DriverOrderWorkflowTest extends TestCase
             'restaurant_id' => null,
             'location_role' => 'PICKUP',
             'label' => 'Resto Masih Aktif',
-            'contact_name' => 'Merchant Test',
-            'contact_phone' => '081234567890',
             'full_address' => 'Resto Masih Aktif',
             'latitude' => -7.002,
             'longitude' => 110.402,
@@ -1531,9 +1546,7 @@ class DriverOrderWorkflowTest extends TestCase
         $pickup = $order->orderLocations()->create([
             'restaurant_id' => $merchant->id,
             'location_role' => 'PICKUP',
-            'label' => 'Merchant',
-            'contact_name' => $merchant->name,
-            'contact_phone' => $merchant->phone,
+            'label' => $merchant->name,
             'full_address' => $merchant->address,
             'latitude' => $merchant->latitude,
             'longitude' => $merchant->longitude,
@@ -1846,8 +1859,6 @@ class DriverOrderWorkflowTest extends TestCase
             'restaurant_id' => null,
             'location_role' => 'PICKUP',
             'label' => $label,
-            'contact_name' => 'Merchant Test',
-            'contact_phone' => '081234567890',
             'full_address' => $label,
             'latitude' => $latitude,
             'longitude' => $longitude,
@@ -1863,8 +1874,6 @@ class DriverOrderWorkflowTest extends TestCase
             'restaurant_id' => null,
             'location_role' => 'DROPOFF',
             'label' => $label,
-            'contact_name' => 'Customer Test',
-            'contact_phone' => '081234567891',
             'full_address' => $label,
             'latitude' => $latitude,
             'longitude' => $longitude,

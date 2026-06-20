@@ -898,8 +898,6 @@ class ChatbotCourierOrderService
                 [
                     'location_role' => 'PICKUP',
                     'label' => 'Pickup',
-                    'contact_name' => $profilePickupAddress?->recipient_name ?? $user->name,
-                    'contact_phone' => $profilePickupAddress?->phone ?? $user->phone,
                     'full_address' => $pickupAddress,
                     'latitude' => round($pickupLatitude, 8),
                     'longitude' => round($pickupLongitude, 8),
@@ -908,8 +906,6 @@ class ChatbotCourierOrderService
                 [
                     'location_role' => 'DROPOFF',
                     'label' => 'Dropoff',
-                    'contact_name' => null,
-                    'contact_phone' => null,
                     'full_address' => $dropoffAddress,
                     'latitude' => round($dropoffLatitude, 8),
                     'longitude' => round($dropoffLongitude, 8),

@@ -1281,9 +1281,7 @@ class ChatbotShoppingOrderService
                 $pickupLocations[$index] = $order->orderLocations()->create([
                     'restaurant_id' => $candidate->restaurant instanceof Restaurant ? (int) $candidate->restaurant->id : null,
                     'location_role' => 'PICKUP',
-                    'label' => 'Merchant '.($index + 1),
-                    'contact_name' => $candidate->name,
-                    'contact_phone' => $candidate->restaurant instanceof Restaurant ? $candidate->restaurant->phone : null,
+                    'label' => $candidate->name,
                     'full_address' => $candidate->address,
                     'latitude' => $candidate->latitude,
                     'longitude' => $candidate->longitude,
@@ -1305,8 +1303,6 @@ class ChatbotShoppingOrderService
             $order->orderLocations()->create([
                 'location_role' => 'DROPOFF',
                 'label' => 'Titik Antar',
-                'contact_name' => $user->name,
-                'contact_phone' => $user->phone,
                 'full_address' => (string) ($delivery['address'] ?? ''),
                 'latitude' => (float) ($delivery['latitude'] ?? 0),
                 'longitude' => (float) ($delivery['longitude'] ?? 0),

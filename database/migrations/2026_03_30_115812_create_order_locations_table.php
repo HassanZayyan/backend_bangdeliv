@@ -16,9 +16,7 @@ return new class extends Migration
             $table->foreignId('order_id')->constrained()->cascadeOnDelete();
             $table->foreignId('restaurant_id')->nullable()->constrained()->nullOnDelete();
             $table->enum('location_role', ['PICKUP', 'DROPOFF']);
-            $table->string('label', 50)->nullable();
-            $table->string('contact_name')->nullable();
-            $table->string('contact_phone', 20)->nullable();
+            $table->string('label');
             $table->text('full_address');
             $table->decimal('latitude', 10, 8);
             $table->decimal('longitude', 11, 8);

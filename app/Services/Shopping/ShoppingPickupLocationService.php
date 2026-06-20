@@ -131,9 +131,7 @@ class ShoppingPickupLocationService
             if ($legacyPickup instanceof OrderLocation) {
                 $legacyPickup->update([
                     'restaurant_id' => $merchant->id,
-                    'label' => $legacyPickup->label ?: 'Merchant',
-                    'contact_name' => $legacyPickup->contact_name ?: $merchant->name,
-                    'contact_phone' => $legacyPickup->contact_phone ?: $merchant->phone,
+                    'label' => $legacyPickup->label ?: $merchant->name,
                     'full_address' => $legacyPickup->full_address ?: $merchant->address,
                     'latitude' => $legacyPickup->latitude ?: $merchant->latitude,
                     'longitude' => $legacyPickup->longitude ?: $merchant->longitude,
@@ -165,7 +163,7 @@ class ShoppingPickupLocationService
                     return false;
                 }
 
-                $sameName = $this->normalizeLocationText((string) ($location->contact_name ?? ''))
+                $sameName = $this->normalizeLocationText((string) ($location->label ?? ''))
                     === $candidate->normalizedName();
                 if (! $sameName) {
                     return false;
@@ -187,9 +185,7 @@ class ShoppingPickupLocationService
         return $order->orderLocations()->create([
             'restaurant_id' => $merchant->id,
             'location_role' => 'PICKUP',
-            'label' => 'Merchant',
-            'contact_name' => $merchant->name,
-            'contact_phone' => $merchant->phone,
+            'label' => $merchant->name,
             'full_address' => $merchant->address,
             'latitude' => $merchant->latitude,
             'longitude' => $merchant->longitude,
@@ -204,9 +200,7 @@ class ShoppingPickupLocationService
         return $order->orderLocations()->create([
             'restaurant_id' => null,
             'location_role' => 'PICKUP',
-            'label' => 'Merchant',
-            'contact_name' => $candidate->name,
-            'contact_phone' => null,
+            'label' => $candidate->name,
             'full_address' => $candidate->address,
             'latitude' => $candidate->latitude,
             'longitude' => $candidate->longitude,
@@ -216,7 +210,7 @@ class ShoppingPickupLocationService
 
     private function pickupMerchantName(OrderLocation $pickup): string
     {
-        foreach ([$pickup->contact_name, $pickup->label] as $candidate) {
+        foreach ([$pickup->restaurant?->name, $pickup->label] as $candidate) {
             $name = trim((string) ($candidate ?? ''));
             if ($name !== '') {
                 return $name;

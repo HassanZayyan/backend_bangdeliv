@@ -374,7 +374,7 @@ class ChatbotShoppingFlowTest extends TestCase
             'order_id' => $orderId,
             'restaurant_id' => null,
             'location_role' => 'PICKUP',
-            'contact_name' => 'Alfamart Undip Prof. Soedarto',
+            'label' => 'Alfamart Undip Prof. Soedarto',
         ]);
 
         $item = OrderItem::query()->where('order_id', $orderId)->firstOrFail();

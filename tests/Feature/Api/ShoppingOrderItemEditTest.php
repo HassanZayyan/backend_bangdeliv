@@ -152,7 +152,7 @@ class ShoppingOrderItemEditTest extends TestCase
             'id' => $pickupId,
             'order_id' => $order->id,
             'restaurant_id' => null,
-            'contact_name' => 'Warung Google Baru',
+            'label' => 'Warung Google Baru',
             'full_address' => 'Jl. Warung Google Baru, Semarang',
         ]);
 
@@ -227,7 +227,7 @@ class ShoppingOrderItemEditTest extends TestCase
         $this->assertStringContainsString('melebihi batas layanan', (string) $response->json('message'));
         $this->assertDatabaseMissing('order_locations', [
             'order_id' => $order->id,
-            'contact_name' => 'Tempat Google Jauh',
+            'label' => 'Tempat Google Jauh',
         ]);
     }
 
@@ -697,9 +697,7 @@ class ShoppingOrderItemEditTest extends TestCase
         $externalPickup = $order->orderLocations()->create([
             'restaurant_id' => null,
             'location_role' => 'PICKUP',
-            'label' => 'Merchant',
-            'contact_name' => 'Kedai Tinari',
-            'contact_phone' => null,
+            'label' => 'Kedai Tinari',
             'full_address' => 'Kedai Tinari, Jl. Sawunggaling III No.44',
             'latitude' => -7.0015,
             'longitude' => 110.4025,
@@ -852,9 +850,7 @@ class ShoppingOrderItemEditTest extends TestCase
         $secondPickup = $order->orderLocations()->create([
             'restaurant_id' => $secondMerchant->id,
             'location_role' => 'PICKUP',
-            'label' => 'Merchant',
-            'contact_name' => $secondMerchant->name,
-            'contact_phone' => $secondMerchant->phone,
+            'label' => $secondMerchant->name,
             'full_address' => $secondMerchant->address,
             'latitude' => $secondMerchant->latitude,
             'longitude' => $secondMerchant->longitude,
@@ -925,9 +921,7 @@ class ShoppingOrderItemEditTest extends TestCase
         $secondPickup = $order->orderLocations()->create([
             'restaurant_id' => $secondMerchant->id,
             'location_role' => 'PICKUP',
-            'label' => 'Merchant',
-            'contact_name' => $secondMerchant->name,
-            'contact_phone' => $secondMerchant->phone,
+            'label' => $secondMerchant->name,
             'full_address' => $secondMerchant->address,
             'latitude' => $secondMerchant->latitude,
             'longitude' => $secondMerchant->longitude,
@@ -1030,9 +1024,7 @@ class ShoppingOrderItemEditTest extends TestCase
         $pickup = $order->orderLocations()->create([
             'restaurant_id' => $merchant->id,
             'location_role' => 'PICKUP',
-            'label' => 'Merchant',
-            'contact_name' => $merchant->name,
-            'contact_phone' => $merchant->phone,
+            'label' => $merchant->name,
             'full_address' => $merchant->address,
             'latitude' => $merchant->latitude,
             'longitude' => $merchant->longitude,
@@ -1042,8 +1034,6 @@ class ShoppingOrderItemEditTest extends TestCase
         $order->orderLocations()->create([
             'location_role' => 'DROPOFF',
             'label' => 'Titik Antar',
-            'contact_name' => $customer->name,
-            'contact_phone' => $customer->phone,
             'full_address' => 'Jl. Customer No. 1',
             'latitude' => -7.003,
             'longitude' => 110.403,

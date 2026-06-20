@@ -131,7 +131,7 @@ class ShoppingPriceNegotiationService
             'status' => $status,
             'trigger_type' => $trigger,
             'pickup_location_id' => $pickupId,
-            'merchant_name' => $pickup?->restaurant?->name ?? $pickup?->contact_name ?? $pickup?->label,
+            'merchant_name' => $pickup?->restaurant?->name ?? $pickup?->label,
             'quote_log_id' => $this->negotiationLogs->intOrNull($metadata['quote_log_id'] ?? $log->id),
             'quoted_amount' => $this->negotiationLogs->floatOrNull(
                 $metadata['quoted_amount'] ?? $metadata['amount'] ?? null
@@ -316,7 +316,7 @@ class ShoppingPriceNegotiationService
             'status' => 'NONE',
             'trigger_type' => null,
             'pickup_location_id' => (int) $pickup->id,
-            'merchant_name' => $pickup->restaurant?->name ?? $pickup->contact_name ?? $pickup->label,
+            'merchant_name' => $pickup->restaurant?->name ?? $pickup->label,
             'quote_log_id' => null,
             'quoted_amount' => null,
             'counter_amount' => null,

@@ -22,6 +22,25 @@ class OrderLog extends Model
         'created_at',
     ];
 
+    protected static function booted(): void
+    {
+        static::saving(function (OrderLog $log): void {
+            $eventType = trim((string) ($log->event_type ?? ''));
+            if ($eventType === '') {
+                $eventType = 'SYSTEM_EVENT';
+            }
+
+            $triggerType = trim((string) ($log->trigger_type ?? ''));
+
+            $log->event_type = $eventType;
+            $log->trigger_type = $triggerType !== '' ? $triggerType : $eventType;
+            $metadata = $log->metadata;
+
+            $log->note = $log->note ?? '';
+            $log->metadata = ($metadata === null || $metadata === '') ? [] : $metadata;
+        });
+    }
+
     protected function casts(): array
     {
         return [

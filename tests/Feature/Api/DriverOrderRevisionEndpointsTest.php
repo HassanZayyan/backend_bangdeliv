@@ -514,8 +514,7 @@ class DriverOrderRevisionEndpointsTest extends TestCase
         $order = $this->createAssignedOrder($driver, 'SHOPPING', 'ARRIVED_MERCHANT', 6000);
         $pickup = $order->orderLocations()->create([
             'location_role' => 'PICKUP',
-            'label' => 'Merchant',
-            'contact_name' => 'Merchant Test',
+            'label' => 'Merchant Test',
             'full_address' => 'Jl. Merchant Test',
             'latitude' => -7.001,
             'longitude' => 110.401,
@@ -568,8 +567,7 @@ class DriverOrderRevisionEndpointsTest extends TestCase
         $order = $this->createAssignedOrder($driver, 'SHOPPING', 'ARRIVED_MERCHANT', 5000);
         $pickup = $order->orderLocations()->create([
             'location_role' => 'PICKUP',
-            'label' => 'Merchant',
-            'contact_name' => 'Merchant Test',
+            'label' => 'Merchant Test',
             'full_address' => 'Jl. Merchant Test',
             'latitude' => -7.001,
             'longitude' => 110.401,

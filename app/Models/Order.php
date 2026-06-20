@@ -550,10 +550,10 @@ class Order extends Model
                     'unavailable_item_actions' => $unavailableItemActions,
                     'merchant' => [
                         'id' => $restaurantId,
-                        'name' => $pickup->restaurant?->name ?? $pickup->contact_name ?? $pickup->label,
+                        'name' => $pickup->restaurant?->name ?? $pickup->label,
                         'merchant_type' => $pickup->restaurant?->merchant_type,
                         'address' => $pickup->full_address,
-                        'phone' => $pickup->contact_phone,
+                        'phone' => $pickup->restaurant?->phone,
                         'latitude' => $pickup->latitude !== null ? (float) $pickup->latitude : null,
                         'longitude' => $pickup->longitude !== null ? (float) $pickup->longitude : null,
                     ],

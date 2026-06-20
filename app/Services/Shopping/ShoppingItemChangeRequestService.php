@@ -167,7 +167,7 @@ class ShoppingItemChangeRequestService
                 'pickup_location_id' => $targetPickupLocationId,
                 'request_kind' => $requestKind,
                 'merchant_id' => $pickup?->restaurant_id !== null ? (int) $pickup->restaurant_id : null,
-                'merchant_name' => $pickup?->restaurant?->name ?? $pickup?->contact_name ?? $pickup?->label ?? 'Merchant',
+                'merchant_name' => $pickup?->restaurant?->name ?? $pickup?->label ?? 'Merchant',
                 'merchant_address' => $pickup?->full_address,
                 'merchant_type' => $pickup?->restaurant?->merchant_type,
                 'merchant_latitude' => is_numeric($pickup?->latitude) ? (float) $pickup->latitude : null,

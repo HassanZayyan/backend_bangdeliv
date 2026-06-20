@@ -15,10 +15,10 @@ return new class extends Migration
             $table->id();
             $table->foreignId('order_id')->constrained()->cascadeOnDelete();
             $table->string('event_type', 60)->default('SYSTEM_EVENT');
-            $table->string('trigger_type', 60)->nullable();
+            $table->string('trigger_type', 60)->default('SYSTEM_EVENT');
             $table->foreignId('changed_by_user_id')->nullable()->constrained('users')->nullOnDelete();
-            $table->text('note')->nullable();
-            $table->json('metadata')->nullable();
+            $table->text('note');
+            $table->json('metadata');
             $table->timestamp('created_at')->useCurrent();
 
             $table->index(['order_id', 'created_at'], 'order_events_order_created_idx');

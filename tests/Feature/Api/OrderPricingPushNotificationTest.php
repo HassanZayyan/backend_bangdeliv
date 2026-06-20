@@ -367,8 +367,6 @@ class OrderPricingPushNotificationTest extends TestCase
             $pickup = $order->orderLocations()->create([
                 'location_role' => 'PICKUP',
                 'label' => 'Merchant Pricing Push',
-                'contact_name' => 'Merchant Pricing Push',
-                'contact_phone' => '081234567890',
                 'full_address' => 'Merchant Pricing Push',
                 'latitude' => -7.001,
                 'longitude' => 110.401,
@@ -378,8 +376,6 @@ class OrderPricingPushNotificationTest extends TestCase
             $order->orderLocations()->create([
                 'location_role' => 'DROPOFF',
                 'label' => 'Customer Pricing Push',
-                'contact_name' => 'Customer Pricing Push',
-                'contact_phone' => '081234567891',
                 'full_address' => 'Customer Pricing Push',
                 'latitude' => -7.004,
                 'longitude' => 110.404,
