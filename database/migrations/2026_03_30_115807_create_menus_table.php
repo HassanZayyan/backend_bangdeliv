@@ -1,5 +1,6 @@
 <?php
 
+use App\Support\DatabaseCheckConstraints;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -26,6 +27,10 @@ return new class extends Migration
 
             $table->index(['restaurant_id', 'is_available']);
         });
+
+        DatabaseCheckConstraints::add('menus', [
+            'chk_menus_price_non_negative' => 'price >= 0',
+        ]);
     }
 
     /**

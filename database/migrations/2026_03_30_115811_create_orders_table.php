@@ -1,5 +1,6 @@
 <?php
 
+use App\Support\DatabaseCheckConstraints;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -41,6 +42,10 @@ return new class extends Migration
             $table->index('created_at');
         });
 
+        DatabaseCheckConstraints::add('orders', [
+            'chk_orders_delivery_fee_non_negative' => 'delivery_fee >= 0',
+            'chk_orders_total_price_non_negative' => 'total_price >= 0',
+        ]);
     }
 
     /**

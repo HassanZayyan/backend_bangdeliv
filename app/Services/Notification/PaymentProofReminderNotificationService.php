@@ -56,12 +56,9 @@ class PaymentProofReminderNotificationService
         );
     }
 
-    public function scheduleAfterDelivered(Order $order): void
+    public function scheduleForBlockingPaymentStatus(Order $order): void
     {
-        $order->loadMissing(['statusRef', 'payments', 'evidences', 'user']);
-        if (strtoupper((string) ($order->statusRef?->code ?? '')) !== 'DELIVERED') {
-            return;
-        }
+        $order->loadMissing(['statusRef', 'serviceType', 'payments', 'evidences', 'user']);
 
         if (! $this->shouldRemind($order)) {
             return;
@@ -80,18 +77,31 @@ class PaymentProofReminderNotificationService
 
     public function shouldRemind(Order $order, ?User $actor = null): bool
     {
-        $order->loadMissing(['statusRef', 'payments', 'evidences']);
+        $order->loadMissing(['statusRef', 'serviceType', 'payments', 'evidences']);
 
         if ($actor instanceof User && (int) $actor->id === (int) $order->user_id) {
             return false;
         }
 
         $statusCode = strtoupper((string) ($order->statusRef?->code ?? ''));
-        if (in_array($statusCode, ['COMPLETED', 'CANCELLED', 'CANCELLED_WITH_FEE'], true)) {
+        if (in_array($statusCode, ['COMPLETED', 'CANCELLED'], true)) {
             return false;
         }
 
-        return $this->needsTransferProof($order);
+        return $this->isPaymentBlockingStatus($order) && $this->needsTransferProof($order);
+    }
+
+    private function isPaymentBlockingStatus(Order $order): bool
+    {
+        $statusCode = strtoupper((string) ($order->statusRef?->code ?? ''));
+        $serviceCode = strtoupper((string) ($order->serviceType?->code ?? ''));
+
+        return match ($serviceCode) {
+            'RIDE' => $statusCode === 'DELIVERED',
+            'COURIER' => $statusCode === 'ARRIVED_PICKUP',
+            'SHOPPING' => in_array($statusCode, ['DELIVERED', 'CANCELLED_WITH_FEE'], true),
+            default => false,
+        };
     }
 
     private function needsTransferProof(Order $order): bool

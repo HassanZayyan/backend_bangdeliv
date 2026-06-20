@@ -1,5 +1,6 @@
 <?php
 
+use App\Support\DatabaseCheckConstraints;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -23,6 +24,11 @@ return new class extends Migration
             $table->boolean('is_default')->default(false);
             $table->timestamps();
         });
+
+        DatabaseCheckConstraints::add('addresses', [
+            'chk_addresses_latitude_valid' => 'latitude BETWEEN -90 AND 90',
+            'chk_addresses_longitude_valid' => 'longitude BETWEEN -180 AND 180',
+        ]);
     }
 
     /**

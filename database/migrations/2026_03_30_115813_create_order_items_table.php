@@ -1,5 +1,6 @@
 <?php
 
+use App\Support\DatabaseCheckConstraints;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
@@ -30,6 +31,12 @@ return new class extends Migration
             $table->index(['order_id', 'item_source'], 'shopping_order_items_order_source_idx');
             $table->index(['order_id', 'pickup_location_id'], 'shopping_order_items_order_pickup_idx');
         });
+
+        DatabaseCheckConstraints::add('shopping_order_items', [
+            'chk_shopping_items_quantity_positive' => 'quantity > 0',
+            'chk_shopping_items_unit_price_non_negative' => 'unit_price >= 0',
+            'chk_shopping_items_subtotal_non_negative' => 'subtotal >= 0',
+        ]);
 
         if (DB::getDriverName() === 'mysql') {
             DB::unprepared('DROP TRIGGER IF EXISTS trg_shopping_order_items_only_shopping_insert');

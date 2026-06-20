@@ -1,5 +1,6 @@
 <?php
 
+use App\Support\DatabaseCheckConstraints;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
@@ -20,6 +21,10 @@ return new class extends Migration
             $table->timestamp('recorded_at')->useCurrent();
             $table->timestamps();
         });
+
+        DatabaseCheckConstraints::add('shopping_order_receipts', [
+            'chk_shopping_receipts_total_non_negative' => 'total_amount >= 0',
+        ]);
 
         if (DB::getDriverName() === 'mysql') {
             DB::unprepared('DROP TRIGGER IF EXISTS trg_shopping_order_receipts_only_shopping_insert');

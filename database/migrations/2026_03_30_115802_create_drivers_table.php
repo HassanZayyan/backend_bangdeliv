@@ -1,5 +1,6 @@
 <?php
 
+use App\Support\DatabaseCheckConstraints;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -30,6 +31,11 @@ return new class extends Migration
             $table->index('registration_status');
             $table->index('status');
         });
+
+        DatabaseCheckConstraints::add('drivers', [
+            'chk_drivers_latitude_valid' => 'latitude IS NULL OR latitude BETWEEN -90 AND 90',
+            'chk_drivers_longitude_valid' => 'longitude IS NULL OR longitude BETWEEN -180 AND 180',
+        ]);
     }
 
     /**

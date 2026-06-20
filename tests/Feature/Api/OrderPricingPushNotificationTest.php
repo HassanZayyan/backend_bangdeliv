@@ -13,6 +13,7 @@ use App\Models\OrderPayment;
 use App\Models\OrderStatus;
 use App\Models\ServiceType;
 use App\Models\User;
+use App\Services\Notification\PaymentProofReminderNotificationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
 use Kreait\Firebase\Contract\Messaging;
@@ -225,12 +226,7 @@ class OrderPricingPushNotificationTest extends TestCase
     {
         [$driverUser, , $customer, $order] = $this->createAssignedOrder('RIDE', 'DELIVERED', 12000);
         $this->createToken($customer, 'customer-payment-token');
-        OrderPayment::query()->create([
-            'order_id' => $order->id,
-            'payment_method' => 'TRANSFER',
-            'payment_status' => 'PENDING',
-            'amount' => 12000,
-        ]);
+        $this->seedPayment($order);
 
         $messaging = Mockery::mock(Messaging::class);
         $messaging
@@ -265,12 +261,7 @@ class OrderPricingPushNotificationTest extends TestCase
     {
         Queue::fake();
         [$driverUser, , , $order] = $this->createAssignedOrder('RIDE', 'ARRIVED_DROPOFF', 12000);
-        OrderPayment::query()->create([
-            'order_id' => $order->id,
-            'payment_method' => 'TRANSFER',
-            'payment_status' => 'PENDING',
-            'amount' => 12000,
-        ]);
+        $this->seedPayment($order);
 
         Sanctum::actingAs($driverUser);
 
@@ -280,29 +271,104 @@ class OrderPricingPushNotificationTest extends TestCase
         ])->assertOk()
             ->assertJsonPath('data.status_code', 'DELIVERED');
 
-        Queue::assertPushed(
-            SendPaymentProofReminderJob::class,
-            fn (SendPaymentProofReminderJob $job): bool => $job->orderId === $order->id
-        );
+        $this->assertPaymentReminderQueued($order);
+    }
+
+    public function test_courier_pickup_qris_unpaid_order_schedules_payment_reminder_loop(): void
+    {
+        Queue::fake();
+        [$driverUser, , , $order] = $this->createAssignedOrder('COURIER', 'DRIVER_ASSIGNED', 12000);
+        $this->seedPayment($order);
+
+        Sanctum::actingAs($driverUser);
+
+        $this->postJson('/api/v1/driver/orders/'.$order->id.'/status-transition', [
+            'action_code' => 'ARRIVE_PICKUP',
+            'target_status_code' => 'ARRIVED_PICKUP',
+        ])->assertOk()
+            ->assertJsonPath('data.status_code', 'ARRIVED_PICKUP');
+
+        $this->assertPaymentReminderQueued($order);
+    }
+
+    public function test_shopping_delivered_qris_unpaid_order_schedules_payment_reminder_loop(): void
+    {
+        Queue::fake();
+        [$driverUser, , , $order] = $this->createAssignedOrder('SHOPPING', 'ARRIVED_DROPOFF', 5000);
+        $this->seedPayment($order);
+
+        Sanctum::actingAs($driverUser);
+
+        $this->postJson('/api/v1/driver/orders/'.$order->id.'/status-transition', [
+            'action_code' => 'CONFIRM_DELIVERED',
+            'target_status_code' => 'DELIVERED',
+        ])->assertOk()
+            ->assertJsonPath('data.status_code', 'DELIVERED');
+
+        $this->assertPaymentReminderQueued($order);
+    }
+
+    public function test_shopping_cancelled_with_fee_qris_unpaid_order_schedules_payment_reminder_loop(): void
+    {
+        Queue::fake();
+        [$driverUser, , , $order] = $this->createAssignedOrder('SHOPPING', 'ARRIVED_MERCHANT', 5000);
+        $pickup = $order->orderLocations()->where('location_role', 'PICKUP')->firstOrFail();
+        $pickup->update(['failed_attempt_count' => 2]);
+
+        Sanctum::actingAs($driverUser);
+
+        $this->postJson('/api/v1/orders/'.$order->id.'/attempt-failed', [
+            'failure_type' => 'PICKUP',
+            'reason' => 'Merchant tutup.',
+            'pickup_location_id' => $pickup->id,
+        ])->assertOk()
+            ->assertJsonPath('data.status_ref.code', 'CANCELLED_WITH_FEE')
+            ->assertJsonPath('data.payment_method', 'TRANSFER')
+            ->assertJsonPath('data.payment_status', 'unpaid');
+
+        $this->assertPaymentReminderQueued($order);
+    }
+
+    public function test_payment_reminder_scheduler_skips_ineligible_orders(): void
+    {
+        Queue::fake();
+        $service = app(PaymentProofReminderNotificationService::class);
+
+        [, , , $codOrder] = $this->createAssignedOrder('RIDE', 'DELIVERED', 12000);
+        $this->seedPayment($codOrder, 'COD');
+
+        [, , , $paidOrder] = $this->createAssignedOrder('RIDE', 'DELIVERED', 12000);
+        $this->seedPayment($paidOrder, status: 'PAID');
+
+        [, , , $proofOrder] = $this->createAssignedOrder('RIDE', 'DELIVERED', 12000);
+        $this->seedPayment($proofOrder);
+        OrderEvidence::query()->create([
+            'order_id' => $proofOrder->id,
+            'user_id' => (int) $proofOrder->user_id,
+            'evidence_type' => 'PAYMENT_TRANSFER_PHOTO',
+            'file_url' => '/storage/orders/payment.jpg',
+        ]);
+
+        [, , , $completedOrder] = $this->createAssignedOrder('RIDE', 'COMPLETED', 12000);
+        $this->seedPayment($completedOrder);
+
+        [, , , $cancelledOrder] = $this->createAssignedOrder('RIDE', 'CANCELLED', 12000);
+        $this->seedPayment($cancelledOrder);
+
+        foreach ([$codOrder, $paidOrder, $proofOrder, $completedOrder, $cancelledOrder] as $order) {
+            $service->scheduleForBlockingPaymentStatus($order->fresh(['statusRef', 'serviceType', 'payments', 'evidences']));
+        }
+
+        Queue::assertNotPushed(SendPaymentProofReminderJob::class);
     }
 
     public function test_payment_reminder_skips_cod_and_existing_qris_evidence(): void
     {
         [$driverUser, , , $codOrder] = $this->createAssignedOrder('RIDE', 'DELIVERED', 12000);
-        OrderPayment::query()->create([
-            'order_id' => $codOrder->id,
-            'payment_method' => 'COD',
-            'payment_status' => 'PENDING',
-            'amount' => 12000,
-        ]);
+        $this->seedPayment($codOrder, 'COD');
 
         [$transferDriverUser, , , $transferOrder] = $this->createAssignedOrder('RIDE', 'DELIVERED', 13000);
-        OrderPayment::query()->create([
-            'order_id' => $transferOrder->id,
-            'payment_method' => 'TRANSFER',
-            'payment_status' => 'PENDING',
-            'amount' => 13000,
-        ]);
+        $this->seedPayment($transferOrder);
         OrderEvidence::query()->create([
             'order_id' => $transferOrder->id,
             'user_id' => (int) $transferOrder->user_id,
@@ -405,6 +471,28 @@ class OrderPricingPushNotificationTest extends TestCase
             'device_type' => 'android',
             'is_active' => true,
         ]);
+    }
+
+    private function seedPayment(
+        Order $order,
+        string $method = 'TRANSFER',
+        string $status = 'PENDING',
+        ?float $amount = null,
+    ): void {
+        OrderPayment::query()->create([
+            'order_id' => $order->id,
+            'payment_method' => $method,
+            'payment_status' => $status,
+            'amount' => $amount ?? (float) $order->total_price,
+        ]);
+    }
+
+    private function assertPaymentReminderQueued(Order $order): void
+    {
+        Queue::assertPushed(
+            SendPaymentProofReminderJob::class,
+            fn (SendPaymentProofReminderJob $job): bool => $job->orderId === $order->id
+        );
     }
 
     private function seedShoppingQuote(Order $order, User $driverUser, float $amount): void

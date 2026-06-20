@@ -25,7 +25,7 @@ class SendPaymentProofReminderJob implements ShouldQueue
     public function handle(PaymentProofReminderNotificationService $service): void
     {
         $order = Order::query()
-            ->with(['user', 'payments', 'evidences', 'statusRef'])
+            ->with(['user', 'payments', 'evidences', 'statusRef', 'serviceType'])
             ->find($this->orderId);
 
         if (! $order instanceof Order || ! $service->shouldRemind($order)) {

@@ -1,5 +1,6 @@
 <?php
 
+use App\Support\DatabaseCheckConstraints;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -30,6 +31,11 @@ return new class extends Migration
             $table->index(['order_id', 'restaurant_id'], 'order_locations_order_restaurant_idx');
             $table->index(['order_id', 'location_role', 'fulfillment_status'], 'order_locations_order_role_fulfillment_idx');
         });
+
+        DatabaseCheckConstraints::add('order_locations', [
+            'chk_order_locations_latitude_valid' => 'latitude BETWEEN -90 AND 90',
+            'chk_order_locations_longitude_valid' => 'longitude BETWEEN -180 AND 180',
+        ]);
     }
 
     /**

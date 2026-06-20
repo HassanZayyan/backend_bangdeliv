@@ -1,5 +1,6 @@
 <?php
 
+use App\Support\DatabaseCheckConstraints;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -28,6 +29,10 @@ return new class extends Migration
             $table->index(['driver_id', 'paid_at'], 'order_payments_driver_paid_at_idx');
             $table->index(['paid_at'], 'order_payments_paid_at_idx');
         });
+
+        DatabaseCheckConstraints::add('order_payments', [
+            'chk_order_payments_amount_non_negative' => 'amount >= 0',
+        ]);
     }
 
     /**

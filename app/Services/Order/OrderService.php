@@ -434,6 +434,7 @@ class OrderService
 
         $this->broadcastOrderStatusChanged($statusChangeEventPayload);
         $this->sendOrderStatusPushNotification($order, $statusChangeEventPayload);
+        $this->paymentProofReminderNotificationService->scheduleForBlockingPaymentStatus($order->refresh());
 
         return $order;
     }
@@ -1229,8 +1230,6 @@ class OrderService
                 strtoupper($currentStatusCode),
                 $statusHistory,
             );
-            $shouldSchedulePaymentReminder = $resolvedTargetStatusCode === 'DELIVERED';
-
             if ($shoppingCancellationPenalty !== null) {
                 $order = $this->shoppingPricingService->recalculate(
                     $order->refresh()->load(['items', 'statusRef', 'serviceType', 'shoppingReceipt']),
@@ -1265,9 +1264,7 @@ class OrderService
 
         $this->broadcastOrderStatusChanged($statusChangeEventPayload);
         $this->sendOrderStatusPushNotification($order, $statusChangeEventPayload);
-        if ($shouldSchedulePaymentReminder) {
-            $this->paymentProofReminderNotificationService->scheduleAfterDelivered($order->refresh());
-        }
+        $this->paymentProofReminderNotificationService->scheduleForBlockingPaymentStatus($order->refresh());
 
         return $this->driverOrderPayloadFactory->serialize(
             $order->fresh($this->driverOrderPayloadFactory->relations()),
@@ -1735,6 +1732,7 @@ class OrderService
         $this->sendOrderStatusPushNotification($order, $statusChangeEventPayload);
         $this->broadcastShoppingNegotiationUpdated((int) $order->id);
         $this->notifyShoppingPriceChanged($order, $actor, 'driver', false);
+        $this->paymentProofReminderNotificationService->scheduleForBlockingPaymentStatus($order->refresh());
 
         $freshOrder = $order->fresh(['restaurant', 'driver.user', 'items', 'orderLocations.restaurant', 'payments', 'evidences', 'statusRef', 'statusHistories.statusRef', 'serviceType', 'courierOrder', 'shoppingReceipt']);
         if (! $freshOrder instanceof Order) {
