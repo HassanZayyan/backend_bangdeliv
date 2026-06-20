@@ -65,6 +65,10 @@ class ShoppingPricingService
         $deliveryFee = round((float) $order->delivery_fee, 2);
         $totalPrice = round((float) $order->total_price, 2);
         $snapshotFee = round(max(0.0, $totalPrice - $deliveryFee - $subtotal), 2);
+        if ($deliveryFee > 0 && abs($totalPrice - $deliveryFee - $subtotal) <= 0.01) {
+            return $snapshotFee;
+        }
+
         $calculatedPenalty = $this->calculateCancellationPenalty($order);
 
         return $calculatedPenalty > 0 && abs($snapshotFee - $calculatedPenalty) > 0.01
@@ -109,10 +113,10 @@ class ShoppingPricingService
 
         if ($penaltyOnly && $cancellationPenalty > 0) {
             $subtotal = 0.0;
-            $deliveryFee = 0.0;
+            $deliveryFee = $cancellationPenalty;
         }
 
-        $serviceFee = $cancellationPenalty;
+        $serviceFee = $penaltyOnly ? 0.0 : $cancellationPenalty;
         $totalPrice = round($subtotal + $deliveryFee + $serviceFee, 2);
 
         return [
@@ -170,7 +174,7 @@ class ShoppingPricingService
         ];
 
         if ($penaltyOnly) {
-            $orderUpdates['delivery_fee'] = 0;
+            $orderUpdates['delivery_fee'] = $pricing['delivery_fee'];
         } elseif ($isDeliveryFeeLocked) {
             $orderUpdates['delivery_fee'] = $pricing['delivery_fee'];
         }
@@ -208,14 +212,14 @@ class ShoppingPricingService
                 'note' => $historyNote ?: 'Perubahan item order SHOPPING.',
                 'metadata' => [
                     'subtotal' => $pricing['subtotal'],
-                'service_fee' => $pricing['service_fee'],
-                'total_price' => $pricing['total_price'],
-                'recalculation_version' => $nextVersion,
-                ...($penaltyBaseDeliveryFee !== null ? [
-                    'penalty_base_delivery_fee' => round($penaltyBaseDeliveryFee, 2),
-                ] : []),
-            ],
-        ]);
+                    'service_fee' => $pricing['service_fee'],
+                    'total_price' => $pricing['total_price'],
+                    'recalculation_version' => $nextVersion,
+                    ...($penaltyBaseDeliveryFee !== null ? [
+                        'penalty_base_delivery_fee' => round($penaltyBaseDeliveryFee, 2),
+                    ] : []),
+                ],
+            ]);
         }
 
         $freshOrder = $order->refresh()->load([
@@ -262,6 +266,12 @@ class ShoppingPricingService
         $deliveryFee = $this->cancellationPenaltyBaseDeliveryFee($order);
 
         return round($deliveryFee * ($percent / 100), 2);
+    }
+
+    public function cancellationDriverFeeAmount(Order $order): float
+    {
+        return $this->storedCancellationPenaltyAmount($order)
+            ?? $this->calculateCancellationPenalty($order);
     }
 
     public function cancellationFailedAttemptThreshold(int $serviceTypeId): int
@@ -477,8 +487,26 @@ class ShoppingPricingService
         $statusCode = strtoupper((string) ($order->statusRef?->code ?? ''));
 
         return $statusCode === 'CANCELLED_WITH_FEE'
-            ? $this->serviceFeeAmount($order)
+            ? ($this->storedCancellationPenaltyAmount($order) ?? $this->calculateCancellationPenalty($order))
             : 0.0;
+    }
+
+    private function storedCancellationPenaltyAmount(Order $order): ?float
+    {
+        $order->loadMissing(['serviceType', 'statusRef']);
+        $serviceCode = strtoupper((string) ($order->serviceType?->code ?? ''));
+        $statusCode = strtoupper((string) ($order->statusRef?->code ?? ''));
+        if ($serviceCode !== 'SHOPPING' || $statusCode !== 'CANCELLED_WITH_FEE') {
+            return null;
+        }
+
+        $subtotal = $this->subtotalAmount($order);
+        $deliveryFee = round((float) $order->delivery_fee, 2);
+        $totalPrice = round((float) $order->total_price, 2);
+
+        return $deliveryFee > 0 && abs($totalPrice - $deliveryFee - $subtotal) <= 0.01
+            ? $deliveryFee
+            : null;
     }
 
     private function cancellationPenaltyBaseDeliveryFee(Order $order): float

@@ -227,6 +227,76 @@ class ChatbotShoppingFlowTest extends TestCase
         $this->assertStringContainsString('- roti tawar 2', $assistantText);
     }
 
+    public function test_chatbot_shopping_merchant_picker_rejects_far_merchant_before_items(): void
+    {
+        Config::set('bangdeliv.google_maps_api_key', 'test-key');
+
+        $customer = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        Address::query()->create([
+            'user_id' => $customer->id,
+            'label' => 'Rumah',
+            'recipient_name' => 'Customer Test',
+            'phone' => '081200000023',
+            'full_address' => 'Jl. Customer No. 23',
+            'latitude' => -7.003,
+            'longitude' => 110.403,
+            'is_default' => true,
+        ]);
+
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'merchant' => null,
+            'items' => [],
+        ], 185150);
+
+        Sanctum::actingAs($customer);
+        $sessionId = 'shopping-merchant-picker-far-before-items-session';
+
+        $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'halo',
+        ])->assertOk()
+            ->assertJsonPath('data.validation.next_actions.0', 'OPEN_MERCHANT_PICKER');
+
+        $merchantResponse = $this->postJson("/api/chatbot/sessions/{$sessionId}/merchant", [
+            'service_type' => 'nitip',
+            'merchant_place' => [
+                'place_id' => 'google-place-too-far',
+                'name' => 'Merchant Terlalu Jauh',
+                'address' => 'Jl. Terlalu Jauh',
+                'latitude' => -7.7061,
+                'longitude' => 110.9061,
+                'types' => ['restaurant', 'food'],
+            ],
+        ]);
+
+        $merchantResponse->assertOk()
+            ->assertJsonPath('model_used', 'merchant-picker-action')
+            ->assertJsonPath('data.shopping.ready_to_confirm', false)
+            ->assertJsonPath('data.validation.is_valid_order', false)
+            ->assertJsonPath('data.validation.next_actions.0', 'OPEN_MERCHANT_PICKER')
+            ->assertJsonPath('data.action_payloads.OPEN_MERCHANT_PICKER.mode', 'select');
+
+        $this->assertContains(
+            'merchant_distance',
+            $merchantResponse->json('data.validation.missing_fields')
+        );
+        $this->assertStringContainsString(
+            'melebihi batas layanan',
+            (string) $merchantResponse->json('data.validation.rejection_reasons.0')
+        );
+        $assistantText = (string) $merchantResponse->json('data.assistant_text');
+        $this->assertStringContainsString('melebihi batas layanan', $assistantText);
+        $this->assertStringNotContainsString('Tulis item dan jumlah', $assistantText);
+    }
+
     public function test_chatbot_shopping_route_limit_keeps_merchant_picker_action(): void
     {
         Config::set('bangdeliv.google_maps_api_key', 'test-key');

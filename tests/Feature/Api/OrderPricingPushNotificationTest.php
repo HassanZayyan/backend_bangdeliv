@@ -362,6 +362,19 @@ class OrderPricingPushNotificationTest extends TestCase
         Queue::assertNotPushed(SendPaymentProofReminderJob::class);
     }
 
+    public function test_payment_reminder_job_does_not_reschedule_on_sync_queue(): void
+    {
+        config(['queue.default' => 'sync']);
+        Queue::fake();
+        [, , , $order] = $this->createAssignedOrder('RIDE', 'DELIVERED', 12000);
+        $this->seedPayment($order);
+
+        $job = new SendPaymentProofReminderJob($order->id, now()->timestamp);
+        $job->handle(app(PaymentProofReminderNotificationService::class));
+
+        Queue::assertNotPushed(SendPaymentProofReminderJob::class);
+    }
+
     public function test_payment_reminder_skips_cod_and_existing_qris_evidence(): void
     {
         [$driverUser, , , $codOrder] = $this->createAssignedOrder('RIDE', 'DELIVERED', 12000);

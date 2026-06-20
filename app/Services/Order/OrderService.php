@@ -669,7 +669,13 @@ class OrderService
         ]);
 
         $orders = Order::query()
-            ->with(['user:id,name', 'statusRef:id,code,display_name', 'statusHistories.statusRef'])
+            ->with([
+                'user:id,name',
+                'serviceType:id,code',
+                'statusRef:id,code,display_name',
+                'statusHistories.statusRef',
+                'orderLocations:id,order_id,location_role,failed_attempt_count',
+            ])
             ->where('driver_id', $driver->id)
             ->whereIn('status_id', $historyStatusIds)
             ->latest('id')
@@ -709,6 +715,16 @@ class OrderService
 
     private function driverHistoryIncomeAmount(Order $order): float
     {
+        $order->loadMissing(['serviceType', 'statusRef']);
+        $serviceCode = strtoupper((string) ($order->serviceType?->code ?? ''));
+        $statusCode = strtoupper((string) ($order->statusRef?->code ?? ''));
+        if ($serviceCode === 'SHOPPING' && $statusCode === 'CANCELLED_WITH_FEE') {
+            $driverFee = $this->shoppingPricingService->cancellationDriverFeeAmount($order);
+            if ($driverFee > 0) {
+                return $driverFee;
+            }
+        }
+
         $deliveryFee = round((float) $order->delivery_fee, 2);
         if ($deliveryFee > 0) {
             return $deliveryFee;
@@ -1601,7 +1617,7 @@ class OrderService
 
             $pickup->update([
                 'fulfillment_status' => 'PRICE_PENDING_CUSTOMER',
-                ]);
+            ]);
 
             return $order->refresh();
         });
@@ -1914,7 +1930,7 @@ class OrderService
             if ($targetPickupLocationId !== null) {
                 $this->shoppingPickupLocationService->pickupById($order, $targetPickupLocationId)->update([
                     'fulfillment_status' => 'ITEMS_CONFIRMED',
-                    ]);
+                ]);
             }
 
             $affectedPickupIds = $this->affectedPickupIdsForApprovedShoppingChange(
@@ -2774,16 +2790,16 @@ class OrderService
             DeliveryFeeNegotiationService::CUSTOMER_FEE_APPROVED,
             $actor->id,
             'Customer menyetujui revisi ongkir.',
-                [
-                    'quote_log_id' => $snapshot['quote_log_id'] ?? null,
-                    'old_delivery_fee' => $snapshot['old_delivery_fee'] ?? round((float) $order->delivery_fee, 2),
-                    'base_amount' => $snapshot['base_amount'] ?? $quotedAmount,
-                    'quoted_amount' => $quotedAmount,
-                    'approved_amount' => $quotedAmount,
-                    'final_amount' => $quotedAmount,
-                    'delivery_fee_source' => 'driver_manual',
-                    'status' => 'APPROVED',
-                ]
+            [
+                'quote_log_id' => $snapshot['quote_log_id'] ?? null,
+                'old_delivery_fee' => $snapshot['old_delivery_fee'] ?? round((float) $order->delivery_fee, 2),
+                'base_amount' => $snapshot['base_amount'] ?? $quotedAmount,
+                'quoted_amount' => $quotedAmount,
+                'approved_amount' => $quotedAmount,
+                'final_amount' => $quotedAmount,
+                'delivery_fee_source' => 'driver_manual',
+                'status' => 'APPROVED',
+            ]
         );
 
         return $this->applyApprovedDeliveryFeeOverride(
@@ -3050,7 +3066,7 @@ class OrderService
                 ->whereIn('fulfillment_status', ['PRICE_APPROVED'])
                 ->update([
                     'fulfillment_status' => 'COMPLETED',
-                    ]);
+                ]);
 
             if ($receiptPhoto instanceof UploadedFile) {
                 $this->orderEvidenceService->storeAndRecordDriverEvidence(

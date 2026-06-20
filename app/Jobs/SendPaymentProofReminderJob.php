@@ -34,10 +34,19 @@ class SendPaymentProofReminderJob implements ShouldQueue
 
         $service->sendIfNeeded($order);
 
-        if ($this->isWithinReminderWindow()) {
+        if ($this->shouldScheduleNextReminder()) {
             self::dispatch($this->orderId, $this->startedAtTimestamp)
                 ->delay(now()->addSeconds(PaymentProofReminderNotificationService::THROTTLE_SECONDS));
         }
+    }
+
+    private function shouldScheduleNextReminder(): bool
+    {
+        if (config('queue.default') === 'sync') {
+            return false;
+        }
+
+        return $this->isWithinReminderWindow();
     }
 
     private function isWithinReminderWindow(): bool

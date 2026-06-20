@@ -109,6 +109,9 @@ class DriverOrderPayloadFactory
 
         $pricingSnapshot = $this->pricingSnapshot($order);
         $deliveryFee = round((float) $order->delivery_fee, 2);
+        $driverFee = $serviceCode === ServiceTypeCode::Shopping->value && $statusCode === 'CANCELLED_WITH_FEE'
+            ? $this->shoppingPricingService->cancellationDriverFeeAmount($order)
+            : $deliveryFee;
 
         $payload = [
             'id' => (string) $order->id,
@@ -123,7 +126,7 @@ class DriverOrderPayloadFactory
             'dropoff_address' => $dropoff['address'],
             'dropoff_latitude' => $dropoff['latitude'],
             'dropoff_longitude' => $dropoff['longitude'],
-            'fee' => (int) round($deliveryFee),
+            'fee' => (int) round($driverFee),
             'delivery_distance_km' => $order->delivery_distance_km !== null ? round((float) $order->delivery_distance_km, 2) : null,
             'delivery_distance_text' => $order->delivery_distance_text,
             'delivery_fee' => $deliveryFee,

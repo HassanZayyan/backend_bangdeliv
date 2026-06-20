@@ -760,7 +760,10 @@ class ChatbotShoppingOrderService
         $route = null;
         $pricing = $this->emptyPricing();
         $routeFailureNeedsMerchantPicker = false;
-        if ($missingFields === [] && $routePoints !== []) {
+        $missingDeliveryAddress = in_array('delivery_address', $missingFields, true);
+        $missingMerchantRoutePoint = in_array('merchant', $missingFields, true)
+            || in_array('merchant_location', $missingFields, true);
+        if (! $missingDeliveryAddress && ! $missingMerchantRoutePoint && $routePoints !== []) {
             try {
                 $route = $this->shoppingRouteService->calculateForPoints(
                     $routePoints,
@@ -770,12 +773,14 @@ class ChatbotShoppingOrderService
                         'longitude' => $delivery['longitude'] ?? null,
                     ]
                 );
-                $serviceTypeId = $this->resolveServiceTypeId();
-                $pricing = $this->shoppingPricingService->calculateForItems(
-                    $serviceTypeId,
-                    $items,
-                    (float) $route['delivery_fee'],
-                );
+                if ($missingFields === []) {
+                    $serviceTypeId = $this->resolveServiceTypeId();
+                    $pricing = $this->shoppingPricingService->calculateForItems(
+                        $serviceTypeId,
+                        $items,
+                        (float) $route['delivery_fee'],
+                    );
+                }
             } catch (ApiException $exception) {
                 $message = trim($exception->getMessage());
                 $routeFailureNeedsMerchantPicker = data_get($exception->errors(), 'code')
@@ -784,16 +789,22 @@ class ChatbotShoppingOrderService
                     throw $exception;
                 }
 
+                $missingFields = array_values(array_diff($missingFields, ['items']));
+                $rejectionReasons = array_values(array_filter(
+                    $rejectionReasons,
+                    static fn (string $reason): bool => ! str_contains($reason, 'Item belanja')
+                ));
+                $missingFields[] = 'merchant_distance';
                 $rejectionReasons[] = $message === ''
                     ? 'Rute Nitip belum valid.'
                     : $message;
             }
         }
+        $missingFields = array_values(array_unique($missingFields));
         $rejectionReasons = array_values(array_unique($rejectionReasons));
 
         $ready = $missingFields === [] && $route !== null;
         $nextActions = [];
-        $missingDeliveryAddress = in_array('delivery_address', $missingFields, true);
         $needsAddressBook = $missingDeliveryAddress
             && ! $this->addressReadinessService->hasUsableSavedAddress($user);
         if ($needsAddressBook) {
@@ -1647,6 +1658,9 @@ class ChatbotShoppingOrderService
             is_array($validation['rejection_reasons'] ?? null) ? $validation['rejection_reasons'] : []
         )));
         if ($missingFields === [] && $rejectionReasons !== []) {
+            return implode("\n", $rejectionReasons);
+        }
+        if (in_array('merchant_distance', $missingFields, true) && $rejectionReasons !== []) {
             return implode("\n", $rejectionReasons);
         }
 

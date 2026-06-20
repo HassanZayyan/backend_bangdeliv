@@ -1511,6 +1511,9 @@ class DriverOrderWorkflowTest extends TestCase
 
         $response->assertOk()
             ->assertJsonPath('data.status_ref.code', 'CANCELLED_WITH_FEE')
+            ->assertJsonPath('data.delivery_fee', '3000.00')
+            ->assertJsonPath('data.service_fee', '0.00')
+            ->assertJsonPath('data.total_price', '3000.00')
             ->assertJsonPath('data.payment_method', 'TRANSFER')
             ->assertJsonPath('data.payment_status', 'unpaid');
 
@@ -1530,6 +1533,10 @@ class DriverOrderWorkflowTest extends TestCase
     {
         [$driverUser, $driver] = $this->createActiveDriver('shopping-closed');
         $order = $this->createShoppingOrder($driver, 'ARRIVED_MERCHANT');
+        $order->forceFill([
+            'delivery_fee' => 15000,
+            'total_price' => 27000,
+        ])->save();
 
         $merchant = \App\Models\Restaurant::query()->create([
             'name' => 'Resto Tutup Test',
@@ -1580,7 +1587,7 @@ class DriverOrderWorkflowTest extends TestCase
             'order_id' => $order->id,
             'payment_method' => 'COD',
             'payment_status' => 'PENDING',
-            'amount' => 18000,
+            'amount' => 27000,
         ]);
 
         Sanctum::actingAs($driverUser);
@@ -1615,13 +1622,17 @@ class DriverOrderWorkflowTest extends TestCase
         $detailResponse = $this->getJson('/api/v1/driver/orders/'.$order->id);
         $detailResponse->assertOk()
             ->assertJsonPath('data.status_code', 'CANCELLED_WITH_FEE')
+            ->assertJsonPath('data.fee', 7500)
+            ->assertJsonPath('data.delivery_fee', 7500)
+            ->assertJsonPath('data.pricing.service_fee', 0)
+            ->assertJsonPath('data.pricing.total_price', 7500)
             ->assertJsonPath('data.pricing.failed_attempt_count', 3)
             ->assertJsonPath('data.shopping_stops.0.fulfillment_status', 'FAILED');
 
         $this->assertDatabaseHas('orders', [
             'id' => $order->id,
-            'delivery_fee' => 0,
-            'total_price' => 3000,
+            'delivery_fee' => 7500,
+            'total_price' => 7500,
         ]);
         $this->assertDatabaseHas('orders', [
             'id' => $order->id,
@@ -1632,7 +1643,7 @@ class DriverOrderWorkflowTest extends TestCase
             'order_id' => $order->id,
             'payment_method' => 'TRANSFER',
             'payment_status' => 'PENDING',
-            'amount' => 3000,
+            'amount' => 7500,
         ]);
         $this->assertDatabaseHas('order_events', [
             'order_id' => $order->id,
@@ -1643,7 +1654,8 @@ class DriverOrderWorkflowTest extends TestCase
         $runningAfterCancel->assertOk();
         $this->assertTrue(
             collect($runningAfterCancel->json('data.running_orders'))
-                ->contains(fn (array $runningOrder): bool => (string) $runningOrder['id'] === (string) $order->id)
+                ->contains(fn (array $runningOrder): bool => (string) $runningOrder['id'] === (string) $order->id
+                    && (int) ($runningOrder['fee'] ?? 0) === 7500)
         );
 
         $cancelledDetailResponse = $this->getJson('/api/v1/driver/orders/'.$order->id);
@@ -1662,7 +1674,7 @@ class DriverOrderWorkflowTest extends TestCase
             ->assertJsonPath('message', 'Pembayaran belum dicatat.');
 
         $this->postJson('/api/v1/orders/'.$order->id.'/payment/transfer/confirm', [
-            'amount' => 3000,
+            'amount' => 7500,
         ])->assertOk()
             ->assertJsonPath('data.payment_status', 'paid');
 
@@ -1692,18 +1704,19 @@ class DriverOrderWorkflowTest extends TestCase
         $historyResponse->assertOk();
         $this->assertTrue(
             collect($historyResponse->json('data.history_orders'))
-                ->contains(fn (array $historyOrder): bool => (string) $historyOrder['id'] === (string) ($order->order_number ?: $order->id))
+                ->contains(fn (array $historyOrder): bool => (string) $historyOrder['id'] === (string) ($order->order_number ?: $order->id)
+                    && (int) ($historyOrder['fee'] ?? 0) === 7500)
         );
     }
 
-    public function test_locked_delivery_fee_is_used_only_as_penalty_base_when_all_shopping_merchants_fail(): void
+    public function test_locked_delivery_fee_sets_cancelled_with_fee_driver_income(): void
     {
         [$driverUser, $driver] = $this->createActiveDriver('shopping-locked-fee');
         $order = $this->createShoppingOrder($driver, 'ARRIVED_MERCHANT');
         $order->forceFill([
-            'delivery_fee' => 18000,
+            'delivery_fee' => 20000,
             'delivery_fee_source' => 'driver_manual',
-            'total_price' => 30000,
+            'total_price' => 32000,
         ])->save();
 
         $pickup = $this->createPickupLocation($order, -7.002, 110.402, 'Merchant Locked Fee');
@@ -1731,8 +1744,8 @@ class DriverOrderWorkflowTest extends TestCase
             'changed_by_user_id' => $order->user_id,
             'note' => 'Customer menyetujui revisi ongkir.',
             'metadata' => [
-                'approved_amount' => 18000,
-                'final_amount' => 18000,
+                'approved_amount' => 20000,
+                'final_amount' => 20000,
                 'delivery_fee_source' => 'driver_manual',
                 'status' => 'APPROVED',
             ],
@@ -1743,7 +1756,7 @@ class DriverOrderWorkflowTest extends TestCase
             'order_id' => $order->id,
             'payment_method' => 'COD',
             'payment_status' => 'PENDING',
-            'amount' => 30000,
+            'amount' => 32000,
         ]);
 
         Sanctum::actingAs($driverUser);
@@ -1756,20 +1769,20 @@ class DriverOrderWorkflowTest extends TestCase
 
         $response->assertOk()
             ->assertJsonPath('data.status_ref.code', 'CANCELLED_WITH_FEE')
-            ->assertJsonPath('data.delivery_fee', '0.00')
-            ->assertJsonPath('data.service_fee', '9000.00')
-            ->assertJsonPath('data.total_price', '9000.00');
+            ->assertJsonPath('data.delivery_fee', '10000.00')
+            ->assertJsonPath('data.service_fee', '0.00')
+            ->assertJsonPath('data.total_price', '10000.00');
 
         $this->assertDatabaseHas('orders', [
             'id' => $order->id,
-            'delivery_fee' => 0,
-            'total_price' => 9000,
+            'delivery_fee' => 10000,
+            'total_price' => 10000,
         ]);
         $this->assertDatabaseHas('order_payments', [
             'order_id' => $order->id,
             'payment_method' => 'TRANSFER',
             'payment_status' => 'PENDING',
-            'amount' => 9000,
+            'amount' => 10000,
         ]);
     }
 
