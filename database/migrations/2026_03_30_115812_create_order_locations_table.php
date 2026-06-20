@@ -25,9 +25,6 @@ return new class extends Migration
             $table->unsignedTinyInteger('sequence_no')->default(1);
             $table->string('fulfillment_status', 30)->default('PENDING');
             $table->unsignedTinyInteger('failed_attempt_count')->default(0);
-            $table->text('failure_reason')->nullable();
-            $table->timestamp('failed_at')->nullable();
-            $table->timestamp('resolved_at')->nullable();
             $table->timestamps();
 
             $table->unique(['order_id', 'location_role', 'sequence_no'], 'order_locations_order_role_sequence_unique');

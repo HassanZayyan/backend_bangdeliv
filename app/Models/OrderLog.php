@@ -15,7 +15,6 @@ class OrderLog extends Model
         'order_id',
         'event_type',
         'log_type',
-        'new_status_id',
         'trigger_type',
         'changed_by_user_id',
         'note',
@@ -53,10 +52,5 @@ class OrderLog extends Model
     public function changedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'changed_by_user_id');
-    }
-
-    public function newStatus(): BelongsTo
-    {
-        return $this->belongsTo(OrderStatus::class, 'new_status_id');
     }
 }

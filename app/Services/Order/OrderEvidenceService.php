@@ -30,14 +30,14 @@ class OrderEvidenceService
 
     public function recordDriverEvidence(
         Order $order,
-        int $driverId,
+        int $userId,
         string $evidenceType,
         string $fileUrl,
         ?string $notes = null,
     ): OrderEvidence {
         return OrderEvidence::query()->create([
             'order_id' => $order->id,
-            'driver_id' => $driverId,
+            'user_id' => $userId,
             'evidence_type' => $evidenceType,
             'file_url' => $fileUrl,
             'uploaded_at' => now(),
@@ -48,14 +48,14 @@ class OrderEvidenceService
     public function storeAndRecordDriverEvidence(
         Order $order,
         UploadedFile $photo,
-        int $driverId,
+        int $userId,
         string $evidenceType,
         string $folder,
         ?string $notes = null,
     ): OrderEvidence {
         return $this->recordDriverEvidence(
             $order,
-            $driverId,
+            $userId,
             $evidenceType,
             $this->storeOrderPhoto($photo, (int) $order->id, $folder),
             $notes,

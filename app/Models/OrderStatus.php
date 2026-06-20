@@ -38,6 +38,6 @@ class OrderStatus extends Model
 
     public function histories(): HasMany
     {
-        return $this->hasMany(OrderStatusHistory::class, 'new_status_id');
+        return $this->hasMany(OrderStatusHistory::class, 'status_id');
     }
 }

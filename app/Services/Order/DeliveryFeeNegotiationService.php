@@ -150,9 +150,9 @@ class DeliveryFeeNegotiationService
         $action = strtoupper(str_replace('-', '_', trim($actionCode)));
 
         return match ($service) {
-            ServiceTypeCode::Ride->value => $action === 'BOARD_PASSENGER',
-            ServiceTypeCode::Courier->value => $action === 'CONFIRM_PICKED_UP',
-            ServiceTypeCode::Shopping->value => $action === 'CONFIRM_PICKED_UP',
+            ServiceTypeCode::Ride->value => in_array($action, ['ARRIVE_PICKUP', 'BOARD_PASSENGER'], true),
+            ServiceTypeCode::Courier->value => in_array($action, ['ARRIVE_PICKUP', 'CONFIRM_PICKED_UP'], true),
+            ServiceTypeCode::Shopping->value => in_array($action, ['ARRIVE_PICKUP', 'CONFIRM_PICKED_UP'], true),
             default => false,
         };
     }
@@ -206,15 +206,9 @@ class DeliveryFeeNegotiationService
 
     private function isWithinEditableStatus(Order $order): bool
     {
-        $serviceCode = ServiceTypeCode::normalize((string) ($order->serviceType?->code ?? ''));
         $statusCode = strtoupper((string) ($order->statusRef?->code ?? ''));
 
-        return match ($serviceCode) {
-            ServiceTypeCode::Ride->value,
-            ServiceTypeCode::Courier->value => in_array($statusCode, ['DRIVER_ASSIGNED', 'ARRIVED_PICKUP'], true),
-            ServiceTypeCode::Shopping->value => in_array($statusCode, ['DRIVER_ASSIGNED', 'ARRIVED_MERCHANT'], true),
-            default => false,
-        };
+        return $statusCode === 'DRIVER_ASSIGNED';
     }
 
     private function statusForTrigger(string $trigger): string

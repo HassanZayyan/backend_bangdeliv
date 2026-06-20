@@ -759,22 +759,37 @@ class ChatbotShoppingOrderService
         $rejectionReasons = array_values(array_unique($rejectionReasons));
         $route = null;
         $pricing = $this->emptyPricing();
+        $routeFailureNeedsMerchantPicker = false;
         if ($missingFields === [] && $routePoints !== []) {
-            $route = $this->shoppingRouteService->calculateForPoints(
-                $routePoints,
-                [
-                    'label' => $delivery['address'] ?? 'Titik Antar',
-                    'latitude' => $delivery['latitude'] ?? null,
-                    'longitude' => $delivery['longitude'] ?? null,
-                ]
-            );
-            $serviceTypeId = $this->resolveServiceTypeId();
-            $pricing = $this->shoppingPricingService->calculateForItems(
-                $serviceTypeId,
-                $items,
-                (float) $route['delivery_fee'],
-            );
+            try {
+                $route = $this->shoppingRouteService->calculateForPoints(
+                    $routePoints,
+                    [
+                        'label' => $delivery['address'] ?? 'Titik Antar',
+                        'latitude' => $delivery['latitude'] ?? null,
+                        'longitude' => $delivery['longitude'] ?? null,
+                    ]
+                );
+                $serviceTypeId = $this->resolveServiceTypeId();
+                $pricing = $this->shoppingPricingService->calculateForItems(
+                    $serviceTypeId,
+                    $items,
+                    (float) $route['delivery_fee'],
+                );
+            } catch (ApiException $exception) {
+                $message = trim($exception->getMessage());
+                $routeFailureNeedsMerchantPicker = data_get($exception->errors(), 'code')
+                    === ShoppingRouteService::ERROR_ROUTE_DISTANCE_LIMIT;
+                if (! $routeFailureNeedsMerchantPicker) {
+                    throw $exception;
+                }
+
+                $rejectionReasons[] = $message === ''
+                    ? 'Rute Nitip belum valid.'
+                    : $message;
+            }
         }
+        $rejectionReasons = array_values(array_unique($rejectionReasons));
 
         $ready = $missingFields === [] && $route !== null;
         $nextActions = [];
@@ -795,15 +810,18 @@ class ChatbotShoppingOrderService
         ));
         $needsMerchantPicker = in_array('merchant', $missingFields, true)
             || in_array('merchant_location', $missingFields, true)
-            || $draftActionAddMerchant;
+            || $draftActionAddMerchant
+            || $routeFailureNeedsMerchantPicker;
         if ($needsMerchantPicker) {
-            $nextActions[] = ($completeStopCount > 0 || $draftActionAddMerchant)
+            $nextActions[] = $routeFailureNeedsMerchantPicker
+                ? 'OPEN_MERCHANT_PICKER'
+                : (($completeStopCount > 0 || $draftActionAddMerchant)
                 ? 'OPEN_ADD_MERCHANT_PICKER'
-                : 'OPEN_MERCHANT_PICKER';
+                : 'OPEN_MERCHANT_PICKER');
         } elseif ($ready && $merchantCount < self::MAX_MERCHANT_STOPS) {
             $nextActions[] = 'OPEN_ADD_MERCHANT_PICKER';
         }
-        if (($missingDeliveryAddress && ! $needsAddressBook) || $ready) {
+        if (($missingDeliveryAddress && ! $needsAddressBook) || $ready || $routeFailureNeedsMerchantPicker) {
             $nextActions[] = 'OPEN_MAP_PICKER_DELIVERY';
         }
         $paymentMethod = $this->normalizePaymentMethodOrNull($draftSeed['payment_method'] ?? null);
@@ -1250,9 +1268,7 @@ class ChatbotShoppingOrderService
                 'order_number' => $this->generateOrderNumber(),
                 'user_id' => $user->id,
                 'service_type_id' => $serviceTypeId,
-                'subtotal' => round((float) ($pricing['subtotal'] ?? 0), 2),
                 'delivery_fee' => round((float) ($pricing['delivery_fee'] ?? 0), 2),
-                'service_fee' => round((float) ($pricing['service_fee'] ?? 0), 2),
                 'route_snapshot' => $routeSnapshot,
                 'total_price' => round((float) ($pricing['total_price'] ?? 0), 2),
                 'status_id' => $pendingStatusId,
@@ -1630,6 +1646,14 @@ class ChatbotShoppingOrderService
             static fn (mixed $field): string => trim((string) $field),
             is_array($validation['missing_fields'] ?? null) ? $validation['missing_fields'] : []
         )));
+        $rejectionReasons = array_values(array_filter(array_map(
+            static fn (mixed $reason): string => trim((string) $reason),
+            is_array($validation['rejection_reasons'] ?? null) ? $validation['rejection_reasons'] : []
+        )));
+        if ($missingFields === [] && $rejectionReasons !== []) {
+            return implode("\n", $rejectionReasons);
+        }
+
         $missing = implode(', ', $missingFields);
         $baseText = 'Draft Nitip belum lengkap. Lengkapi: '.($missing === '' ? 'draft' : $missing).'.';
         if ((bool) ($shopping['merchant_limit_reached'] ?? false)) {

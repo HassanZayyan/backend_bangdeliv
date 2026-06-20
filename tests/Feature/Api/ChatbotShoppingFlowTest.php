@@ -227,6 +227,68 @@ class ChatbotShoppingFlowTest extends TestCase
         $this->assertStringContainsString('- roti tawar 2', $assistantText);
     }
 
+    public function test_chatbot_shopping_route_limit_keeps_merchant_picker_action(): void
+    {
+        Config::set('bangdeliv.google_maps_api_key', 'test-key');
+
+        $customer = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        Address::query()->create([
+            'user_id' => $customer->id,
+            'label' => 'Rumah',
+            'recipient_name' => 'Customer Test',
+            'phone' => '081200000014',
+            'full_address' => 'Jl. Customer No. 14',
+            'latitude' => -7.003,
+            'longitude' => 110.403,
+            'is_default' => true,
+        ]);
+
+        Restaurant::query()->create([
+            'name' => 'Kedai Tinari',
+            'slug' => 'kedai-tinari-route-limit-test',
+            'description' => 'Merchant test',
+            'merchant_type' => 'restaurant',
+            'address' => 'Jl. Kedai Tinari',
+            'latitude' => -7.054932,
+            'longitude' => 110.434739,
+            'phone' => '081200000015',
+            'status' => 'active',
+        ]);
+
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'merchant' => 'Kedai Tinari',
+            'items' => [
+                ['name' => 'sembako', 'quantity' => 1],
+            ],
+        ], 185150);
+
+        Sanctum::actingAs($customer);
+
+        $response = $this->postJson('/api/chatbot/process', [
+            'session_id' => 'shopping-route-limit-session',
+            'service_type' => 'nitip',
+            'message' => 'beli sembako di Kedai Tinari',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.shopping.ready_to_confirm', false)
+            ->assertJsonPath('data.validation.is_valid_order', false)
+            ->assertJsonPath('data.validation.next_actions.0', 'OPEN_MERCHANT_PICKER')
+            ->assertJsonPath('data.action_payloads.OPEN_MERCHANT_PICKER.mode', 'select');
+
+        $this->assertStringContainsString(
+            'melebihi batas layanan',
+            (string) $response->json('data.validation.rejection_reasons.0')
+        );
+    }
+
     public function test_chatbot_shopping_patch_google_place_merchant_completes_external_merchant_draft(): void
     {
         Config::set('bangdeliv.google_maps_api_key', 'test-key');
@@ -450,11 +512,6 @@ class ChatbotShoppingFlowTest extends TestCase
         $this->assertDatabaseHas('orders', [
             'id' => $orderId,
             'user_id' => $customer->id,
-        ]);
-
-        $this->assertDatabaseHas('orders', [
-            'id' => $orderId,
-            'subtotal' => 44000,
         ]);
 
         $this->assertDatabaseHas('shopping_order_items', [
@@ -921,7 +978,7 @@ class ChatbotShoppingFlowTest extends TestCase
     /**
      * @param  array<string, mixed>  $geminiPayload
      */
-    private function fakeGeminiAndDistance(array $geminiPayload): void
+    private function fakeGeminiAndDistance(array $geminiPayload, int $distanceMeters = 2500): void
     {
         Http::fake([
             'https://generativelanguage.googleapis.com/*' => Http::response([
@@ -937,13 +994,13 @@ class ChatbotShoppingFlowTest extends TestCase
             ], 200),
             'https://routes.googleapis.com/*' => Http::response([
                 'routes' => [[
-                    'distanceMeters' => 2500,
+                    'distanceMeters' => $distanceMeters,
                     'duration' => '600s',
                     'polyline' => [
                         'encodedPolyline' => '_p~iF~ps|U_ulLnnqC_mqNvxq`@',
                     ],
                     'legs' => [[
-                        'distanceMeters' => 2500,
+                        'distanceMeters' => $distanceMeters,
                         'duration' => '600s',
                     ]],
                 ]],
@@ -955,7 +1012,7 @@ class ChatbotShoppingFlowTest extends TestCase
                         'elements' => [
                             [
                                 'status' => 'OK',
-                                'distance' => ['value' => 2500, 'text' => '2,5 km'],
+                                'distance' => ['value' => $distanceMeters, 'text' => '2,5 km'],
                                 'duration' => ['value' => 600, 'text' => '10 menit'],
                             ],
                         ],

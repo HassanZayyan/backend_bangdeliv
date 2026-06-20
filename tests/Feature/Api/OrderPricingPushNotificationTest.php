@@ -305,6 +305,7 @@ class OrderPricingPushNotificationTest extends TestCase
         ]);
         OrderEvidence::query()->create([
             'order_id' => $transferOrder->id,
+            'user_id' => (int) $transferOrder->user_id,
             'evidence_type' => 'PAYMENT_TRANSFER_PHOTO',
             'file_url' => '/storage/orders/payment.jpg',
         ]);

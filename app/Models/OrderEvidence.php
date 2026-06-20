@@ -11,7 +11,7 @@ class OrderEvidence extends Model
 
     protected $fillable = [
         'order_id',
-        'driver_id',
+        'user_id',
         'evidence_type',
         'file_url',
         'uploaded_at',
@@ -35,8 +35,13 @@ class OrderEvidence extends Model
         return $this->belongsTo(Order::class);
     }
 
-    public function driver(): BelongsTo
+    public function user(): BelongsTo
     {
-        return $this->belongsTo(Driver::class);
+        return $this->belongsTo(User::class);
+    }
+
+    public function uploader(): BelongsTo
+    {
+        return $this->user();
     }
 }

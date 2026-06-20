@@ -18,9 +18,7 @@ return new class extends Migration
             $table->foreignId('service_type_id')->constrained('service_types');
             $table->foreignId('driver_id')->nullable()->constrained('drivers')->nullOnDelete();
             $table->timestamp('assigned_at')->nullable();
-            $table->decimal('subtotal', 12, 2)->default(0);
             $table->decimal('delivery_fee', 12, 2)->default(0);
-            $table->decimal('service_fee', 12, 2)->default(0);
             $table->decimal('total_price', 12, 2)->default(0);
             $table->string('delivery_fee_source', 20)->default('system');
             $table->json('route_snapshot')->nullable();

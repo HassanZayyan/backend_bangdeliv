@@ -160,10 +160,9 @@ class RideOrderCreationTest extends TestCase
             'payment_status' => 'PENDING',
         ]);
 
-        $this->assertDatabaseHas('order_events', [
+        $this->assertDatabaseHas('order_status_histories', [
             'order_id' => $orderId,
-            'new_status_id' => $pendingStatusId,
-            'event_type' => 'STATUS_CHANGE',
+            'status_id' => $pendingStatusId,
             'changed_by_user_id' => $user->id,
         ]);
 

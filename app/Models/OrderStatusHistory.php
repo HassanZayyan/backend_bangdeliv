@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string $event_type
  * @property int|null $changed_by_user_id
  * @property string|null $note
+ * @property array<string, mixed>|null $metadata
  * @property array<string, mixed>|null $price_snapshot
  * @property \Carbon\Carbon|null $created_at
  * @property-read \App\Models\Order $order
@@ -20,17 +21,17 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class OrderStatusHistory extends Model
 {
-    protected $table = 'order_events';
+    protected $table = 'order_status_histories';
 
-    public $timestamps = false; // Karena migration hanya punya created_at secara manual, atau kita handle secara implicit. Migration kita: `$table->timestamp('created_at')->useCurrent();`
+    public $timestamps = false;
 
     protected $fillable = [
         'order_id',
         'status_id',
-        'new_status_id',
         'event_type',
         'changed_by_user_id',
         'note',
+        'metadata',
         'price_snapshot',
         'created_at',
     ];
@@ -38,8 +39,7 @@ class OrderStatusHistory extends Model
     protected function casts(): array
     {
         return [
-            'new_status_id' => 'integer',
-            'price_snapshot' => 'array',
+            'status_id' => 'integer',
             'metadata' => 'array',
             'created_at' => 'datetime',
         ];
@@ -47,22 +47,20 @@ class OrderStatusHistory extends Model
 
     public function setAttribute($key, $value)
     {
-        if ($key === 'status_id') {
-            $key = 'new_status_id';
-        }
-
         if ($key === 'price_snapshot') {
             $key = 'metadata';
+        }
+
+        if ($key === 'event_type') {
+            return $this;
         }
 
         return parent::setAttribute($key, $value);
     }
 
-    public function getStatusIdAttribute(): ?int
+    public function getEventTypeAttribute(): string
     {
-        $statusId = $this->attributes['new_status_id'] ?? null;
-
-        return $statusId !== null ? (int) $statusId : null;
+        return 'STATUS_CHANGE';
     }
 
     public function getPriceSnapshotAttribute(): ?array
@@ -82,6 +80,6 @@ class OrderStatusHistory extends Model
 
     public function statusRef(): BelongsTo
     {
-        return $this->belongsTo(OrderStatus::class, 'new_status_id');
+        return $this->belongsTo(OrderStatus::class, 'status_id');
     }
 }

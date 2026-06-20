@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Services\Order\DeliveryFeeNegotiationService;
+use App\Services\Pricing\ShoppingPricingService;
 use App\Services\Shopping\ShoppingItemChangeRequestService;
 use App\Services\Shopping\ShoppingOrderCapabilityService;
 use App\Services\Shopping\ShoppingPriceNegotiationService;
@@ -21,10 +22,8 @@ use Illuminate\Database\Eloquent\Relations\HasOneThrough;
  * @property string|null $delivery_address
  * @property string|null $delivery_latitude
  * @property string|null $delivery_longitude
- * @property string|null $subtotal
  * @property string $delivery_fee
  * @property string|null $delivery_fee_source
- * @property string|null $service_fee
  * @property array<string, mixed>|null $route_snapshot
  * @property string|null $total_price
  * @property int $status_id
@@ -63,14 +62,11 @@ class Order extends Model
     protected $fillable = [
         'order_number',
         'user_id',
-        'restaurant_id',
         'service_type_id',
         'driver_id',
         'assigned_at',
-        'subtotal',
         'delivery_fee',
         'delivery_fee_source',
-        'service_fee',
         'route_snapshot',
         'total_price',
         'status_id',
@@ -94,6 +90,8 @@ class Order extends Model
         'paid_amount',
         'paid_by_user_id',
         'paid_at',
+        'subtotal',
+        'service_fee',
         'shopping_stops',
         'route',
         'shopping_route',
@@ -113,9 +111,7 @@ class Order extends Model
     {
         return [
             'assigned_at' => 'datetime',
-            'subtotal' => 'decimal:2',
             'delivery_fee' => 'decimal:2',
-            'service_fee' => 'decimal:2',
             'route_snapshot' => 'array',
             'total_price' => 'decimal:2',
             'cancelled_at' => 'datetime',
@@ -125,7 +121,7 @@ class Order extends Model
 
     public function setAttribute($key, $value)
     {
-        if ($key === 'restaurant_id') {
+        if (in_array($key, ['restaurant_id', 'subtotal', 'service_fee'], true)) {
             return $this;
         }
 
@@ -305,7 +301,16 @@ class Order extends Model
 
     public function getSubtotalAttribute(mixed $value = null): string
     {
-        return number_format((float) ($value ?? $this->attributes['subtotal'] ?? 0), 2, '.', '');
+        $stored = $value ?? ($this->attributes['subtotal'] ?? null);
+        if ($stored !== null) {
+            return number_format((float) $stored, 2, '.', '');
+        }
+
+        if (strtoupper((string) ($this->serviceType?->code ?? '')) === 'SHOPPING') {
+            return number_format(app(ShoppingPricingService::class)->subtotalAmount($this), 2, '.', '');
+        }
+
+        return '0.00';
     }
 
     public function getDeliveryFeeAttribute(mixed $value = null): string
@@ -354,7 +359,16 @@ class Order extends Model
 
     public function getServiceFeeAttribute(mixed $value = null): string
     {
-        return number_format((float) ($value ?? $this->attributes['service_fee'] ?? 0), 2, '.', '');
+        $stored = $value ?? ($this->attributes['service_fee'] ?? null);
+        if ($stored !== null) {
+            return number_format((float) $stored, 2, '.', '');
+        }
+
+        if (strtoupper((string) ($this->serviceType?->code ?? '')) === 'SHOPPING') {
+            return number_format(app(ShoppingPricingService::class)->serviceFeeAmount($this), 2, '.', '');
+        }
+
+        return '0.00';
     }
 
     public function getTotalPriceAttribute(mixed $value = null): string
@@ -533,9 +547,6 @@ class Order extends Model
                     'sequence_no' => (int) $pickup->sequence_no,
                     'fulfillment_status' => strtoupper((string) ($pickup->fulfillment_status ?? 'PENDING')),
                     'failed_attempt_count' => (int) ($pickup->failed_attempt_count ?? 0),
-                    'failure_reason' => $pickup->failure_reason,
-                    'failed_at' => $pickup->failed_at?->toIso8601String(),
-                    'resolved_at' => $pickup->resolved_at?->toIso8601String(),
                     'unavailable_item_actions' => $unavailableItemActions,
                     'merchant' => [
                         'id' => $restaurantId,
@@ -683,6 +694,8 @@ class Order extends Model
             ->map(function (OrderEvidence $evidence): array {
                 return [
                     'id' => (int) $evidence->id,
+                    'user_id' => (int) $evidence->user_id,
+                    'uploader_user_id' => (int) $evidence->user_id,
                     'type' => $this->canonicalProofType((string) $evidence->evidence_type),
                     'evidence_type' => strtoupper((string) $evidence->evidence_type),
                     'photo_url' => $evidence->file_url,
@@ -776,17 +789,7 @@ class Order extends Model
      */
     private function shoppingFeeBreakdown(): array
     {
-        $serviceFee = round((float) $this->service_fee, 2);
-        if ($serviceFee <= 0 || $this->statusCode() !== 'CANCELLED_WITH_FEE') {
-            return [];
-        }
-
-        return [[
-            'code' => 'CANCELLATION_PENALTY_AFTER_FAILED_ATTEMPTS',
-            'label' => 'Penalty merchant gagal',
-            'description' => $this->feeLineDescription('CANCELLATION_PENALTY_AFTER_FAILED_ATTEMPTS'),
-            'amount' => $serviceFee,
-        ]];
+        return app(ShoppingPricingService::class)->feeBreakdownForOrder($this);
     }
 
     private function feeLineDescription(string $code): string

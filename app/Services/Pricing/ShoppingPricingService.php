@@ -5,7 +5,6 @@ namespace App\Services\Pricing;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\OrderLog;
-use App\Models\OrderStatusHistory;
 use App\Services\Notification\OrderPricingPushNotificationService;
 use App\Services\Notification\OrderRealtimeBroadcaster;
 use App\Services\Order\OrderPaymentService;
@@ -28,6 +27,51 @@ class ShoppingPricingService
         private readonly ShoppingDeliveryFeeLockResolver $deliveryFeeLockResolver,
     ) {}
 
+    public function subtotalAmount(Order $order): float
+    {
+        $order->loadMissing(['serviceType', 'statusRef', 'items']);
+
+        if (strtoupper((string) ($order->serviceType?->code ?? '')) !== 'SHOPPING') {
+            return 0.0;
+        }
+
+        if (strtoupper((string) ($order->statusRef?->code ?? '')) === 'CANCELLED_WITH_FEE') {
+            return 0.0;
+        }
+
+        $approvedSubtotal = $this->approvedShoppingSubtotalAmount($order);
+        if ($approvedSubtotal !== null) {
+            return $approvedSubtotal;
+        }
+
+        return round($order->items
+            ->filter(fn (OrderItem $item): bool => (bool) $item->is_available)
+            ->sum(fn (OrderItem $item): float => round((float) $item->subtotal, 2)), 2);
+    }
+
+    public function serviceFeeAmount(Order $order): float
+    {
+        $order->loadMissing(['serviceType', 'statusRef', 'items']);
+
+        if (strtoupper((string) ($order->serviceType?->code ?? '')) !== 'SHOPPING') {
+            return 0.0;
+        }
+
+        if (strtoupper((string) ($order->statusRef?->code ?? '')) !== 'CANCELLED_WITH_FEE') {
+            return 0.0;
+        }
+
+        $subtotal = $this->subtotalAmount($order);
+        $deliveryFee = round((float) $order->delivery_fee, 2);
+        $totalPrice = round((float) $order->total_price, 2);
+        $snapshotFee = round(max(0.0, $totalPrice - $deliveryFee - $subtotal), 2);
+        $calculatedPenalty = $this->calculateCancellationPenalty($order);
+
+        return $calculatedPenalty > 0 && abs($snapshotFee - $calculatedPenalty) > 0.01
+            ? $calculatedPenalty
+            : $snapshotFee;
+    }
+
     /**
      * @param  iterable<int, \App\Models\OrderItem|array<string, mixed>>  $items
      * @return array<string, mixed>
@@ -39,7 +83,6 @@ class ShoppingPricingService
         float $cancellationPenalty = 0.0,
         ?float $subtotalOverride = null,
         bool $penaltyOnly = false,
-        bool $preserveDeliveryFeeWhenPenaltyOnly = false,
     ): array {
         $subtotal = 0.0;
         $totalItemQuantity = 0;
@@ -66,9 +109,7 @@ class ShoppingPricingService
 
         if ($penaltyOnly && $cancellationPenalty > 0) {
             $subtotal = 0.0;
-            if (! $preserveDeliveryFeeWhenPenaltyOnly) {
-                $deliveryFee = 0.0;
-            }
+            $deliveryFee = 0.0;
         }
 
         $serviceFee = $cancellationPenalty;
@@ -104,8 +145,11 @@ class ShoppingPricingService
             ? (float) $deliveryFeeLock['amount']
             : (float) $order->delivery_fee;
         $statusCode = strtoupper((string) ($order->statusRef?->code ?? ''));
+        $penaltyBaseDeliveryFee = $statusCode === 'CANCELLED_WITH_FEE'
+            ? $this->cancellationPenaltyBaseDeliveryFee($order)
+            : null;
         $cancellationPenalty = $statusCode === 'CANCELLED_WITH_FEE'
-            ? round((float) $order->service_fee, 2)
+            ? $this->calculateCancellationPenalty($order)
             : 0.0;
         $penaltyOnly = $cancellationPenalty > 0 && $statusCode === 'CANCELLED_WITH_FEE';
         $subtotalOverride = $penaltyOnly ? null : $this->approvedShoppingSubtotalAmount($order);
@@ -117,19 +161,16 @@ class ShoppingPricingService
             $cancellationPenalty,
             $subtotalOverride,
             $penaltyOnly,
-            $isDeliveryFeeLocked,
         );
 
         $nextVersion = $this->latestRecalculationVersion($order) + 1;
 
         $orderUpdates = [
-            'subtotal' => $pricing['subtotal'],
-            'service_fee' => $pricing['service_fee'],
             'total_price' => $pricing['total_price'],
         ];
 
         if ($penaltyOnly) {
-            $orderUpdates['delivery_fee'] = $isDeliveryFeeLocked ? $pricing['delivery_fee'] : 0;
+            $orderUpdates['delivery_fee'] = 0;
         } elseif ($isDeliveryFeeLocked) {
             $orderUpdates['delivery_fee'] = $pricing['delivery_fee'];
         }
@@ -150,6 +191,9 @@ class ShoppingPricingService
                 'has_overweight_item' => $pricing['has_overweight_item'],
                 'trigger_type' => $triggerType,
                 'recalculation_version' => $nextVersion,
+                ...($penaltyBaseDeliveryFee !== null ? [
+                    'penalty_base_delivery_fee' => round($penaltyBaseDeliveryFee, 2),
+                ] : []),
             ],
         ]);
 
@@ -157,19 +201,21 @@ class ShoppingPricingService
         $this->recordPriceChange($event, $oldAmounts, $newAmounts);
 
         if ($writeHistory) {
-            OrderStatusHistory::query()->create([
+            OrderLog::query()->create([
                 'order_id' => $order->id,
-                'status_id' => $order->status_id,
                 'event_type' => 'ITEM_UPDATE',
                 'changed_by_user_id' => $changedByUserId,
                 'note' => $historyNote ?: 'Perubahan item order SHOPPING.',
-                'price_snapshot' => [
+                'metadata' => [
                     'subtotal' => $pricing['subtotal'],
-                    'service_fee' => $pricing['service_fee'],
-                    'total_price' => $pricing['total_price'],
-                    'recalculation_version' => $nextVersion,
-                ],
-            ]);
+                'service_fee' => $pricing['service_fee'],
+                'total_price' => $pricing['total_price'],
+                'recalculation_version' => $nextVersion,
+                ...($penaltyBaseDeliveryFee !== null ? [
+                    'penalty_base_delivery_fee' => round($penaltyBaseDeliveryFee, 2),
+                ] : []),
+            ],
+        ]);
         }
 
         $freshOrder = $order->refresh()->load([
@@ -213,10 +259,7 @@ class ShoppingPricingService
             return 0.0;
         }
 
-        $deliveryFeeLock = $this->deliveryFeeLockResolver->resolve($order);
-        $deliveryFee = (bool) $deliveryFeeLock['is_locked'] && is_numeric($deliveryFeeLock['amount'])
-            ? (float) $deliveryFeeLock['amount']
-            : (float) $order->delivery_fee;
+        $deliveryFee = $this->cancellationPenaltyBaseDeliveryFee($order);
 
         return round($deliveryFee * ($percent / 100), 2);
     }
@@ -363,9 +406,9 @@ class ShoppingPricingService
     public function pricingAmounts(Order $order): array
     {
         return [
-            'SUBTOTAL' => round((float) $order->subtotal, 2),
+            'SUBTOTAL' => $this->subtotalAmount($order),
             'DELIVERY_FEE' => round((float) $order->delivery_fee, 2),
-            'SERVICE_FEE' => round((float) $order->service_fee, 2),
+            'SERVICE_FEE' => $this->serviceFeeAmount($order),
             'TOTAL_PRICE' => round((float) $order->total_price, 2),
         ];
     }
@@ -434,8 +477,33 @@ class ShoppingPricingService
         $statusCode = strtoupper((string) ($order->statusRef?->code ?? ''));
 
         return $statusCode === 'CANCELLED_WITH_FEE'
-            ? round((float) $order->service_fee, 2)
+            ? $this->serviceFeeAmount($order)
             : 0.0;
+    }
+
+    private function cancellationPenaltyBaseDeliveryFee(Order $order): float
+    {
+        $deliveryFeeLock = $this->deliveryFeeLockResolver->resolve($order);
+        if ((bool) ($deliveryFeeLock['is_locked'] ?? false)
+            && is_numeric($deliveryFeeLock['amount'] ?? null)
+            && (float) $deliveryFeeLock['amount'] > 0
+        ) {
+            return round((float) $deliveryFeeLock['amount'], 2);
+        }
+
+        $recordedBase = OrderLog::query()
+            ->where('order_id', $order->id)
+            ->where('event_type', 'PRICE_RECALCULATION')
+            ->latest('id')
+            ->get(['metadata'])
+            ->map(fn (OrderLog $event): mixed => data_get($event->metadata ?? [], 'penalty_base_delivery_fee'))
+            ->first(fn (mixed $amount): bool => is_numeric($amount) && (float) $amount > 0);
+
+        if (is_numeric($recordedBase)) {
+            return round((float) $recordedBase, 2);
+        }
+
+        return round(max(0.0, (float) $order->delivery_fee), 2);
     }
 
     /**

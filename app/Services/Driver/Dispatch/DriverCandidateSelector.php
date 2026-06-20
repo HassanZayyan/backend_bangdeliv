@@ -4,7 +4,7 @@ namespace App\Services\Driver\Dispatch;
 
 use App\Models\Driver;
 use App\Models\Order;
-use App\Models\OrderStatusHistory;
+use App\Models\OrderLog;
 use Illuminate\Database\Eloquent\Builder;
 
 class DriverCandidateSelector
@@ -62,7 +62,7 @@ class DriverCandidateSelector
     {
         $rejectedDriverUserIds = $order === null
             ? []
-            : OrderStatusHistory::query()
+            : OrderLog::query()
                 ->where('order_id', $order->id)
                 ->where('event_type', 'DRIVER_REJECT')
                 ->whereNotNull('changed_by_user_id')

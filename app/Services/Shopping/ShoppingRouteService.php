@@ -13,6 +13,8 @@ use Illuminate\Support\Facades\Log;
 
 class ShoppingRouteService
 {
+    public const ERROR_ROUTE_DISTANCE_LIMIT = 'SHOPPING_ROUTE_DISTANCE_LIMIT';
+
     private const MINIMUM_ROUTE_DISTANCE_METERS = 20;
 
     public function __construct(
@@ -336,7 +338,11 @@ class ShoppingRouteService
                 'Jarak rute belanja %.2f km melebihi batas layanan %.2f km.',
                 $totalDistanceMeters / 1000,
                 $this->deliveryPricingService->getMaxDistanceKm()
-            ), 422);
+            ), 422, [
+                'code' => self::ERROR_ROUTE_DISTANCE_LIMIT,
+                'distance_km' => round($totalDistanceMeters / 1000, 2),
+                'max_distance_km' => $this->deliveryPricingService->getMaxDistanceKm(),
+            ]);
         }
     }
 

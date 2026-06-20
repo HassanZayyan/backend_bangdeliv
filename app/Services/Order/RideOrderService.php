@@ -136,10 +136,8 @@ class RideOrderService
             isset($payload['payment_method']) ? (string) $payload['payment_method'] : null
         );
 
-        $subtotal = 0.0;
         $deliveryFee = (float) $pricing['total_fee'];
-        $serviceFee = 0.0;
-        $totalAmount = $subtotal + $deliveryFee + $serviceFee;
+        $totalAmount = $deliveryFee;
         $routeSnapshot = [
             ...$route,
             'delivery_fee' => round($deliveryFee, 2),
@@ -154,9 +152,7 @@ class RideOrderService
             $normalizedDestinationAddress,
             $destinationLatitude,
             $destinationLongitude,
-            $subtotal,
             $deliveryFee,
-            $serviceFee,
             $totalAmount,
             $routeSnapshot,
             $pickupAddressText,
@@ -169,9 +165,7 @@ class RideOrderService
                 'user_id' => $user->id,
                 'restaurant_id' => null,
                 'service_type_id' => $rideServiceTypeId,
-                'subtotal' => round($subtotal, 2),
                 'delivery_fee' => round($deliveryFee, 2),
-                'service_fee' => round($serviceFee, 2),
                 'route_snapshot' => $routeSnapshot,
                 'total_price' => round($totalAmount, 2),
                 'status_id' => $pendingStatusId,

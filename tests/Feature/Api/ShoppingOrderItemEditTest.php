@@ -890,7 +890,6 @@ class ShoppingOrderItemEditTest extends TestCase
         $this->assertDatabaseHas('order_locations', [
             'id' => $firstPickup->id,
             'fulfillment_status' => 'FAILED',
-            'failure_reason' => 'Resto tutup/order batal.',
         ]);
         $this->assertDatabaseHas('order_locations', [
             'id' => $secondPickup->id,
@@ -915,8 +914,6 @@ class ShoppingOrderItemEditTest extends TestCase
             ->firstOrFail();
         $failedPickup->update([
             'fulfillment_status' => 'FAILED',
-            'failure_reason' => 'Merchant tutup saat driver tiba.',
-            'failed_at' => now(),
         ]);
         $order->items()->where('pickup_location_id', $failedPickup->id)->update([
             'is_available' => false,
@@ -972,8 +969,6 @@ class ShoppingOrderItemEditTest extends TestCase
             ->firstOrFail();
         $failedPickup->update([
             'fulfillment_status' => 'FAILED',
-            'failure_reason' => 'Merchant tutup saat driver tiba.',
-            'failed_at' => now(),
         ]);
         $order->items()->where('pickup_location_id', $failedPickup->id)->update([
             'is_available' => false,

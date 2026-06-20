@@ -15,7 +15,6 @@ return new class extends Migration
             $table->id();
             $table->foreignId('order_id')->constrained()->cascadeOnDelete();
             $table->string('event_type', 60)->default('SYSTEM_EVENT');
-            $table->foreignId('new_status_id')->nullable()->constrained('order_statuses')->nullOnDelete();
             $table->string('trigger_type', 60)->nullable();
             $table->foreignId('changed_by_user_id')->nullable()->constrained('users')->nullOnDelete();
             $table->text('note')->nullable();
@@ -24,7 +23,20 @@ return new class extends Migration
 
             $table->index(['order_id', 'created_at'], 'order_events_order_created_idx');
             $table->index(['order_id', 'event_type'], 'order_events_order_type_idx');
-            $table->index(['order_id', 'new_status_id'], 'order_events_order_new_status_idx');
+            $table->index(['order_id', 'trigger_type'], 'order_events_order_trigger_idx');
+        });
+
+        Schema::create('order_status_histories', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('order_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('status_id')->constrained('order_statuses')->cascadeOnDelete();
+            $table->foreignId('changed_by_user_id')->nullable()->constrained('users')->nullOnDelete();
+            $table->text('note')->nullable();
+            $table->json('metadata')->nullable();
+            $table->timestamp('created_at')->useCurrent();
+
+            $table->index(['order_id', 'created_at'], 'order_status_histories_order_created_idx');
+            $table->index(['order_id', 'status_id'], 'order_status_histories_order_status_idx');
         });
     }
 
@@ -33,6 +45,7 @@ return new class extends Migration
      */
     public function down(): void
     {
+        Schema::dropIfExists('order_status_histories');
         Schema::dropIfExists('order_events');
     }
 };

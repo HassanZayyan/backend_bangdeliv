@@ -114,15 +114,14 @@ class DriverOrderWorkflowTest extends TestCase
         ]);
         $this->assertNotNull($order->fresh()->assigned_at);
 
-        $this->assertDatabaseHas('order_events', [
+        $this->assertDatabaseHas('order_status_histories', [
             'order_id' => $order->id,
-            'new_status_id' => $assignedStatusId,
-            'event_type' => 'STATUS_CHANGE',
+            'status_id' => $assignedStatusId,
             'changed_by_user_id' => $driverUser->id,
         ]);
         $acceptEvent = OrderStatusHistory::query()
             ->where('order_id', $order->id)
-            ->where('new_status_id', $assignedStatusId)
+            ->where('status_id', $assignedStatusId)
             ->firstOrFail();
         $driverSnapshot = $acceptEvent->price_snapshot['driver_snapshot'] ?? [];
         $this->assertSame($driver->id, $driverSnapshot['driver_id'] ?? null);
@@ -505,7 +504,7 @@ class DriverOrderWorkflowTest extends TestCase
         $secondReject->assertOk()
             ->assertJsonPath('success', true);
 
-        $this->assertSame(1, OrderStatusHistory::query()
+        $this->assertSame(1, OrderLog::query()
             ->where('order_id', $order->id)
             ->where('event_type', 'DRIVER_REJECT')
             ->where('changed_by_user_id', $driverUser->id)
@@ -521,9 +520,8 @@ class DriverOrderWorkflowTest extends TestCase
         $otherDriver->update(['status' => 'available']);
 
         $order = $this->createShoppingOrder(null, 'PENDING');
-        OrderStatusHistory::query()->create([
+        OrderLog::query()->create([
             'order_id' => $order->id,
-            'status_id' => $order->status_id,
             'event_type' => 'DRIVER_REJECT',
             'changed_by_user_id' => $rejectedDriverUser->id,
             'note' => 'Order ditolak driver.',
@@ -1105,7 +1103,7 @@ class DriverOrderWorkflowTest extends TestCase
             ->assertJsonPath('data.history_orders.0.order_number', 'BD-DRV-HST-0001')
             ->assertJsonPath('data.history_orders.0.customer_name', 'Customer Riwayat')
             ->assertJsonPath('data.history_orders.0.delivery_fee', 6000)
-            ->assertJsonPath('data.history_orders.0.service_fee', 2500)
+            ->assertJsonPath('data.history_orders.0.service_fee', 0)
             ->assertJsonPath('data.history_orders.0.driver_income', 6000)
             ->assertJsonPath('data.history_orders.0.total_price', 23500)
             ->assertJsonPath('data.history_orders.0.status', 'Selesai');
@@ -1326,8 +1324,6 @@ class DriverOrderWorkflowTest extends TestCase
 
         $this->assertDatabaseHas('orders', [
             'id' => $order->id,
-            'subtotal' => 30000,
-            'service_fee' => 0,
             'total_price' => 36000,
         ]);
 
@@ -1456,11 +1452,11 @@ class DriverOrderWorkflowTest extends TestCase
         $this->assertDatabaseHas('order_locations', [
             'id' => $pickup->id,
             'failed_attempt_count' => 1,
-            'failure_reason' => 'Resto tutup/order batal.',
         ]);
-        $this->assertDatabaseHas('orders', [
-            'id' => $order->id,
-            'service_fee' => 0,
+
+        $this->assertDatabaseHas('order_events', [
+            'order_id' => $order->id,
+            'event_type' => 'FAILED_ATTEMPT_INCREMENT',
         ]);
     }
 
@@ -1506,10 +1502,6 @@ class DriverOrderWorkflowTest extends TestCase
         $this->assertDatabaseHas('order_locations', [
             'id' => $pickup->id,
             'failed_attempt_count' => 3,
-        ]);
-        $this->assertDatabaseHas('orders', [
-            'id' => $order->id,
-            'service_fee' => 3000,
         ]);
         $this->assertDatabaseHas('order_payments', [
             'order_id' => $order->id,
@@ -1616,7 +1608,6 @@ class DriverOrderWorkflowTest extends TestCase
         $this->assertDatabaseHas('orders', [
             'id' => $order->id,
             'delivery_fee' => 0,
-            'service_fee' => 3000,
             'total_price' => 3000,
         ]);
         $this->assertDatabaseHas('orders', [
@@ -1692,7 +1683,7 @@ class DriverOrderWorkflowTest extends TestCase
         );
     }
 
-    public function test_locked_delivery_fee_is_preserved_when_all_shopping_merchants_fail(): void
+    public function test_locked_delivery_fee_is_used_only_as_penalty_base_when_all_shopping_merchants_fail(): void
     {
         [$driverUser, $driver] = $this->createActiveDriver('shopping-locked-fee');
         $order = $this->createShoppingOrder($driver, 'ARRIVED_MERCHANT');
@@ -1752,21 +1743,20 @@ class DriverOrderWorkflowTest extends TestCase
 
         $response->assertOk()
             ->assertJsonPath('data.status_ref.code', 'CANCELLED_WITH_FEE')
-            ->assertJsonPath('data.delivery_fee', '18000.00')
+            ->assertJsonPath('data.delivery_fee', '0.00')
             ->assertJsonPath('data.service_fee', '9000.00')
-            ->assertJsonPath('data.total_price', '27000.00');
+            ->assertJsonPath('data.total_price', '9000.00');
 
         $this->assertDatabaseHas('orders', [
             'id' => $order->id,
-            'delivery_fee' => 18000,
-            'service_fee' => 9000,
-            'total_price' => 27000,
+            'delivery_fee' => 0,
+            'total_price' => 9000,
         ]);
         $this->assertDatabaseHas('order_payments', [
             'order_id' => $order->id,
             'payment_method' => 'TRANSFER',
             'payment_status' => 'PENDING',
-            'amount' => 27000,
+            'amount' => 9000,
         ]);
     }
 
@@ -1923,7 +1913,7 @@ class DriverOrderWorkflowTest extends TestCase
     {
         return OrderEvidence::query()->create([
             'order_id' => $order->id,
-            'driver_id' => $driver->id,
+            'user_id' => (int) $driver->user_id,
             'evidence_type' => $evidenceType,
             'file_url' => 'http://localhost/storage/test-proof.jpg',
             'uploaded_at' => now(),

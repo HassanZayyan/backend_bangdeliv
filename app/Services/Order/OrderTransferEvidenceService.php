@@ -16,7 +16,7 @@ class OrderTransferEvidenceService
     public function storeAndRecord(
         Order $order,
         UploadedFile $photo,
-        ?int $driverId = null,
+        int $userId,
         ?string $note = null,
     ): OrderEvidence {
         return $this->recordFromUrl(
@@ -27,7 +27,7 @@ class OrderTransferEvidenceService
                 'payments',
                 'Upload bukti QRIS gagal disimpan.',
             ),
-            $driverId,
+            $userId,
             $note
         );
     }
@@ -35,12 +35,12 @@ class OrderTransferEvidenceService
     public function recordFromUrl(
         Order $order,
         string $fileUrl,
-        ?int $driverId = null,
+        int $userId,
         ?string $note = null,
     ): OrderEvidence {
         return OrderEvidence::query()->create([
             'order_id' => $order->id,
-            'driver_id' => $driverId,
+            'user_id' => $userId,
             'evidence_type' => 'PAYMENT_TRANSFER_PHOTO',
             'file_url' => $fileUrl,
             'uploaded_at' => now(),

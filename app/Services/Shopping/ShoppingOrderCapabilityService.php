@@ -3,6 +3,7 @@
 namespace App\Services\Shopping;
 
 use App\Models\Order;
+use App\Services\Pricing\ShoppingPricingService;
 
 class ShoppingOrderCapabilityService
 {
@@ -26,6 +27,8 @@ class ShoppingOrderCapabilityService
             && $status === 'ARRIVED_MERCHANT'
             && ! $hasPendingItemChangeRequest
             && app(ShoppingPriceNegotiationService::class)->isApproved($order);
+        $hasCheckoutSaved = $isShopping
+            && app(ShoppingPricingService::class)->hasShoppingReceipt($order);
 
         return [
             'can_customer_direct_edit_items' => $isShopping && $status === 'PENDING',
@@ -46,6 +49,7 @@ class ShoppingOrderCapabilityService
             'can_driver_submit_shopping_quote' => $canDriverSubmitQuote,
             'can_driver_submit_merchant_quote' => $canDriverSubmitQuote,
             'can_driver_upload_receipt' => $canDriverUploadReceipt,
+            'has_checkout_saved' => $hasCheckoutSaved,
             'has_pending_item_change_request' => $hasPendingItemChangeRequest,
         ];
     }

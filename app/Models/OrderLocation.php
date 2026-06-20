@@ -19,9 +19,6 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $sequence_no
  * @property string $fulfillment_status
  * @property int $failed_attempt_count
- * @property string|null $failure_reason
- * @property \Carbon\Carbon|null $failed_at
- * @property \Carbon\Carbon|null $resolved_at
  * @property-read \App\Models\Order $order
  * @property-read \App\Models\Restaurant|null $restaurant
  */
@@ -42,9 +39,6 @@ class OrderLocation extends Model
         'sequence_no',
         'fulfillment_status',
         'failed_attempt_count',
-        'failure_reason',
-        'failed_at',
-        'resolved_at',
     ];
 
     protected function casts(): array
@@ -54,8 +48,6 @@ class OrderLocation extends Model
             'longitude' => 'decimal:8',
             'sequence_no' => 'integer',
             'failed_attempt_count' => 'integer',
-            'failed_at' => 'datetime',
-            'resolved_at' => 'datetime',
         ];
     }
 

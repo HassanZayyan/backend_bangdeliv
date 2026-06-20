@@ -44,10 +44,10 @@ class DriverOrderPayloadFactory
             'rideOrder:id,order_id,picked_up_at,arrived_at',
             'courierOrder:id,order_id,package_description',
             'items:id,order_id,menu_id,pickup_location_id,item_source,menu_name,quantity,unit_price,subtotal,notes,metadata,is_available',
-            'orderLocations:id,order_id,restaurant_id,location_role,label,contact_name,contact_phone,full_address,latitude,longitude,sequence_no,fulfillment_status,failed_attempt_count,failure_reason,failed_at,resolved_at',
+            'orderLocations:id,order_id,restaurant_id,location_role,label,contact_name,contact_phone,full_address,latitude,longitude,sequence_no,fulfillment_status,failed_attempt_count',
             'orderLocations.restaurant:id,name,address,latitude,longitude,phone,merchant_type',
             'payment:id,order_id,payment_method,payment_status,amount,recorded_by_user_id,driver_id,paid_at',
-            'evidences:id,order_id,driver_id,evidence_type,file_url,uploaded_at,notes,created_at',
+            'evidences:id,order_id,user_id,evidence_type,file_url,uploaded_at,notes,created_at',
             'statusHistories' => function (Relation $query): void {
                 $query
                     ->with('statusRef:id,code,display_name')
@@ -691,9 +691,6 @@ class DriverOrderPayloadFactory
                     'sequence_no' => (int) $pickup->sequence_no,
                     'fulfillment_status' => strtoupper((string) ($pickup->fulfillment_status ?? 'PENDING')),
                     'failed_attempt_count' => (int) ($pickup->failed_attempt_count ?? 0),
-                    'failure_reason' => $pickup->failure_reason,
-                    'failed_at' => $pickup->failed_at?->toIso8601String(),
-                    'resolved_at' => $pickup->resolved_at?->toIso8601String(),
                     'availability_confirmed' => isset($availabilityConfirmedPickupIds[$pickupId]),
                     'unavailable_item_actions' => $unavailableItemActions,
                     'merchant' => [

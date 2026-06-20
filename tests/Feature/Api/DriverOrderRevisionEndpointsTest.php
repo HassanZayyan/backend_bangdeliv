@@ -43,7 +43,7 @@ class DriverOrderRevisionEndpointsTest extends TestCase
 
         $this->assertDatabaseHas('order_evidence', [
             'order_id' => $order->id,
-            'driver_id' => $driver->id,
+            'user_id' => $driverUser->id,
             'evidence_type' => 'PICKUP_PHOTO',
         ]);
     }
@@ -543,7 +543,7 @@ class DriverOrderRevisionEndpointsTest extends TestCase
 
         OrderEvidence::query()->create([
             'order_id' => $order->id,
-            'driver_id' => $driver->id,
+            'user_id' => $driverUser->id,
             'evidence_type' => 'SHOPPING_RECEIPT',
             'file_url' => 'http://localhost/storage/orders/'.$order->id.'/receipts/receipt.jpg',
             'uploaded_at' => now(),
@@ -616,11 +616,11 @@ class DriverOrderRevisionEndpointsTest extends TestCase
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.pricing.subtotal', 56000)
             ->assertJsonPath('data.pricing.has_pending_manual_prices', false)
-            ->assertJsonPath('data.has_pending_shopping_prices', false);
+            ->assertJsonPath('data.has_pending_shopping_prices', false)
+            ->assertJsonPath('data.shopping_capabilities.has_checkout_saved', true);
 
         $this->assertDatabaseHas('orders', [
             'id' => $order->id,
-            'subtotal' => 56000,
             'total_price' => 61000,
         ]);
         $this->assertDatabaseHas('shopping_order_receipts', [
@@ -640,13 +640,31 @@ class DriverOrderRevisionEndpointsTest extends TestCase
         $detailResponse->assertOk()
             ->assertJsonPath('data.pricing.subtotal', 56000)
             ->assertJsonPath('data.pricing.has_pending_manual_prices', false)
-            ->assertJsonPath('data.has_pending_shopping_prices', false);
+            ->assertJsonPath('data.has_pending_shopping_prices', false)
+            ->assertJsonPath('data.shopping_capabilities.has_checkout_saved', true);
 
         $detailAction = collect($detailResponse->json('data.available_actions'))
             ->firstWhere('action_code', 'CONFIRM_PICKED_UP');
         $this->assertIsArray($detailAction);
         $this->assertFalse((bool) ($detailAction['blocked'] ?? true));
         $this->assertSame('', (string) ($detailAction['blocked_reason'] ?? ''));
+
+        $logCount = OrderLog::query()->where('order_id', $order->id)->count();
+        $secondCheckoutResponse = $this->patchJson('/api/v1/driver/orders/'.$order->id.'/shopping-checkout', [
+            'shopping_total_amount' => 56000,
+            'items' => [
+                [
+                    'id' => $item->id,
+                    'quantity' => 1,
+                    'is_available' => true,
+                ],
+            ],
+        ]);
+
+        $secondCheckoutResponse->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.shopping_capabilities.has_checkout_saved', true);
+        $this->assertSame($logCount, OrderLog::query()->where('order_id', $order->id)->count());
     }
 
     public function test_ride_accepts_manual_delivery_fee_for_normal_negotiation(): void
@@ -670,7 +688,7 @@ class DriverOrderRevisionEndpointsTest extends TestCase
     public function test_customer_counter_delivery_fee_requires_driver_approval(): void
     {
         [$driverUser, $driver] = $this->createDriver();
-        $order = $this->createAssignedOrder($driver, 'RIDE', 'ARRIVED_PICKUP', 15000);
+        $order = $this->createAssignedOrder($driver, 'RIDE', 'DRIVER_ASSIGNED', 15000);
         $customer = User::query()->findOrFail($order->user_id);
 
         Sanctum::actingAs($driverUser);
@@ -713,7 +731,7 @@ class DriverOrderRevisionEndpointsTest extends TestCase
     public function test_pending_delivery_fee_revision_blocks_driver_progress(): void
     {
         [$driverUser, $driver] = $this->createDriver();
-        $order = $this->createAssignedOrder($driver, 'RIDE', 'ARRIVED_PICKUP', 15000);
+        $order = $this->createAssignedOrder($driver, 'RIDE', 'DRIVER_ASSIGNED', 15000);
 
         Sanctum::actingAs($driverUser);
         $this->postJson('/api/v1/driver/orders/'.$order->id.'/delivery-fee-override', [
@@ -724,14 +742,14 @@ class DriverOrderRevisionEndpointsTest extends TestCase
         $detail = $this->getJson('/api/v1/driver/orders/'.$order->id)
             ->assertOk();
         $action = collect($detail->json('data.available_actions'))
-            ->firstWhere('action_code', 'BOARD_PASSENGER');
+            ->firstWhere('action_code', 'ARRIVE_PICKUP');
         $this->assertIsArray($action);
         $this->assertTrue((bool) ($action['blocked'] ?? false));
         $this->assertStringContainsString('Revisi ongkir', (string) ($action['blocked_reason'] ?? ''));
 
         $this->postJson('/api/v1/driver/orders/'.$order->id.'/status-transition', [
-            'action_code' => 'BOARD_PASSENGER',
-            'target_status_code' => 'ON_THE_WAY',
+            'action_code' => 'ARRIVE_PICKUP',
+            'target_status_code' => 'ARRIVED_PICKUP',
         ])->assertConflict()
             ->assertJsonPath('success', false);
     }
@@ -740,7 +758,7 @@ class DriverOrderRevisionEndpointsTest extends TestCase
     {
         Storage::fake('public');
         [$driverUser, $driver] = $this->createDriver();
-        $lateOrder = $this->createAssignedOrder($driver, 'COURIER', 'PICKED_UP', 15000);
+        $lateOrder = $this->createAssignedOrder($driver, 'COURIER', 'ARRIVED_PICKUP', 15000);
 
         Sanctum::actingAs($driverUser);
         $this->postJson('/api/v1/driver/orders/'.$lateOrder->id.'/delivery-fee-override', [
@@ -768,7 +786,7 @@ class DriverOrderRevisionEndpointsTest extends TestCase
     public function test_customer_can_cancel_order_from_delivery_fee_revision_without_fee(): void
     {
         [$driverUser, $driver] = $this->createDriver();
-        $order = $this->createAssignedOrder($driver, 'COURIER', 'ARRIVED_PICKUP', 15000);
+        $order = $this->createAssignedOrder($driver, 'COURIER', 'DRIVER_ASSIGNED', 15000);
         $customer = User::query()->findOrFail($order->user_id);
 
         Sanctum::actingAs($driverUser);
@@ -944,8 +962,6 @@ class DriverOrderRevisionEndpointsTest extends TestCase
             'sequence_no' => 1,
             'fulfillment_status' => 'FAILED',
             'failed_attempt_count' => $failedAttemptCount,
-            'failure_reason' => 'Merchant gagal tiga kali.',
-            'failed_at' => now(),
         ]);
     }
 }

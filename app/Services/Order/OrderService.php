@@ -146,7 +146,6 @@ class OrderService
             $cancelledStatusId = $this->resolveStatusId($cancelledStatusCode);
             $cancelUpdates = $this->cancelledOrderUpdateAttributes($cancelledStatusCode, 'customer', $reason);
             if ($isShopping) {
-                $cancelUpdates['service_fee'] = round($cancellationPenalty, 2);
             }
             $order->update($cancelUpdates);
 
@@ -247,7 +246,7 @@ class OrderService
             $this->transferEvidenceService->storeAndRecord(
                 $order,
                 $photo,
-                null,
+                (int) $user->id,
                 $payload['note'] ?? 'Bukti QRIS dari customer.'
             );
 
@@ -362,9 +361,6 @@ class OrderService
                 $pickup->update([
                     'fulfillment_status' => 'FAILED',
                     'failed_attempt_count' => min(255, (int) ($pickup->failed_attempt_count ?? 0) + 1),
-                    'failure_reason' => $reason,
-                    'failed_at' => now(),
-                    'resolved_at' => null,
                 ]);
 
                 $order->items()
@@ -393,20 +389,6 @@ class OrderService
                 ? (int) $pickup->id
                 : $pickupLocationId;
 
-            OrderStatusHistory::query()->create([
-                'order_id' => $order->id,
-                'status_id' => $order->status_id,
-                'event_type' => 'FAILED_ATTEMPT_INCREMENT',
-                'changed_by_user_id' => $actor->id,
-                'note' => $reason,
-                'price_snapshot' => [
-                    'failure_type' => $normalizedFailureType,
-                    'failed_attempt_count' => $nextFailedAttemptCount,
-                    'pickup_location_id' => $pickupLocationIdForAudit,
-                    'fulfillment_status' => $pickup !== null ? 'FAILED' : null,
-                ],
-            ]);
-
             OrderLog::query()->create([
                 'order_id' => $order->id,
                 'log_type' => 'SYSTEM_EVENT',
@@ -419,6 +401,9 @@ class OrderService
                     'recalculation_version' => $this->shoppingPricingService->latestRecalculationVersion($order),
                     'actor_role' => $actor->role,
                     'pickup_location_id' => $pickupLocationIdForAudit,
+                    'fulfillment_status' => $pickup !== null ? 'FAILED' : null,
+                    'failure_reason' => $reason,
+                    'failed_at' => now()->toIso8601String(),
                 ],
             ]);
 
@@ -635,7 +620,7 @@ class OrderService
                 ->with($this->driverOrderPayloadFactory->relations())
                 ->where('status_id', $pendingStatusId)
                 ->whereNull('driver_id')
-                ->whereDoesntHave('statusHistories', function ($query) use ($actor): void {
+                ->whereDoesntHave('logs', function ($query) use ($actor): void {
                     $query
                         ->where('event_type', 'DRIVER_REJECT')
                         ->where('changed_by_user_id', $actor->id);
@@ -1206,7 +1191,6 @@ class OrderService
             ];
 
             if ($shoppingCancellationPenalty !== null) {
-                $updates['service_fee'] = round($shoppingCancellationPenalty, 2);
             }
 
             if (in_array($resolvedTargetStatusCode, ['DELIVERED', 'COMPLETED'], true)) {
@@ -1401,7 +1385,7 @@ class OrderService
 
     private function hasDriverRejectedOrder(int $orderId, int $driverUserId): bool
     {
-        return OrderStatusHistory::query()
+        return OrderLog::query()
             ->where('order_id', $orderId)
             ->where('event_type', 'DRIVER_REJECT')
             ->where('changed_by_user_id', $driverUserId)
@@ -1415,9 +1399,8 @@ class OrderService
             return;
         }
 
-        OrderStatusHistory::query()->create([
+        OrderLog::query()->create([
             'order_id' => $order->id,
-            'status_id' => $order->status_id,
             'event_type' => 'DRIVER_REJECT',
             'changed_by_user_id' => $driverUserId,
             'note' => $note,
@@ -1621,8 +1604,7 @@ class OrderService
 
             $pickup->update([
                 'fulfillment_status' => 'PRICE_PENDING_CUSTOMER',
-                'resolved_at' => null,
-            ]);
+                ]);
 
             return $order->refresh();
         });
@@ -1695,7 +1677,6 @@ class OrderService
 
             $pickup->update([
                 'fulfillment_status' => 'PRICE_APPROVED',
-                'resolved_at' => now(),
             ]);
 
             return $this->shoppingPricingService->recalculate(
@@ -1935,8 +1916,7 @@ class OrderService
             if ($targetPickupLocationId !== null) {
                 $this->shoppingPickupLocationService->pickupById($order, $targetPickupLocationId)->update([
                     'fulfillment_status' => 'ITEMS_CONFIRMED',
-                    'resolved_at' => now(),
-                ]);
+                    ]);
             }
 
             $affectedPickupIds = $this->affectedPickupIdsForApprovedShoppingChange(
@@ -2013,7 +1993,6 @@ class OrderService
         $pickup = $this->shoppingPickupLocationService->pickupById($order->refresh()->load(['orderLocations']), $targetPickupLocationId);
         $pickup->update([
             'fulfillment_status' => 'ITEMS_CONFIRMED',
-            'resolved_at' => now(),
         ]);
 
         $appliedLog = $this->shoppingItemChangeRequestService->recordApplied(
@@ -2100,7 +2079,6 @@ class OrderService
 
         $pickup->update([
             'fulfillment_status' => 'PRICE_APPROVED',
-            'resolved_at' => now(),
         ]);
 
         return $this->shoppingPricingService->recalculate(
@@ -2130,17 +2108,18 @@ class OrderService
 
         $this->shoppingRouteService->applyRouteToOrder($order);
 
-        OrderStatusHistory::query()->create([
+        OrderLog::query()->create([
             'order_id' => $order->id,
-            'status_id' => $order->status_id,
             'event_type' => 'FAILED_ATTEMPT_INCREMENT',
             'changed_by_user_id' => $actor->id,
             'note' => $reason,
-            'price_snapshot' => [
+            'metadata' => [
                 'failure_type' => 'CUSTOMER_CANCEL_MERCHANT',
                 'failed_attempt_count' => $failedAttemptCount,
                 'pickup_location_id' => $pickup?->id,
                 'fulfillment_status' => 'FAILED',
+                'failure_reason' => $reason,
+                'failed_at' => now()->toIso8601String(),
             ],
         ]);
 
@@ -2229,7 +2208,6 @@ class OrderService
         }
 
         $cancelUpdates = $this->cancelledOrderUpdateAttributes($statusCode, $cancelledBy, $reason);
-        $cancelUpdates['service_fee'] = round($penalty, 2);
         $order->update($cancelUpdates);
 
         $statusHistory = OrderStatusHistory::query()->create([
@@ -2328,9 +2306,6 @@ class OrderService
         $pickup->update([
             'fulfillment_status' => 'FAILED',
             'failed_attempt_count' => min(255, (int) ($pickup->failed_attempt_count ?? 0) + 1),
-            'failure_reason' => $reason,
-            'failed_at' => now(),
-            'resolved_at' => null,
         ]);
 
         $order->items()
@@ -2380,7 +2355,6 @@ class OrderService
             if ($fulfillmentStatus === 'PENDING') {
                 $pickup->update([
                     'fulfillment_status' => 'OPEN_CONFIRMED',
-                    'resolved_at' => null,
                 ]);
             }
 
@@ -2576,7 +2550,6 @@ class OrderService
                     'fulfillment_status' => $submittedHasUnavailableItem
                         ? 'ITEMS_PENDING_CUSTOMER'
                         : 'ITEMS_CONFIRMED',
-                    'resolved_at' => $submittedHasUnavailableItem ? null : now(),
                 ]);
             }
 
@@ -2979,7 +2952,7 @@ class OrderService
             $this->orderEvidenceService->storeAndRecordDriverEvidence(
                 $order,
                 $photo,
-                (int) $driver->id,
+                (int) $actor->id,
                 $evidenceType,
                 'proofs',
                 $payload['note'] ?? null,
@@ -3046,6 +3019,11 @@ class OrderService
                 throw new ApiException('Revisi ongkir Nitip harus dikirim sebagai proposal ongkir.', 409);
             }
 
+            $receiptPhoto = $payload['receipt_photo'] ?? null;
+            if ($order->shoppingReceipt !== null && ! ($receiptPhoto instanceof UploadedFile)) {
+                return $order->refresh();
+            }
+
             $shoppingTotal = $this->shoppingPricingService->approvedShoppingSubtotalAmount($order);
             if ($shoppingTotal === null || $shoppingTotal <= 0) {
                 throw new ApiException('Harga Nitip approved belum valid untuk checkout.', 409);
@@ -3074,15 +3052,13 @@ class OrderService
                 ->whereIn('fulfillment_status', ['PRICE_APPROVED'])
                 ->update([
                     'fulfillment_status' => 'COMPLETED',
-                    'resolved_at' => now(),
-                ]);
+                    ]);
 
-            $receiptPhoto = $payload['receipt_photo'] ?? null;
             if ($receiptPhoto instanceof UploadedFile) {
                 $this->orderEvidenceService->storeAndRecordDriverEvidence(
                     $order,
                     $receiptPhoto,
-                    (int) $driver->id,
+                    (int) $actor->id,
                     'SHOPPING_RECEIPT',
                     'receipts',
                 );
@@ -3145,13 +3121,12 @@ class OrderService
                 ],
             ]);
 
-            OrderStatusHistory::query()->create([
+            OrderLog::query()->create([
                 'order_id' => $order->id,
-                'status_id' => $order->status_id,
                 'event_type' => 'PAYMENT_UPDATE',
                 'changed_by_user_id' => $actor->id,
                 'note' => 'Pembayaran QRIS berhasil dicatat.',
-                'price_snapshot' => [
+                'metadata' => [
                     'paid_amount' => $amount,
                     'payment_status' => 'paid',
                     'payment_method' => 'TRANSFER',
@@ -3786,14 +3761,14 @@ class OrderService
         ]);
 
         $this->shoppingPricingService->recordPriceChange($event, [
-            'SUBTOTAL' => round((float) $order->subtotal, 2),
+            'SUBTOTAL' => $this->shoppingPricingService->subtotalAmount($order),
             'DELIVERY_FEE' => round($oldDeliveryFee, 2),
-            'SERVICE_FEE' => round((float) $order->service_fee, 2),
+            'SERVICE_FEE' => $this->shoppingPricingService->serviceFeeAmount($order),
             'TOTAL_PRICE' => round($oldTotalPrice, 2),
         ], [
-            'SUBTOTAL' => round((float) $order->subtotal, 2),
+            'SUBTOTAL' => $this->shoppingPricingService->subtotalAmount($order),
             'DELIVERY_FEE' => round((float) $order->delivery_fee, 2),
-            'SERVICE_FEE' => round((float) $order->service_fee, 2),
+            'SERVICE_FEE' => $this->shoppingPricingService->serviceFeeAmount($order),
             'TOTAL_PRICE' => $newProjectedTotal,
         ]);
 
@@ -3807,20 +3782,19 @@ class OrderService
             );
         }
 
-        $nextTotalPrice = round((float) $order->subtotal + (float) $order->delivery_fee + (float) $order->service_fee, 2);
+        $nextTotalPrice = round((float) $order->delivery_fee, 2);
         $order->update([
             'total_price' => $nextTotalPrice,
         ]);
 
         $this->syncPendingPaymentAmount($order->refresh());
 
-        OrderStatusHistory::query()->create([
+        OrderLog::query()->create([
             'order_id' => $order->id,
-            'status_id' => $order->status_id,
             'event_type' => 'PRICE_UPDATE',
             'changed_by_user_id' => $actorId,
             'note' => $note,
-            'price_snapshot' => [
+            'metadata' => [
                 'delivery_fee' => round((float) $order->delivery_fee, 2),
                 'delivery_fee_source' => $order->delivery_fee_source ?: 'system',
                 'total_price' => $nextTotalPrice,
@@ -4125,13 +4099,12 @@ class OrderService
                 ],
             ]);
 
-            OrderStatusHistory::query()->create([
+            OrderLog::query()->create([
                 'order_id' => $order->id,
-                'status_id' => $order->status_id,
                 'event_type' => 'PAYMENT_UPDATE',
                 'changed_by_user_id' => $actor->id,
                 'note' => 'Pembayaran COD berhasil dicatat.',
-                'price_snapshot' => [
+                'metadata' => [
                     'paid_amount' => $amount,
                     'payment_status' => 'paid',
                 ],
