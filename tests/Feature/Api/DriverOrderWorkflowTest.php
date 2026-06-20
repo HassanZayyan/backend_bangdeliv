@@ -1252,7 +1252,6 @@ class DriverOrderWorkflowTest extends TestCase
             'unit_price' => 0,
             'subtotal' => 0,
             'is_available' => true,
-            'is_heavy' => false,
         ]);
 
         $this->approveShoppingQuoteForTest($order, $driverUser, $order->user);
@@ -1286,7 +1285,6 @@ class DriverOrderWorkflowTest extends TestCase
             'unit_price' => 0,
             'subtotal' => 0,
             'is_available' => true,
-            'is_heavy' => false,
             'metadata' => ['price_status' => 'PENDING_DRIVER_INPUT'],
         ]);
 
@@ -1306,7 +1304,6 @@ class DriverOrderWorkflowTest extends TestCase
                     'quantity' => 2,
                     'unit_price' => 15000,
                     'is_available' => true,
-                    'is_heavy' => true,
                     'notes' => 'Harga dari nota',
                 ],
             ],
@@ -1315,9 +1312,9 @@ class DriverOrderWorkflowTest extends TestCase
         $response->assertOk()
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.pricing.subtotal', 30000)
-            ->assertJsonPath('data.pricing.service_fee', 6000)
-            ->assertJsonPath('data.pricing.overweight_surcharge', 6000)
-            ->assertJsonPath('data.pricing.total_price', 42000)
+            ->assertJsonPath('data.pricing.service_fee', 0)
+            ->assertJsonPath('data.pricing.overweight_surcharge', 0)
+            ->assertJsonPath('data.pricing.total_price', 36000)
             ->assertJsonPath('data.has_pending_shopping_prices', false);
 
         $this->assertDatabaseHas('shopping_order_items', [
@@ -1325,25 +1322,19 @@ class DriverOrderWorkflowTest extends TestCase
             'quantity' => 2,
             'unit_price' => 15000,
             'subtotal' => 30000,
-            'is_heavy' => true,
         ]);
 
         $this->assertDatabaseHas('orders', [
             'id' => $order->id,
             'subtotal' => 30000,
-            'service_fee' => 6000,
-            'total_price' => 42000,
-        ]);
-        $this->assertDatabaseHas('order_fee_lines', [
-            'order_id' => $order->id,
-            'code' => 'OVERWEIGHT_FLAT_SURCHARGE',
-            'amount' => 6000,
+            'service_fee' => 0,
+            'total_price' => 36000,
         ]);
 
         $this->assertDatabaseHas('order_payments', [
             'order_id' => $order->id,
             'payment_status' => 'PENDING',
-            'amount' => 42000,
+            'amount' => 36000,
         ]);
 
         $this->assertTrue(OrderLog::query()
@@ -1369,7 +1360,6 @@ class DriverOrderWorkflowTest extends TestCase
             'unit_price' => 0,
             'subtotal' => 0,
             'is_available' => true,
-            'is_heavy' => false,
         ]);
 
         Sanctum::actingAs($driverUser);
@@ -1431,7 +1421,6 @@ class DriverOrderWorkflowTest extends TestCase
             'unit_price' => 12000,
             'subtotal' => 12000,
             'is_available' => true,
-            'is_heavy' => false,
         ]);
         OrderItem::query()->create([
             'order_id' => $order->id,
@@ -1442,7 +1431,6 @@ class DriverOrderWorkflowTest extends TestCase
             'unit_price' => 6000,
             'subtotal' => 6000,
             'is_available' => true,
-            'is_heavy' => false,
         ]);
 
         Sanctum::actingAs($driverUser);
@@ -1470,9 +1458,9 @@ class DriverOrderWorkflowTest extends TestCase
             'failed_attempt_count' => 1,
             'failure_reason' => 'Resto tutup/order batal.',
         ]);
-        $this->assertDatabaseMissing('order_fee_lines', [
-            'order_id' => $order->id,
-            'code' => 'CANCELLATION_PENALTY_AFTER_FAILED_ATTEMPTS',
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
+            'service_fee' => 0,
         ]);
     }
 
@@ -1496,7 +1484,6 @@ class DriverOrderWorkflowTest extends TestCase
             'unit_price' => 12000,
             'subtotal' => 12000,
             'is_available' => true,
-            'is_heavy' => false,
         ]);
 
         Sanctum::actingAs($driverUser);
@@ -1520,10 +1507,9 @@ class DriverOrderWorkflowTest extends TestCase
             'id' => $pickup->id,
             'failed_attempt_count' => 3,
         ]);
-        $this->assertDatabaseHas('order_fee_lines', [
-            'order_id' => $order->id,
-            'code' => 'CANCELLATION_PENALTY_AFTER_FAILED_ATTEMPTS',
-            'amount' => 3000,
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
+            'service_fee' => 3000,
         ]);
         $this->assertDatabaseHas('order_payments', [
             'order_id' => $order->id,
@@ -1583,7 +1569,6 @@ class DriverOrderWorkflowTest extends TestCase
             'unit_price' => 12000,
             'subtotal' => 12000,
             'is_available' => true,
-            'is_heavy' => false,
         ]);
 
         OrderPayment::query()->create([
@@ -1631,12 +1616,8 @@ class DriverOrderWorkflowTest extends TestCase
         $this->assertDatabaseHas('orders', [
             'id' => $order->id,
             'delivery_fee' => 0,
+            'service_fee' => 3000,
             'total_price' => 3000,
-        ]);
-        $this->assertDatabaseHas('order_fee_lines', [
-            'order_id' => $order->id,
-            'code' => 'CANCELLATION_PENALTY_AFTER_FAILED_ATTEMPTS',
-            'amount' => 3000,
         ]);
         $this->assertDatabaseHas('orders', [
             'id' => $order->id,
@@ -1737,7 +1718,6 @@ class DriverOrderWorkflowTest extends TestCase
             'unit_price' => 12000,
             'subtotal' => 12000,
             'is_available' => true,
-            'is_heavy' => false,
         ]);
 
         OrderLog::query()->create([

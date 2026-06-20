@@ -94,8 +94,4 @@ class User extends Authenticatable
         return $this->hasMany(Order::class);
     }
 
-    public function aiChatLogs()
-    {
-        return $this->hasMany(AiChatLog::class);
-    }
 }

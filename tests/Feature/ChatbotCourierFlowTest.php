@@ -4,10 +4,10 @@ namespace Tests\Feature;
 
 use App\Events\DriverOrderAvailable;
 use App\Models\Address;
-use App\Models\AiChatLog;
 use App\Models\Driver;
 use App\Models\Order;
 use App\Models\User;
+use App\Services\Chatbot\ChatbotDraftStore;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
@@ -397,47 +397,7 @@ class ChatbotCourierFlowTest extends TestCase
 
         $sessionId = 'sess-kurir-fast-confirm';
 
-        AiChatLog::query()->create([
-            'user_id' => $user->id,
-            'session_id' => $sessionId,
-            'role' => 'assistant',
-            'message' => 'Draft kurir siap dikonfirmasi.',
-            'ai_response' => [
-                'intent' => 'courier_order',
-                'service_type' => 'kurir',
-                'courier' => [
-                    'pickup_address' => 'Jl. Melati No. 3, Kelurahan Pedalangan, Kecamatan Banyumanik, Kota Semarang, Jawa Tengah 50268, Indonesia',
-                    'dropoff_address' => 'Jl. Prof. Soedarto, Tembalang, Kecamatan Tembalang, Kota Semarang, Jawa Tengah 50275, Indonesia',
-                    'package_description' => 'dokumen',
-                    'pickup_latitude' => -7.050900,
-                    'pickup_longitude' => 110.431500,
-                    'dropoff_latitude' => -7.052301,
-                    'dropoff_longitude' => 110.435601,
-                    'distance_km' => 1.2,
-                    'ready_to_confirm' => true,
-                    'used_default_pickup' => false,
-                    'pickup_address_id' => null,
-                    'payment_method' => 'COD',
-                ],
-                'validation' => [
-                    'is_valid_order' => true,
-                    'rejection_reasons' => [],
-                    'missing_fields' => [],
-                    'next_actions' => [],
-                ],
-                'order' => [
-                    'created' => false,
-                    'id' => null,
-                    'order_number' => null,
-                    'delivery_fee' => 5000,
-                    'payment_method' => 'COD',
-                ],
-                'assistant_text' => 'Ketik "Konfirmasi" untuk membuat order.',
-            ],
-            'model_used' => 'deterministic-command',
-            'intent' => 'courier_order',
-            'order_id' => null,
-        ]);
+        $this->seedCourierDraft($user, $sessionId);
 
         $token = $user->createToken('test-chatbot')->plainTextToken;
 
@@ -463,7 +423,7 @@ class ChatbotCourierFlowTest extends TestCase
         $this->assertSame(1600, $order->route_snapshot['distance_meters'] ?? null);
     }
 
-    public function test_chatbot_kurir_rejects_prohibited_package(): void
+    public function test_chatbot_kurir_ignores_package_policy_warning_fields(): void
     {
         $this->fakeGeocoding();
 
@@ -489,19 +449,22 @@ class ChatbotCourierFlowTest extends TestCase
         $response
             ->assertOk()
             ->assertJsonPath('data.intent', 'courier_order')
-            ->assertJsonPath('data.validation.is_valid_order', false)
-            ->assertJsonPath('data.courier.safety_status', 'PROHIBITED')
+            ->assertJsonPath('data.validation.is_valid_order', true)
+            ->assertJsonPath('data.courier.ready_to_confirm', true)
             ->assertJsonPath('data.order.created', false);
 
-        $this->assertStringContainsString(
-            'kategori terlarang',
-            (string) $response->json('data.assistant_text')
-        );
+        $courier = $response->json('data.courier');
+        $this->assertIsArray($courier);
+        $this->assertArrayNotHasKey('safety_status', $courier);
+        $this->assertArrayNotHasKey('safety_flags', $courier);
+        $this->assertArrayNotHasKey('safety_reason', $courier);
+        $this->assertArrayNotHasKey('size_class', $courier);
+        $this->assertStringNotContainsString('kategori terlarang', (string) $response->json('data.assistant_text'));
         $this->assertDatabaseCount('orders', 0);
         $this->assertDatabaseCount('courier_order_details', 0);
     }
 
-    public function test_chatbot_kurir_allows_oversize_package_with_warning_flags(): void
+    public function test_chatbot_kurir_keeps_large_item_without_size_or_weight_warning(): void
     {
         $this->fakeGeocoding();
 
@@ -527,17 +490,21 @@ class ChatbotCourierFlowTest extends TestCase
         $response
             ->assertOk()
             ->assertJsonPath('data.validation.is_valid_order', true)
-            ->assertJsonPath('data.courier.safety_status', 'ALLOWED')
-            ->assertJsonPath('data.courier.size_class', 'OVERSIZE')
             ->assertJsonPath('data.courier.ready_to_confirm', true)
             ->assertJsonPath('data.order.created', false);
 
-        $this->assertContains('OVERSIZE_FURNITURE', $response->json('data.courier.safety_flags'));
+        $courier = $response->json('data.courier');
+        $this->assertIsArray($courier);
+        $this->assertArrayNotHasKey('safety_status', $courier);
+        $this->assertArrayNotHasKey('size_class', $courier);
+        $this->assertArrayNotHasKey('estimated_weight_kg', $courier);
+        $this->assertArrayNotHasKey('package_length_cm', $courier);
+        $this->assertStringNotContainsString('penanganan manual', (string) $response->json('data.assistant_text'));
         $this->assertDatabaseCount('orders', 0);
         $this->assertDatabaseCount('courier_order_details', 0);
     }
 
-    public function test_chatbot_kurir_requires_clarification_for_ambiguous_package(): void
+    public function test_chatbot_kurir_allows_generic_package_description_without_policy_clarification(): void
     {
         $this->fakeGeocoding();
 
@@ -562,14 +529,11 @@ class ChatbotCourierFlowTest extends TestCase
 
         $response
             ->assertOk()
-            ->assertJsonPath('data.validation.is_valid_order', false)
-            ->assertJsonPath('data.courier.safety_status', 'NEEDS_CLARIFICATION')
+            ->assertJsonPath('data.validation.is_valid_order', true)
+            ->assertJsonPath('data.courier.ready_to_confirm', true)
             ->assertJsonPath('data.order.created', false);
 
-        $this->assertStringContainsString(
-            'Isi paket belum spesifik',
-            (string) $response->json('data.assistant_text')
-        );
+        $this->assertStringNotContainsString('Isi paket belum spesifik', (string) $response->json('data.assistant_text'));
         $this->assertDatabaseCount('orders', 0);
         $this->assertDatabaseCount('courier_order_details', 0);
     }
@@ -975,41 +939,29 @@ class ChatbotCourierFlowTest extends TestCase
         ]);
 
         $sessionId = 'sess-kurir-partial-gemini';
-        AiChatLog::query()->create([
-            'user_id' => $user->id,
-            'session_id' => $sessionId,
-            'role' => 'assistant',
-            'message' => 'Lengkapi isi paket.',
-            'ai_response' => [
-                'intent' => 'courier_order',
-                'service_type' => 'kurir',
-                'courier' => [
-                    'pickup_address' => 'Ramayan Salatiga',
-                    'pickup_latitude' => -7.328900,
-                    'pickup_longitude' => 110.500100,
-                    'dropoff_address' => 'Lapangan Pancasila Salatiga',
-                    'dropoff_latitude' => -7.331200,
-                    'dropoff_longitude' => 110.507700,
-                    'package_description' => null,
-                    'ready_to_confirm' => false,
-                    'used_default_pickup' => false,
-                ],
-                'validation' => [
-                    'is_valid_order' => false,
-                    'rejection_reasons' => ['Isi paket belum jelas.'],
-                    'missing_fields' => ['package_description'],
-                    'next_actions' => [],
-                ],
-                'order' => [
-                    'created' => false,
-                    'id' => null,
-                    'order_number' => null,
-                    'delivery_fee' => 5000,
-                ],
+        $this->seedCourierDraft($user, $sessionId, [
+            'courier' => [
+                'pickup_address' => 'Ramayan Salatiga',
+                'pickup_latitude' => -7.328900,
+                'pickup_longitude' => 110.500100,
+                'dropoff_address' => 'Lapangan Pancasila Salatiga',
+                'dropoff_latitude' => -7.331200,
+                'dropoff_longitude' => 110.507700,
+                'package_description' => null,
+                'ready_to_confirm' => false,
+                'used_default_pickup' => false,
+                'payment_method' => null,
             ],
-            'model_used' => 'map-route-action',
-            'intent' => 'courier_order',
-            'order_id' => null,
+            'validation' => [
+                'is_valid_order' => false,
+                'rejection_reasons' => ['Isi paket belum jelas.'],
+                'missing_fields' => ['package_description'],
+                'next_actions' => [],
+            ],
+            'order' => [
+                'payment_method' => null,
+            ],
+            'assistant_text' => 'Lengkapi isi paket.',
         ]);
 
         $token = $user->createToken('test-chatbot')->plainTextToken;
@@ -1086,6 +1038,47 @@ class ChatbotCourierFlowTest extends TestCase
             ->assertJsonPath('data.courier.ready_to_confirm', true)
             ->assertJsonPath('data.courier.package_description', 'kunci')
             ->assertJsonPath('data.courier.dropoff_address', 'Lapangan Pancasila Salatiga');
+    }
+
+    /**
+     * @param  array<string, mixed>  $overrides
+     */
+    private function seedCourierDraft(User $user, string $sessionId, array $overrides = []): void
+    {
+        $payload = [
+            'intent' => 'courier_order',
+            'service_type' => 'kurir',
+            'courier' => [
+                'pickup_address' => 'Jl. Melati No. 3, Kelurahan Pedalangan, Kecamatan Banyumanik, Kota Semarang, Jawa Tengah 50268, Indonesia',
+                'dropoff_address' => 'Jl. Prof. Soedarto, Tembalang, Kecamatan Tembalang, Kota Semarang, Jawa Tengah 50275, Indonesia',
+                'package_description' => 'dokumen',
+                'pickup_latitude' => -7.050900,
+                'pickup_longitude' => 110.431500,
+                'dropoff_latitude' => -7.052301,
+                'dropoff_longitude' => 110.435601,
+                'distance_km' => 1.2,
+                'ready_to_confirm' => true,
+                'used_default_pickup' => false,
+                'pickup_address_id' => null,
+                'payment_method' => 'COD',
+            ],
+            'validation' => [
+                'is_valid_order' => true,
+                'rejection_reasons' => [],
+                'missing_fields' => [],
+                'next_actions' => [],
+            ],
+            'order' => [
+                'created' => false,
+                'id' => null,
+                'order_number' => null,
+                'delivery_fee' => 5000,
+                'payment_method' => 'COD',
+            ],
+            'assistant_text' => 'Ketik "Konfirmasi" untuk membuat order.',
+        ];
+
+        app(ChatbotDraftStore::class)->savePayload($user, $sessionId, array_replace_recursive($payload, $overrides));
     }
 
     private function fakeGeocoding(): void

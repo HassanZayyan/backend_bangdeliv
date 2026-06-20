@@ -464,7 +464,6 @@ class ChatbotShoppingFlowTest extends TestCase
             'quantity' => 2,
             'unit_price' => 22000,
             'subtotal' => 44000,
-            'is_heavy' => false,
         ]);
 
         $item = OrderItem::query()->where('order_id', $orderId)->firstOrFail();

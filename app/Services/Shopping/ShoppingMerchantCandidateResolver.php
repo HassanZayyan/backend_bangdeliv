@@ -6,6 +6,7 @@ use App\Exceptions\ApiException;
 use App\Models\Order;
 use App\Models\OrderLocation;
 use App\Models\Restaurant;
+use App\Support\GeoDistance;
 
 class ShoppingMerchantCandidateResolver
 {
@@ -127,7 +128,7 @@ class ShoppingMerchantCandidateResolver
                 continue;
             }
 
-            if ($this->distanceMeters(
+            if (GeoDistance::meters(
                 $latitude,
                 $longitude,
                 (float) $restaurant->latitude,
@@ -193,18 +194,4 @@ class ShoppingMerchantCandidateResolver
         return mb_strtolower(trim(preg_replace('/\s+/', ' ', $value) ?? $value));
     }
 
-    private function distanceMeters(float $originLatitude, float $originLongitude, float $targetLatitude, float $targetLongitude): float
-    {
-        $earthRadiusMeters = 6371000.0;
-        $originLatitudeRad = deg2rad($originLatitude);
-        $targetLatitudeRad = deg2rad($targetLatitude);
-        $deltaLatitudeRad = deg2rad($targetLatitude - $originLatitude);
-        $deltaLongitudeRad = deg2rad($targetLongitude - $originLongitude);
-
-        $haversine = sin($deltaLatitudeRad / 2) ** 2
-            + cos($originLatitudeRad) * cos($targetLatitudeRad) * sin($deltaLongitudeRad / 2) ** 2;
-        $safeHaversine = min(1.0, max(0.0, $haversine));
-
-        return $earthRadiusMeters * 2 * atan2(sqrt($safeHaversine), sqrt(1 - $safeHaversine));
-    }
 }

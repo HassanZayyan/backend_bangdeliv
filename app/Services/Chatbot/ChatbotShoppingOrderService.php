@@ -3,7 +3,6 @@
 namespace App\Services\Chatbot;
 
 use App\Exceptions\ApiException;
-use App\Models\AiChatLog;
 use App\Models\Order;
 use App\Models\OrderStatus;
 use App\Models\OrderStatusHistory;
@@ -44,6 +43,7 @@ class ChatbotShoppingOrderService
         private readonly ChatbotAddressReadinessService $addressReadinessService,
         private readonly ChatbotShoppingItemIntentParser $itemIntentParser,
         private readonly ShoppingMerchantCandidateResolver $merchantCandidateResolver,
+        private readonly ChatbotDraftStore $draftStore,
     ) {}
 
     /**
@@ -186,32 +186,7 @@ class ChatbotShoppingOrderService
      */
     private function normalizeIncomingItems(mixed $items): array
     {
-        if (! is_array($items)) {
-            return [];
-        }
-
-        $normalized = [];
-        foreach ($items as $item) {
-            if (! is_array($item)) {
-                continue;
-            }
-
-            $name = $this->normalizeOptionalString($item['name'] ?? $item['menu'] ?? null);
-            if ($name === null) {
-                continue;
-            }
-
-            $normalized[] = [
-                'name' => $name,
-                'quantity' => max(1, (int) ($item['quantity'] ?? $item['qty'] ?? 1)),
-                'operation' => $this->itemIntentParser->normalizeOperation($item['operation'] ?? null)
-                    ?? ChatbotShoppingItemIntentParser::OP_ADD,
-                'notes' => $this->normalizeOptionalString($item['notes'] ?? null),
-                'is_heavy' => false,
-            ];
-        }
-
-        return $normalized;
+        return ChatbotShoppingItemNormalizer::incomingItems($items);
     }
 
     /**
@@ -277,7 +252,6 @@ class ChatbotShoppingOrderService
                 'quantity' => max(1, (int) ($match[1] ?? 1)),
                 'operation' => ChatbotShoppingItemIntentParser::OP_ADD,
                 'notes' => null,
-                'is_heavy' => false,
             ];
         }
 
@@ -646,44 +620,36 @@ class ChatbotShoppingOrderService
         $itemsByName = [];
 
         foreach ($baseItems as $item) {
-            if (! is_array($item)) {
+            $normalizedItem = ChatbotShoppingItemNormalizer::draftItem($item);
+            if ($normalizedItem === null) {
                 continue;
             }
 
-            $name = $this->normalizeOptionalString($item['name'] ?? $item['menu_name'] ?? null);
-            if ($name === null) {
-                continue;
-            }
-
-            $key = Str::of($name)->lower()->squish()->toString();
+            $name = $normalizedItem['name'];
+            $key = ChatbotShoppingItemNormalizer::itemKey($name);
             $itemsByName[$key] = [
                 'name' => $name,
-                'quantity' => max(1, (int) ($item['quantity'] ?? $item['qty'] ?? 1)),
-                'notes' => $this->normalizeOptionalString($item['notes'] ?? null),
-                'is_heavy' => false,
+                'quantity' => $normalizedItem['quantity'],
+                'notes' => $normalizedItem['notes'],
             ];
         }
 
         foreach ($incomingItems as $item) {
-            if (! is_array($item)) {
+            $normalizedItem = ChatbotShoppingItemNormalizer::draftItem($item, includeOperation: true);
+            if ($normalizedItem === null) {
                 continue;
             }
 
-            $name = $this->normalizeOptionalString($item['name'] ?? $item['menu_name'] ?? null);
-            if ($name === null) {
-                continue;
-            }
-
-            $key = Str::of($name)->lower()->squish()->toString();
-            $operation = $this->itemIntentParser->normalizeOperation($item['operation'] ?? null)
-                ?? ChatbotShoppingItemIntentParser::OP_ADD;
+            $name = $normalizedItem['name'];
+            $key = ChatbotShoppingItemNormalizer::itemKey($name);
+            $operation = $normalizedItem['operation'] ?? ChatbotShoppingItemIntentParser::OP_ADD;
             if ($operation === ChatbotShoppingItemIntentParser::OP_REMOVE) {
                 unset($itemsByName[$key]);
 
                 continue;
             }
 
-            $incomingQty = max(1, (int) ($item['quantity'] ?? $item['qty'] ?? 1));
+            $incomingQty = $normalizedItem['quantity'];
             $currentQty = (int) ($itemsByName[$key]['quantity'] ?? 0);
             $quantity = $operation === ChatbotShoppingItemIntentParser::OP_SET
                 ? $incomingQty
@@ -692,9 +658,8 @@ class ChatbotShoppingOrderService
             $itemsByName[$key] = [
                 'name' => $name,
                 'quantity' => max(1, $quantity),
-                'notes' => $this->normalizeOptionalString($item['notes'] ?? null)
+                'notes' => $normalizedItem['notes']
                     ?? ($itemsByName[$key]['notes'] ?? null),
-                'is_heavy' => false,
             ];
         }
 
@@ -1144,7 +1109,6 @@ class ChatbotShoppingOrderService
                     'subtotal' => round($unitPrice * $quantity, 2),
                     'notes' => $notes,
                     'is_available' => true,
-                    'is_heavy' => false,
                     'metadata' => [
                         'price_status' => 'CONFIRMED',
                         'source' => 'CHATBOT_MENU_MATCH',
@@ -1164,7 +1128,6 @@ class ChatbotShoppingOrderService
                 'subtotal' => 0,
                 'notes' => $notes,
                 'is_available' => true,
-                'is_heavy' => false,
                 'metadata' => [
                     'price_status' => 'PENDING_DRIVER_INPUT',
                     'source' => 'CHATBOT_MANUAL_CONTEXT',
@@ -1374,12 +1337,9 @@ class ChatbotShoppingOrderService
                         'notes' => $item['notes'] ?? null,
                         'metadata' => $metadata,
                         'is_available' => (bool) ($item['is_available'] ?? true),
-                        'is_heavy' => (bool) ($item['is_heavy'] ?? false),
                     ]);
                 }
             }
-
-            $this->shoppingPricingService->syncFeeLines($order, $pricing['fee_breakdown'] ?? []);
 
             OrderStatusHistory::query()->create([
                 'order_id' => $order->id,
@@ -1399,8 +1359,6 @@ class ChatbotShoppingOrderService
                 'statusRef',
                 'statusHistories.statusRef',
                 'serviceType',
-                'feeLines',
-
                 'shoppingReceipt',
             ]);
         });
@@ -1426,25 +1384,20 @@ class ChatbotShoppingOrderService
      */
     private function resolvePendingDraftPayload(User $user, string $sessionId): ?array
     {
-        $log = AiChatLog::query()
-            ->with('aiDetail')
-            ->where('user_id', $user->id)
-            ->where('session_id', $sessionId)
-            ->where('role', 'assistant')
-            ->latest('id')
-            ->get()
-            ->first(function (AiChatLog $log): bool {
-                $payload = $log->ai_response;
-                if (! is_array($payload)) {
-                    return false;
-                }
+        $payload = $this->draftStore->latestPayload($user, $sessionId);
+        if (! is_array($payload)) {
+            return null;
+        }
 
-                return ($payload['intent'] ?? null) === 'shopping_order'
-                    && (bool) data_get($payload, 'shopping.ready_to_confirm') === true
-                    && (bool) data_get($payload, 'order.created') !== true;
-            });
+        if (
+            ($payload['intent'] ?? null) !== 'shopping_order' ||
+            (bool) data_get($payload, 'shopping.ready_to_confirm') !== true ||
+            (bool) data_get($payload, 'order.created') === true
+        ) {
+            return null;
+        }
 
-        return is_array($log?->ai_response) ? $log->ai_response : null;
+        return $payload;
     }
 
     /**
@@ -1452,15 +1405,7 @@ class ChatbotShoppingOrderService
      */
     private function resolveLatestDraftSeed(User $user, string $sessionId): array
     {
-        $log = AiChatLog::query()
-            ->with('aiDetail')
-            ->where('user_id', $user->id)
-            ->where('session_id', $sessionId)
-            ->where('role', 'assistant')
-            ->latest('id')
-            ->first();
-
-        $payload = $log?->ai_response;
+        $payload = $this->draftStore->latestPayload($user, $sessionId);
         if (! is_array($payload) || ! is_array($payload['shopping'] ?? null)) {
             return [];
         }
@@ -1490,7 +1435,6 @@ class ChatbotShoppingOrderService
                         'name' => (string) ($item['name'] ?? $item['menu_name'] ?? ''),
                         'quantity' => max(1, (int) ($item['quantity'] ?? 1)),
                         'notes' => $item['notes'] ?? null,
-                        'is_heavy' => false,
                     ], $stopItems),
                 ];
             }
@@ -1509,7 +1453,6 @@ class ChatbotShoppingOrderService
                 'name' => (string) ($item['name'] ?? $item['menu_name'] ?? ''),
                 'quantity' => max(1, (int) ($item['quantity'] ?? 1)),
                 'notes' => $item['notes'] ?? null,
-                'is_heavy' => false,
             ], $items),
             'payment_method' => $this->normalizePaymentMethodOrNull($shopping['payment_method'] ?? ($payload['order']['payment_method'] ?? null)),
         ];

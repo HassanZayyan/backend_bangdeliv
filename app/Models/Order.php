@@ -45,7 +45,6 @@ use Illuminate\Database\Eloquent\Relations\HasOneThrough;
  * @property-read \App\Models\Address|null $address
  * @property-read \App\Models\OrderStatus|null $statusRef
  * @property-read \App\Models\User|null $paidBy
- * @property-read \Illuminate\Database\Eloquent\Collection<int, \App\Models\OrderFeeLine> $feeLines
  * @property-read \Illuminate\Database\Eloquent\Collection<int, \App\Models\OrderItem> $items
  * @property-read \Illuminate\Database\Eloquent\Collection<int, \App\Models\OrderStatusHistory> $statusHistories
  * @property-read \Illuminate\Database\Eloquent\Collection<int, \App\Models\OrderLocation> $orderLocations
@@ -178,14 +177,6 @@ class Order extends Model
     public function statusRef(): BelongsTo
     {
         return $this->belongsTo(OrderStatus::class, 'status_id');
-    }
-
-    /**
-     * @return HasMany<OrderFeeLine, $this>
-     */
-    public function feeLines(): HasMany
-    {
-        return $this->hasMany(OrderFeeLine::class);
     }
 
     /**
@@ -359,19 +350,6 @@ class Order extends Model
         $note = trim((string) ($event->note ?? ''));
 
         return $note !== '' ? $note : null;
-    }
-
-    public function getCarefulCarryRequiredAttribute(mixed $value = null): bool
-    {
-        if ($value !== null || array_key_exists('careful_carry_required', $this->attributes)) {
-            return (bool) ($value ?? $this->attributes['careful_carry_required'] ?? false);
-        }
-
-        if (! $this->relationLoaded('courierOrder')) {
-            $this->setRelation('courierOrder', $this->courierOrder()->first());
-        }
-
-        return (bool) ($this->courierOrder?->careful_carry_required ?? false);
     }
 
     public function getServiceFeeAttribute(mixed $value = null): string
@@ -654,7 +632,6 @@ class Order extends Model
             'delivery_pricing' => $deliveryPricing,
             'delivery_fee' => round((float) $this->delivery_fee, 2),
             'delivery_fee_source' => $this->delivery_fee_source,
-            'careful_carry_required' => (bool) $this->careful_carry_required,
             'route' => $route,
             'shopping_pricing' => [
                 'receipt_total_amount' => $this->shoppingReceipt?->total_amount !== null
@@ -681,14 +658,6 @@ class Order extends Model
             array_push($breakdown, ...$this->shoppingFeeBreakdown());
         }
 
-        if ((bool) $this->careful_carry_required && $this->delivery_fee_source !== 'driver_manual') {
-            $breakdown[] = [
-                'code' => 'careful_carry',
-                'label' => 'Bawa hati-hati',
-                'amount' => $this->carefulCarrySurchargeAmount(),
-            ];
-        }
-
         if ($this->delivery_fee_source === 'driver_manual') {
             $breakdown[] = [
                 'code' => 'manual_override',
@@ -698,16 +667,6 @@ class Order extends Model
         }
 
         return array_values($breakdown);
-    }
-
-    private function carefulCarrySurchargeAmount(): float
-    {
-        $route = $this->route;
-        $systemFee = is_array($route) && is_numeric(data_get($route, 'delivery_pricing.total_fee'))
-            ? (float) data_get($route, 'delivery_pricing.total_fee')
-            : (float) $this->delivery_fee;
-
-        return round(max(0.0, $systemFee) * 0.5, 2);
     }
 
     /**
@@ -817,30 +776,34 @@ class Order extends Model
      */
     private function shoppingFeeBreakdown(): array
     {
-        if (! $this->relationLoaded('feeLines')) {
-            $this->setRelation('feeLines', $this->feeLines()->get());
+        $serviceFee = round((float) $this->service_fee, 2);
+        if ($serviceFee <= 0 || $this->statusCode() !== 'CANCELLED_WITH_FEE') {
+            return [];
         }
 
-        return $this->feeLines
-            ->filter(fn (OrderFeeLine $line): bool => (float) $line->amount > 0)
-            ->map(fn (OrderFeeLine $line): array => [
-                'code' => (string) $line->code,
-                'label' => (string) $line->label,
-                'description' => $this->feeLineDescription((string) $line->code),
-                'amount' => round((float) $line->amount, 2),
-            ])
-            ->values()
-            ->all();
+        return [[
+            'code' => 'CANCELLATION_PENALTY_AFTER_FAILED_ATTEMPTS',
+            'label' => 'Penalty merchant gagal',
+            'description' => $this->feeLineDescription('CANCELLATION_PENALTY_AFTER_FAILED_ATTEMPTS'),
+            'amount' => $serviceFee,
+        ]];
     }
 
     private function feeLineDescription(string $code): string
     {
         return match (strtoupper($code)) {
-            'ITEM_BLOCK_SURCHARGE' => 'Tambahan saat jumlah item melewati batas gratis',
-            'OVERWEIGHT_FLAT_SURCHARGE' => 'Dikenakan sekali per order',
             'CANCELLATION_PENALTY_AFTER_FAILED_ATTEMPTS' => '50% ongkir setelah batas percobaan gagal',
             default => '',
         };
+    }
+
+    private function statusCode(): string
+    {
+        if (! $this->relationLoaded('statusRef')) {
+            $this->setRelation('statusRef', $this->statusRef()->first());
+        }
+
+        return strtoupper((string) ($this->statusRef?->code ?? ''));
     }
 
     /**
@@ -867,7 +830,6 @@ class Order extends Model
             'line_total' => round((float) $item->subtotal, 2),
             'notes' => $item->notes,
             'is_available' => $isAvailable,
-            'is_heavy' => (bool) $item->is_heavy,
             'price_status' => $this->shoppingItemPriceStatus($item, $isManual, $isAvailable, $unitPrice),
         ];
     }

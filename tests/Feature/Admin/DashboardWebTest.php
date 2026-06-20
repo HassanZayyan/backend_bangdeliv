@@ -42,4 +42,5 @@ class DashboardWebTest extends TestCase
             ->assertSee('GMV Bulan Ini')
             ->assertSee('Rp 25.000');
     }
+
 }

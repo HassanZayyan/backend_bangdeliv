@@ -39,12 +39,11 @@ class DriverOrderPayloadFactory
             'user:id,name,phone',
             'serviceType:id,code,display_name',
             'statusRef:id,code,display_name',
-            'feeLines',
             'shoppingReceipt',
             'restaurant',
             'rideOrder:id,order_id,picked_up_at,arrived_at',
-            'courierOrder:id,order_id,package_description,careful_carry_required',
-            'items:id,order_id,menu_id,pickup_location_id,item_source,menu_name,quantity,unit_price,subtotal,notes,metadata,is_available,is_heavy',
+            'courierOrder:id,order_id,package_description',
+            'items:id,order_id,menu_id,pickup_location_id,item_source,menu_name,quantity,unit_price,subtotal,notes,metadata,is_available',
             'orderLocations:id,order_id,restaurant_id,location_role,label,contact_name,contact_phone,full_address,latitude,longitude,sequence_no,fulfillment_status,failed_attempt_count,failure_reason,failed_at,resolved_at',
             'orderLocations.restaurant:id,name,address,latitude,longitude,phone,merchant_type',
             'payment:id,order_id,payment_method,payment_status,amount,recorded_by_user_id,driver_id,paid_at',
@@ -110,7 +109,6 @@ class DriverOrderPayloadFactory
 
         $pricingSnapshot = $this->pricingSnapshot($order);
         $deliveryFee = round((float) $order->delivery_fee, 2);
-        $carefulCarryRequired = $this->carefulCarryRequired($order);
 
         $payload = [
             'id' => (string) $order->id,
@@ -130,7 +128,6 @@ class DriverOrderPayloadFactory
             'delivery_distance_text' => $order->delivery_distance_text,
             'delivery_fee' => $deliveryFee,
             'delivery_fee_source' => $order->delivery_fee_source ?: 'system',
-            'careful_carry_required' => $carefulCarryRequired,
             'pricing_snapshot' => $pricingSnapshot,
             'fee_breakdown' => $this->feeBreakdown($order, $pricingSnapshot),
             'proofs' => $proofs,
@@ -173,8 +170,8 @@ class DriverOrderPayloadFactory
                 'delivery_fee' => round((float) $order->delivery_fee, 2),
                 'service_fee' => round((float) $order->service_fee, 2),
                 'total_price' => round((float) $order->total_price, 2),
-                'item_surcharge' => $this->shoppingPricingService->feeLineAmount($order, 'ITEM_BLOCK_SURCHARGE'),
-                'overweight_surcharge' => $this->shoppingPricingService->feeLineAmount($order, 'OVERWEIGHT_FLAT_SURCHARGE'),
+                'item_surcharge' => 0.0,
+                'overweight_surcharge' => 0.0,
                 'cancellation_penalty' => $this->shoppingPricingService->feeLineAmount($order, 'CANCELLATION_PENALTY_AFTER_FAILED_ATTEMPTS'),
                 'recalculation_version' => $this->shoppingPricingService->latestRecalculationVersion($order),
                 'has_pending_manual_prices' => $hasPendingShoppingPrices,
@@ -277,7 +274,6 @@ class DriverOrderPayloadFactory
             'delivery_pricing' => $deliveryPricing,
             'delivery_fee' => round((float) $order->delivery_fee, 2),
             'delivery_fee_source' => $order->delivery_fee_source ?: 'system',
-            'careful_carry_required' => $this->carefulCarryRequired($order),
             'route' => $route,
             'shopping_pricing' => [
                 'receipt_total_amount' => $order->shoppingReceipt?->total_amount !== null
@@ -300,21 +296,8 @@ class DriverOrderPayloadFactory
             $breakdown = $deliveryPricing['fee_breakdown'];
         }
 
-        $serviceFee = round((float) $order->service_fee, 2);
-        if ($serviceFee > 0) {
-            $breakdown[] = [
-                'code' => 'service_fee',
-                'label' => 'Biaya layanan',
-                'amount' => $serviceFee,
-            ];
-        }
-
-        if ($this->carefulCarryRequired($order) && ($order->delivery_fee_source ?: 'system') !== 'driver_manual') {
-            $breakdown[] = [
-                'code' => 'careful_carry',
-                'label' => 'Bawa hati-hati',
-                'amount' => $this->carefulCarrySurchargeFromOrder($order),
-            ];
+        foreach ($this->shoppingPricingService->feeBreakdownForOrder($order) as $feeLine) {
+            $breakdown[] = $feeLine;
         }
 
         if (($order->delivery_fee_source ?: 'system') === 'driver_manual') {
@@ -326,22 +309,6 @@ class DriverOrderPayloadFactory
         }
 
         return array_values($breakdown);
-    }
-
-    private function carefulCarrySurchargeFromOrder(Order $order): float
-    {
-        $route = $this->orderRouteSnapshot($order);
-        $systemFee = is_array($route)
-            ? (float) data_get($route, 'delivery_pricing.total_fee', $order->delivery_fee)
-            : (float) $order->delivery_fee;
-
-        return round($systemFee * 0.5, 2);
-    }
-
-    private function carefulCarryRequired(Order $order): bool
-    {
-        return ServiceTypeCode::normalize((string) ($order->serviceType?->code ?? '')) === ServiceTypeCode::Courier->value
-            && (bool) ($order->courierOrder?->careful_carry_required ?? false);
     }
 
     /**
@@ -671,7 +638,6 @@ class DriverOrderPayloadFactory
                     'line_total' => round((float) $item->subtotal, 2),
                     'notes' => $item->notes,
                     'is_available' => $isAvailable,
-                    'is_heavy' => (bool) $item->is_heavy,
                     'price_status' => $this->shoppingItemPriceStatus($item, $isManual, $isAvailable, $unitPrice),
                 ];
             })
@@ -811,7 +777,6 @@ class DriverOrderPayloadFactory
             'line_total' => round((float) $item->subtotal, 2),
             'notes' => $item->notes,
             'is_available' => $isAvailable,
-            'is_heavy' => (bool) $item->is_heavy,
             'price_status' => $this->shoppingItemPriceStatus($item, $isManual, $isAvailable, $unitPrice),
         ];
     }

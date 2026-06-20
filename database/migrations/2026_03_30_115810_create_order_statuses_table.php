@@ -110,14 +110,6 @@ return new class extends Migration
                 'created_at' => now(),
                 'updated_at' => now(),
             ],
-            [
-                'code' => 'COMPLAINT',
-                'display_name' => 'Komplain',
-                'is_terminal' => false,
-                'sort_order' => 12,
-                'created_at' => now(),
-                'updated_at' => now(),
-            ],
         ]);
     }
 

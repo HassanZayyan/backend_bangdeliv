@@ -4,7 +4,6 @@ namespace App\Services\Chatbot;
 
 use App\Exceptions\ApiException;
 use App\Models\Address;
-use App\Models\AiChatLog;
 use App\Models\Order;
 use App\Models\User;
 use App\Services\Address\ChatbotAddressReadinessService;
@@ -41,7 +40,8 @@ class ChatbotRideOrderService
         private readonly GoogleMapsGeocodingService $geocodingService,
         private readonly GoogleMapsDistanceMatrixService $distanceMatrixService,
         private readonly DeliveryPricingService $deliveryPricingService,
-        private readonly ChatbotAddressReadinessService $addressReadinessService
+        private readonly ChatbotAddressReadinessService $addressReadinessService,
+        private readonly ChatbotDraftStore $draftStore
     ) {}
 
     /**
@@ -50,13 +50,7 @@ class ChatbotRideOrderService
      */
     public function process(User $user, string $message, string $sessionId, ?array $nluPayload = null): array
     {
-        if ($user->role !== 'customer') {
-            throw new ApiException('Hanya customer yang dapat membuat order antar jemput dari chatbot.', 403);
-        }
-
-        if (! $user->is_active || $user->is_blacklisted) {
-            throw new ApiException('Akun tidak memenuhi syarat untuk membuat order antar jemput.', 403);
-        }
+        ChatbotTransportSupport::ensureActiveCustomer($user, 'antar jemput');
 
         $normalizedMessage = $this->normalizeWhitespace($message);
         $command = $this->resolveCommand($normalizedMessage, $nluPayload);
@@ -110,13 +104,7 @@ class ChatbotRideOrderService
      */
     public function applyLocationPatches(User $user, string $sessionId, array $locations): array
     {
-        if ($user->role !== 'customer') {
-            throw new ApiException('Hanya customer yang dapat membuat order antar jemput dari chatbot.', 403);
-        }
-
-        if (! $user->is_active || $user->is_blacklisted) {
-            throw new ApiException('Akun tidak memenuhi syarat untuk membuat order antar jemput.', 403);
-        }
+        ChatbotTransportSupport::ensureActiveCustomer($user, 'antar jemput');
 
         $incomingSeed = [];
         foreach ($locations as $location) {
@@ -244,7 +232,7 @@ class ChatbotRideOrderService
             return $this->buildMissingDraftPayload($user);
         }
 
-        if ($this->normalizePaymentMethodOrNull($pendingDraft['payment_method'] ?? null) === null) {
+        if (ChatbotTransportSupport::normalizePaymentMethodOrNull($pendingDraft['payment_method'] ?? null) === null) {
             $payload = $this->buildDraftPayload($pendingDraft, $user->name);
             $payload['assistant_text'] .= "\n\nPilih COD atau QRIS dulu sebelum konfirmasi.";
 
@@ -349,30 +337,11 @@ class ChatbotRideOrderService
      */
     private function buildDraftPayload(array $draft, string $userName): array
     {
-        $paymentMethod = $this->normalizePaymentMethodOrNull($draft['payment_method'] ?? null);
+        $paymentMethod = ChatbotTransportSupport::normalizePaymentMethodOrNull($draft['payment_method'] ?? null);
         $nextActions = $paymentMethod === null
             ? ['SET_PAYMENT_COD', 'SET_PAYMENT_TRANSFER', 'RESET_DESTINATION']
             : ['CONFIRM_DRAFT', 'RESET_DESTINATION'];
-        $actionPayloads = [
-            'RESET_DESTINATION' => [
-                'label' => 'Ubah Tujuan',
-                'message' => 'Ubah Tujuan',
-            ],
-            'SET_PAYMENT_COD' => [
-                'label' => 'COD',
-                'message' => 'COD',
-            ],
-            'SET_PAYMENT_TRANSFER' => [
-                'label' => 'QRIS',
-                'message' => 'QRIS',
-            ],
-        ];
-        if ($paymentMethod !== null) {
-            $actionPayloads['CONFIRM_DRAFT'] = [
-                'label' => 'Konfirmasi',
-                'message' => 'Konfirmasi',
-            ];
-        }
+        $actionPayloads = ChatbotTransportSupport::paymentDraftActionPayloads($paymentMethod !== null);
 
         return [
             'intent' => 'ride_order',
@@ -547,7 +516,7 @@ class ChatbotRideOrderService
             'distance_km' => $distanceKm,
             'delivery_fee' => $deliveryFee,
             'used_default_pickup' => $usedDefaultPickup,
-            'payment_method' => $this->normalizePaymentMethodOrNull($draftSeed['payment_method'] ?? null)
+            'payment_method' => ChatbotTransportSupport::normalizePaymentMethodOrNull($draftSeed['payment_method'] ?? null)
                 ?? $this->extractPaymentMethod($message),
             'validation' => [
                 'is_valid_order' => $reasons === [] && $pickupAddress !== null && $destinationAddress !== null,
@@ -565,7 +534,7 @@ class ChatbotRideOrderService
     private function buildIncomingDraftSeed(string $message, ?array $nluPayload): array
     {
         $nluPayload ??= [];
-        $paymentMethod = $this->normalizePaymentMethodOrNull($nluPayload['payment_method'] ?? null)
+        $paymentMethod = ChatbotTransportSupport::normalizePaymentMethodOrNull($nluPayload['payment_method'] ?? null)
             ?? $this->extractPaymentMethod($message);
         if ($this->isPaymentMethodOnlyMessage($message, $paymentMethod)) {
             return ['payment_method' => $paymentMethod];
@@ -585,15 +554,7 @@ class ChatbotRideOrderService
      */
     private function resolveLatestDraftSeed(User $user, string $sessionId): array
     {
-        $latestAssistantLog = AiChatLog::query()
-            ->with('aiDetail')
-            ->where('user_id', $user->id)
-            ->where('session_id', $sessionId)
-            ->where('role', 'assistant')
-            ->latest('id')
-            ->first();
-
-        $payload = $latestAssistantLog?->ai_response;
+        $payload = $this->draftStore->latestPayload($user, $sessionId);
         if (! is_array($payload) || ($payload['intent'] ?? null) !== 'ride_order') {
             return [];
         }
@@ -619,7 +580,7 @@ class ChatbotRideOrderService
             'destination_address' => $this->normalizeOptionalString($ride['destination_address'] ?? null),
             'destination_latitude' => $this->nullableCoordinate($ride['destination_latitude'] ?? null),
             'destination_longitude' => $this->nullableCoordinate($ride['destination_longitude'] ?? null),
-            'payment_method' => $this->normalizePaymentMethodOrNull($ride['payment_method'] ?? ($order['payment_method'] ?? null)),
+            'payment_method' => ChatbotTransportSupport::normalizePaymentMethodOrNull($ride['payment_method'] ?? ($order['payment_method'] ?? null)),
         ];
     }
 
@@ -659,7 +620,7 @@ class ChatbotRideOrderService
         }
 
         if (array_key_exists('payment_method', $incoming)) {
-            $paymentMethod = $this->normalizePaymentMethodOrNull($incoming['payment_method']);
+            $paymentMethod = ChatbotTransportSupport::normalizePaymentMethodOrNull($incoming['payment_method']);
             if ($paymentMethod !== null) {
                 $merged['payment_method'] = $paymentMethod;
             }
@@ -983,11 +944,11 @@ class ChatbotRideOrderService
         $buffer .= 'Jemput: '.(string) $draft['pickup_address']."\n";
         $buffer .= 'Tujuan: '.(string) $draft['destination_address']."\n";
         $buffer .= "Estimasi ongkir sementara: Rp {$deliveryFee} (kalkulasi detail menyusul).\n";
-        $paymentMethod = $this->normalizePaymentMethodOrNull($draft['payment_method'] ?? null);
+        $paymentMethod = ChatbotTransportSupport::normalizePaymentMethodOrNull($draft['payment_method'] ?? null);
         if ($paymentMethod === null) {
             $buffer .= "Pilih metode pembayaran dulu: COD atau QRIS.\n";
         } else {
-            $buffer .= 'Metode pembayaran: '.$this->paymentMethodLabel($paymentMethod)."\n";
+            $buffer .= 'Metode pembayaran: '.ChatbotTransportSupport::paymentMethodLabel($paymentMethod)."\n";
         }
         $buffer .= 'Ketik "Konfirmasi" untuk lanjut atau "Ubah Tujuan" untuk ganti tujuan.';
 
@@ -1005,7 +966,7 @@ class ChatbotRideOrderService
         $buffer .= "Nomor order: {$order->order_number}\n";
         $buffer .= 'Jemput: '.(string) $draft['pickup_address']."\n";
         $buffer .= 'Tujuan: '.(string) $draft['destination_address']."\n";
-        $buffer .= 'Metode pembayaran: '.$this->paymentMethodLabel($draft['payment_method'] ?? OrderPaymentService::METHOD_COD)."\n";
+        $buffer .= 'Metode pembayaran: '.ChatbotTransportSupport::paymentMethodLabel($draft['payment_method'] ?? OrderPaymentService::METHOD_COD)."\n";
         $buffer .= "Estimasi ongkir sementara: Rp {$deliveryFee}.";
 
         return $buffer;
@@ -1016,19 +977,7 @@ class ChatbotRideOrderService
      */
     private function resolvePendingDraft(User $user, string $sessionId): ?array
     {
-        $latestAssistantLog = AiChatLog::query()
-            ->with('aiDetail')
-            ->where('user_id', $user->id)
-            ->where('session_id', $sessionId)
-            ->where('role', 'assistant')
-            ->latest('id')
-            ->first();
-
-        if ($latestAssistantLog === null) {
-            return null;
-        }
-
-        $payload = $latestAssistantLog->ai_response;
+        $payload = $this->draftStore->latestPayload($user, $sessionId);
         if (! is_array($payload)) {
             return null;
         }
@@ -1092,7 +1041,7 @@ class ChatbotRideOrderService
             'distance_km' => isset($ride['distance_km']) ? (float) $ride['distance_km'] : null,
             'delivery_fee' => isset($order['delivery_fee']) ? (float) $order['delivery_fee'] : null,
             'used_default_pickup' => (bool) ($ride['used_default_pickup'] ?? false),
-            'payment_method' => $this->normalizePaymentMethodOrNull($ride['payment_method'] ?? ($order['payment_method'] ?? null)),
+            'payment_method' => ChatbotTransportSupport::normalizePaymentMethodOrNull($ride['payment_method'] ?? ($order['payment_method'] ?? null)),
         ];
     }
 
@@ -1132,23 +1081,4 @@ class ChatbotRideOrderService
         ], true);
     }
 
-    private function normalizePaymentMethodOrNull(mixed $value): ?string
-    {
-        $normalized = strtoupper(trim((string) ($value ?? '')));
-        if ($normalized === OrderPaymentService::METHOD_TRANSFER) {
-            return OrderPaymentService::METHOD_TRANSFER;
-        }
-        if ($normalized === OrderPaymentService::METHOD_COD) {
-            return OrderPaymentService::METHOD_COD;
-        }
-
-        return null;
-    }
-
-    private function paymentMethodLabel(mixed $value): string
-    {
-        return $this->normalizePaymentMethodOrNull($value) === OrderPaymentService::METHOD_TRANSFER
-            ? 'QRIS'
-            : 'COD';
-    }
 }

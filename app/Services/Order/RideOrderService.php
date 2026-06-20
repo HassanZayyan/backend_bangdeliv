@@ -14,6 +14,7 @@ use App\Services\Driver\DriverOrderRealtimeService;
 use App\Services\Maps\GoogleMapsDistanceMatrixService;
 use App\Services\Maps\GoogleMapsGeocodingService;
 use App\Services\Pricing\DeliveryPricingService;
+use App\Support\GeoDistance;
 use Illuminate\Support\Facades\DB;
 
 class RideOrderService
@@ -316,7 +317,7 @@ class RideOrderService
         float $destinationLatitude,
         float $destinationLongitude
     ): void {
-        if ($this->roughDistanceMeters(
+        if (GeoDistance::meters(
             $originLatitude,
             $originLongitude,
             $destinationLatitude,
@@ -329,22 +330,4 @@ class RideOrderService
         }
     }
 
-    private function roughDistanceMeters(
-        float $originLatitude,
-        float $originLongitude,
-        float $destinationLatitude,
-        float $destinationLongitude
-    ): float {
-        $earthRadiusMeters = 6371000.0;
-        $originLatitudeRad = deg2rad($originLatitude);
-        $destinationLatitudeRad = deg2rad($destinationLatitude);
-        $deltaLatitudeRad = deg2rad($destinationLatitude - $originLatitude);
-        $deltaLongitudeRad = deg2rad($destinationLongitude - $originLongitude);
-
-        $haversine = sin($deltaLatitudeRad / 2) ** 2
-            + cos($originLatitudeRad) * cos($destinationLatitudeRad) * sin($deltaLongitudeRad / 2) ** 2;
-        $safeHaversine = min(1.0, max(0.0, $haversine));
-
-        return $earthRadiusMeters * 2 * atan2(sqrt($safeHaversine), sqrt(1 - $safeHaversine));
-    }
 }

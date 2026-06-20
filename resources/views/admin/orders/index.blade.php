@@ -166,7 +166,6 @@
         'COMPLETED' => ['label' => 'Selesai', 'class' => 'badge-success'],
         'CANCELLED' => ['label' => 'Dibatalkan', 'class' => 'badge-danger'],
         'CANCELLED_WITH_FEE' => ['label' => 'Batal Dengan Biaya', 'class' => 'badge-danger'],
-        'COMPLAINT' => ['label' => 'Komplain', 'class' => 'badge-danger'],
     ];
 
     $resultStart = $orders->firstItem() ?? 0;

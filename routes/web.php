@@ -34,7 +34,6 @@ Route::prefix('admin')->middleware(['auth', 'role:admin'])->group(function () {
             'serviceType',
             'statusRef',
             'items',
-            'feeLines',
             'shoppingReceipt',
             'courierOrder',
             'rideOrder',
@@ -91,10 +90,6 @@ Route::prefix('admin')->middleware(['auth', 'role:admin'])->group(function () {
         Route::put('/{restaurant}/menus/{menu}', [RestaurantMenuController::class, 'update'])->name('menus.update');
         Route::delete('/{restaurant}/menus/{menu}', [RestaurantMenuController::class, 'destroy'])->name('menus.destroy');
     });
-
-    // AI Monitor
-    Route::get('/ai-monitor', fn () => view('admin.ai-monitor.index'))
-        ->name('admin.ai-monitor');
 
     // Settings
     Route::get('/pengaturan', fn () => view('admin.settings.index'))

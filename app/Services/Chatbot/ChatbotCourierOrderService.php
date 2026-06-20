@@ -4,7 +4,6 @@ namespace App\Services\Chatbot;
 
 use App\Exceptions\ApiException;
 use App\Models\Address;
-use App\Models\AiChatLog;
 use App\Models\CourierOrder;
 use App\Models\Order;
 use App\Models\OrderStatus;
@@ -22,35 +21,6 @@ use Illuminate\Support\Facades\DB;
 class ChatbotCourierOrderService
 {
     private const MINIMUM_ROUTE_DISTANCE_METERS = 20;
-
-    /**
-     * @var array<int, string>
-     */
-    private array $locationHints = [
-        'jalan',
-        'jl',
-        'gang',
-        'gg',
-        'blok',
-        'no',
-        'rt',
-        'rw',
-        'desa',
-        'kelurahan',
-        'kecamatan',
-        'kota',
-        'kabupaten',
-        'stasiun',
-        'bandara',
-        'terminal',
-        'mall',
-        'kantor',
-        'rumah',
-        'apartemen',
-        'kampus',
-        'perumahan',
-        'kos',
-    ];
 
     /**
      * @var array<int, string>
@@ -117,9 +87,9 @@ class ChatbotCourierOrderService
         private readonly GoogleMapsDistanceMatrixService $distanceMatrixService,
         private readonly DeliveryPricingService $deliveryPricingService,
         private readonly OrderPaymentService $orderPaymentService,
-        private readonly CourierPackagePolicyService $packagePolicyService,
         private readonly DriverOrderRealtimeService $driverOrderRealtimeService,
-        private readonly ChatbotAddressReadinessService $addressReadinessService
+        private readonly ChatbotAddressReadinessService $addressReadinessService,
+        private readonly ChatbotDraftStore $draftStore
     ) {}
 
     /**
@@ -127,13 +97,7 @@ class ChatbotCourierOrderService
      */
     public function process(User $user, string $message, string $sessionId, ?array $nluPayload = null): array
     {
-        if ($user->role !== 'customer') {
-            throw new ApiException('Hanya customer yang dapat membuat order kurir dari chatbot.', 403);
-        }
-
-        if (! $user->is_active || $user->is_blacklisted) {
-            throw new ApiException('Akun tidak memenuhi syarat untuk membuat order kurir.', 403);
-        }
+        ChatbotTransportSupport::ensureActiveCustomer($user, 'kurir');
 
         $normalizedMessage = $this->normalizeWhitespace($message);
         $latestDraftSeed = $this->resolveLatestDraftSeed($user, $sessionId);
@@ -206,13 +170,7 @@ class ChatbotCourierOrderService
      */
     public function applyLocationPatches(User $user, string $sessionId, array $locations): array
     {
-        if ($user->role !== 'customer') {
-            throw new ApiException('Hanya customer yang dapat membuat order kurir dari chatbot.', 403);
-        }
-
-        if (! $user->is_active || $user->is_blacklisted) {
-            throw new ApiException('Akun tidak memenuhi syarat untuk membuat order kurir.', 403);
-        }
+        ChatbotTransportSupport::ensureActiveCustomer($user, 'kurir');
 
         $incomingSeed = [];
         foreach ($locations as $location) {
@@ -319,7 +277,6 @@ class ChatbotCourierOrderService
                 'dropoff_latitude' => null,
                 'dropoff_longitude' => null,
                 'package_description' => $packageDescription,
-                ...$this->packagePolicyPayload($current),
                 'ready_to_confirm' => false,
             ],
             'validation' => [
@@ -374,7 +331,7 @@ class ChatbotCourierOrderService
             ];
         }
 
-        if ($this->normalizePaymentMethodOrNull($pendingDraft['payment_method'] ?? null) === null) {
+        if (ChatbotTransportSupport::normalizePaymentMethodOrNull($pendingDraft['payment_method'] ?? null) === null) {
             $payload = $this->buildDraftPayload($pendingDraft, $user->name);
             $payload['assistant_text'] .= "\n\nPilih COD atau QRIS dulu sebelum konfirmasi.";
 
@@ -449,7 +406,6 @@ class ChatbotCourierOrderService
                 'pickup_longitude' => $draft['pickup_longitude'] ?? null,
                 'dropoff_latitude' => $draft['dropoff_latitude'] ?? null,
                 'dropoff_longitude' => $draft['dropoff_longitude'] ?? null,
-                ...$this->packagePolicyPayload($draft),
             ],
             'validation' => $validation,
             'order' => [
@@ -471,30 +427,11 @@ class ChatbotCourierOrderService
      */
     private function buildDraftPayload(array $draft, string $userName): array
     {
-        $paymentMethod = $this->normalizePaymentMethodOrNull($draft['payment_method'] ?? null);
+        $paymentMethod = ChatbotTransportSupport::normalizePaymentMethodOrNull($draft['payment_method'] ?? null);
         $nextActions = $paymentMethod === null
             ? ['SET_PAYMENT_COD', 'SET_PAYMENT_TRANSFER', 'RESET_DESTINATION', 'CHANGE_PICKUP']
             : ['CONFIRM_DRAFT', 'RESET_DESTINATION', 'CHANGE_PICKUP'];
-        $actionPayloads = [
-            'RESET_DESTINATION' => [
-                'label' => 'Ubah Tujuan',
-                'message' => 'Ubah Tujuan',
-            ],
-            'SET_PAYMENT_COD' => [
-                'label' => 'COD',
-                'message' => 'COD',
-            ],
-            'SET_PAYMENT_TRANSFER' => [
-                'label' => 'QRIS',
-                'message' => 'QRIS',
-            ],
-        ];
-        if ($paymentMethod !== null) {
-            $actionPayloads['CONFIRM_DRAFT'] = [
-                'label' => 'Konfirmasi',
-                'message' => 'Konfirmasi',
-            ];
-        }
+        $actionPayloads = ChatbotTransportSupport::paymentDraftActionPayloads($paymentMethod !== null);
 
         return [
             'intent' => 'courier_order',
@@ -512,7 +449,6 @@ class ChatbotCourierOrderService
                 'dropoff_longitude' => $draft['dropoff_longitude'],
                 'distance_km' => $draft['distance_km'],
                 'payment_method' => $paymentMethod,
-                ...$this->packagePolicyPayload($draft),
             ],
             'validation' => [
                 'is_valid_order' => true,
@@ -629,24 +565,6 @@ class ChatbotCourierOrderService
             $missingFields[] = 'package_description';
         }
 
-        $packagePolicy = $this->packagePolicyService->evaluate([
-            'package_description' => $packageDescription,
-            'message' => $message,
-            'estimated_weight_kg' => $extracted['estimated_weight_kg'] ?? null,
-            'package_length_cm' => $extracted['package_length_cm'] ?? null,
-            'package_width_cm' => $extracted['package_width_cm'] ?? null,
-            'package_height_cm' => $extracted['package_height_cm'] ?? null,
-            'packing_note' => $extracted['packing_note'] ?? null,
-        ]);
-
-        if ($packageDescription !== null) {
-            $packageSafetyStatus = (string) ($packagePolicy['safety_status'] ?? CourierPackagePolicyService::STATUS_ALLOWED);
-            if ($packageSafetyStatus !== CourierPackagePolicyService::STATUS_ALLOWED) {
-                $reasons[] = (string) ($packagePolicy['safety_reason'] ?? 'Barang belum memenuhi kebijakan layanan kurir motor.');
-                $missingFields[] = 'package_description';
-            }
-        }
-
         $distanceKm = null;
         $distanceMeters = 0.0;
         if (
@@ -753,15 +671,13 @@ class ChatbotCourierOrderService
             'distance_km' => $distanceKm,
             'delivery_fee' => $deliveryFee,
             'used_default_pickup' => $usedDefaultPickup,
-            'payment_method' => $this->normalizePaymentMethodOrNull($extracted['payment_method'] ?? null)
+            'payment_method' => ChatbotTransportSupport::normalizePaymentMethodOrNull($extracted['payment_method'] ?? null)
                 ?? $this->extractPaymentMethod($message),
-            ...$this->packagePolicyPayload($packagePolicy),
             'validation' => [
                 'is_valid_order' => $reasons === [] &&
                     $pickupAddress !== null &&
                     $dropoffAddress !== null &&
-                    $packageDescription !== null &&
-                    ($packagePolicy['safety_status'] ?? CourierPackagePolicyService::STATUS_ALLOWED) === CourierPackagePolicyService::STATUS_ALLOWED,
+                    $packageDescription !== null,
                 'rejection_reasons' => $reasons,
                 'missing_fields' => array_values(array_unique($missingFields)),
                 'next_actions' => array_values(array_unique($nextActions)),
@@ -900,19 +816,6 @@ class ChatbotCourierOrderService
             throw new ApiException('Draft kurir tidak valid untuk dikonfirmasi. Kirim ulang detail pengiriman.', 422);
         }
 
-        $packagePolicy = $this->packagePolicyService->evaluate([
-            'package_description' => $packageDescription,
-            'estimated_weight_kg' => $parsed['estimated_weight_kg'] ?? null,
-            'package_length_cm' => $parsed['package_length_cm'] ?? null,
-            'package_width_cm' => $parsed['package_width_cm'] ?? null,
-            'package_height_cm' => $parsed['package_height_cm'] ?? null,
-            'packing_note' => $parsed['packing_note'] ?? null,
-        ]);
-
-        if (($packagePolicy['safety_status'] ?? null) !== CourierPackagePolicyService::STATUS_ALLOWED) {
-            throw new ApiException((string) ($packagePolicy['safety_reason'] ?? 'Barang belum memenuhi kebijakan layanan kurir motor.'), 422);
-        }
-
         $pickupLatitude = (float) $parsed['pickup_latitude'];
         $pickupLongitude = (float) $parsed['pickup_longitude'];
         $dropoffLatitude = (float) $parsed['dropoff_latitude'];
@@ -952,7 +855,7 @@ class ChatbotCourierOrderService
             'delivery_fee' => round($deliveryFee, 2),
             'delivery_pricing' => $pricing,
         ];
-        $paymentMethod = $this->normalizePaymentMethodOrNull($parsed['payment_method'] ?? null)
+        $paymentMethod = ChatbotTransportSupport::normalizePaymentMethodOrNull($parsed['payment_method'] ?? null)
             ?? OrderPaymentService::METHOD_COD;
 
         $order = DB::transaction(function () use (
@@ -1070,31 +973,6 @@ class ChatbotCourierOrderService
     /**
      * @param  array<int, string>  $patterns
      */
-    private function extractAddressByPatterns(string $message, array $patterns): ?string
-    {
-        foreach ($patterns as $pattern) {
-            if (preg_match($pattern, $message, $match) !== 1) {
-                continue;
-            }
-
-            $value = $this->sanitizeAddressFragment($match[1] ?? null);
-            if ($value === null) {
-                continue;
-            }
-
-            if (! $this->isLikelyAddressFragment($value)) {
-                continue;
-            }
-
-            return $value;
-        }
-
-        return null;
-    }
-
-    /**
-     * @param  array<int, string>  $patterns
-     */
     private function extractPermissiveAddressByPatterns(string $message, array $patterns): ?string
     {
         foreach ($patterns as $pattern) {
@@ -1137,40 +1015,6 @@ class ChatbotCourierOrderService
         }
 
         return $cleaned;
-    }
-
-    private function isLikelyAddressFragment(string $value): bool
-    {
-        $normalized = strtolower($this->normalizeWhitespace($value));
-
-        if ($normalized === '') {
-            return false;
-        }
-
-        if (in_array($normalized, $this->packageOnlyKeywords, true)) {
-            return false;
-        }
-
-        foreach ($this->locationHints as $hint) {
-            if (preg_match('/\\b'.preg_quote($hint, '/').'\\b/u', $normalized) === 1) {
-                return true;
-            }
-        }
-
-        if (preg_match('/\d/', $normalized) === 1) {
-            return true;
-        }
-
-        if (str_contains($normalized, ',')) {
-            return true;
-        }
-
-        $parts = preg_split('/\s+/', $normalized);
-        if (! is_array($parts)) {
-            return false;
-        }
-
-        return count($parts) >= 2 && strlen($normalized) >= 8;
     }
 
     private function isProfilePickupAlias(string $value): bool
@@ -1272,22 +1116,12 @@ class ChatbotCourierOrderService
         $pickupAddress = $this->sanitizeAddressFragment(isset($nluPayload['pickup_address']) ? (string) $nluPayload['pickup_address'] : null);
         $dropoffAddress = $this->sanitizeAddressFragment(isset($nluPayload['dropoff_address']) ? (string) $nluPayload['dropoff_address'] : null);
         $packageDescription = $this->sanitizeAddressFragment(isset($nluPayload['package_description']) ? (string) $nluPayload['package_description'] : null);
-        $estimatedWeightKg = $this->nullablePositiveFloat($nluPayload['estimated_weight_kg'] ?? null);
-        $packageLengthCm = $this->nullablePositiveInt($nluPayload['package_length_cm'] ?? null);
-        $packageWidthCm = $this->nullablePositiveInt($nluPayload['package_width_cm'] ?? null);
-        $packageHeightCm = $this->nullablePositiveInt($nluPayload['package_height_cm'] ?? null);
-        $packingNote = $this->sanitizeAddressFragment(isset($nluPayload['packing_note']) ? (string) $nluPayload['packing_note'] : null);
-        $paymentMethod = $this->normalizePaymentMethodOrNull($nluPayload['payment_method'] ?? null);
+        $paymentMethod = ChatbotTransportSupport::normalizePaymentMethodOrNull($nluPayload['payment_method'] ?? null);
 
         if (
             $pickupAddress === null &&
             $dropoffAddress === null &&
             $packageDescription === null &&
-            $estimatedWeightKg === null &&
-            $packageLengthCm === null &&
-            $packageWidthCm === null &&
-            $packageHeightCm === null &&
-            $packingNote === null &&
             $paymentMethod === null
         ) {
             return null;
@@ -1297,11 +1131,6 @@ class ChatbotCourierOrderService
             'pickup_address' => $pickupAddress,
             'dropoff_address' => $dropoffAddress,
             'package_description' => $packageDescription,
-            'estimated_weight_kg' => $estimatedWeightKg,
-            'package_length_cm' => $packageLengthCm,
-            'package_width_cm' => $packageWidthCm,
-            'package_height_cm' => $packageHeightCm,
-            'packing_note' => $packingNote,
             'payment_method' => $paymentMethod,
         ];
     }
@@ -1311,15 +1140,7 @@ class ChatbotCourierOrderService
      */
     private function resolveLatestDraftSeed(User $user, string $sessionId): array
     {
-        $latestAssistantLog = AiChatLog::query()
-            ->with('aiDetail')
-            ->where('user_id', $user->id)
-            ->where('session_id', $sessionId)
-            ->where('role', 'assistant')
-            ->latest('id')
-            ->first();
-
-        $payload = $latestAssistantLog?->ai_response;
+        $payload = $this->draftStore->latestPayload($user, $sessionId);
         if (! is_array($payload) || ($payload['intent'] ?? null) !== 'courier_order') {
             return [];
         }
@@ -1346,16 +1167,7 @@ class ChatbotCourierOrderService
             'dropoff_latitude' => $this->nullableCoordinate($courier['dropoff_latitude'] ?? null),
             'dropoff_longitude' => $this->nullableCoordinate($courier['dropoff_longitude'] ?? null),
             'package_description' => $this->normalizeOptionalString($courier['package_description'] ?? null),
-            'estimated_weight_kg' => $this->nullablePositiveFloat($courier['estimated_weight_kg'] ?? null),
-            'package_length_cm' => $this->nullablePositiveInt($courier['package_length_cm'] ?? null),
-            'package_width_cm' => $this->nullablePositiveInt($courier['package_width_cm'] ?? null),
-            'package_height_cm' => $this->nullablePositiveInt($courier['package_height_cm'] ?? null),
-            'packing_note' => $this->normalizeOptionalString($courier['packing_note'] ?? null),
-            'safety_status' => $courier['safety_status'] ?? null,
-            'safety_flags' => is_array($courier['safety_flags'] ?? null) ? $courier['safety_flags'] : [],
-            'safety_reason' => $courier['safety_reason'] ?? null,
-            'size_class' => $courier['size_class'] ?? null,
-            'payment_method' => $this->normalizePaymentMethodOrNull($courier['payment_method'] ?? ($order['payment_method'] ?? null)),
+            'payment_method' => ChatbotTransportSupport::normalizePaymentMethodOrNull($courier['payment_method'] ?? ($order['payment_method'] ?? null)),
         ];
     }
 
@@ -1394,34 +1206,17 @@ class ChatbotCourierOrderService
             $merged['used_default_pickup'] = (bool) $incoming['used_default_pickup'];
         }
 
-        foreach (['package_description', 'packing_note'] as $field) {
-            if (! array_key_exists($field, $incoming)) {
-                continue;
-            }
-
-            $value = $this->normalizeOptionalString($incoming[$field]);
-            if ($value !== null) {
-                $merged[$field] = $value;
+        if (array_key_exists('package_description', $incoming)) {
+            $packageDescription = $this->normalizeOptionalString($incoming['package_description']);
+            if ($packageDescription !== null) {
+                $merged['package_description'] = $packageDescription;
             }
         }
 
         if (array_key_exists('payment_method', $incoming)) {
-            $paymentMethod = $this->normalizePaymentMethodOrNull($incoming['payment_method']);
+            $paymentMethod = ChatbotTransportSupport::normalizePaymentMethodOrNull($incoming['payment_method']);
             if ($paymentMethod !== null) {
                 $merged['payment_method'] = $paymentMethod;
-            }
-        }
-
-        foreach (['estimated_weight_kg', 'package_length_cm', 'package_width_cm', 'package_height_cm'] as $field) {
-            if (! array_key_exists($field, $incoming)) {
-                continue;
-            }
-
-            $value = $field === 'estimated_weight_kg'
-                ? $this->nullablePositiveFloat($incoming[$field])
-                : $this->nullablePositiveInt($incoming[$field]);
-            if ($value !== null) {
-                $merged[$field] = $value;
             }
         }
 
@@ -1531,36 +1326,6 @@ class ChatbotCourierOrderService
         return $earthRadiusMeters * 2 * atan2(sqrt($safeHaversine), sqrt(1 - $safeHaversine));
     }
 
-    /**
-     * @param  array<string, mixed>  $source
-     * @return array<string, mixed>
-     */
-    private function packagePolicyPayload(array $source): array
-    {
-        return [
-            'safety_status' => $source['safety_status'] ?? null,
-            'safety_flags' => $source['safety_flags'] ?? [],
-            'safety_reason' => $source['safety_reason'] ?? null,
-            'size_class' => $source['size_class'] ?? null,
-            'estimated_weight_kg' => $source['estimated_weight_kg'] ?? null,
-            'package_length_cm' => $source['package_length_cm'] ?? null,
-            'package_width_cm' => $source['package_width_cm'] ?? null,
-            'package_height_cm' => $source['package_height_cm'] ?? null,
-            'packing_note' => $source['packing_note'] ?? null,
-        ];
-    }
-
-    private function nullablePositiveFloat(mixed $value): ?float
-    {
-        if (! is_numeric($value)) {
-            return null;
-        }
-
-        $parsed = round((float) $value, 2);
-
-        return $parsed > 0 ? $parsed : null;
-    }
-
     private function nullableCoordinate(mixed $value): ?float
     {
         if (! is_numeric($value)) {
@@ -1568,44 +1333,6 @@ class ChatbotCourierOrderService
         }
 
         return (float) $value;
-    }
-
-    private function nullablePositiveInt(mixed $value): ?int
-    {
-        if (! is_numeric($value)) {
-            return null;
-        }
-
-        $parsed = (int) round((float) $value);
-
-        return $parsed > 0 ? $parsed : null;
-    }
-
-    /**
-     * @param  array<string, mixed>  $payload
-     */
-    private function formatPackageSizeLine(array $payload): string
-    {
-        $parts = [];
-        if (is_numeric($payload['estimated_weight_kg'] ?? null)) {
-            $parts[] = rtrim(rtrim(number_format((float) $payload['estimated_weight_kg'], 2, ',', '.'), '0'), ',').' kg';
-        }
-
-        $dimensions = array_filter([
-            $payload['package_length_cm'] ?? null,
-            $payload['package_width_cm'] ?? null,
-            $payload['package_height_cm'] ?? null,
-        ], fn ($value): bool => is_numeric($value) && (int) $value > 0);
-
-        if ($dimensions !== []) {
-            $parts[] = implode('x', array_map(fn ($value): string => (string) (int) $value, $dimensions)).' cm';
-        }
-
-        if ($parts === []) {
-            return 'kecil/ringan untuk motor';
-        }
-
-        return implode(' - ', $parts);
     }
 
     private function generateOrderNumber(): string
@@ -1678,13 +1405,12 @@ class ChatbotCourierOrderService
         $buffer .= 'Ambil: '.(string) $parsed['pickup_address']."\n";
         $buffer .= 'Tujuan: '.(string) $parsed['dropoff_address']."\n";
         $buffer .= 'Barang: '.(string) $parsed['package_description']."\n";
-        $buffer .= 'Status barang: '.(string) ($parsed['safety_reason'] ?? 'Paket aman untuk layanan kurir motor.')."\n";
         $buffer .= "Estimasi ongkir sementara: Rp {$deliveryFee} (kalkulasi detail menyusul).\n";
-        $paymentMethod = $this->normalizePaymentMethodOrNull($parsed['payment_method'] ?? null);
+        $paymentMethod = ChatbotTransportSupport::normalizePaymentMethodOrNull($parsed['payment_method'] ?? null);
         if ($paymentMethod === null) {
             $buffer .= "Pilih metode pembayaran dulu: COD atau QRIS.\n";
         } else {
-            $buffer .= 'Metode pembayaran: '.$this->paymentMethodLabel($paymentMethod)."\n";
+            $buffer .= 'Metode pembayaran: '.ChatbotTransportSupport::paymentMethodLabel($paymentMethod)."\n";
         }
         $buffer .= 'Ketik "Konfirmasi" untuk lanjut.';
 
@@ -1703,9 +1429,9 @@ class ChatbotCourierOrderService
         $buffer .= 'Ambil: '.(string) $parsed['pickup_address']."\n";
         $buffer .= 'Tujuan: '.(string) $parsed['dropoff_address']."\n";
         $buffer .= 'Barang: '.(string) $parsed['package_description']."\n";
-        $buffer .= 'Metode pembayaran: '.$this->paymentMethodLabel($parsed['payment_method'] ?? OrderPaymentService::METHOD_COD)."\n";
+        $buffer .= 'Metode pembayaran: '.ChatbotTransportSupport::paymentMethodLabel($parsed['payment_method'] ?? OrderPaymentService::METHOD_COD)."\n";
         $buffer .= "Estimasi ongkir sementara: Rp {$deliveryFee}.\n";
-        $buffer .= $this->normalizePaymentMethodOrNull($parsed['payment_method'] ?? null) === OrderPaymentService::METHOD_TRANSFER
+        $buffer .= ChatbotTransportSupport::normalizePaymentMethodOrNull($parsed['payment_method'] ?? null) === OrderPaymentService::METHOD_TRANSFER
             ? 'Upload bukti QRIS dari halaman tracking setelah order aktif.'
             : 'Bayar tunai ke driver saat menyerahkan barang di titik ambil.';
 
@@ -1717,19 +1443,7 @@ class ChatbotCourierOrderService
      */
     private function resolvePendingDraft(User $user, string $sessionId): ?array
     {
-        $latestAssistantLog = AiChatLog::query()
-            ->with('aiDetail')
-            ->where('user_id', $user->id)
-            ->where('session_id', $sessionId)
-            ->where('role', 'assistant')
-            ->latest('id')
-            ->first();
-
-        if ($latestAssistantLog === null) {
-            return null;
-        }
-
-        $payload = $latestAssistantLog->ai_response;
+        $payload = $this->draftStore->latestPayload($user, $sessionId);
         if (! is_array($payload)) {
             return null;
         }
@@ -1791,16 +1505,7 @@ class ChatbotCourierOrderService
             'delivery_fee' => isset($order['delivery_fee']) ? (float) $order['delivery_fee'] : null,
             'used_default_pickup' => (bool) ($courier['used_default_pickup'] ?? false),
             'pickup_address_id' => isset($courier['pickup_address_id']) ? (int) $courier['pickup_address_id'] : null,
-            'safety_status' => $courier['safety_status'] ?? null,
-            'safety_flags' => is_array($courier['safety_flags'] ?? null) ? $courier['safety_flags'] : [],
-            'safety_reason' => $courier['safety_reason'] ?? null,
-            'size_class' => $courier['size_class'] ?? null,
-            'estimated_weight_kg' => isset($courier['estimated_weight_kg']) && is_numeric($courier['estimated_weight_kg']) ? (float) $courier['estimated_weight_kg'] : null,
-            'package_length_cm' => isset($courier['package_length_cm']) && is_numeric($courier['package_length_cm']) ? (int) $courier['package_length_cm'] : null,
-            'package_width_cm' => isset($courier['package_width_cm']) && is_numeric($courier['package_width_cm']) ? (int) $courier['package_width_cm'] : null,
-            'package_height_cm' => isset($courier['package_height_cm']) && is_numeric($courier['package_height_cm']) ? (int) $courier['package_height_cm'] : null,
-            'packing_note' => $courier['packing_note'] ?? null,
-            'payment_method' => $this->normalizePaymentMethodOrNull($courier['payment_method'] ?? ($order['payment_method'] ?? null)),
+            'payment_method' => ChatbotTransportSupport::normalizePaymentMethodOrNull($courier['payment_method'] ?? ($order['payment_method'] ?? null)),
         ];
     }
 
@@ -1840,23 +1545,4 @@ class ChatbotCourierOrderService
         ], true);
     }
 
-    private function normalizePaymentMethodOrNull(mixed $value): ?string
-    {
-        $normalized = strtoupper(trim((string) ($value ?? '')));
-        if ($normalized === OrderPaymentService::METHOD_TRANSFER) {
-            return OrderPaymentService::METHOD_TRANSFER;
-        }
-        if ($normalized === OrderPaymentService::METHOD_COD) {
-            return OrderPaymentService::METHOD_COD;
-        }
-
-        return null;
-    }
-
-    private function paymentMethodLabel(mixed $value): string
-    {
-        return $this->normalizePaymentMethodOrNull($value) === OrderPaymentService::METHOD_TRANSFER
-            ? 'QRIS'
-            : 'COD';
-    }
 }

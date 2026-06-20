@@ -119,6 +119,28 @@ class OrderPaymentService
             : self::METHOD_COD;
     }
 
+    public function currentMethod(Order $order): string
+    {
+        return $this->normalizePaymentMethod((string) ($order->payment_method ?? self::METHOD_COD));
+    }
+
+    public function isPaid(Order $order): bool
+    {
+        if ($order->relationLoaded('payment')) {
+            return strtoupper((string) $order->payment?->payment_status) === self::STATUS_PAID;
+        }
+
+        if ($order->relationLoaded('payments')) {
+            return $order->payments->contains(
+                fn (OrderPayment $payment): bool => strtoupper((string) $payment->payment_status) === self::STATUS_PAID
+            );
+        }
+
+        return $order->payment()
+            ->where('payment_status', self::STATUS_PAID)
+            ->exists();
+    }
+
     private function normalizedOrderAmount(Order $order): float
     {
         return round((float) $order->total_price, 2);

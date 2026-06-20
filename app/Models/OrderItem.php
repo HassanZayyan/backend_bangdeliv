@@ -15,12 +15,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $quantity
  * @property string $unit_price
  * @property string $subtotal
- * @property-read string $line_service_fee
- * @property-read string $line_total
  * @property string|null $notes
  * @property array<string, mixed>|null $metadata
  * @property bool $is_available
- * @property bool $is_heavy
  * @property-read \App\Models\Order $order
  * @property-read \App\Models\Menu|null $menu
  * @property-read \App\Models\OrderLocation|null $pickupLocation
@@ -41,7 +38,6 @@ class OrderItem extends Model
         'notes',
         'metadata',
         'is_available',
-        'is_heavy',
     ];
 
     protected function casts(): array
@@ -52,7 +48,6 @@ class OrderItem extends Model
             'subtotal' => 'decimal:2',
             'metadata' => 'array',
             'is_available' => 'boolean',
-            'is_heavy' => 'boolean',
         ];
     }
 
@@ -71,13 +66,4 @@ class OrderItem extends Model
         return $this->belongsTo(OrderLocation::class, 'pickup_location_id');
     }
 
-    public function getLineServiceFeeAttribute($value): string
-    {
-        return $value ?? '0.00';
-    }
-
-    public function getLineTotalAttribute($value): string
-    {
-        return $value ?? (string) ($this->attributes['subtotal'] ?? '0.00');
-    }
 }

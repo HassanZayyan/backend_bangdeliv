@@ -394,7 +394,6 @@ class OrderPricingPushNotificationTest extends TestCase
                 'unit_price' => 12000,
                 'subtotal' => 12000,
                 'is_available' => true,
-                'is_heavy' => false,
             ]);
         }
 

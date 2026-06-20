@@ -32,9 +32,4 @@ class ServiceType extends Model
     {
         return $this->hasMany(Order::class);
     }
-
-    public function feeRules(): HasMany
-    {
-        return $this->hasMany(ServiceFeeRule::class);
-    }
 }

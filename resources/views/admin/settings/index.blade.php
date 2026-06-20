@@ -4,6 +4,35 @@
 @section('page-title', 'Pengaturan Sistem')
 
 @section('content')
+@php
+    $deliveryPricingRows = [
+        [
+            'label' => 'Tarif dasar',
+            'value' => 'Rp '.number_format((int) config('bangdeliv.base_delivery_fee', 5000), 0, ',', '.'),
+            'note' => 'Biaya awal sebelum tarif jarak dihitung.',
+        ],
+        [
+            'label' => 'Rate 0-10 km',
+            'value' => 'Rp '.number_format((int) config('bangdeliv.delivery_rate_0_10_per_km', 2000), 0, ',', '.').'/km',
+            'note' => 'Dipakai untuk jarak pendek.',
+        ],
+        [
+            'label' => 'Rate 10-25 km',
+            'value' => 'Rp '.number_format((int) config('bangdeliv.delivery_rate_10_25_per_km', 2500), 0, ',', '.').'/km',
+            'note' => 'Dipakai untuk jarak menengah.',
+        ],
+        [
+            'label' => 'Rate 25-50 km',
+            'value' => 'Rp '.number_format((int) config('bangdeliv.delivery_rate_25_50_per_km', 3000), 0, ',', '.').'/km',
+            'note' => 'Dipakai untuk jarak jauh.',
+        ],
+        [
+            'label' => 'Jarak maksimum',
+            'value' => rtrim(rtrim((string) config('bangdeliv.max_delivery_distance', 50), '0'), '.').' km',
+            'note' => 'Order di luar batas ini ditolak oleh pricing service.',
+        ],
+    ];
+@endphp
 <div style="display: flex; flex-direction: column; gap: 24px;">
 
     {{-- =====================================================
@@ -17,14 +46,31 @@
                 </div>
                 <div>
                     <div class="panel-title">Konfigurasi Tarif Ongkos Kirim</div>
+                    <div style="font-size: 12px; color: var(--text-muted);">Nilai di bawah ini hanya snapshot konfigurasi aktif; perubahan dilakukan lewat env/config backend.</div>
                     <div style="font-size: 12px; color: var(--text-muted);">Tarif dihitung otomatis: <code style="background:var(--bg-body); padding: 2px 6px; border-radius:4px; font-size:11px;">Ongkir = Tarif Dasar + (Jarak km × Tarif/km)</code></div>
                 </div>
             </div>
-            <button class="btn btn-primary" id="saveTarifBtn" onclick="showSaved('tarif')">
-                <i class='bx bx-save'></i> Simpan Tarif
-            </button>
+            <span style="display:inline-flex; align-items:center; gap:6px; padding:8px 12px; border-radius:999px; background:var(--bg-body); color:var(--text-muted); font-size:12px; font-weight:700;">
+                <i class='bx bx-lock-alt'></i> Tidak diedit di dashboard
+            </span>
         </div>
-        <div style="padding: 24px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px;">
+        <div style="padding: 24px; display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 16px;">
+            @foreach ($deliveryPricingRows as $row)
+                <div style="padding: 16px; border: 1px solid var(--border-color); border-radius: 10px; background: var(--bg-body);">
+                    <div style="font-size: 12px; color: var(--text-muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px;">{{ $row['label'] }}</div>
+                    <div style="font-size: 20px; color: var(--text-main); font-weight: 800; margin-top: 8px;">{{ $row['value'] }}</div>
+                    <div style="font-size: 12px; color: var(--text-muted); margin-top: 6px; line-height: 1.5;">{{ $row['note'] }}</div>
+                </div>
+            @endforeach
+        </div>
+        <div style="margin: 0 24px 24px; padding: 14px 16px; background: rgba(59,130,246,0.08); border: 1px solid rgba(59,130,246,0.18); border-radius: 10px; color: var(--text-main); font-size: 13px; line-height: 1.6;">
+            <div style="font-weight: 700; margin-bottom: 4px;">Catatan pricing aktif</div>
+            <div>
+                Perubahan tarif dilakukan lewat env/config backend dan dipakai oleh <code>DeliveryPricingService</code>. Dashboard ini hanya menampilkan konfigurasi saat ini agar tidak ada tombol simpan palsu.
+            </div>
+        </div>
+
+        @if (false)
             {{-- Tarif Dasar --}}
             <div class="form-group" style="margin: 0;">
                 <label for="tarif_dasar">
@@ -60,23 +106,8 @@
                 </div>
                 <p style="font-size: 11px; color: var(--text-muted); margin-top: 5px;">Pesanan di luar radius ini akan ditolak otomatis</p>
             </div>
-        </div>
+        @endif
 
-        {{-- Estimator Preview --}}
-        <div style="margin: 0 24px 24px; padding: 16px; background: var(--bg-body); border-radius: 10px; border: 1px dashed var(--border-color);">
-            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Kalkulator Tarif Estimasi</div>
-            <div style="display: flex; align-items: center; gap: 20px; flex-wrap: wrap;">
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    <span style="font-size: 13px; color: var(--text-muted);">Jarak contoh:</span>
-                    <input id="sim_jarak" type="number" value="5" style="width: 70px; padding: 6px 10px; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-main); font-size: 13px;" oninput="hitungEstimasi()">
-                    <span style="font-size: 13px; color: var(--text-muted);">km</span>
-                </div>
-                <div style="display: flex; align-items: center; gap: 8px;">
-                    <span style="font-size: 13px; color: var(--text-muted);">Estimasi ongkir:</span>
-                    <span id="hasil_estimasi" style="font-size: 18px; font-weight: 800; color: var(--color-primary);">Rp 12.500</span>
-                </div>
-            </div>
-        </div>
     </div>
 
     {{-- =====================================================
@@ -148,7 +179,7 @@
         <div id="bannerWarning" style="display:none; margin: 0 24px 24px; padding: 14px 16px; background: rgba(239,68,68,0.08); border-radius: 10px; border-left: 3px solid var(--color-danger); display: none; align-items: center; gap: 10px;">
             <i class='bx bx-error' style="color: var(--color-danger); font-size: 20px; flex-shrink:0;"></i>
             <span style="font-size: 13px; color: var(--color-danger); font-weight: 500;">Override manual aktif! Banner darurat sedang ditampilkan di aplikasi Flutter meskipun ada driver yang tersedia.</span>
-        </div>
+        @endif
     </div>
 
     {{-- =====================================================
@@ -224,27 +255,6 @@
 
 @push('scripts')
 <script>
-// Kalkulator Tarif Estimasi (real-time)
-function hitungEstimasi() {
-    const tarifDasar = parseInt(document.getElementById('tarif_dasar').value) || 0;
-    const tarifPerKm = parseInt(document.getElementById('tarif_per_km').value) || 0;
-    const jarak = parseFloat(document.getElementById('sim_jarak').value) || 0;
-
-    let total;
-    if (jarak <= 2) {
-        total = tarifDasar;
-    } else {
-        total = tarifDasar + ((jarak - 2) * tarifPerKm);
-    }
-    document.getElementById('hasil_estimasi').textContent = 'Rp ' + total.toLocaleString('id-ID');
-}
-
-// Update estimasi saat tarif berubah
-['tarif_dasar', 'tarif_per_km'].forEach(id => {
-    document.getElementById(id).addEventListener('input', hitungEstimasi);
-});
-hitungEstimasi(); // init
-
 // Toggle password visibility
 function togglePwd(inputId, btn) {
     const input = document.getElementById(inputId);
@@ -267,7 +277,6 @@ function toggleBannerWarning(checkbox) {
 // Save feedback toast
 function showSaved(section) {
     const names = {
-        tarif: 'Konfigurasi Tarif',
         banner: 'Pengaturan Banner',
         profil: 'Profil Admin',
         password: 'Password',

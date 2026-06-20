@@ -11,6 +11,28 @@ Prinsip utama refactor:
 - Simpan perubahan besar per klaster kecil agar mudah diverifikasi.
 - Dokumen ini bersifat hidup: jika audit file baru menghapus keraguan atau mengubah asumsi pada file lama, revisi entry lama agar keputusan refactor makin tegas.
 
+## Decision Pass Setelah Audit Lengkap
+
+- Keputusan service fee final: pertahankan scalar `orders.service_fee` sebagai satu nilai final service fee/penalti, hapus mekanisme generic `service_fee_rules` dan `order_fee_lines`.
+- Pertahankan `delivery_fee`, `delivery_fee_source`, `delivery-fee-override`, dan negosiasi/manual edit ongkir driver; ini bukan target hapus service fee.
+- Pertahankan flow gagal pickup/merchant tutup 3 kali bayar 50% ongkir: `CANCELLED_WITH_FEE`, `CANCELLATION_PENALTY_AFTER_FAILED_ATTEMPTS`, failed attempt count, proof `STORE_CLOSED_PHOTO`, QRIS/payment proof, dan total payment terkait.
+- Hapus/refactor fitur Courier "perlu 2 orang": `careful_carry_required`, helper/support UI careful-carry, surcharge 50%, parameter request, payload response, dan kolom detail courier jika sudah sinkron frontend-backend.
+- Hapus/refactor surcharge Shopping berbasis `is_heavy`, `ITEM_BLOCK_SURCHARGE`, `OVERWEIGHT_FLAT_SURCHARGE`, `fee_breakdown` dari `order_fee_lines`, dan UI `ShoppingFeeBreakdown` yang hanya menampilkan fee lines generic.
+- Jangan menghapus `fee_breakdown` milik `DeliveryPricingService` secara buta karena itu breakdown ongkir, bukan `order_fee_lines`; jika membingungkan, rename bertahap ke `delivery_fee_breakdown`.
+- Placeholder forgot password belum punya endpoint backend aktif; keputusan minimal adalah hide route/link atau ubah copy menjadi belum tersedia sampai backend reset password dibuat.
+- Route driver status modern yang dipakai frontend adalah `status-transition`; route legacy `PATCH /driver/orders/{orderId}/status` via `OrderExecutionController` kandidat cleanup setelah test kontrak disesuaikan.
+- Urutan refactor disarankan: service fee/careful-carry cleanup sinkron backend-frontend, lalu cleanup placeholder/mock/legacy route yang low-risk, baru pemecahan service besar seperti `OrderService` dan service chatbot.
+
+## Plan Eksekusi Refactor Minimal
+
+1. Baseline: jalankan search target service fee/careful-carry, `flutter analyze`, test frontend/backend yang relevan, dan catat test yang sudah merah sebelum edit.
+2. Backend service-fee cleanup: hapus dependency `ServiceFeeRule`/`OrderFeeLine`, pindahkan penalti gagal 3 kali ke rule eksplisit service/config, simpan hasil final di `orders.service_fee`, dan pastikan `total_price = subtotal + delivery_fee + service_fee`.
+3. Backend careful-carry/heavy cleanup: hapus `careful_carry_required`, `is_heavy`, item/overweight surcharge, payload/request/response terkait, tetapi pertahankan Courier normal, package description, merchant failed attempt, dan proof store closed.
+4. Frontend sync: hapus field/model/UI/request `carefulCarryRequired`, `isHeavy`, `ShoppingFeeBreakdown` dari fee lines, dan parameter request careful-carry; pertahankan manual delivery fee, delivery-fee negotiation, cancellation penalty, QRIS/payment proof, dan tracking/chat.
+5. Schema/data cleanup: siapkan migration strategy untuk drop `service_fee_rules` dan `order_fee_lines`, pertahankan `orders.service_fee`, lalu update seeder/test factory yang terdampak.
+6. Low-risk cleanup setelah fitur utama hijau: hide forgot password placeholder, hapus widget/model/provider unused yang sudah terkonfirmasi, rapikan route legacy status driver, dan ubah admin settings tarif mock menjadi read-only/hide.
+7. Refactor besar opsional belakangan: pecah `OrderService`, service chatbot besar, admin Blade query ke controller/view model, dan shared helper map/coordinate/distance hanya setelah cleanup utama stabil.
+
 ## frontend_bangdeliv/lib/config/app_colors.dart
 
 - Fungsi: pusat token warna Flutter untuk brand BangDeliv, theme, widget umum, status, text, border, dan background.
@@ -39,7 +61,7 @@ Prinsip utama refactor:
 
 - Fungsi: konfigurasi utama `GoRouter`, auth/role redirect, shell navigation customer/driver, route builder untuk semua screen, dan invalidasi provider saat session berubah.
 - Logic penting: route root memakai custom slide transition; redirect membedakan public, guest-accessible, customer-only, driver aktif/nonaktif, dan admin; `ref.listen(authSessionProvider)` menghapus cache order/home/chat/realtime ketika auth/role/user berubah.
-- Redundansi/minimalisasi: file ini memegang terlalu banyak tanggung jawab sekaligus (route table, parsing `state.extra`, auth policy, cache invalidation). Ada dua entry tracking (`/track` via `extra`/active order dan `/orders/:orderId/track` via path) yang perlu dipertahankan sampai caller dimigrasi. `_customerOnlyRoutes` belum memasukkan beberapa route customer seperti `orderTrack`, `orderChat`, dan `chatbot`, sehingga driver aktif masih bisa lolos ke route itu jika navigasi langsung; perlu diklarifikasi apakah sengaja untuk chat/tracking lintas role. Invalid ID screen diulang beberapa kali sebagai `Scaffold` sederhana.
+- Redundansi/minimalisasi: file ini memegang terlalu banyak tanggung jawab sekaligus (route table, parsing `state.extra`, auth policy, cache invalidation). Ada dua entry tracking (`/track` via `extra`/active order dan `/orders/:orderId/track` via path) yang perlu dipertahankan sampai caller dimigrasi. Setelah audit lengkap, `orderTrack`/`orderChat` memang perlu lintas role karena dipakai notifikasi, tracking, dan driver active/history; `chatbot` lebih aman dimasukkan customer-only karena backend chatbot untuk order customer. Invalid ID screen diulang beberapa kali sebagai `Scaffold` sederhana.
 - Service fee notice: tidak ada logic service fee langsung.
 - Risiko: refactor router rawan memutus auth redirect, notifikasi deep link, bottom navigation shell, dan cache invalidation; pecah file boleh dilakukan belakangan per klaster kecil, bukan sambil ubah behavior.
 
@@ -63,9 +85,9 @@ Prinsip utama refactor:
 
 - Fungsi: pusat dependency injection Riverpod untuk `ApiClient`, service API, repository order/chatbot/address/driver, realtime client, QRIS downloader, home search query, dan `homeDataProvider`.
 - Logic penting: mayoritas service memakai `apiClientProvider`; repository membungkus service API; `qrisDownloadServiceProvider` mendaftarkan `ref.onDispose(service.close)`; `orderRealtimeClientProvider` memakai singleton `PusherService.instance`; `homeDataProvider` bergantung pada `homeSearchQueryProvider`.
-- Redundansi/minimalisasi: `rideOrderApiServiceProvider` dan `addressRepositoryProvider` tampak hanya didefinisikan dan belum dipakai non-test/runtime; `HomeScreen` punya `_homeScreenDataProvider` sendiri untuk data home berbasis lokasi sehingga `homeDataProvider` global hanya dipakai oleh detail menu/merchant dan invalidasi router. Pola DI juga belum seragam: sebagian lewat `ApiClient`, driver masih memakai `DriverOrderService()` sendiri, address memakai `AuthAddressRepository`, realtime memakai singleton.
+- Redundansi/minimalisasi: re-scan `rg` mengonfirmasi `rideOrderApiServiceProvider` dan `addressRepositoryProvider` hanya didefinisikan di file ini dan belum punya caller runtime/test; kandidat hapus jika tidak ada rencana migrasi alamat/ride ke repository. `HomeScreen` punya `_homeScreenDataProvider` sendiri untuk data home berbasis lokasi sehingga `homeDataProvider` global hanya dipakai oleh detail menu/merchant dan invalidasi router. Pola DI juga belum seragam: sebagian lewat `ApiClient`, driver masih memakai `DriverOrderService()` sendiri, address memakai `AuthAddressRepository`, realtime memakai singleton.
 - Service fee notice: tidak ada logic service fee langsung; `qrisDownloadServiceProvider` dapat ikut flow pembayaran penalti 50%, tetapi file ini hanya menyediakan dependency.
-- Risiko: provider banyak dipakai test override dan fitur realtime/order; penghapusan provider yang terlihat idle harus dicek dengan `rg` dan test. Memecah file DI per domain bisa lebih bersih, tetapi sebaiknya dilakukan setelah audit provider fitur agar import churn tetap kecil.
+- Risiko: provider banyak dipakai test override dan fitur realtime/order; khusus `rideOrderApiServiceProvider` dan `addressRepositoryProvider` sudah terkonfirmasi idle oleh `rg`, tetapi penghapusan tetap perlu `flutter analyze/test`. Memecah file DI per domain bisa lebih bersih, tetapi sebaiknya dilakukan setelah audit provider fitur agar import churn tetap kecil.
 
 ## frontend_bangdeliv/lib/core/widgets/bang_action_button.dart
 
@@ -87,7 +109,7 @@ Prinsip utama refactor:
 
 - Fungsi: komponen reusable untuk loading, empty, dan error state.
 - Logic penting: `BangLoadingState` mendukung pesan opsional; `BangEmptyState` punya ikon/title/message/action; `BangErrorState` punya retry.
-- Redundansi/minimalisasi: `BangLoadingState` tampak belum dipakai; `BangEmptyState` dan `BangErrorState` punya nama sama dengan class di `lib/widgets/bang_ui.dart` tetapi API/visual berbeda. Ini kandidat konsolidasi naming/import agar tidak membingungkan.
+- Redundansi/minimalisasi: re-scan import menunjukkan file ini dipakai beberapa screen untuk `BangEmptyState`/`BangErrorState`, sedangkan `BangLoadingState` hanya definisi. Nama `BangEmptyState` dan `BangErrorState` juga bentrok dengan class di `lib/widgets/bang_ui.dart` tetapi API/visual berbeda; kandidat konsolidasi naming/import, bukan hapus file penuh.
 - Service fee notice: tidak ada logic service fee.
 - Risiko: duplikasi nama lintas file bisa menyebabkan import conflict saat refactor; konsolidasi harus per screen agar tidak mematahkan constructor yang berbeda.
 
@@ -95,9 +117,9 @@ Prinsip utama refactor:
 
 - Fungsi: wrapper bottom action area dengan `SafeArea`, background putih, shadow atas, dan padding.
 - Logic penting: hanya membungkus child dengan padding dan dekorasi bottom bar.
-- Redundansi/minimalisasi: tampak belum dipakai runtime. Bisa menjadi kandidat hapus jika setelah audit semua screen tidak ada rencana memakai bottom action bar standar.
+- Redundansi/minimalisasi: re-scan `rg` hanya menemukan definisi class, tidak ada caller runtime/test; kandidat hapus low-risk jika tidak akan dijadikan standar bottom action bar.
 - Service fee notice: tidak ada logic service fee.
-- Risiko: risiko hapus rendah jika benar tidak ada pemakaian, tetapi cek dulu kemungkinan import tersembunyi/test baru.
+- Risiko: rendah jika tidak ada rencana memakai bottom action bar standar; hapus file juga mengurangi API UI yang tidak terpakai.
 
 ## frontend_bangdeliv/lib/core/widgets/bang_counter_amount_dialog.dart
 
@@ -143,9 +165,9 @@ Prinsip utama refactor:
 
 - Fungsi: pill status generic dengan warna foreground/background dan ikon opsional.
 - Logic penting: label ellipsis dalam `Flexible`, bentuk pill penuh dengan radius 999.
-- Redundansi/minimalisasi: tampak belum dipakai; overlap dengan `BangStatusChip` di `lib/widgets/bang_ui.dart` dan beberapa private `_StatusPill`. Kandidat hapus atau jadikan standar tunggal setelah audit status chips selesai.
+- Redundansi/minimalisasi: re-scan `rg` hanya menemukan definisi class, tidak ada caller runtime/test; overlap dengan `BangStatusChip` di `lib/widgets/bang_ui.dart` dan beberapa private `_StatusPill`. Kandidat hapus low-risk atau jadikan standar tunggal bila refactor status chip dilakukan.
 - Service fee notice: tidak ada logic service fee.
-- Risiko: risiko hapus rendah jika tetap tidak dipakai, tetapi standardisasi status pill bisa memengaruhi banyak tampilan status order.
+- Risiko: rendah untuk hapus class unused; risiko baru muncul hanya jika sekaligus standardisasi semua status pill.
 
 ## frontend_bangdeliv/lib/data/repositories/address_repository.dart
 
@@ -216,6 +238,7 @@ Prinsip utama refactor:
 - Fungsi: screen picker titik alamat tersimpan berbasis Google Maps, pencarian tempat, reverse geocode alamat, dan GPS "Lokasi Saya".
 - Logic penting: initial camera memakai koordinat dari route extra jika valid, fallback ke Salatiga; tanpa koordinat awal screen otomatis mencoba `_moveToCurrentLocation()` setelah frame pertama; search memakai `GoogleMapsLookupService` dengan scope Indonesia atau `salatigaServiceAreaAddress`; `onCameraIdle` reverse geocode target; confirm hanya mengembalikan `AddressLocationPickerResult(latitude, longitude, source)`.
 - Redundansi/minimalisasi: banyak pola berulang dengan `route_location_picker_screen.dart` dan sebagian shopping merchant map picker: `GoogleMapController`, `GoogleMapsLookupService`, flow permission Geolocator, search place, animate camera, dan snackbar error. Kandidat minimal: ekstrak helper permission/current-location atau map lookup wrapper dulu, bukan full reusable screen. `_handleCameraIdle()` punya `setState(() {})` saat `_isResolvingCurrentLocation` yang tampak redundant; `_mapsLookup` dibuat langsung sehingga screen sulit di-test dengan fake service.
+- Redundansi/minimalisasi lanjutan: Step 6I sudah memindahkan validasi koordinat awal serta permission/current location ke `MapPickerHelpers`. Search, reverse geocode, camera animation, dan snackbar tetap di screen agar tidak rewrite UI.
 - Service fee notice: tidak ada logic service fee.
 - Risiko: refactor map picker rawan memengaruhi permission GPS, initial coordinate edit alamat, search scope area layanan, dan return result ke `add_address_screen`/chatbot; karena tidak ada test screen khusus untuk file ini, ekstraksi sebaiknya disertai test helper/service atau widget test dengan fake Google Maps platform.
 
@@ -224,6 +247,7 @@ Prinsip utama refactor:
 - Fungsi: screen picker rute untuk chatbot Ride/Courier, memilih titik pickup dan destination/dropoff lewat Google Maps, search place, GPS, reverse geocode, ringkasan dua titik, serta validasi jarak minimum.
 - Logic penting: menerima `RouteLocationPickerArgs` dari `AppRoutes.routeLocationPicker`; default pickup dari alamat utama bisa langsung mengisi pickup lalu memulai flow destination; map bisa disembunyikan saat destination belum masuk mode pilih peta; `_confirmRoute()` hanya mengirim pickup jika berubah atau tidak ada default pickup, selalu mengirim destination, dan menolak pickup/destination yang jaraknya kurang dari 20 meter.
 - Redundansi/minimalisasi: pola map/search/GPS banyak overlap dengan `address_location_picker_screen.dart`: `GoogleMapController`, `GoogleMapsLookupService`, permission Geolocator, reverse geocode, snackbar error, dan `setState(() {})` saat idle/loading. `RouteLocationPickerArgs.serviceType` dan `confirmLabel` tampak tidak dipakai di screen, karena tombol tetap hard-coded `Simpan`. `_mapsLookup` dibuat langsung sehingga sulit diinjeksi fake service; `_validLatLng()` mirip `AddressFormPresenter.isCoordinatePairValid()`, dan `_distanceMeters()` bisa dipertimbangkan memakai helper shared.
+- Redundansi/minimalisasi lanjutan: Step 6I sudah memindahkan validasi koordinat, permission/current location, dan hitung jarak rute ke `MapPickerHelpers`; flow `RouteLocationPickerResult` dan payload patch chatbot tetap sama.
 - Service fee notice: tidak ada logic service fee; file ini menyebut Courier sebagai service route, tetapi tidak terkait fitur "perlu 2 orang".
 - Risiko: refactor screen ini rawan memutus flow chatbot yang mem-patch lokasi pickup/dropoff/destination, default saved address, behavior map hidden/visible, validasi jarak minimum, dan test `route_location_picker_screen_test.dart`; ekstraksi sebaiknya dimulai dari helper kecil non-UI dulu.
 
@@ -247,9 +271,9 @@ Prinsip utama refactor:
 
 - Fungsi: screen UI lupa password dengan input email/WhatsApp, header ikon reset, dan tombol kirim instruksi pemulihan.
 - Logic penting: belum ada `Form`, validator, loading state, atau call API; tombol hanya menampilkan snackbar sukses simulasi lalu `context.pop()` setelah 2 detik.
-- Redundansi/minimalisasi: layout dan style mirip pola auth/login tetapi belum memakai reusable auth scaffold/form field. Karena fitur belum tersambung backend, kandidat minimal adalah tandai sebagai placeholder atau hubungkan ke endpoint nyata sebelum dirapikan visualnya. `TextField` email/WhatsApp juga belum memvalidasi input.
+- Redundansi/minimalisasi: layout dan style mirip pola auth/login tetapi belum memakai reusable auth scaffold/form field. Audit backend hanya menemukan config/table reset password bawaan, belum ada route/controller API reset password aktif; keputusan minimal paling aman adalah hide link/route dari login atau ubah screen menjadi unavailable, bukan mempertahankan simulasi sukses. `TextField` email/WhatsApp juga belum memvalidasi input.
 - Service fee notice: tidak ada logic service fee.
-- Risiko: jika user menganggap fitur ini aktif, simulasi sukses bisa menyesatkan; refactor UI harus menunggu keputusan apakah backend reset password memang akan dibuat atau route ini di-hide sementara.
+- Risiko: jika user menganggap fitur ini aktif, simulasi sukses bisa menyesatkan. Hide route/link rendah risiko selama belum ada backend; implement endpoint reset password adalah fitur baru dan sebaiknya dipisah dari refactor minimal.
 
 ## frontend_bangdeliv/lib/features/auth/presentation/screens/login_screen.dart
 
@@ -304,7 +328,7 @@ Prinsip utama refactor:
 - Fungsi: screen utama BangBot untuk layanan Nitip, Kurir, dan Antar Jemput; mengelola UI chat, input/suggestion, menu riwayat/restart, guard alamat, navigasi map/merchant/route picker, tracking/activity setelah order dibuat, serta rendering khusus pesan draft dari backend.
 - Logic penting: `_serviceContext` menentukan copy/icon/suggestion per `service_type`; `_bootstrapConversation()` bootstrap provider dan auto-open alamat jika profil belum siap; `_sendMessage()` juga menangkap command `refresh`; `build()` merender AppBar, error banner, bubble chat, action buttons, dan input bar; parser `_tryParse*Message()` mengubah teks assistant menjadi layout draft yang lebih terstruktur; handler `_handleOpen*Action()` menjembatani action hint provider ke route picker, merchant picker, address picker, tracking, dan activity.
 - Redundansi/minimalisasi: file 2267 line dan terlalu banyak tanggung jawab untuk satu screen: service config/copy, widget chat bubble, parser teks, session sheet/dialog, navigation action handler, dan address guard. Kandidat minimal paling aman adalah ekstrak parser pesan ke helper pure Dart terlebih dulu karena banyak perilaku sudah dilindungi `chatbot_screen_test.dart`, lalu ekstrak `_ServiceContext` ke config kecil dan pecah widget bubble/input/session sheet. Banyak `TextStyle`, border, padding, dan button style inline bisa nanti diserap ke komponen chat kecil setelah parser aman.
-- Service fee notice: tidak ada `service_fee`, `fee_breakdown`, `careful_carry_required`, atau "Perlu 2 orang". Nama lokal `feeLine/feeLines` hanya parsing teks "Estimasi ongkir sementara" dan "Estimasi total sementara" dari balasan chatbot, bukan `service_fee_lines`/`order_fee_lines`; jangan dihapus karena tidak termasuk plan service fee, tetapi bisa diganti nama menjadi `amountLines`/`estimateLines` agar tidak rancu saat cleanup.
+- Service fee notice: tidak ada `service_fee`, `fee_breakdown`, `careful_carry_required`, atau "Perlu 2 orang". Step 6J sudah mengganti nama lokal `feeLine/feeLines` menjadi `estimateLines`; isinya hanya parsing teks "Estimasi ongkir sementara" dan "Estimasi total sementara" dari balasan chatbot, bukan `service_fee_lines`/`order_fee_lines`.
 - Risiko: blast radius sangat tinggi ke flow chat semua service, auto-open alamat, persisted session, parser format teks backend, route picker, merchant picker, tracking/activity cleanup, dan banyak test `chatbot_screen_test.dart`/`chatbot_courier_prompt_style_test.dart`; refactor harus bertahap dan idealnya mulai dari ekstraksi pure parser dengan test yang sudah ada.
 
 ## frontend_bangdeliv/lib/features/driver_orders/application/driver_availability_location_reporter_provider.dart
@@ -391,9 +415,9 @@ Prinsip utama refactor:
 
 - Fungsi: kumpulan widget aksi/status order aktif driver: timeline status, card aksi driver, pesan COD, tombol status/action, dialog laporan merchant tutup/gagal pickup dengan upload foto.
 - Logic penting: `DriverOrderTimelineCard` hanya menampilkan item timeline `STATUS_CHANGE`; `DriverOrderActionCard` membaca `availableActions`, status `CANCELLED_WITH_FEE`, status pembayaran, service type Kurir, dan `shoppingPricing`; dialog `_FailedPickupDialog` memilih merchant aktif, alasan, serta foto wajib sebelum mengirim report gagal pickup.
-- Redundansi/minimalisasi: nama file action widgets juga berisi timeline card, jadi kandidat dipisah menjadi `timeline` dan `action` jika refactor widget driver dilakukan. Dialog gagal pickup dan dialog edit ongkir di fee widget punya pola modal/`AnimatedPadding`/`driverDialogInputDecoration` mirip; bisa dibuat helper setelah audit semua dialog driver selesai. `_canReportPickupFailed()` saat ini selalu `false`, sehingga UI report gagal pickup tidak pernah tampil walau callback tersedia dari screen.
+- Redundansi/minimalisasi: nama file action widgets juga berisi timeline card, jadi kandidat dipisah menjadi `timeline` dan `action` jika refactor widget driver dilakukan. Dialog gagal pickup dan dialog edit ongkir di fee widget punya pola modal/`AnimatedPadding`/`driverDialogInputDecoration` mirip; bisa dibuat helper setelah audit semua dialog driver selesai. Setelah audit backend/API, flow failed attempt memang harus dipertahankan, sehingga `_canReportPickupFailed()` yang selalu `false` adalah kandidat bug/disabled-feature yang perlu diputuskan tegas saat refactor: aktifkan sesuai capability backend atau hapus UI/callback mati.
 - Service fee notice: `CANCELLED_WITH_FEE`, pesan biaya pembatalan, `failedAttemptCount/failedAttemptThreshold`, dan dialog gagal pickup harus dipertahankan karena ini terkait pengecualian plan: fee pembatalan 50% setelah 3 kali gagal bayar/pickup. Jangan ikut dihapus saat cleanup service fee.
-- Risiko: perubahan file ini berdampak ke tombol status driver, blocked action, alur COD Kurir/Nitip, pembayaran biaya pembatalan, dan report merchant tutup. Risiko khusus: karena `_canReportPickupFailed()` hardcoded `false`, refactor nanti harus memutuskan apakah ini bug yang perlu diaktifkan lagi atau sengaja dinonaktifkan sementara.
+- Risiko: perubahan file ini berdampak ke tombol status driver, blocked action, alur COD Kurir/Nitip, pembayaran biaya pembatalan, dan report merchant tutup. Jangan menghapus failed pickup karena backend, route, proof, dan penalty 50% masih dipertahankan.
 
 ## frontend_bangdeliv/lib/features/driver_orders/presentation/widgets/driver_active_order_fee_widgets.dart
 
@@ -656,6 +680,7 @@ Prinsip utama refactor:
 - Fungsi: screen peta untuk memilih merchant Nitip dari Google Places search atau tap manual di map, lalu mengembalikan `ShoppingMerchantPlacePayload`.
 - Logic penting: initial camera dari args atau fallback Salatiga; search memakai `GoogleMapsLookupService.searchPlaces()` dengan session token; prediction di-resolve ke detail place; tap peta reverse geocode; confirm melakukan `Navigator.pop(place)`.
 - Redundansi/minimalisasi: pola Google Map + search + reverse geocode mirip address/route location picker, sehingga kandidat helper/shared component bila map picker lain ikut dirapikan. `_newSessionToken()` dan `_firstAddressSegment()` bisa dipindah ke util kecil bila dipakai lintas picker.
+- Redundansi/minimalisasi lanjutan: Step 6I sudah memindahkan validasi koordinat awal, Google Places session token, dan segmen alamat pertama ke `MapPickerHelpers`. Search/resolve/reverse-geocode masih di screen karena perlu penanganan UI loading/error.
 - Service fee notice: tidak ada logic service fee/careful carry/ongkir.
 - Risiko: `searchPlaces()`, `resolvePlace()`, dan `reverseGeocode()` belum dibungkus `try/catch`, sehingga error service/network berpotensi membuat loading state nyangkut atau error tidak tampil. Perubahan file ini berdampak ke tambah item manual Nitip dan merchant picker chatbot yang memakai payload place yang sama.
 
@@ -847,9 +872,9 @@ Prinsip utama refactor:
 
 - Fungsi: model order lama/sederhana berisi id, restaurant name, items, price, date, status, dan getter formatted price.
 - Logic penting: tidak ada parsing API; hanya data holder dan `formatRupiah(price)`.
-- Redundansi/minimalisasi: hasil `rg` hanya menemukan definisi `OrderModel` di file ini, jadi kandidat legacy unused untuk dihapus setelah konfirmasi tidak dipakai di import tersembunyi/generated. Komentar status masih hardcoded `Selesai/Diantar/Dibatalkan` dan tidak memakai constants status order baru.
+- Redundansi/minimalisasi: re-scan `rg` hanya menemukan definisi `OrderModel` di file ini, tidak ada caller runtime/test; kandidat legacy unused untuk dihapus. Komentar status masih hardcoded `Selesai/Diantar/Dibatalkan` dan tidak memakai constants status order baru.
 - Service fee notice: tidak ada logic service fee/careful-carry.
-- Risiko: rendah jika benar unused; cek test/route lama sebelum hapus agar tidak memutus mock atau screen historis yang belum diaudit.
+- Risiko: rendah karena tidak ada caller yang ditemukan; tetap jalankan analyze/test setelah hapus untuk menangkap import tersembunyi.
 
 ## frontend_bangdeliv/lib/models/order_route_model.dart
 
@@ -1059,6 +1084,14 @@ Prinsip utama refactor:
 - Service fee notice: tidak ada logic service fee/careful-carry.
 - Risiko: perubahan berdampak ke form ongkir/quote/nominal manual yang memakai parser ini.
 
+## frontend_bangdeliv/lib/utils/map_picker_helpers.dart
+
+- Fungsi: helper non-UI untuk map picker Flutter, mencakup validasi `LatLng`, hitung jarak haversine, token session Google Places, segmen alamat pertama, cek permission lokasi, dan ambil lokasi saat ini.
+- Logic penting: `validLatLng()` menolak koordinat null/out-of-range dan default menolak `0,0`; `allowZero` dipakai address picker agar behavior edit alamat lama tetap aman; `currentLocation()` membungkus flow Geolocator dan mengembalikan enum failure agar pesan UI tetap di screen.
+- Redundansi/minimalisasi: dibuat pada Step 6I dari duplikasi `address_location_picker_screen.dart`, `route_location_picker_screen.dart`, dan `shopping_merchant_map_picker_screen.dart`. Helper sengaja tidak mengambil alih UI map/search/reverse-geocode.
+- Service fee notice: tidak ada logic service fee/careful-carry/ongkir.
+- Risiko: perubahan helper berdampak ke GPS/current location pada picker alamat dan route picker, validasi titik route/chatbot, serta initial camera merchant map; jaga test `map_picker_helpers_test.dart` dan `route_location_picker_screen_test.dart`.
+
 ## frontend_bangdeliv/lib/utils/map_marker_icons.dart
 
 - Fungsi: generator marker bitmap driver motor untuk Google Maps.
@@ -1235,7 +1268,16 @@ Prinsip utama refactor:
 - Service fee notice: tidak ada logic service fee/careful-carry di class ini; ia hanya wrapper error yang dipakai luas, termasuk flow order/chatbot/shopping.
 - Risiko: perubahan signature/status behavior berdampak ke banyak service dan tests yang mengharapkan `ApiException` tertentu.
 
+## Backend_Bangdeliv/app/Http/Controllers/Admin/AiMonitorController.php
+
+- Fungsi: controller web admin untuk halaman monitor AI/Gemini.
+- Logic penting: menghitung total/today AI chat logs, success rate berdasarkan detail model, primary model dari `AiMessageDetail`, mengambil 20 log terbaru beserta user/detail, lalu membentuk row siap tampil untuk Blade.
+- Redundansi/minimalisasi: dibuat pada Step 6H untuk memindahkan query dan transform data dari `resources/views/admin/ai-monitor/index.blade.php`. Masih bisa dipisah ke service/view model jika monitor AI bertambah kompleks.
+- Service fee notice: tidak ada service fee/careful-carry.
+- Risiko: sedang; perubahan query berdampak ke observability chatbot/admin AI monitor.
+
 ## Backend_Bangdeliv/app/Http/Controllers/Admin/DriverVerificationController.php
+
 
 - Fungsi: controller web admin untuk antrian, detail, review, hapus, dan preview dokumen verifikasi driver.
 - Logic penting: filter queue `all/pending/needs_revision/rejected`; operasi utama didelegasikan ke `DriverVerificationService`; `ApiException` diubah menjadi abort/flash redirect sesuai aksi.
@@ -1654,9 +1696,9 @@ Prinsip utama refactor:
 ## Backend_Bangdeliv/app/Models/OrderItem.php
 
 - Fungsi: model item belanja pada order shopping.
-- Logic penting: table `shopping_order_items`; fillable menu/pickup/source/name/qty/price/subtotal/notes/metadata/availability/heavy; casts numeric, metadata, boolean; relation order, menu, pickupLocation; accessor `line_service_fee` dan `line_total`.
-- Redundansi/minimalisasi: `line_service_fee` adalah warisan service fee item dan kandidat hapus; `line_total` hanya alias subtotal, bisa dipertahankan untuk kompatibilitas frontend atau dipindah ke transformer.
-- Service fee notice: `line_service_fee` kandidat hapus. `is_heavy` perlu dicek ulang karena selama ini terkait overweight surcharge; jika tidak ada kebutuhan non-fee, bisa ikut disederhanakan.
+- Logic penting: table `shopping_order_items`; fillable menu/pickup/source/name/qty/price/subtotal/notes/metadata/availability; casts numeric, metadata, boolean; relation order, menu, pickupLocation.
+- Redundansi/minimalisasi: Step 6J sudah menghapus accessor mati `line_service_fee` dan `line_total`; payload item sekarang mengirim subtotal/line total lewat serializer eksplisit, bukan accessor lama.
+- Service fee notice: tidak ada `line_service_fee` atau `is_heavy` runtime di model ini setelah cleanup. Jangan kembalikan surcharge item/berat ke model item.
 - Risiko: perubahan berdampak ke shopping item CRUD, driver item edit, receipt/price negotiation, chatbot Nitip, dan payload shopping stops.
 
 ## Backend_Bangdeliv/app/Models/OrderLocation.php
@@ -1779,13 +1821,21 @@ Prinsip utama refactor:
 - Service fee notice: tidak ada logic service fee/careful-carry; `price` menu adalah harga item merchant.
 - Risiko: perubahan berdampak ke home merchant list, nearby merchant, detail merchant, menu list, dan chatbot Nitip merchant/menu selection.
 
+## Backend_Bangdeliv/app/Services/Chatbot/ChatbotTransportSupport.php
+
+- Fungsi: helper kecil bersama untuk chatbot transport Ride/Kurir.
+- Logic penting: guard role customer + status akun aktif/tidak blacklist, normalisasi payment method `COD`/`TRANSFER`, label `COD`/`QRIS`, dan payload action payment draft.
+- Redundansi/minimalisasi: dibuat pada Step 6D untuk menghapus duplikasi yang sama persis dari `ChatbotRideOrderService` dan `ChatbotCourierOrderService`. Helper ini sengaja kecil; draft persistence, route resolver, pricing, dan order creation tetap di service masing-masing.
+- Service fee notice: tidak ada logic service fee/fee lines/careful-carry. Payment di sini hanya normalisasi metode bayar.
+- Risiko: rendah-menengah; perubahan helper berdampak ke validasi akses chatbot transport dan tombol payment draft Ride/Kurir.
+
 ## Backend_Bangdeliv/app/Services/Chatbot/ChatbotCourierOrderService.php
 
 - Fungsi: service inti chatbot Kurir untuk membaca pesan/NLU, menyimpan progres draft, patch lokasi map, validasi draft, konfirmasi, membuat order, dan membentuk response chatbot.
 - Logic penting: guard user customer aktif; ambil draft terakhir dari `AiChatLog`; command `confirm`/`reset_destination`; default pickup dari saved address; parser regex + NLU untuk pickup/dropoff/paket/payment; geocoding dan distance matrix; validasi jarak minimum/maksimum; evaluasi `CourierPackagePolicyService`; hitung `delivery_fee`; simpan `Order`, `CourierOrder`, `OrderLocation`, `OrderStatusHistory`, pending payment, lalu broadcast order available.
-- Redundansi/minimalisasi: file sangat gemuk (1862 line) dan mencampur parser, state machine draft, validasi, map routing, pricing, persistence, payload builder, dan copywriting chatbot. Kandidat pecah minimal: customer guard, courier draft normalizer, courier payload builder, route/distance resolver, dan courier order creator.
-- Redundansi/minimalisasi detail: payload `courier/validation/order/action_payloads` berulang di `handleResetDestination()`, `confirmPendingDraft()`, `buildValidationPayload()`, dan `buildDraftPayload()`; validasi package/distance/pricing dihitung di draft lalu dihitung ulang saat create; `resolveLatestDraftSeed()` dan `resolvePendingDraft()` sama-sama query `AiChatLog` dan normalisasi field courier; normalisasi field paket/lokasi/payment tersebar di `buildDraftSeedFromNlu()`, `mergeCourierDraftSeed()`, dan resolver draft.
-- Redundansi/dead code: `extractAddressByPatterns()` tidak dipakai; `formatPackageSizeLine()` tidak dipakai; jika `extractAddressByPatterns()` dihapus maka `isLikelyAddressFragment()` dan array `locationHints` juga kemungkinan dead. Ini kandidat hapus paling aman setelah test courier flow dicek.
+- Redundansi/minimalisasi: file masih gemuk (1697 line setelah Step 6D) dan mencampur parser, state machine draft, validasi, map routing, pricing, persistence, payload builder, dan copywriting chatbot. Kandidat pecah minimal berikutnya: courier draft normalizer, courier payload builder, route/distance resolver, dan courier order creator.
+- Redundansi/minimalisasi detail: Step 6D sudah memindahkan guard customer aktif, normalisasi/label payment method, dan payload action payment draft ke `ChatbotTransportSupport`. Sisa duplikasi besar masih ada pada payload `courier/validation/order/action_payloads`, `handleResetDestination()`, `confirmPendingDraft()`, `buildValidationPayload()`, draft query `AiChatLog`, dan normalisasi field paket/lokasi.
+- Redundansi/dead code: Step 6C sudah menghapus helper mati `extractAddressByPatterns()`, `formatPackageSizeLine()`, `isLikelyAddressFragment()`, dan array `locationHints`. Kandidat refactor berikutnya tetap pemecahan payload/draft builder, bukan cleanup helper mati ini.
 - Service fee notice: tidak ada `OrderFeeLine`, `ServiceFeeRule`, `feeLines`, atau `careful_carry_required` langsung. `delivery_fee` adalah ongkir dan harus dipertahankan; `service_fee` hanya diset `0.0` saat create order dan bisa disederhanakan/di-default-kan. `delivery_pricing` dalam route snapshot mungkin punya `fee_breakdown` dari `DeliveryPricingService`, perlu dicek di service pricing apakah ada sisa service fee lines.
 - Risiko: sangat tinggi karena banyak test `ChatbotCourierFlowTest`, frontend action payload route picker, session history chatbot, payment method COD/QRIS, geocoding/distance matrix, dan create order kurir bergantung pada bentuk payload file ini.
 
@@ -1793,7 +1843,7 @@ Prinsip utama refactor:
 
 - Fungsi: adapter NLU Gemini untuk Nitip, Kurir, dan Antar Jemput.
 - Logic penting: membangun system instruction dan response schema per layanan; `generateJson()` mencoba beberapa model Gemini dari config, mengirim request JSON schema, handle 429 dengan fallback model berikutnya, lalu normalisasi payload food/courier/ride sebelum dipakai service order.
-- Redundansi/minimalisasi: schema item food terduplikasi antara `items` dan `stops.items`; normalisasi item juga berulang di dua loop. Instruksi/schema/fallback untuk tiap layanan inline di satu file, sehingga bisa diperkecil dengan helper pembuat schema atau config prompt terpisah.
+- Redundansi/minimalisasi: Step 6E sudah memindahkan normalisasi item food untuk `items` dan `stops.items` ke `ChatbotShoppingItemNormalizer`. Schema item food masih terduplikasi antara `items` dan `stops.items`; instruksi/schema/fallback untuk tiap layanan juga masih inline di satu file, sehingga bisa diperkecil nanti dengan helper pembuat schema atau config prompt terpisah.
 - Redundansi/minimalisasi detail: `normalizeCommand()` menyatukan command Nitip/Kurir/Ride sehingga command `add_merchant` tetap ada walau transport tidak memakai; aman saat ini, tetapi bisa dibuat per-service agar kontrak lebih ketat. `generateJson()` tidak short-circuit saat API key kosong, sehingga tetap mencoba request dan baru gagal 503.
 - Service fee notice: tidak ada `ServiceFeeRule`, `OrderFeeLine`, `feeLines`, `fee_breakdown`, atau `careful_carry_required`. Prompt Nitip menyuruh AI tidak menentukan item berat; ini sejalan dengan cleanup overweight/item surcharge karena keputusan berat/biaya tidak boleh dari NLU. Field berat/ukuran Kurir tetap dipakai untuk package policy, bukan service fee lines.
 - Risiko: perubahan berdampak ke semua alur chatbot karena payload NLU menentukan parser backend, session draft, command confirm/reset/add merchant, dan banyak feature test chatbot.
@@ -1811,26 +1861,34 @@ Prinsip utama refactor:
 
 - Fungsi: service chatbot Antar Jemput untuk membaca pesan/NLU, menyimpan draft, patch titik route, validasi draft, konfirmasi, dan membuat order lewat `RideOrderService`.
 - Logic penting: guard customer aktif; command confirm/reset; default pickup dari saved address; destination dari NLU/regex/map patch; validasi tujuan via `RideOrderService`, route via distance matrix, minimum/maksimum jarak, hitung `delivery_fee`, payload COD/QRIS, dan pending draft dari `AiChatLog`.
-- Redundansi/minimalisasi: sangat paralel dengan `ChatbotCourierOrderService` untuk guard user, patch location, reset destination, payload `ride/validation/order/action_payloads`, draft seed merge, latest/pending draft query, distance helper, command/payment helpers, dan copywriting. Kandidat refactor bersama ke shared transport draft/payload helper setelah dua service dibaca lengkap.
+- Redundansi/minimalisasi: sangat paralel dengan `ChatbotCourierOrderService` untuk patch location, reset destination, payload `ride/validation/order/action_payloads`, draft seed merge, latest/pending draft query, distance helper, command helpers, dan copywriting. Step 6D sudah mengeluarkan guard customer aktif, normalisasi/label payment method, dan payload action payment draft ke `ChatbotTransportSupport`.
 - Redundansi/minimalisasi detail: dependency `GoogleMapsGeocodingService $geocodingService` di-constructor tidak dipakai langsung; validasi tujuan sudah lewat `RideOrderService`. `resolveLatestDraftSeed()` dan `resolvePendingDraft()` melakukan query/log parsing serupa; `buildMissingDraftPayload()` dan validation payload mengulang struktur response yang sama.
 - Service fee notice: tidak ada `OrderFeeLine`, `ServiceFeeRule`, `feeLines`, `fee_breakdown`, atau `careful_carry_required`. `delivery_fee` adalah ongkir dan harus dipertahankan; service fee lines tidak muncul di file ini.
 - Risiko: tinggi karena payload ride dipakai frontend route picker, confirm/reset chatbot, session history, payment COD/QRIS, `RideOrderService::create()`, dan test flow antar jemput/driver workflow.
 
+## Backend_Bangdeliv/app/Services/Chatbot/ChatbotShoppingItemNormalizer.php
+
+- Fungsi: helper kecil untuk normalisasi item chatbot Nitip.
+- Logic penting: normalisasi optional string, operasi item `add/set/remove` beserta alias, item incoming draft, item payload Gemini dengan alias `menu/qty`, item draft untuk merge, dan key nama item yang stabil.
+- Redundansi/minimalisasi: dibuat pada Step 6E agar normalisasi item tidak tersebar di `ChatbotGeminiService`, `ChatbotShoppingOrderService`, dan `ChatbotShoppingItemIntentParser`.
+- Service fee notice: tidak mengeluarkan `is_heavy`, item surcharge, overweight surcharge, fee lines, atau service fee. Unit test memastikan input `is_heavy` tidak ikut menjadi output normalizer.
+- Risiko: rendah-menengah; perubahan helper berdampak ke parsing item chatbot Nitip, merge add/set/remove item, dan payload NLU Gemini.
+
 ## Backend_Bangdeliv/app/Services/Chatbot/ChatbotShoppingItemIntentParser.php
 
 - Fungsi: parser ringan untuk intent tambah/set/hapus item belanja Nitip dari pesan teks tanpa Gemini.
-- Logic penting: normalisasi pesan, deteksi operation add/set/remove dari kata kunci, split item dengan koma/plus/dan, ekstrak quantity `2x` atau angka untuk set, bersihkan kata perintah/merchant tail, dan hasilkan item dengan `name`, `quantity`, `operation`, `notes`, `is_heavy`.
-- Redundansi/minimalisasi: regex parser cukup kecil dan fokus; beberapa normalisasi item juga ada di `ChatbotGeminiService` dan `ChatbotShoppingOrderService`, jadi nanti bisa disatukan lewat item normalizer kecil.
-- Redundansi/minimalisasi detail: `stripMerchantTail()` agresif menghapus semua tail `di/dari ...`, berisiko pada nama item yang memang mengandung frasa itu; perlu test sebelum mengubah. `notes` selalu null dan `is_heavy` selalu false dari parser ini.
-- Service fee notice: tidak ada `ServiceFeeRule`, `OrderFeeLine`, `feeLines`, atau `fee_breakdown`. Field `is_heavy` adalah jalur lama menuju overweight surcharge; karena parser selalu false, tidak menghitung fee, tetapi field ini perlu ditinjau/hapus bersama cleanup overweight surcharge.
+- Logic penting: normalisasi pesan, deteksi operation add/set/remove dari kata kunci, split item dengan koma/plus/dan, ekstrak quantity `2x` atau angka untuk set, bersihkan kata perintah/merchant tail, dan hasilkan item dengan `name`, `quantity`, `operation`, `notes`.
+- Redundansi/minimalisasi: regex parser cukup kecil dan fokus; Step 6E sudah membuat `normalizeOperation()` delegasi ke `ChatbotShoppingItemNormalizer`, sehingga alias operasi item satu sumber.
+- Redundansi/minimalisasi detail: `stripMerchantTail()` agresif menghapus semua tail `di/dari ...`, berisiko pada nama item yang memang mengandung frasa itu; perlu test sebelum mengubah. `notes` masih selalu null dari parser ini.
+- Service fee notice: tidak ada `ServiceFeeRule`, `OrderFeeLine`, `feeLines`, `fee_breakdown`, atau `is_heavy` output baru dari parser ini.
 - Risiko: perubahan berdampak ke quick edit item di chatbot Nitip, terutama perintah tambah/set/remove tanpa Gemini dan test shopping flow.
 
 ## Backend_Bangdeliv/app/Services/Chatbot/ChatbotShoppingOrderService.php
 
 - Fungsi: service inti chatbot Nitip untuk draft multi-merchant, patch merchant/delivery map, item merge, route/pricing, konfirmasi, create order, dan response chatbot.
 - Logic penting: guard customer; command confirm/add merchant/payment; incoming seed dari Gemini/parser teks; merge draft multi-stop maksimal 3 merchant; resolve merchant internal/external map; resolve delivery default/map/chat text; resolve item dari menu DB atau manual; hitung route via `ShoppingRouteService`; hitung pricing via `ShoppingPricingService`; create `Order`, pickup/dropoff `OrderLocation`, `OrderItem`, `OrderStatusHistory`, pending payment, dan broadcast order.
-- Redundansi/minimalisasi: file sangat gemuk (1878 line) dan mencampur state machine draft, multi-merchant merge, item parser fallback, merchant resolver, delivery resolver, route/pricing, persistence, payload/action builder, dan copywriting. Kandidat pecah minimal: draft state/stop merger, item normalizer, payload builder, order creator, dan assistant text builder.
-- Redundansi/minimalisasi detail: `mergeIncomingStop()` paling kompleks dan rawan karena mengatur active stop, same merchant, mode select/add/auto, limit merchant, dan item merge; `syncLegacySeedFields()` menandakan masih ada kompatibilitas legacy single-merchant. Normalisasi item muncul di `normalizeIncomingItems()`, `extractItemsFromMessage()`, `mergeItems()`, `resolveLatestDraftSeed()`, dan parser terpisah.
+- Redundansi/minimalisasi: file masih gemuk (1834 line setelah Step 6E) dan mencampur state machine draft, multi-merchant merge, item parser fallback, merchant resolver, delivery resolver, route/pricing, persistence, payload/action builder, dan copywriting. Kandidat pecah minimal berikutnya: draft state/stop merger, payload builder, order creator, dan assistant text builder.
+- Redundansi/minimalisasi detail: Step 6E sudah memindahkan normalisasi item incoming dan item merge kecil ke `ChatbotShoppingItemNormalizer`. `mergeIncomingStop()` masih paling kompleks dan rawan karena mengatur active stop, same merchant, mode select/add/auto, limit merchant, dan item merge; `syncLegacySeedFields()` menandakan masih ada kompatibilitas legacy single-merchant. Sisa normalisasi item masih ada di fallback `extractItemsFromMessage()` dan parse draft lama di `resolveLatestDraftSeed()`.
 - Service fee notice: ini target besar service fee cleanup. Kandidat hapus/refactor: `ShoppingPricingService->calculateForItems()` dependency pada service fee rules, `service_fee` dari pricing, `syncFeeLines($order, $pricing['fee_breakdown'])`, relation eager load `feeLines`, `emptyPricing()` field `item_surcharge`, `overweight_surcharge`, `has_overweight_item`, serta seluruh penggunaan `is_heavy` untuk overweight surcharge.
 - Service fee notice: `delivery_fee` adalah ongkir dan tetap dipertahankan. `cancellation_penalty`/penalti gagal pickup merchant 3 kali perlu dipertahankan secara konsep, tetapi jangan lagi bergantung ke generic fee lines setelah cleanup.
 - Risiko: sangat tinggi karena file ini menjadi pusat Chatbot Nitip, multi-merchant, item manual/menu DB, payment COD/QRIS, route/pricing, order creation, frontend action payload, driver payload pricing, dan banyak feature test `ChatbotShoppingFlowTest`/shopping item edit.
@@ -1838,10 +1896,10 @@ Prinsip utama refactor:
 ## Backend_Bangdeliv/app/Services/Chatbot/CourierPackagePolicyService.php
 
 - Fungsi: policy validasi paket Kurir berdasarkan deskripsi, berat, ukuran, keyword terlarang, oversize, dan kebutuhan klarifikasi.
-- Logic penting: status `ALLOWED/NEEDS_CLARIFICATION/PROHIBITED/OVERSIZE`; batas 10 kg dan dimensi 40 cm; keyword prohibited/oversize/clarification; ekstrak berat/ukuran dari payload atau teks; return safety flags, reason, size class, estimated weight/dimensions, dan packing note.
+- Logic penting: status safety aktif `ALLOWED/NEEDS_CLARIFICATION/PROHIBITED`; batas 10 kg dan dimensi 40 cm; keyword prohibited/oversize/clarification; ekstrak berat/ukuran dari payload atau teks; return safety flags, reason, size class, estimated weight/dimensions, dan packing note. Oversize sekarang tetap warning `size_class`, bukan `safety_status`.
 - Redundansi/minimalisasi: rule masih hardcoded di service, tetapi cukup terlokalisir. Bisa dipertahankan sebagai policy domain kecil; jika butuh config, pindahkan keyword/batas ke config tanpa membuat table baru.
-- Redundansi/minimalisasi detail: `STATUS_OVERSIZE` didefinisikan tetapi `resolveStatus()` tidak pernah mengembalikannya; oversize hanya muncul sebagai `size_class`. Ini membingungkan dan bisa disederhanakan atau dibuat konsisten.
-- Service fee notice: tidak ada service fee lines langsung, tetapi teks reason menyebut "memakai bantuan 2 orang" tiga kali. Karena plan menghapus logic Courier "perlu 2 orang"/careful-carry, ubah teks ini agar hanya menyebut driver dapat menyesuaikan ongkir/manual handling, tanpa konsep bantuan 2 orang.
+- Redundansi/minimalisasi detail: Step 6B sudah menghapus konstanta unused `STATUS_OVERSIZE`; oversize terdokumentasi sebagai `size_class`/warning flags.
+- Service fee notice: tidak ada service fee lines langsung. Step 6B sudah mengganti copy "bantuan 2 orang" menjadi copy netral bahwa driver dapat menyesuaikan ongkir atau memberi catatan penanganan manual. Jangan mengembalikan konsep `careful_carry_required`/surcharge 2 orang.
 - Risiko: perubahan berdampak ke `ChatbotCourierOrderService` dan `ChatbotCourierFlowTest` untuk status prohibited/oversize/clarification serta copywriting validasi paket.
 
 ## Backend_Bangdeliv/app/Services/Device/DeviceTokenService.php
@@ -1871,8 +1929,8 @@ Prinsip utama refactor:
 ## Backend_Bangdeliv/app/Services/Driver/Dispatch/DriverDistanceCalculator.php
 
 - Fungsi: helper validasi koordinat dan hitung jarak haversine dalam meter.
-- Logic penting: koordinat harus numeric, range latitude/longitude valid, tidak boleh 0,0; `distanceMeters()` memakai radius bumi 6.371.000 meter dan return integer rounded.
-- Redundansi/minimalisasi: sudah kecil dan fokus. Namun logika haversine juga ada di area lain seperti katalog/restaurant distance; nanti bisa dipertimbangkan jadi geo helper bersama bila refactor global, tanpa memaksa perubahan sekarang.
+- Logic penting: koordinat harus numeric, range latitude/longitude valid, tidak boleh 0,0; `distanceMeters()` return integer rounded dari helper shared `GeoDistance`.
+- Redundansi/minimalisasi: Step 6A sudah memindahkan rumus haversine ke `App\Support\GeoDistance`. Class ini tetap dipertahankan sebagai adapter domain dispatch driver.
 - Service fee notice: tidak ada logic service fee/careful-carry.
 - Risiko: perubahan formula/validasi berdampak ke ranking driver dan semua metadata jarak dispatch.
 
@@ -2032,10 +2090,19 @@ Prinsip utama refactor:
 ## Backend_Bangdeliv/app/Services/Order/OrderPaymentService.php
 
 - Fungsi: service sinkronisasi dan pencatatan payment order COD/TRANSFER.
-- Logic penting: ensure pending payment saat order dibuat, update pending method/amount jika belum paid, set pending transfer, mark paid dengan recorder/driver/timestamp/metadata, sync amount pending dengan `order.total_price`, dan normalisasi metode payment ke COD/TRANSFER.
+- Logic penting: ensure pending payment saat order dibuat, update pending method/amount jika belum paid, set pending transfer, mark paid dengan recorder/driver/timestamp/metadata, sync amount pending dengan `order.total_price`, normalisasi metode payment ke COD/TRANSFER, resolve current method dari order, dan cek paid payment dengan memperhatikan relation `payment`/`payments` yang sudah loaded.
 - Redundansi/minimalisasi: sudah ringkas. `ensurePendingPayment()` hanya memakai payment pertama untuk order; jika secara data ada banyak payment rows, behavior tetap single-active payment. `syncPendingCodAmount()` hanya alias `syncPendingAmount()` dan bisa dihapus bila tidak dipakai untuk readability.
+- Redundansi/minimalisasi: Step 6G memindahkan helper `currentPaymentMethod()` dan `orderHasPaidPayment()` dari `OrderService` ke service ini. Workflow `recordCodPayment()`/`confirmTransferPaymentByDriver()` belum dipindah karena masih terkait rule status dan actor.
 - Service fee notice: tidak ada service fee lines langsung. Amount mengikuti `order.total_price`, jadi setelah service fee cleanup pastikan total sudah hanya berisi subtotal + delivery fee + penalti gagal pickup yang dipertahankan.
 - Risiko: perubahan berdampak ke payment pending COD/TRANSFER, upload bukti transfer, record COD driver, dan status paid/complete order.
+
+## Backend_Bangdeliv/app/Services/Order/OrderEvidenceService.php
+
+- Fungsi: service kecil untuk storage foto order, pencatatan `OrderEvidence` driver, dan pengecekan bukti berdasarkan proof type.
+- Logic penting: `storeOrderPhoto()` menyimpan file ke disk public `orders/{orderId}/{folder}`; `storeAndRecordDriverEvidence()` membuat evidence driver untuk proof/receipt; `hasProof()` memakai `OrderProofPolicyService::evidenceTypesForProof()` dan menghormati relation `evidences` yang sudah loaded.
+- Redundansi/minimalisasi: dibuat pada Step 6G dari helper mekanis `OrderService` (`storeOrderPhoto()` dan `orderHasProof()`). Service ini sengaja tidak mengambil alih rule status transition, COD/QRIS, atau workflow payment.
+- Service fee notice: tidak ada service fee lines/careful-carry. Proof `STORE_CLOSED_PHOTO`, `SHOPPING_RECEIPT`, dan `PAYMENT_TRANSFER_PHOTO` tetap relevan untuk flow gagal pickup/merchant tutup dan QRIS.
+- Risiko: sedang karena dipakai upload proof driver, receipt Nitip, store closed proof, dan pengecekan proof sebelum status transition.
 
 ## Backend_Bangdeliv/app/Services/Order/OrderProofPolicyService.php
 
@@ -2049,25 +2116,25 @@ Prinsip utama refactor:
 
 - Fungsi: service orkestrator utama order untuk customer dan driver, mencakup list/detail/cancel, pembayaran, failed attempt, availability/lokasi driver, incoming/running/history driver, accept/reject/status transition, proof upload, checkout Nitip, negosiasi harga Nitip, perubahan item, negosiasi ongkir, COD/QRIS, dan broadcast/notifikasi.
 - Logic penting: customer order detail menambahkan ETA; driver order memakai `DriverOrderPayloadFactory`; failed attempt Shopping menandai pickup gagal, item unavailable, recalculate pricing, dan bisa cancel dengan fee; transition driver memvalidasi payment/proof/shopping quote/ongkir pending; flow Nitip multi-merchant mengatur merchant open, item availability, quote harga, edit unavailable item, checkout receipt; delivery fee override memakai `DeliveryFeeNegotiationService`; status/content update dikirim lewat realtime/push.
-- Redundansi/minimalisasi: file sangat gemuk (4545 line) dan mencampur authorization, state machine order, driver lifecycle, shopping merchant workflow, item mutation, pricing recalculation, payment, proof, notification, route/pickup helper, dan serializer glue. Kandidat pecah minimal: driver lifecycle service, shopping merchant workflow service, shopping item mutation service, payment/proof orchestration, delivery fee negotiation controller service, dan shared order query/loader helper.
-- Redundansi/minimalisasi detail: eager load `feeLines`/`shoppingReceipt` dan `refresh()->load(...)` berulang puluhan kali; status/action validation tersebar antara `OrderService`, `DriverOrderPayloadFactory`, dan capability services; pickup resolution, merchant candidate, rough haversine, coordinate/status helpers duplikatif dengan service lain; `syncPrimaryRestaurantFromFirstPickup()` hanya `unsetRelation`, namanya lebih besar dari efeknya.
-- Redundansi/minimalisasi lanjutan: re-scan menunjukkan 37 public method, 87 private method, total 124 method. Ini bukan sekadar service panjang, tapi beberapa modul aplikasi menumpuk dalam satu class. Refactor minimal sebaiknya memindahkan workflow yang sudah punya batas jelas, bukan rewrite seluruh order flow sekaligus.
-- Redundansi/minimalisasi lanjutan: `feeLines` muncul 49 kali, `shoppingReceipt` 47 kali, `refresh()->load(...)` 29 kali, `fresh(...)` 69 kali, dan `shoppingPricingService->recalculate(...)` 15 kali. Kandidat helper paling aman: central order relation loader untuk customer/driver/shopping, wrapper `recalculateAndReloadShoppingOrder()`, dan satu post-action result builder.
+- Redundansi/minimalisasi: file masih besar setelah cleanup Step 6G (sekitar 3527 line) dan mencampur authorization, state machine order, driver lifecycle, shopping merchant workflow, item mutation, pricing recalculation, payment, proof, notification, route/pickup glue, dan serializer glue. Kandidat pecah minimal berikutnya: driver lifecycle service, shopping merchant workflow service, shopping item mutation service, payment/proof orchestration workflow, delivery fee negotiation controller service, dan shared order query/loader helper.
+- Redundansi/minimalisasi detail: eager load `shoppingReceipt`, `refresh()->load(...)`, dan `fresh(...)` masih berulang; status/action validation tersebar antara `OrderService`, `DriverOrderPayloadFactory`, dan capability services; `syncPrimaryRestaurantFromFirstPickup()` hanya `unsetRelation`, namanya lebih besar dari efeknya. Runtime `feeLines` di file ini sudah dibersihkan pada Step 1/Step 6F, dan Step 6J menghapus payload history driver `fee_lines`; jangan dikembalikan.
+- Redundansi/minimalisasi lanjutan: re-scan setelah Step 6G masih menunjukkan 37 public method dan sekitar 67 private method. Ini bukan sekadar service panjang, tapi beberapa modul aplikasi menumpuk dalam satu class. Refactor minimal sebaiknya tetap memindahkan workflow yang sudah punya batas jelas, bukan rewrite seluruh order flow sekaligus.
+- Redundansi/minimalisasi lanjutan: `shoppingReceipt`, `refresh()->load(...)`, `fresh(...)`, dan `shoppingPricingService->recalculate(...)` masih sering muncul. Kandidat helper aman berikutnya: central order relation loader untuk customer/driver/shopping, wrapper `recalculateAndReloadShoppingOrder()`, dan satu post-action result builder.
 - Redundansi/minimalisasi lanjutan: pola side effect setelah action berulang: serialize driver payload, broadcast content update, push price/delivery fee negotiation, status history, dan order log. Kandidat ekstraksi: `OrderPostActionNotifier`/`OrderMutationResultFactory` yang menerima order, trigger type, actor, dan snapshot pricing.
 - Redundansi/minimalisasi lanjutan: cluster Shopping/Nitip terlalu besar di sini: quote/bypass/respond harga, cancel merchant, unavailable item decision, mark merchant open, update checkout, add/update/remove item, resolve pickup merchant, dan failed pickup. Kandidat pecah minimal ke `ShoppingOrderWorkflowService` dan `ShoppingOrderItemMutationService`, tetap dipanggil dari controller/service lama agar endpoint tidak berubah dulu.
-- Redundansi/minimalisasi lanjutan: helper pickup/merchant seperti `resolveShoppingNegotiationPickup()`, `shoppingPickupById()`, `resolvePickupLocationForCandidate()`, `resolvePickupLocationForMerchant()`, `resolvePickupLocationForExternalPlace()`, `createPickupLocationFor...()`, `merchantPayloadFromPickup()`, `pickupMerchantName()`, `activeShoppingPickupCount()`, dan `hasActiveShoppingPickupWithAvailableItems()` layak digabung ke service kecil `ShoppingPickupLocationService`.
-- Redundansi/minimalisasi lanjutan: `roughDistanceMeters()` dan normalisasi lokasi di file ini beririsan dengan service Maps/driver dispatch. Jika tidak dipakai untuk presisi tinggi, jadikan helper bersama atau delegasikan ke existing distance calculator agar tidak ada dua sumber rumus jarak.
-- Redundansi/minimalisasi lanjutan: proof/payment masih bercampur dengan state machine. Method `uploadProof()`, `recordCodPayment...()`, `confirmTransferPaymentByDriver()`, `uploadTransferEvidenceByCustomer()`, dan helper proof bisa dipindah bertahap ke payment/proof orchestration karena policy bukti sudah ada di `OrderProofPolicyService`.
-- Service fee notice: target cleanup besar. Kandidat hapus/refactor: semua eager load/reload `feeLines`, payload `fee_lines`, `service_fee` di driver history dan total calculation, `SERVICE_FEE` di price change record, `ShoppingPricingService->syncFeeLines()` untuk generic fee lines, serta ketergantungan recalculate ke `OrderFeeLine`/`feeBreakdownForOrder()`.
-- Service fee notice: pengecualian yang tetap dipertahankan adalah penalti Shopping gagal pickup/merchant tutup 3 kali: `CANCELLED_WITH_FEE`, `CANCEL_WITH_FEE`, `CANCELLATION_PENALTY_AFTER_FAILED_ATTEMPTS`, upload bukti QRIS setelah cancel with fee, dan `store_closed`/failed pickup flow. Namun implementasinya nanti jangan lagi lewat generic `feeLines`; simpan sebagai field/status/payment penalty yang eksplisit.
+- Redundansi/minimalisasi lanjutan: Step 6F sudah memindahkan `shoppingPickupById()`, `resolvePickupLocationForCandidate()`, `resolvePickupLocationForMerchant()`, `resolvePickupLocationForExternalPlace()`, `createPickupLocationFor...()`, `merchantPayloadFromPickup()`, `pickupMerchantName()`, `activeShoppingPickupCount()`, dan `hasActiveShoppingPickupWithAvailableItems()` ke `ShoppingPickupLocationService`. `resolveShoppingNegotiationPickup()` sengaja tetap di sini karena masih bergantung pada snapshot negosiasi dan workflow quote.
+- Redundansi/minimalisasi lanjutan: Step 6A sudah mengganti `roughDistanceMeters()` lokal dengan `App\Support\GeoDistance`; Step 6F memindahkan normalisasi lokasi external pickup ke `ShoppingPickupLocationService`.
+- Redundansi/minimalisasi lanjutan: Step 6G sudah memindahkan helper mekanis `storeOrderPhoto()`, `orderHasProof()`, `currentPaymentMethod()`, dan `orderHasPaidPayment()` ke `OrderEvidenceService`/`OrderPaymentService`. Workflow `uploadProof()`, `recordCodPayment...()`, `confirmTransferPaymentByDriver()`, dan `uploadTransferEvidenceByCustomer()` masih bercampur dengan state machine dan sebaiknya hanya dipindah dalam sub-step terpisah.
+- Service fee notice: target cleanup besar di file ini sudah banyak selesai. Jangan kembalikan eager load/reload `feeLines`, payload `fee_lines`, `ShoppingPricingService->syncFeeLines()` untuk generic fee lines, atau ketergantungan recalculate ke `OrderFeeLine`/`feeBreakdownForOrder()`.
+- Service fee notice: pengecualian yang tetap dipertahankan adalah penalti Shopping gagal pickup/merchant tutup 3 kali: `CANCELLED_WITH_FEE`, `CANCEL_WITH_FEE`, `CANCELLATION_PENALTY_AFTER_FAILED_ATTEMPTS`, upload bukti QRIS setelah cancel with fee, dan `store_closed`/failed pickup flow. Implementasi sekarang tetap lewat scalar `orders.service_fee`/payment penalty eksplisit, bukan generic `feeLines`.
 - Service fee notice: hapus/refactor jalur `is_heavy`, `submittedHasHeavyItem`, `has_heavy_item`, overweight surcharge dependency, serta seluruh careful-carry Courier: input `careful_carry_required`, teks "Perlu 2 orang", `careful_carry_surcharge`, `supportsCarefulCarry()`, `carefulCarryRequired()`, `setCourierCarefulCarryRequired()`, dan metadata careful-carry pada negosiasi ongkir. `delivery_fee`, `delivery_fee_source`, dan negosiasi ongkir manual driver tetap dipertahankan.
 - Risiko: sangat tinggi karena file ini menyentuh hampir semua workflow order backend dan frontend: customer activity/tracking, driver active order, realtime broadcast, payment proof, COD/QRIS, shopping checkout, merchant failed attempts, delivery fee negotiation, order status history, driver availability, dan banyak test feature order/chatbot/shopping/driver.
 
 ## Backend_Bangdeliv/app/Services/Order/OrderTransferEvidenceService.php
 
 - Fungsi: service kecil untuk menyimpan/mencatat bukti transfer QRIS ke `OrderEvidence`.
-- Logic penting: upload file ke `orders/{orderId}/payments` disk public; jika gagal throw `ApiException`; `recordFromUrl()` membuat evidence dengan `evidence_type = PAYMENT_TRANSFER_PHOTO`, optional `driver_id`, dan default note "Bukti QRIS menunggu verifikasi.".
-- Redundansi/minimalisasi: sudah ringkas dan cukup layak dipertahankan. Potensi duplikasi kecil dengan helper `storeOrderPhoto()` di `OrderService` dan mapping proof di `OrderProofPolicyService`; saat refactor proof/payment, arahkan evidence type lewat policy/enum agar string tidak tersebar.
+- Logic penting: upload file QRIS memakai `OrderEvidenceService::storeOrderPhoto()` ke `orders/{orderId}/payments`; jika gagal throw `ApiException`; `recordFromUrl()` membuat evidence dengan `evidence_type = PAYMENT_TRANSFER_PHOTO`, optional `driver_id`, dan default note "Bukti QRIS menunggu verifikasi.".
+- Redundansi/minimalisasi: Step 6G menghapus duplikasi storage dengan proof biasa. Potensi tersisa: `PAYMENT_TRANSFER_PHOTO` masih string literal; bisa diarahkan ke `OrderProofPolicyService`/`ProofType` jika nanti payment evidence benar-benar disatukan.
 - Service fee notice: tidak ada service fee lines/careful-carry. Tetap relevan untuk QRIS termasuk skenario penalti gagal pickup 3 kali bayar 50%.
 - Risiko: rendah-menengah; perubahan berdampak ke upload bukti transfer customer/driver, konfirmasi QRIS, dan histori evidence payment.
 
@@ -2077,9 +2144,9 @@ Prinsip utama refactor:
 - Logic penting: ambil alamat pickup tersimpan atau koordinat payload; validasi koordinat pickup/tujuan; geocode tujuan jika koordinat tidak dikirim; cek pickup dan destination tidak terlalu dekat; resolve route lewat Distance Matrix; validasi max distance; hitung ongkir lewat `DeliveryPricingService`; normalisasi payment; buat `Order`, pending payment, status history, `RideOrder`, dua `orderLocations`, lalu broadcast order available ke driver.
 - Redundansi/minimalisasi: validasi koordinat/required pair/range ditulis manual dan berpotensi sama dengan request validation, chatbot ride, route picker, dan service lain. Kandidat helper kecil: `CoordinatePairValidator` atau method shared untuk normalize lat/lng + range check.
 - Redundansi/minimalisasi: `generateOrderNumber()` lokal berpotensi duplikat dengan pembuatan order Courier/Shopping; sebaiknya ada generator order number bersama agar format dan collision handling konsisten.
-- Redundansi/minimalisasi: `roughDistanceMeters()` menduplikasi rumus jarak kasar yang juga muncul di `OrderService`; gabungkan ke helper distance bersama atau delegasikan ke existing calculator agar tidak ada dua sumber rumus.
+- Redundansi/minimalisasi: Step 6A sudah mengganti `roughDistanceMeters()` lokal dengan `App\Support\GeoDistance`. Kandidat tersisa: helper validasi/normalisasi koordinat dan generator order number bersama.
 - Redundansi/minimalisasi: lookup `ServiceType` dan `OrderStatus` memakai string code langsung (`RIDE`, `PENDING`); setelah refactor minimal, pertimbangkan enum/central resolver agar tidak tersebar.
-- Service fee notice: tidak ada `feeLines`; `service_fee` selalu `0.0` dan ikut `total_price`. Saat cleanup service fee, bagian ini kandidat disederhanakan menjadi total `subtotal + delivery_fee` tanpa scalar service fee jika kolomnya ikut dihapus; `delivery_fee` dan pricing rute tetap dipertahankan.
+- Service fee notice: tidak ada `feeLines`; `service_fee` selalu `0.0` dan ikut `total_price`. Sesuai plan final, scalar `orders.service_fee` tetap dipertahankan dulu sebagai angka final service fee/penalti; Ride normal cukup set `service_fee = 0`. `delivery_fee` dan pricing rute tetap dipertahankan.
 - Risiko: tinggi karena file ini adalah jalur utama pembuatan order Antar Jemput dari API dan chatbot, memengaruhi payment pending, route snapshot, driver broadcast, tracking, dan driver incoming order.
 
 ## Backend_Bangdeliv/app/Services/Pricing/DeliveryPricingService.php
@@ -2097,8 +2164,8 @@ Prinsip utama refactor:
 - Redundansi/minimalisasi: terlalu banyak tanggung jawab dalam satu class: pure calculator, rule lookup DB, persistence `OrderFeeLine`, payment sync, order log/status history, realtime, dan notification. Refactor minimal: pisahkan pure calculator dari `ShoppingPricingRecalculator`/notifier, atau setidaknya buat method kecil khusus `applyPricingToOrder()` dan `broadcastPricingChanged()`.
 - Redundansi/minimalisasi: `approvedShoppingSubtotalAmount()` memakai `app(ShoppingPriceNegotiationService::class)` service locator, bukan dependency injection; lebih sulit dites dan menyembunyikan dependency. Kandidat pindah ke constructor jika service ini tetap dipakai.
 - Redundansi/minimalisasi: `latestRecalculationVersion()` query `event_type`, sedangkan create memakai field `log_type`; jika ini bergantung pada alias model `OrderLog`, catat sebagai naming membingungkan. Saat refactor, samakan istilah agar log pricing tidak mudah salah query.
-- Service fee notice: target cleanup utama. Kandidat hapus/refactor: dependency `ServiceFeeRule`, model `OrderFeeLine`, constant `ITEM_BLOCK_SURCHARGE`, `OVERWEIGHT_FLAT_SURCHARGE`, `$shoppingFeeCodes`, `syncFeeLines()`, `feeBreakdownForOrder()`, `feeLineAmount()` untuk generic fee, `feeLineLabel()/feeLineDescription()` untuk surcharge item/berat, `item_surcharge`, `overweight_surcharge`, `has_overweight_item`, `is_heavy`, `SERVICE_FEE` di `recordPriceChange()`/`pricingAmounts()`, dan `service_fee` sebagai hasil akumulasi generic surcharge.
-- Service fee notice: pengecualian yang tetap dipertahankan adalah `CANCELLATION_PENALTY_AFTER_FAILED_ATTEMPTS` untuk gagal pickup/merchant tutup 3 kali bayar 50% ongkir. Namun jangan lagi disimpan lewat generic `OrderFeeLine`/`ServiceFeeRule`; jadikan rule eksplisit/config sederhana atau field penalty khusus yang mudah dilacak.
+- Service fee notice: target cleanup utama. Kandidat hapus/refactor: dependency `ServiceFeeRule`, model `OrderFeeLine`, constant `ITEM_BLOCK_SURCHARGE`, `OVERWEIGHT_FLAT_SURCHARGE`, `$shoppingFeeCodes`, `syncFeeLines()`, `feeBreakdownForOrder()`, `feeLineAmount()` untuk generic fee, `feeLineLabel()/feeLineDescription()` untuk surcharge item/berat, `item_surcharge`, `overweight_surcharge`, `has_overweight_item`, `is_heavy`, `SERVICE_FEE` di `recordPriceChange()`/`pricingAmounts()`, dan akumulasi generic surcharge ke `service_fee`.
+- Service fee notice: pengecualian yang tetap dipertahankan adalah `CANCELLATION_PENALTY_AFTER_FAILED_ATTEMPTS` untuk gagal pickup/merchant tutup 3 kali bayar 50% ongkir. Jangan lagi disimpan lewat generic `OrderFeeLine`/`ServiceFeeRule`; hitung dari rule eksplisit/config sederhana lalu simpan nilai final ke scalar `orders.service_fee`.
 - Service fee notice: field broadcast `careful_carry_required => false` tidak relevan di pricing Shopping dan ikut kandidat hapus saat cleanup careful-carry/service fee.
 - Risiko: sangat tinggi karena dipakai oleh `OrderService`, `ChatbotShoppingOrderService`, driver/customer shopping flow, pending COD/QRIS amount, status history, realtime content update, push perubahan total, dan test pricing/service fee lama.
 
@@ -2130,9 +2197,17 @@ Prinsip utama refactor:
 
 - Fungsi: resolver merchant Shopping dari payload order atau payload standalone chatbot.
 - Logic penting: menerima `merchant_place` Google atau `merchant_id`; validasi merchant aktif; fallback ke restaurant order/pickup; Google place bisa dicocokkan ke restaurant DB jika nama normalized sama dan jarak <= 150 meter.
-- Redundansi/minimalisasi: validasi text/coordinate, normalisasi nama, dan `distanceMeters()` haversine menduplikasi pola di route/order service. Resolver pickup/merchant juga overlap dengan helper besar di `OrderService`; ini kandidat masuk ke `ShoppingPickupLocationService`/shared geo helper.
+- Redundansi/minimalisasi: Step 6A sudah mengganti `distanceMeters()` haversine lokal dengan `App\Support\GeoDistance`. Step 6F memindahkan resolve/create pickup location order ke `ShoppingPickupLocationService`; resolver ini tetap fokus pada validasi payload dan pemilihan kandidat merchant DB/Google Place. Kandidat tersisa: validasi text/coordinate dan normalisasi nama jika nanti dibagi dengan chatbot/parser merchant.
 - Service fee notice: tidak ada service fee lines.
 - Risiko: perubahan berdampak ke add item/manual item, add merchant dari chatbot/map, dedupe Google Place ke merchant DB, dan multi-merchant Shopping.
+
+## Backend_Bangdeliv/app/Services/Shopping/ShoppingPickupLocationService.php
+
+- Fungsi: helper pickup/merchant Shopping untuk lookup dan pembentukan `OrderLocation` pickup tanpa memindahkan workflow order utama.
+- Logic penting: `pickupById()` validasi pickup milik order; `activePickupCount()` dan `hasActivePickupWithAvailableItems()` menghitung pickup aktif selain failed/skipped/replaced/cancelled; `merchantPayloadFromPickup()` membentuk payload add item dari pickup; `resolveForCandidate()`/`createForCandidate()` menangani merchant DB dan Google Place external; external pickup dicocokkan dengan nama normalized dan jarak <= 30 meter via `GeoDistance`.
+- Redundansi/minimalisasi: dibuat pada Step 6F dari helper lokal `OrderService` agar `OrderService` lebih fokus sebagai orchestrator. Jangan perluas service ini ke payment/proof/status transition.
+- Service fee notice: tidak ada service fee lines/careful-carry. Filtering failed/skipped/replaced/cancelled dipertahankan karena terkait flow merchant gagal dan penalti gagal pickup 3 kali.
+- Risiko: sedang karena dipakai saat add/edit item Shopping, quote merchant, failed pickup, dan perubahan item unavailable. Test Shopping item edit dan driver workflow wajib dijalankan jika service ini diubah.
 
 ## Backend_Bangdeliv/app/Services/Shopping/ShoppingOrderCapabilityService.php
 
@@ -2156,7 +2231,7 @@ Prinsip utama refactor:
 
 - Fungsi: service kalkulasi rute dan ongkir Shopping multi-merchant.
 - Logic penting: hitung rute merchant ke dropoff sequential atau optimized; validasi jarak minimal/maksimal; hitung ongkir via `DeliveryPricingService`; apply route ke order; menjaga locked delivery fee dari negosiasi; resequence pickup/dropoff; simpan route snapshot.
-- Redundansi/minimalisasi: `roughDistanceMeters()`, active pickup filtering, dan available item filtering menduplikasi logic di beberapa service order/shopping. Kandidat shared geo helper + shared `ShoppingPickupLocationService`.
+- Redundansi/minimalisasi: Step 6A sudah memindahkan rough distance ke `GeoDistance`; Step 6F sudah membuat `ShoppingPickupLocationService` untuk lookup/count/resolve pickup. Filter pickup route dan available item di service ini masih bisa dievaluasi belakangan, tetapi jangan digabung dengan payment/proof refactor.
 - Redundansi/minimalisasi: `calculateForPoints()`/optimized route menghasilkan `delivery_pricing`, tetapi `storeRouteSnapshot()` tidak menyimpan `delivery_pricing`; snapshot Shopping jadi tidak sekonsisten Ride route snapshot. Perlu dipastikan apakah sengaja disembunyikan atau bug data snapshot.
 - Service fee notice: tidak ada service fee lines. `delivery_fee`, `delivery_fee_locked`, dan `delivery_fee_lock_source` harus dipertahankan karena ongkir manual driver/negosiasi tetap fitur inti.
 - Risiko: tinggi karena memengaruhi ongkir Shopping, route snapshot, urutan merchant, ETA/track map, dan repricing setelah merchant/item berubah.
@@ -2197,7 +2272,7 @@ Prinsip utama refactor:
 
 - Fungsi: konfigurasi auth Laravel.
 - Logic penting: default guard `web`, provider `users` memakai `App\Models\User`, password reset token table, expiry 60 menit, throttle 60 detik, password timeout.
-- Redundansi/minimalisasi: default config dan sudah cukup minimal. Password reset config ada, tetapi frontend forgot password sebelumnya perlu dicocokkan dengan route/controller backend.
+- Redundansi/minimalisasi: default config dan sudah cukup minimal. Password reset config/table ada, tetapi re-scan backend tidak menemukan route/controller reset password aktif; cocok dengan keputusan hide/unavailable untuk frontend forgot password sampai fitur backend dibuat.
 - Service fee notice: tidak ada service fee/careful-carry.
 - Risiko: sedang; perubahan bisa memutus Sanctum/web auth, provider user, dan reset password.
 
@@ -2413,8 +2488,8 @@ Prinsip utama refactor:
 
 - Fungsi: membuat tabel `orders` dan `order_fee_lines`.
 - Logic penting: order number, customer, service type, driver, assigned time, subtotal, delivery_fee, service_fee, total_price, delivery_fee_source, route snapshot, cancellation, delivered, status, indexes; `order_fee_lines` menyimpan code/label/amount per order.
-- Redundansi/minimalisasi: `order_fee_lines` dan scalar `service_fee` adalah target cleanup schema. Jika service fee tinggal penalti gagal pickup 3 kali, jangan gunakan fee lines generic; pertimbangkan field/metadata eksplisit untuk cancellation penalty atau hitung dari status/payment.
-- Service fee notice: hapus/refactor `order_fee_lines`; hapus/sederhanakan `orders.service_fee` jika tidak lagi diperlukan. Pertahankan `delivery_fee` dan `delivery_fee_source` karena ongkir bisa manual/negosiasi driver.
+- Redundansi/minimalisasi: `order_fee_lines` adalah target cleanup schema. Scalar `orders.service_fee` tidak ikut dihapus pada plan final; tetap dipakai untuk menyimpan satu nilai final service fee/penalti agar kontrak Flutter dan total order tetap sederhana.
+- Service fee notice: hapus/refactor `order_fee_lines`; pertahankan `orders.service_fee` sebagai scalar final, dengan nilai normal `0` dan nilai penalti gagal pickup 3 kali jika terjadi. Pertahankan `delivery_fee` dan `delivery_fee_source` karena ongkir bisa manual/negosiasi driver.
 - Risiko: sangat tinggi karena tabel pusat seluruh order, payment amount, tracking, driver payload, activity, dan semua relasi.
 
 ## Backend_Bangdeliv/database/migrations/2026_03_30_115812_create_order_locations_table.php
@@ -2580,8 +2655,8 @@ Prinsip utama refactor:
 ## Backend_Bangdeliv/resources/views/admin/ai-monitor/index.blade.php
 
 - Fungsi: halaman admin monitor log AI/Gemini.
-- Logic penting: query `AiChatLog` langsung di Blade untuk total/today/model success/log terbaru; tampilkan stat cards, tabel log, fallback strategy, dan health panel.
-- Redundansi/minimalisasi: query dan agregasi sebaiknya dipindah ke controller/service view model. Ada data hardcoded/semu seperti API health ping dan active connection; tombol Refresh/lihat log tidak punya aksi nyata. Banyak inline style yang bisa masuk class/component.
+- Logic penting: menerima statistik dan row log dari `AiMonitorController`; tampilkan stat cards, tabel log, fallback strategy, dan health panel.
+- Redundansi/minimalisasi: Step 6H sudah memindahkan query `AiChatLog`/`AiMessageDetail` dan transform row keluar dari Blade. Sisa kandidat: data hardcoded/semu seperti API health ping dan active connection; tombol Refresh/lihat log belum punya aksi nyata; banyak inline style yang bisa masuk class/component.
 - Service fee notice: tidak ada service fee/careful-carry.
 - Risiko: sedang; perubahan berdampak ke observability chatbot/admin dashboard.
 
@@ -2741,7 +2816,7 @@ Prinsip utama refactor:
 
 - Fungsi: registry route API auth, chatbot, home/restaurants, order customer, chat order, driver, device token, dan admin API.
 - Logic penting: public auth login/register; `auth:sanctum` untuk chatbot/user/address; `v1` public home/restaurants; role customer untuk order/shopping/payment/delivery-fee override; role driver + `driver.active` untuk availability, active order, proof, payment, failed attempt; role admin untuk failed attempt/COD/driver verification.
-- Redundansi/minimalisasi: file sudah cukup padat dan `OrderController` menampung banyak endpoint lintas customer/driver/admin. Untuk clean code, pecah route group/order concern atau controller per fitur saat refactor besar. Ada dua jalur status driver (`status-transition` ke `OrderController` dan `status` ke `OrderExecutionController`) yang perlu dicek agar tidak overlap.
+- Redundansi/minimalisasi: file sudah cukup padat dan `OrderController` menampung banyak endpoint lintas customer/driver/admin. Untuk clean code, pecah route group/order concern atau controller per fitur saat refactor besar. Setelah re-scan frontend/tests, route yang aktif dipakai adalah `status-transition`; `PATCH /driver/orders/{orderId}/status` via `OrderExecutionController` hanya muncul di route/API contract, sehingga kandidat legacy cleanup setelah kontrak test disesuaikan.
 - Service fee notice: endpoint `delivery-fee-override` adalah negosiasi/manual edit ongkir dan sebaiknya dipertahankan. Endpoint `attempt-failed` driver/admin juga dipertahankan untuk aturan gagal 3 kali bayar 50%. Tidak ada route eksplisit untuk `service_fee_rules`/`order_fee_lines`.
 - Risiko: tinggi karena route API adalah kontrak frontend-backend; rename/hapus endpoint perlu sinkron dengan Flutter services/repositories.
 
@@ -2764,7 +2839,7 @@ Prinsip utama refactor:
 ## Backend_Bangdeliv/routes/web.php
 
 - Fungsi: route web admin untuk login/logout, dashboard, pesanan, driver/verifikasi, pelanggan, restoran/menu, AI monitor, dan pengaturan.
-- Logic penting: root redirect ke dashboard; admin protected memakai `auth` + `role:admin`; sebagian halaman hanya return view closure, order show load relasi lengkap lalu render detail; restaurant/menu dan driver verification memakai controller.
-- Redundansi/minimalisasi: banyak route admin masih closure dan mengandalkan query di Blade; lebih clean jika data halaman dipindah ke controller/view model. Order show closure cukup berat dan bisa jadi controller khusus.
+- Logic penting: root redirect ke dashboard; admin protected memakai `auth` + `role:admin`; sebagian halaman masih return view closure, order show load relasi lengkap lalu render detail; restaurant/menu, driver verification, dan AI monitor memakai controller.
+- Redundansi/minimalisasi: Step 6H sudah memindahkan AI monitor dari route closure ke `AiMonitorController`. Banyak route admin lain masih closure dan mengandalkan query di Blade; lebih clean jika data halaman dipindah ke controller/view model. Order show closure cukup berat dan bisa jadi controller khusus.
 - Service fee notice: `admin.orders.show` masih eager-load relasi `feeLines`; ini kandidat hapus/refactor saat `order_fee_lines` dihapus. Route settings membuka halaman pengaturan tarif yang masih mock; jangan dijadikan sumber master service fee baru.
 - Risiko: sedang-tinggi untuk admin panel; perubahan route name/path harus sinkron dengan Blade navigation/action.

@@ -62,7 +62,6 @@ class DeliveryFeeNegotiationService
                 'counter_amount' => null,
                 'approved_amount' => null,
                 'old_delivery_fee' => $this->negotiationLogs->floatOrNull($order->delivery_fee),
-                'careful_carry_required' => $this->carefulCarryRequired($order),
                 'note' => null,
                 'updated_at' => null,
                 'can_customer_respond' => false,
@@ -103,12 +102,6 @@ class DeliveryFeeNegotiationService
             'counter_base_amount' => $this->negotiationLogs->floatOrNull($metadata['counter_base_amount'] ?? null),
             'approved_amount' => $this->negotiationLogs->floatOrNull($metadata['approved_amount'] ?? null),
             'old_delivery_fee' => $this->negotiationLogs->floatOrNull($metadata['old_delivery_fee'] ?? null),
-            'careful_carry_required' => $this->negotiationLogs->boolOrNull(
-                $metadata['careful_carry_required'] ?? null
-            ),
-            'careful_carry_surcharge' => $this->negotiationLogs->floatOrNull(
-                $metadata['careful_carry_surcharge'] ?? null
-            ),
             'note' => $log->note,
             'updated_at' => $this->negotiationLogs->iso($log->created_at),
             'can_customer_respond' => $isPendingCustomer && $this->canCustomerRespond($order),
@@ -128,17 +121,15 @@ class DeliveryFeeNegotiationService
     }
 
     /**
-     * @return array{base_amount: float, careful_carry_surcharge: float, final_amount: float}
+     * @return array{base_amount: float, final_amount: float}
      */
-    public function quoteAmounts(Order $order, ?float $baseAmount, bool $carefulCarryRequired): array
+    public function quoteAmounts(Order $order, ?float $baseAmount): array
     {
         $base = round(max(0.0, $baseAmount ?? $this->defaultDeliveryFee($order)), 2);
-        $surcharge = $carefulCarryRequired ? round($base * 0.5, 2) : 0.0;
 
         return [
             'base_amount' => $base,
-            'careful_carry_surcharge' => $surcharge,
-            'final_amount' => round($base + $surcharge, 2),
+            'final_amount' => $base,
         ];
     }
 
@@ -235,12 +226,6 @@ class DeliveryFeeNegotiationService
             self::CUSTOMER_CANCEL_ORDER => 'CANCELLED_ORDER',
             default => 'NONE',
         };
-    }
-
-    private function carefulCarryRequired(Order $order): bool
-    {
-        return ServiceTypeCode::normalize((string) ($order->serviceType?->code ?? '')) === ServiceTypeCode::Courier->value
-            && (bool) ($order->courierOrder?->careful_carry_required ?? false);
     }
 
     private function defaultDeliveryFee(Order $order): float

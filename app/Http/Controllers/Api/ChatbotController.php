@@ -4,17 +4,16 @@ namespace App\Http\Controllers\Api;
 
 use App\Exceptions\ApiException;
 use App\Http\Controllers\Controller;
-use App\Models\AiChatLog;
 use App\Models\User;
+use App\Services\Chatbot\ChatbotContextLimitService;
 use App\Services\Chatbot\ChatbotCourierOrderService;
+use App\Services\Chatbot\ChatbotDraftStore;
 use App\Services\Chatbot\ChatbotGeminiService;
 use App\Services\Chatbot\ChatbotRideOrderService;
 use App\Services\Chatbot\ChatbotShoppingOrderService;
 use App\Services\Maps\GoogleMapsGeocodingService;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -45,25 +44,14 @@ class ChatbotController extends Controller
         'reset tujuan',
     ];
 
-    private const MODEL_CONTEXT_TURN_LIMIT = 8;
-
-    /**
-     * @var array<string, string>
-     */
-    private const INTENT_TO_SERVICE_TYPE = [
-        'ride_order' => 'antar_jemput',
-        'courier_order' => 'kurir',
-        'shopping_order' => 'nitip',
-        'pesan_makanan' => 'nitip',
-        'out_of_domain' => 'nitip',
-    ];
-
     public function __construct(
         private readonly ChatbotCourierOrderService $courierOrderService,
         private readonly ChatbotRideOrderService $rideOrderService,
         private readonly ChatbotShoppingOrderService $shoppingOrderService,
         private readonly ChatbotGeminiService $geminiService,
         private readonly GoogleMapsGeocodingService $geocodingService,
+        private readonly ChatbotDraftStore $draftStore,
+        private readonly ChatbotContextLimitService $contextLimitService,
     ) {}
 
     public function processChat(Request $request)
@@ -98,178 +86,10 @@ class ChatbotController extends Controller
         );
     }
 
-    public function listSessions(Request $request): JsonResponse
-    {
-        $validated = $request->validate([
-            'service_type' => ['nullable', Rule::in(array_keys(self::SERVICE_TYPE_MAP))],
-            'limit' => ['nullable', 'integer', 'min:1', 'max:100'],
-        ]);
-
-        $user = $request->user();
-        $limit = (int) ($validated['limit'] ?? 20);
-        $serviceTypeFilter = isset($validated['service_type'])
-            ? (string) $validated['service_type']
-            : null;
-
-        $activeSessionIds = DB::table('ai_chat_sessions')
-            ->where('user_id', $user->id)
-            ->whereNull('completed_at')
-            ->pluck('session_id')
-            ->filter(static fn (mixed $value): bool => is_string($value) && trim($value) !== '')
-            ->unique()
-            ->values()
-            ->all();
-
-        if ($activeSessionIds === []) {
-            return response()->json([
-                'status' => 'success',
-                'data' => [],
-            ], 200);
-        }
-
-        $latestAssistantLogIds = AiChatLog::query()
-            ->selectRaw('MAX(id) as id')
-            ->where('user_id', $user->id)
-            ->whereIn('session_id', $activeSessionIds)
-            ->where('role', 'assistant')
-            ->groupBy('session_id');
-
-        $latestAssistantLogs = AiChatLog::query()
-            ->with('aiDetail')
-            ->whereIn('id', $latestAssistantLogIds)
-            ->orderByDesc('created_at')
-            ->limit($limit * 2)
-            ->get();
-
-        $sessionIds = $latestAssistantLogs
-            ->pluck('session_id')
-            ->filter(static fn (mixed $value): bool => is_string($value) && trim($value) !== '')
-            ->unique()
-            ->values()
-            ->all();
-
-        if ($sessionIds === []) {
-            return response()->json([
-                'status' => 'success',
-                'data' => [],
-            ], 200);
-        }
-
-        $messageCounts = AiChatLog::query()
-            ->selectRaw('session_id, COUNT(*) as aggregate')
-            ->where('user_id', $user->id)
-            ->whereIn('session_id', $sessionIds)
-            ->groupBy('session_id')
-            ->pluck('aggregate', 'session_id');
-
-        $rows = [];
-
-        foreach ($latestAssistantLogs as $log) {
-            $sessionId = trim((string) $log->session_id);
-            if ($sessionId === '') {
-                continue;
-            }
-
-            $serviceType = $this->resolveServiceTypeFromLog($log);
-            if ($serviceTypeFilter !== null && $serviceType !== $serviceTypeFilter) {
-                continue;
-            }
-
-            $rows[] = [
-                'session_id' => $sessionId,
-                'service_type' => $serviceType,
-                'last_message' => (string) $log->message,
-                'last_message_at' => optional($log->created_at)?->toISOString(),
-                'message_count' => (int) ($messageCounts[$sessionId] ?? 0),
-            ];
-
-            if (count($rows) >= $limit) {
-                break;
-            }
-        }
-
-        return response()->json([
-            'status' => 'success',
-            'data' => $rows,
-        ], 200);
-    }
-
-    public function sessionHistory(Request $request, string $sessionId): JsonResponse
-    {
-        $validated = $request->validate([
-            'limit' => ['nullable', 'integer', 'min:1', 'max:200'],
-            'before_id' => ['nullable', 'integer', 'min:1'],
-        ]);
-
-        $user = $request->user();
-        $normalizedSessionId = substr(trim($sessionId), 0, 100);
-        if ($normalizedSessionId === '') {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Session ID tidak valid.',
-            ], 422);
-        }
-
-        $limit = (int) ($validated['limit'] ?? 50);
-        $beforeId = isset($validated['before_id']) ? (int) $validated['before_id'] : null;
-
-        $query = AiChatLog::query()
-            ->with('aiDetail')
-            ->where('user_id', $user->id)
-            ->where('session_id', $normalizedSessionId)
-            ->when($beforeId !== null, static function (Builder $builder) use ($beforeId): void {
-                $builder->where('id', '<', $beforeId);
-            })
-            ->orderByDesc('id')
-            ->limit($limit + 1);
-
-        $logs = $query->get();
-        $hasMore = $logs->count() > $limit;
-        if ($hasMore) {
-            $logs = $logs->take($limit);
-        }
-
-        $messages = $logs
-            ->sortBy('id')
-            ->values()
-            ->map(function (AiChatLog $log): array {
-                return [
-                    'id' => $log->id,
-                    'role' => (string) $log->role,
-                    'message' => (string) $log->message,
-                    'model_used' => $log->model_used,
-                    'intent' => $log->intent,
-                    'order_id' => $log->order_id,
-                    'service_type' => $this->resolveServiceTypeFromLog($log),
-                    'ai_response' => $log->ai_response,
-                    'created_at' => optional($log->created_at)?->toISOString(),
-                ];
-            })
-            ->all();
-
-        $nextBeforeId = null;
-        if ($hasMore && $logs->isNotEmpty()) {
-            $nextBeforeId = (int) $logs->last()->id;
-        }
-
-        return response()->json([
-            'status' => 'success',
-            'session_id' => $normalizedSessionId,
-            'data' => [
-                'messages' => $messages,
-                'pagination' => [
-                    'limit' => $limit,
-                    'has_more' => $hasMore,
-                    'next_before_id' => $nextBeforeId,
-                ],
-            ],
-        ], 200);
-    }
-
     public function patchSessionLocation(Request $request, string $sessionId): JsonResponse
     {
         $validated = $request->validate([
-            'service_type' => ['nullable', Rule::in(array_keys(self::SERVICE_TYPE_MAP))],
+            'service_type' => ['required', Rule::in(array_keys(self::SERVICE_TYPE_MAP))],
             'target' => ['required', Rule::in(['pickup', 'destination', 'dropoff', 'delivery'])],
             'latitude' => ['required', 'numeric', 'between:-90,90'],
             'longitude' => ['required', 'numeric', 'between:-180,180'],
@@ -285,17 +105,7 @@ class ChatbotController extends Controller
             ], 422);
         }
 
-        $latestAssistantLog = AiChatLog::query()
-            ->with('aiDetail')
-            ->where('user_id', $user->id)
-            ->where('session_id', $normalizedSessionId)
-            ->where('role', 'assistant')
-            ->latest('id')
-            ->first();
-
-        $serviceType = isset($validated['service_type'])
-            ? (string) $validated['service_type']
-            : ($latestAssistantLog === null ? 'nitip' : $this->resolveServiceTypeFromLog($latestAssistantLog));
+        $serviceType = (string) $validated['service_type'];
         $target = (string) $validated['target'];
         $latitude = (float) $validated['latitude'];
         $longitude = (float) $validated['longitude'];
@@ -321,28 +131,15 @@ class ChatbotController extends Controller
             $patchedPayload = $this->enrichTransportActionPayload($patchedPayload, $serviceType);
         }
 
-        $intent = (string) ($patchedPayload['intent'] ?? 'unknown');
-        $orderId = $this->resolveOrderId($patchedPayload);
         $assistantText = trim((string) ($patchedPayload['assistant_text'] ?? 'Titik lokasi berhasil diperbarui.'));
 
-        $this->recordChatMessage(
-            user: $user,
-            sessionId: $normalizedSessionId,
-            role: 'user',
-            message: '[MAP_PIN] '.$target.' => '.$address,
-            intent: $intent,
-            orderId: $orderId
-        );
-
-        $this->recordChatMessage(
-            user: $user,
-            sessionId: $normalizedSessionId,
-            role: 'assistant',
-            message: $assistantText,
-            aiResponse: $patchedPayload,
-            modelUsed: 'map-pin-action',
-            intent: $intent,
-            orderId: $orderId
+        $this->persistChatbotDraftTurn(
+            $user,
+            $normalizedSessionId,
+            '[MAP_PIN] '.$target.' => '.$address,
+            $assistantText,
+            $patchedPayload,
+            $serviceType
         );
 
         return response()->json([
@@ -405,8 +202,6 @@ class ChatbotController extends Controller
             ], $exception->status());
         }
 
-        $intent = (string) ($patchedPayload['intent'] ?? 'unknown');
-        $orderId = $this->resolveOrderId($patchedPayload);
         $mode = (string) ($validated['mode'] ?? 'select');
         $activeStop = collect(data_get($patchedPayload, 'shopping.stops', []))
             ->first(static fn ($stop): bool => is_array($stop) && ($stop['is_active'] ?? false) === true);
@@ -417,25 +212,14 @@ class ChatbotController extends Controller
         ));
         $assistantText = trim((string) ($patchedPayload['assistant_text'] ?? 'Merchant Nitip berhasil diperbarui.'));
 
-        $this->recordChatMessage(
-            user: $user,
-            sessionId: $normalizedSessionId,
-            role: 'user',
-            message: ($mode === 'add' ? '[MERCHANT_PICKER] tambah merchant => ' : '[MERCHANT_PICKER] merchant => ')
+        $this->persistChatbotDraftTurn(
+            $user,
+            $normalizedSessionId,
+            ($mode === 'add' ? '[MERCHANT_PICKER] tambah merchant => ' : '[MERCHANT_PICKER] merchant => ')
                 .($merchantName !== '' ? $merchantName : 'Merchant dipilih'),
-            intent: $intent,
-            orderId: $orderId
-        );
-
-        $this->recordChatMessage(
-            user: $user,
-            sessionId: $normalizedSessionId,
-            role: 'assistant',
-            message: $assistantText,
-            aiResponse: $patchedPayload,
-            modelUsed: 'merchant-picker-action',
-            intent: $intent,
-            orderId: $orderId
+            $assistantText,
+            $patchedPayload,
+            'nitip'
         );
 
         return response()->json([
@@ -514,32 +298,19 @@ class ChatbotController extends Controller
         }
 
         $patchedPayload = $this->enrichTransportActionPayload($patchedPayload, $serviceType);
-        $intent = (string) ($patchedPayload['intent'] ?? 'unknown');
-        $orderId = $this->resolveOrderId($patchedPayload);
         $assistantText = trim((string) ($patchedPayload['assistant_text'] ?? 'Titik rute berhasil diperbarui.'));
 
         $routeSummary = collect($locations)
             ->map(static fn (array $location): string => $location['target'].' => '.$location['address'])
             ->implode('; ');
 
-        $this->recordChatMessage(
-            user: $user,
-            sessionId: $normalizedSessionId,
-            role: 'user',
-            message: '[MAP_ROUTE] '.$routeSummary,
-            intent: $intent,
-            orderId: $orderId
-        );
-
-        $this->recordChatMessage(
-            user: $user,
-            sessionId: $normalizedSessionId,
-            role: 'assistant',
-            message: $assistantText,
-            aiResponse: $patchedPayload,
-            modelUsed: 'map-route-action',
-            intent: $intent,
-            orderId: $orderId
+        $this->persistChatbotDraftTurn(
+            $user,
+            $normalizedSessionId,
+            '[MAP_ROUTE] '.$routeSummary,
+            $assistantText,
+            $patchedPayload,
+            $serviceType
         );
 
         return response()->json([
@@ -595,41 +366,12 @@ class ChatbotController extends Controller
             ], 422);
         }
 
-        $messageCount = AiChatLog::query()
-            ->where('user_id', $request->user()->id)
-            ->where('session_id', $normalizedSessionId)
-            ->count();
-
-        $completedOrderId = DB::table('ai_chat_messages')
-            ->join('ai_message_details', 'ai_chat_messages.id', '=', 'ai_message_details.chat_message_id')
-            ->where('ai_chat_messages.user_id', $request->user()->id)
-            ->where('ai_chat_messages.session_id', $normalizedSessionId)
-            ->where('ai_chat_messages.role', 'assistant')
-            ->whereNotNull('ai_message_details.order_id')
-            ->orderByDesc('ai_chat_messages.id')
-            ->value('ai_message_details.order_id');
-
-        $now = now();
-        DB::table('ai_chat_sessions')->updateOrInsert(
-            [
-                'user_id' => $request->user()->id,
-                'session_id' => $normalizedSessionId,
-            ],
-            [
-                'last_message_at' => $now,
-                'completed_at' => $now,
-                'completed_order_id' => $completedOrderId,
-                'created_at' => $now,
-                'updated_at' => $now,
-            ],
-        );
+        $this->draftStore->forget($request->user(), $normalizedSessionId);
 
         return response()->json([
             'status' => 'success',
             'session_id' => $normalizedSessionId,
-            'archived' => true,
-            'message_count' => $messageCount,
-            'completed_order_id' => $completedOrderId,
+            'cleared' => true,
         ], 200);
     }
 
@@ -641,8 +383,11 @@ class ChatbotController extends Controller
         string $serviceCode
     ) {
         try {
+            $this->contextLimitService->ensureNotBlocked($user, $serviceType);
+
             $nluPayload = null;
             $modelUsed = null;
+            $nluFromModel = false;
             $fastCommand = $this->detectTransportFastCommand($message);
 
             if ($fastCommand !== null) {
@@ -650,15 +395,23 @@ class ChatbotController extends Controller
                 $modelUsed = 'deterministic-command';
             } else {
                 try {
-                    $modelContext = $this->buildModelContext($user, $sessionId, $serviceType);
+                    $modelContext = $this->draftStore->context($user, $sessionId, $serviceType);
                     $nluResult = $this->geminiService->interpretTransportMessage($serviceType, $message, $modelContext);
                     $nluPayload = is_array($nluResult['payload'] ?? null) ? $nluResult['payload'] : null;
                     $modelUsed = isset($nluResult['model_used']) ? (string) $nluResult['model_used'] : null;
+                    $nluFromModel = true;
                 } catch (ApiException $exception) {
                     // Fallback ke parser deterministik jika Gemini unavailable.
                     $nluPayload = null;
                     $modelUsed = null;
                 }
+            }
+
+            if (
+                $nluFromModel &&
+                $this->contextLimitService->isOutOfContext($nluPayload, $this->expectedIntent($serviceType))
+            ) {
+                return $this->handleOutOfContextMessage($user, $sessionId, $message, $serviceType, $serviceCode, $modelUsed);
             }
 
             $payload = $serviceType === 'kurir'
@@ -667,12 +420,14 @@ class ChatbotController extends Controller
 
             $payload = $this->enrichTransportActionPayload($payload, $serviceType);
 
-            $this->storeChatLogs(
-                user: $user,
-                sessionId: $sessionId,
-                userMessage: $message,
-                assistantPayload: $payload,
-                modelUsed: $modelUsed
+            $this->contextLimitService->clear($user, $serviceType);
+            $this->persistChatbotDraftTurn(
+                $user,
+                $sessionId,
+                $message,
+                trim((string) ($payload['assistant_text'] ?? 'Respon chatbot berhasil diproses.')),
+                $payload,
+                $serviceType
             );
 
             return response()->json([
@@ -702,8 +457,11 @@ class ChatbotController extends Controller
         string $serviceCode
     ) {
         try {
+            $this->contextLimitService->ensureNotBlocked($user, $serviceType);
+
             $nluPayload = null;
             $modelUsed = null;
+            $nluFromModel = false;
             $fastPayload = $this->detectShoppingFastPayload($message);
 
             if ($fastPayload !== null) {
@@ -711,24 +469,34 @@ class ChatbotController extends Controller
                 $modelUsed = $fastPayload['model_used'];
             } else {
                 try {
-                    $modelContext = $this->buildModelContext($user, $sessionId, $serviceType);
+                    $modelContext = $this->draftStore->context($user, $sessionId, $serviceType);
                     $parsed = $this->geminiService->parseFoodOrder($message, $modelContext);
                     $nluPayload = is_array($parsed['payload'] ?? null) ? $parsed['payload'] : null;
                     $modelUsed = isset($parsed['model_used']) ? (string) $parsed['model_used'] : null;
+                    $nluFromModel = true;
                 } catch (ApiException $exception) {
                     $nluPayload = null;
                     $modelUsed = null;
                 }
             }
 
+            if (
+                $nluFromModel &&
+                $this->contextLimitService->isOutOfContext($nluPayload, $this->expectedIntent($serviceType))
+            ) {
+                return $this->handleOutOfContextMessage($user, $sessionId, $message, $serviceType, $serviceCode, $modelUsed);
+            }
+
             $shoppingPayload = $this->shoppingOrderService->process($user, $message, $sessionId, $nluPayload);
 
-            $this->storeChatLogs(
-                user: $user,
-                sessionId: $sessionId,
-                userMessage: $message,
-                assistantPayload: $shoppingPayload,
-                modelUsed: $modelUsed
+            $this->contextLimitService->clear($user, $serviceType);
+            $this->persistChatbotDraftTurn(
+                $user,
+                $sessionId,
+                $message,
+                trim((string) ($shoppingPayload['assistant_text'] ?? 'Respon chatbot berhasil diproses.')),
+                $shoppingPayload,
+                $serviceType
             );
 
             return response()->json([
@@ -750,95 +518,66 @@ class ChatbotController extends Controller
         }
     }
 
-    /**
-     * @param  array<string, mixed>  $assistantPayload
-     */
-    private function storeChatLogs(
+    private function handleOutOfContextMessage(
         User $user,
         string $sessionId,
-        string $userMessage,
-        array $assistantPayload,
+        string $message,
+        string $serviceType,
+        string $serviceCode,
         ?string $modelUsed
-    ): void {
-        try {
-            $intent = (string) ($assistantPayload['intent'] ?? 'unknown');
-            $assistantText = trim((string) ($assistantPayload['assistant_text'] ?? 'Respon chatbot berhasil diproses.'));
-            $orderId = $this->resolveOrderId($assistantPayload);
+    ): JsonResponse {
+        $this->contextLimitService->recordOutOfContext($user, $serviceType);
 
-            $this->recordChatMessage(
-                user: $user,
-                sessionId: $sessionId,
-                role: 'user',
-                message: $userMessage,
-                intent: $intent,
-                orderId: $orderId
-            );
+        $payload = $this->contextLimitService->responsePayload($serviceType);
+        $assistantText = trim((string) ($payload['assistant_text'] ?? 'Pesan tidak sesuai konteks pemesanan.'));
+        $this->draftStore->appendTurn($user, $sessionId, 'user', $message);
+        $this->draftStore->appendTurn($user, $sessionId, 'assistant', $assistantText);
 
-            $this->recordChatMessage(
-                user: $user,
-                sessionId: $sessionId,
-                role: 'assistant',
-                message: $assistantText === '' ? 'Respon chatbot berhasil diproses.' : $assistantText,
-                aiResponse: $assistantPayload,
-                modelUsed: $modelUsed,
-                intent: $intent,
-                orderId: $orderId
-            );
-        } catch (\Throwable $exception) {
-            Log::warning('Gagal menyimpan ai_chat_messages: '.$exception->getMessage());
-        }
+        return response()->json([
+            'status' => 'success',
+            'session_id' => $sessionId,
+            'service_context' => [
+                'service_type' => $serviceType,
+                'service_code' => $serviceCode,
+            ],
+            'data' => $payload,
+            'model_used' => $modelUsed,
+        ], 200);
     }
 
     /**
-     * @param  array<string, mixed>|null  $aiResponse
+     * @param  array<string, mixed>  $payload
      */
-    private function recordChatMessage(
+    private function persistChatbotDraftTurn(
         User $user,
         string $sessionId,
-        string $role,
-        string $message,
-        ?array $aiResponse = null,
-        ?string $modelUsed = null,
-        ?string $intent = null,
-        ?int $orderId = null,
-    ): AiChatLog {
-        $now = now();
-        DB::table('ai_chat_sessions')->upsert([
-            [
-                'session_id' => $sessionId,
-                'user_id' => $user->id,
-                'last_message_at' => $now,
-                'completed_at' => null,
-                'completed_order_id' => null,
-                'created_at' => $now,
-                'updated_at' => $now,
-            ],
-        ], ['user_id', 'session_id'], [
-            'user_id',
-            'last_message_at',
-            'completed_at',
-            'completed_order_id',
-            'updated_at',
-        ]);
+        string $userMessage,
+        string $assistantMessage,
+        array $payload,
+        string $serviceType
+    ): void {
+        $this->draftStore->appendTurn($user, $sessionId, 'user', $userMessage);
+        $this->draftStore->appendTurn(
+            $user,
+            $sessionId,
+            'assistant',
+            $assistantMessage === '' ? 'Respon chatbot berhasil diproses.' : $assistantMessage,
+            $payload
+        );
 
-        $log = AiChatLog::query()->create([
-            'user_id' => $user->id,
-            'session_id' => $sessionId,
-            'role' => $role,
-            'message' => $message,
-            'created_at' => $now,
-        ]);
-
-        if ($role === 'assistant') {
-            $log->aiDetail()->create([
-                'ai_response' => $aiResponse ?? [],
-                'model_used' => $modelUsed ?? 'deterministic-command',
-                'intent' => $intent ?? 'unknown',
-                'order_id' => $orderId,
-            ]);
+        if ($this->resolveOrderId($payload) !== null) {
+            $this->draftStore->forget($user, $sessionId);
+            $this->contextLimitService->clear($user, $serviceType);
         }
+    }
 
-        return $log->load('aiDetail');
+    private function expectedIntent(string $serviceType): string
+    {
+        return match ($serviceType) {
+            'antar_jemput' => 'ride_order',
+            'kurir' => 'courier_order',
+            default => 'shopping_order',
+        };
     }
 
     /**
@@ -933,195 +672,6 @@ class ChatbotController extends Controller
         }
 
         return null;
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function buildModelContext(User $user, string $sessionId, string $serviceType): array
-    {
-        $logs = AiChatLog::query()
-            ->with('aiDetail')
-            ->where('user_id', $user->id)
-            ->where('session_id', $sessionId)
-            ->orderByDesc('id')
-            ->limit(self::MODEL_CONTEXT_TURN_LIMIT)
-            ->get();
-
-        $recentTurns = $logs
-            ->reverse()
-            ->map(function (AiChatLog $log): array {
-                return [
-                    'role' => (string) $log->role,
-                    'message' => $this->truncateContextText((string) $log->message, 240),
-                    'intent' => $this->normalizeOptionalContextString($log->intent),
-                    'model_used' => $this->normalizeOptionalContextString($log->model_used),
-                    'created_at' => optional($log->created_at)?->toISOString(),
-                ];
-            })
-            ->values()
-            ->all();
-
-        $latestAssistantPayload = $logs
-            ->first(static fn (AiChatLog $log): bool => $log->role === 'assistant' && is_array($log->ai_response));
-
-        return [
-            'service_type' => $serviceType,
-            'session_id' => $sessionId,
-            'current_time' => now()->toIso8601String(),
-            'timezone' => (string) config('app.timezone', 'Asia/Jakarta'),
-            'recent_turns' => $recentTurns,
-            'draft_state' => $this->extractDraftStateSummary(
-                is_array($latestAssistantPayload?->ai_response ?? null)
-                    ? $latestAssistantPayload->ai_response
-                    : null
-            ),
-        ];
-    }
-
-    /**
-     * @param  array<string, mixed>|null  $payload
-     * @return array<string, mixed>
-     */
-    private function extractDraftStateSummary(?array $payload): array
-    {
-        if ($payload === null) {
-            return [];
-        }
-
-        $validation = is_array($payload['validation'] ?? null)
-            ? $payload['validation']
-            : [];
-        $summary = [
-            'intent' => (string) ($payload['intent'] ?? 'unknown'),
-            'service_type' => (string) ($payload['service_type'] ?? ''),
-            'validation' => [
-                'is_valid_order' => ($validation['is_valid_order'] ?? false) === true,
-                'missing_fields' => $this->normalizeStringList($validation['missing_fields'] ?? []),
-                'next_actions' => $this->normalizeStringList($validation['next_actions'] ?? []),
-            ],
-        ];
-
-        if (is_array($payload['ride'] ?? null)) {
-            $ride = $payload['ride'];
-            $summary['ride'] = [
-                'pickup_address' => $this->normalizeOptionalContextString($ride['pickup_address'] ?? null),
-                'destination_address' => $this->normalizeOptionalContextString($ride['destination_address'] ?? null),
-            ];
-        }
-
-        if (is_array($payload['courier'] ?? null)) {
-            $courier = $payload['courier'];
-            $summary['courier'] = [
-                'pickup_address' => $this->normalizeOptionalContextString($courier['pickup_address'] ?? null),
-                'dropoff_address' => $this->normalizeOptionalContextString($courier['dropoff_address'] ?? null),
-                'package_description' => $this->normalizeOptionalContextString($courier['package_description'] ?? null),
-            ];
-        }
-
-        if (is_array($payload['shopping'] ?? null)) {
-            $shopping = $payload['shopping'];
-            $merchant = is_array($shopping['merchant'] ?? null) ? $shopping['merchant'] : [];
-            $delivery = is_array($shopping['delivery'] ?? null) ? $shopping['delivery'] : [];
-            $items = is_array($shopping['items'] ?? null) ? $shopping['items'] : [];
-            $stops = is_array($shopping['stops'] ?? null) ? $shopping['stops'] : [];
-            $activeStop = collect($stops)
-                ->first(static fn ($stop): bool => is_array($stop) && ($stop['is_active'] ?? false) === true);
-            $summary['shopping'] = [
-                'merchant_name' => $this->normalizeOptionalContextString($merchant['name'] ?? null),
-                'merchant_count' => count(array_filter(
-                    $stops,
-                    static fn ($stop): bool => is_array($stop)
-                        && trim((string) data_get($stop, 'merchant.name', '')) !== ''
-                )),
-                'active_merchant_name' => $this->normalizeOptionalContextString(
-                    is_array($activeStop) ? data_get($activeStop, 'merchant.name') : null
-                ),
-                'delivery_address' => $this->normalizeOptionalContextString($delivery['address'] ?? null),
-                'item_count' => count($items),
-                'stops' => collect($stops)
-                    ->filter(static fn ($stop): bool => is_array($stop))
-                    ->map(static fn (array $stop): array => [
-                        'merchant_name' => data_get($stop, 'merchant.name'),
-                        'item_count' => is_array($stop['items'] ?? null) ? count($stop['items']) : 0,
-                        'is_active' => ($stop['is_active'] ?? false) === true,
-                    ])
-                    ->values()
-                    ->all(),
-                'ready_to_confirm' => (bool) ($shopping['ready_to_confirm'] ?? false),
-                'payment_method' => $this->normalizeOptionalContextString(
-                    $shopping['payment_method'] ?? data_get($payload, 'order.payment_method')
-                ),
-            ];
-        }
-
-        if (is_array($payload['delivery'] ?? null)) {
-            $delivery = $payload['delivery'];
-            $summary['delivery'] = [
-                'address' => $this->normalizeOptionalContextString($delivery['address'] ?? null),
-            ];
-        }
-
-        return $summary;
-    }
-
-    /**
-     * @return array<int, string>
-     */
-    private function normalizeStringList(mixed $values): array
-    {
-        if (! is_array($values)) {
-            return [];
-        }
-
-        $normalized = [];
-        foreach ($values as $value) {
-            $valueString = trim((string) $value);
-            if ($valueString !== '') {
-                $normalized[] = $valueString;
-            }
-        }
-
-        return array_values(array_unique($normalized));
-    }
-
-    private function normalizeOptionalContextString(mixed $value): ?string
-    {
-        if (! is_string($value)) {
-            return null;
-        }
-
-        $normalized = trim($value);
-
-        return $normalized === '' ? null : $this->truncateContextText($normalized, 240);
-    }
-
-    private function truncateContextText(string $text, int $maxLength): string
-    {
-        if ($maxLength <= 0) {
-            return '';
-        }
-
-        if (mb_strlen($text) <= $maxLength) {
-            return $text;
-        }
-
-        return rtrim(mb_substr($text, 0, max(1, $maxLength - 3))).'...';
-    }
-
-    private function resolveServiceTypeFromLog(AiChatLog $log): string
-    {
-        $aiResponse = $log->ai_response;
-        if (is_array($aiResponse)) {
-            $serviceType = trim((string) ($aiResponse['service_type'] ?? ''));
-            if (array_key_exists($serviceType, self::SERVICE_TYPE_MAP)) {
-                return $serviceType;
-            }
-        }
-
-        $intent = strtolower(trim((string) ($log->intent ?? '')));
-
-        return self::INTENT_TO_SERVICE_TYPE[$intent] ?? 'nitip';
     }
 
     /**

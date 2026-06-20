@@ -268,7 +268,7 @@ class ShoppingOrderItemEditTest extends TestCase
         $response->assertOk()
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.delivery_fee', '5000.00')
-            ->assertJsonPath('data.total_price', '27000.00')
+            ->assertJsonPath('data.total_price', '25000.00')
             ->assertJsonCount(1, 'data.shopping_stops');
 
         $this->assertSame(4, OrderItem::query()->where('order_id', $order->id)->count());
@@ -277,7 +277,6 @@ class ShoppingOrderItemEditTest extends TestCase
             'menu_name' => 'Kopi sachet',
             'quantity' => 3,
             'unit_price' => 0,
-            'is_heavy' => false,
         ]);
 
         Http::assertNothingSent();
@@ -335,7 +334,6 @@ class ShoppingOrderItemEditTest extends TestCase
             'menu_name' => 'Susu UHT',
             'quantity' => 2,
             'unit_price' => 0,
-            'is_heavy' => false,
         ]);
         $this->assertDatabaseHas('order_payments', [
             'order_id' => $order->id,
@@ -360,7 +358,6 @@ class ShoppingOrderItemEditTest extends TestCase
             'item_source' => 'MANUAL',
             'menu_name' => 'Soto Ayam',
             'quantity' => 1,
-            'is_heavy' => true,
         ]);
 
         $response->assertOk()
@@ -377,7 +374,6 @@ class ShoppingOrderItemEditTest extends TestCase
             'item_source' => 'MANUAL',
             'menu_name' => 'Soto Ayam',
             'unit_price' => 0,
-            'is_heavy' => false,
         ]);
 
         $this->assertDatabaseHas('order_payments', [
@@ -557,7 +553,7 @@ class ShoppingOrderItemEditTest extends TestCase
             ->assertJsonPath('message', 'Item tidak bisa diubah pada status order saat ini.');
     }
 
-    public function test_customer_update_cannot_change_item_heavy_status(): void
+    public function test_customer_can_update_basic_manual_item_fields(): void
     {
         $customer = User::factory()->create(['role' => 'customer']);
         $order = $this->createShoppingOrder($customer, 'PENDING');
@@ -569,7 +565,6 @@ class ShoppingOrderItemEditTest extends TestCase
             'menu_name' => 'Telur 2 kg',
             'quantity' => 1,
             'notes' => 'Tambah satu bungkus',
-            'is_heavy' => true,
         ]);
 
         $response->assertOk()
@@ -578,7 +573,6 @@ class ShoppingOrderItemEditTest extends TestCase
         $this->assertDatabaseHas('shopping_order_items', [
             'id' => $item->id,
             'menu_name' => 'Telur 2 kg',
-            'is_heavy' => false,
         ]);
     }
 
@@ -721,7 +715,6 @@ class ShoppingOrderItemEditTest extends TestCase
             'unit_price' => 0,
             'subtotal' => 0,
             'is_available' => false,
-            'is_heavy' => false,
         ]);
 
         Sanctum::actingAs($customer);
@@ -777,7 +770,6 @@ class ShoppingOrderItemEditTest extends TestCase
             'unit_price' => 20000,
             'subtotal' => 20000,
             'is_available' => true,
-            'is_heavy' => false,
         ]);
 
         Sanctum::actingAs($customer);
@@ -877,7 +869,6 @@ class ShoppingOrderItemEditTest extends TestCase
             'unit_price' => 18000,
             'subtotal' => 18000,
             'is_available' => true,
-            'is_heavy' => false,
         ]);
 
         Sanctum::actingAs($customer);
@@ -954,7 +945,6 @@ class ShoppingOrderItemEditTest extends TestCase
             'unit_price' => 10000,
             'subtotal' => 10000,
             'is_available' => true,
-            'is_heavy' => false,
         ]);
 
         Sanctum::actingAs($customer);
@@ -1074,7 +1064,6 @@ class ShoppingOrderItemEditTest extends TestCase
             'unit_price' => 20000,
             'subtotal' => 20000,
             'is_available' => true,
-            'is_heavy' => false,
         ]);
 
         OrderPayment::query()->create([

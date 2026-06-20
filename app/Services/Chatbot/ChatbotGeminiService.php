@@ -94,7 +94,7 @@ class ChatbotGeminiService
         }
 
         if ($serviceType === 'kurir') {
-            $systemInstruction = 'Kamu adalah NLU assistant BangDeliv untuk layanan Kurir motor. Keluarkan hanya JSON sesuai schema. command valid: "confirm", "reset_destination", atau "none". Gunakan command "confirm" hanya jika pesan user adalah konfirmasi singkat seperti "konfirmasi", "confirm", atau "lanjut"; pesan yang berisi isi paket/lokasi tidak boleh menjadi confirm. Ekstrak pickup, tujuan, isi paket, berat, ukuran, dan packing hanya jika user menyebutnya. Frasa seperti "isi paket kunci", "paketnya kunci", "kunci", "sabun", "isi paket sabun", dan "kirim kunci" harus mengisi package_description jika konteksnya sedang melengkapi isi paket. Jangan mengarang berat/ukuran; untuk barang kecil umum seperti kacamata, dokumen, kunci, sabun, buku kecil, baju, charger, atau earphone cukup isi package_description. Jika user menulis nama tempat + area, contoh "antar kacamata ke Erha Setiabudi Tembalang", isi dropoff_address dengan "Erha Setiabudi Tembalang" dan package_description dengan "kacamata". Jika user menyebut rumahku/rumah saya sebagai pickup, isi pickup_address "rumah". Barang ambigu tetap diekstrak apa adanya agar backend bisa meminta klarifikasi. intent harus "courier_order" atau "out_of_domain". Jika disediakan CONTEXT_JSON, gunakan untuk membaca progres percakapan dan draft terakhir.';
+            $systemInstruction = 'Kamu adalah NLU assistant BangDeliv untuk layanan Kurir motor. Keluarkan hanya JSON sesuai schema. command valid: "confirm", "reset_destination", atau "none". Gunakan command "confirm" hanya jika pesan user adalah konfirmasi singkat seperti "konfirmasi", "confirm", atau "lanjut"; pesan yang berisi isi paket/lokasi tidak boleh menjadi confirm. Ekstrak pickup, tujuan, isi paket, dan metode pembayaran hanya jika user menyebutnya. Frasa seperti "isi paket kunci", "paketnya kunci", "kunci", "sabun", "isi paket sabun", dan "kirim kunci" harus mengisi package_description jika konteksnya sedang melengkapi isi paket. Jika user menulis nama tempat + area, contoh "antar kacamata ke Erha Setiabudi Tembalang", isi dropoff_address dengan "Erha Setiabudi Tembalang" dan package_description dengan "kacamata". Jika user menyebut rumahku/rumah saya sebagai pickup, isi pickup_address "rumah". Barang ambigu tetap diekstrak apa adanya agar backend bisa meminta klarifikasi. intent harus "courier_order" atau "out_of_domain". Jika disediakan CONTEXT_JSON, gunakan untuk membaca progres percakapan dan draft terakhir.';
             $schema = [
                 'type' => 'OBJECT',
                 'properties' => [
@@ -103,11 +103,7 @@ class ChatbotGeminiService
                     'pickup_address' => ['type' => 'STRING', 'nullable' => true],
                     'dropoff_address' => ['type' => 'STRING', 'nullable' => true],
                     'package_description' => ['type' => 'STRING', 'nullable' => true],
-                    'estimated_weight_kg' => ['type' => 'NUMBER', 'nullable' => true],
-                    'package_length_cm' => ['type' => 'INTEGER', 'nullable' => true],
-                    'package_width_cm' => ['type' => 'INTEGER', 'nullable' => true],
-                    'package_height_cm' => ['type' => 'INTEGER', 'nullable' => true],
-                    'packing_note' => ['type' => 'STRING', 'nullable' => true],
+                    'payment_method' => ['type' => 'STRING', 'nullable' => true],
                 ],
                 'required' => ['intent', 'command'],
             ];
@@ -118,11 +114,7 @@ class ChatbotGeminiService
                 'pickup_address' => null,
                 'dropoff_address' => null,
                 'package_description' => null,
-                'estimated_weight_kg' => null,
-                'package_length_cm' => null,
-                'package_width_cm' => null,
-                'package_height_cm' => null,
-                'packing_note' => null,
+                'payment_method' => null,
             ], $context);
 
             return [
@@ -277,34 +269,7 @@ class ChatbotGeminiService
 
         $merchant = $this->normalizeOptionalString($payload['merchant'] ?? $payload['resto'] ?? null);
 
-        $items = [];
-        if (is_array($payload['items'] ?? null)) {
-            foreach ($payload['items'] as $item) {
-                if (! is_array($item)) {
-                    continue;
-                }
-
-                $name = trim((string) ($item['name'] ?? $item['menu'] ?? ''));
-                if ($name === '') {
-                    continue;
-                }
-
-                $quantity = max(1, (int) ($item['quantity'] ?? $item['qty'] ?? 1));
-                $operation = $this->normalizeItemOperation($item['operation'] ?? null);
-                $normalizedItem = [
-                    'name' => $name,
-                    'menu' => $name,
-                    'quantity' => $quantity,
-                    'qty' => $quantity,
-                    'notes' => $this->normalizeOptionalString($item['notes'] ?? null),
-                ];
-                if ($operation !== null) {
-                    $normalizedItem['operation'] = $operation;
-                }
-
-                $items[] = $normalizedItem;
-            }
-        }
+        $items = ChatbotShoppingItemNormalizer::geminiItems($payload['items'] ?? []);
 
         $stops = [];
         if (is_array($payload['stops'] ?? null)) {
@@ -314,34 +279,7 @@ class ChatbotGeminiService
                 }
 
                 $stopMerchant = $this->normalizeOptionalString($stop['merchant'] ?? $stop['resto'] ?? null);
-                $stopItems = [];
-                if (is_array($stop['items'] ?? null)) {
-                    foreach ($stop['items'] as $item) {
-                        if (! is_array($item)) {
-                            continue;
-                        }
-
-                        $name = trim((string) ($item['name'] ?? $item['menu'] ?? ''));
-                        if ($name === '') {
-                            continue;
-                        }
-
-                        $quantity = max(1, (int) ($item['quantity'] ?? $item['qty'] ?? 1));
-                        $operation = $this->normalizeItemOperation($item['operation'] ?? null);
-                        $normalizedItem = [
-                            'name' => $name,
-                            'menu' => $name,
-                            'quantity' => $quantity,
-                            'qty' => $quantity,
-                            'notes' => $this->normalizeOptionalString($item['notes'] ?? null),
-                        ];
-                        if ($operation !== null) {
-                            $normalizedItem['operation'] = $operation;
-                        }
-
-                        $stopItems[] = $normalizedItem;
-                    }
-                }
+                $stopItems = ChatbotShoppingItemNormalizer::geminiItems($stop['items'] ?? []);
 
                 if ($stopMerchant !== null || $stopItems !== []) {
                     $stops[] = [
@@ -381,11 +319,7 @@ class ChatbotGeminiService
             'pickup_address' => $this->normalizeOptionalString($payload['pickup_address'] ?? null),
             'dropoff_address' => $this->normalizeOptionalString($payload['dropoff_address'] ?? null),
             'package_description' => $this->normalizeOptionalString($payload['package_description'] ?? null),
-            'estimated_weight_kg' => $this->normalizeOptionalFloat($payload['estimated_weight_kg'] ?? null),
-            'package_length_cm' => $this->normalizeOptionalInt($payload['package_length_cm'] ?? null),
-            'package_width_cm' => $this->normalizeOptionalInt($payload['package_width_cm'] ?? null),
-            'package_height_cm' => $this->normalizeOptionalInt($payload['package_height_cm'] ?? null),
-            'packing_note' => $this->normalizeOptionalString($payload['packing_note'] ?? null),
+            'payment_method' => $this->normalizeOptionalString($payload['payment_method'] ?? null),
         ];
     }
 
@@ -417,37 +351,6 @@ class ChatbotGeminiService
         $normalized = trim($value);
 
         return $normalized === '' ? null : $normalized;
-    }
-
-    private function normalizeItemOperation(mixed $value): ?string
-    {
-        $normalized = strtolower(trim((string) ($value ?? '')));
-
-        return in_array($normalized, ['add', 'set', 'remove'], true)
-            ? $normalized
-            : null;
-    }
-
-    private function normalizeOptionalFloat(mixed $value): ?float
-    {
-        if (! is_numeric($value)) {
-            return null;
-        }
-
-        $parsed = round((float) $value, 2);
-
-        return $parsed > 0 ? $parsed : null;
-    }
-
-    private function normalizeOptionalInt(mixed $value): ?int
-    {
-        if (! is_numeric($value)) {
-            return null;
-        }
-
-        $parsed = (int) round((float) $value);
-
-        return $parsed > 0 ? $parsed : null;
     }
 
     private function normalizeCommand(mixed $value): string

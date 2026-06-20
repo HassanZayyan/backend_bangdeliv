@@ -31,7 +31,7 @@ class ApiRouteContractTest extends TestCase
             'address store' => ['api.user.addresses.store', 'POST', 'api/user/addresses'],
             'address update' => ['api.user.addresses.update', 'PUT', 'api/user/addresses/{addressId}'],
             'chatbot process' => ['api.chatbot.process', 'POST', 'api/chatbot/process'],
-            'chatbot sessions' => ['api.chatbot.sessions.index', 'GET', 'api/chatbot/sessions'],
+            'chatbot session clear' => ['api.chatbot.sessions.destroy', 'DELETE', 'api/chatbot/sessions/{sessionId}'],
             'home' => ['api.v1.home', 'GET', 'api/v1/home'],
             'restaurants index' => ['api.v1.restaurants.index', 'GET', 'api/v1/restaurants'],
             'restaurant menus' => ['api.v1.restaurants.menus', 'GET', 'api/v1/restaurants/{restaurantIdOrSlug}/menus'],

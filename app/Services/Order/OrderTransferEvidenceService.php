@@ -6,24 +6,27 @@ use App\Exceptions\ApiException;
 use App\Models\Order;
 use App\Models\OrderEvidence;
 use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\Storage;
 
 class OrderTransferEvidenceService
 {
+    public function __construct(
+        private readonly OrderEvidenceService $orderEvidenceService,
+    ) {}
+
     public function storeAndRecord(
         Order $order,
         UploadedFile $photo,
         ?int $driverId = null,
         ?string $note = null,
     ): OrderEvidence {
-        $path = $photo->store('orders/'.$order->id.'/payments', 'public');
-        if (! is_string($path) || $path === '') {
-            throw new ApiException('Upload bukti QRIS gagal disimpan.', 500);
-        }
-
         return $this->recordFromUrl(
             $order,
-            Storage::disk('public')->url($path),
+            $this->orderEvidenceService->storeOrderPhoto(
+                $photo,
+                (int) $order->id,
+                'payments',
+                'Upload bukti QRIS gagal disimpan.',
+            ),
             $driverId,
             $note
         );

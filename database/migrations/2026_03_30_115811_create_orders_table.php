@@ -43,16 +43,6 @@ return new class extends Migration
             $table->index('created_at');
         });
 
-        Schema::create('order_fee_lines', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('order_id')->constrained()->cascadeOnDelete();
-            $table->string('code', 80);
-            $table->string('label', 120);
-            $table->decimal('amount', 12, 2)->default(0);
-            $table->timestamps();
-
-            $table->unique(['order_id', 'code'], 'order_fee_lines_order_code_unique');
-        });
     }
 
     /**
@@ -60,7 +50,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('order_fee_lines');
         Schema::dropIfExists('orders');
     }
 };

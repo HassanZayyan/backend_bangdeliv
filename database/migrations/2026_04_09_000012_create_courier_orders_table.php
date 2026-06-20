@@ -16,7 +16,6 @@ return new class extends Migration
             $table->id();
             $table->foreignId('order_id')->unique()->constrained()->cascadeOnDelete();
             $table->text('package_description');
-            $table->boolean('careful_carry_required')->default(false);
             $table->timestamps();
         });
 

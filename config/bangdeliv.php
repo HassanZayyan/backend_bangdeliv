@@ -133,6 +133,10 @@ return [
     'chatbot' => [
         'rate_limit_per_minute' => env('CHATBOT_RATE_LIMIT_PER_MINUTE', 12),
         'rate_limit_per_hour' => env('CHATBOT_RATE_LIMIT_PER_HOUR', 120),
+        'draft_ttl_minutes' => env('CHATBOT_DRAFT_TTL_MINUTES', 120),
+        'out_of_context_limit' => env('CHATBOT_OUT_OF_CONTEXT_LIMIT', 3),
+        'out_of_context_window_minutes' => env('CHATBOT_OUT_OF_CONTEXT_WINDOW_MINUTES', 30),
+        'out_of_context_block_minutes' => env('CHATBOT_OUT_OF_CONTEXT_BLOCK_MINUTES', 15),
         'gemini' => [
             'api_key' => env('GEMINI_API_KEY'),
             'timeout_seconds' => env('GEMINI_TIMEOUT_SECONDS', 12),

@@ -113,10 +113,6 @@
                         <span class="menu-badge" style="background:var(--color-warning); color:white;">{{ $sidebarVerificationCount }}</span>
                     @endif
                 </a>
-                <a href="{{ route('admin.ai-monitor') }}" class="menu-item {{ Request::routeIs('admin.ai-monitor') ? 'active' : '' }}">
-                    <i class='bx bx-bot'></i>
-                    AI Monitor
-                </a>
                 <a href="{{ route('admin.settings') }}" class="menu-item {{ Request::routeIs('admin.settings') ? 'active' : '' }}">
                     <i class='bx bx-cog'></i>
                     Pengaturan

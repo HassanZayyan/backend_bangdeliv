@@ -2,10 +2,9 @@
 
 namespace Tests\Feature\Api;
 
-use App\Models\Order;
 use App\Models\User;
+use App\Services\Chatbot\ChatbotDraftStore;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -40,7 +39,7 @@ class ChatbotAccessTest extends TestCase
                     [
                         'content' => [
                             'parts' => [
-                                ['text' => '{"intent":"out_of_domain","resto":null,"items":[]}'],
+                                ['text' => '{"intent":"courier_order","command":"none","pickup_address":null,"dropoff_address":null,"package_description":null,"payment_method":null}'],
                             ],
                         ],
                     ],
@@ -156,57 +155,27 @@ class ChatbotAccessTest extends TestCase
             ->assertJsonPath('service_context.service_code', 'SHOPPING');
     }
 
-    public function test_clear_chatbot_session_archives_without_deleting_logs(): void
+    public function test_clear_chatbot_session_forgets_cached_draft(): void
     {
         $user = User::factory()->create([
             'role' => 'customer',
             'phone' => '081277777777',
         ]);
         $sessionId = 'chat-archive-test';
-        $now = now();
 
-        $order = Order::query()->create([
-            'order_number' => 'BD-CHAT-ARCH-1',
-            'user_id' => $user->id,
-            'service_type_id' => DB::table('service_types')->where('code', 'RIDE')->value('id'),
-            'status_id' => DB::table('order_statuses')->where('code', 'PENDING')->value('id'),
-            'subtotal' => 0,
-            'delivery_fee' => 5000,
-            'service_fee' => 0,
-            'total_price' => 5000,
-        ]);
-
-        DB::table('ai_chat_sessions')->insert([
-            'user_id' => $user->id,
-            'session_id' => $sessionId,
-            'last_message_at' => $now,
-            'created_at' => $now,
-            'updated_at' => $now,
-        ]);
-
-        $userMessageId = DB::table('ai_chat_messages')->insertGetId([
-            'user_id' => $user->id,
-            'session_id' => $sessionId,
-            'role' => 'user',
-            'message' => 'antar saya',
-            'created_at' => $now,
-        ]);
-        $assistantMessageId = DB::table('ai_chat_messages')->insertGetId([
-            'user_id' => $user->id,
-            'session_id' => $sessionId,
-            'role' => 'assistant',
-            'message' => 'Order dibuat.',
-            'created_at' => $now,
-        ]);
-        DB::table('ai_message_details')->insert([
-            'chat_message_id' => $assistantMessageId,
-            'ai_response' => json_encode(['order' => ['id' => $order->id]]),
-            'model_used' => 'deterministic-command',
+        $store = app(ChatbotDraftStore::class);
+        $store->savePayload($user, $sessionId, [
             'intent' => 'ride_order',
-            'order_id' => $order->id,
-            'created_at' => $now,
-            'updated_at' => $now,
+            'ride' => [
+                'destination_address' => 'Polines',
+                'ready_to_confirm' => true,
+            ],
+            'order' => [
+                'created' => false,
+            ],
         ]);
+
+        $this->assertNotNull($store->latestPayload($user, $sessionId));
 
         Sanctum::actingAs($user);
 
@@ -214,23 +183,57 @@ class ChatbotAccessTest extends TestCase
 
         $response->assertOk()
             ->assertJsonPath('status', 'success')
-            ->assertJsonPath('archived', true)
-            ->assertJsonPath('message_count', 2)
-            ->assertJsonPath('completed_order_id', $order->id);
+            ->assertJsonPath('cleared', true)
+            ->assertJsonPath('session_id', $sessionId);
 
-        $this->assertDatabaseHas('ai_chat_messages', ['id' => $userMessageId]);
-        $this->assertDatabaseHas('ai_chat_messages', ['id' => $assistantMessageId]);
-        $this->assertDatabaseHas('ai_message_details', [
-            'chat_message_id' => $assistantMessageId,
-            'order_id' => $order->id,
+        $this->assertNull($store->latestPayload($user, $sessionId));
+    }
+
+    public function test_out_of_context_messages_are_limited_per_user_and_service(): void
+    {
+        config([
+            'bangdeliv.chatbot.out_of_context_limit' => 2,
+            'bangdeliv.chatbot.out_of_context_window_minutes' => 30,
+            'bangdeliv.chatbot.out_of_context_block_minutes' => 15,
         ]);
-        $this->assertNotNull(DB::table('ai_chat_sessions')
-            ->where('user_id', $user->id)
-            ->where('session_id', $sessionId)
-            ->value('completed_at'));
 
-        $this->getJson('/api/chatbot/sessions')
+        $user = User::factory()->create([
+            'role' => 'customer',
+            'phone' => '081288888888',
+        ]);
+
+        Sanctum::actingAs($user);
+
+        Http::fake([
+            '*' => Http::response([
+                'candidates' => [
+                    [
+                        'content' => [
+                            'parts' => [
+                                ['text' => '{"intent":"out_of_domain","command":"none"}'],
+                            ],
+                        ],
+                    ],
+                ],
+            ], 200),
+        ]);
+
+        $payload = [
+            'message' => 'ceritakan film favoritmu',
+            'service_type' => 'kurir',
+            'session_id' => 'ooc-limit-test',
+        ];
+
+        $this->postJson('/api/chatbot/process', $payload)
             ->assertOk()
-            ->assertJsonPath('data', []);
+            ->assertJsonPath('data.intent', 'out_of_domain');
+
+        $this->postJson('/api/chatbot/process', [
+            ...$payload,
+            'message' => 'bahas topik lain',
+        ])
+            ->assertStatus(429)
+            ->assertJsonPath('status', 'error')
+            ->assertJsonPath('message', 'Chatbot BangDeliv hanya untuk membuat pesanan. Kamu bisa coba lagi beberapa menit lagi.');
     }
 }

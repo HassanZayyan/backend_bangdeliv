@@ -13,7 +13,7 @@ class ChatbotShoppingItemIntentParser
     public const OP_REMOVE = 'remove';
 
     /**
-     * @return array<int, array{name: string, quantity: int, operation: string, notes: null, is_heavy: false}>
+     * @return array<int, array{name: string, quantity: int, operation: string, notes: null}>
      */
     public function parse(string $message): array
     {
@@ -46,14 +46,7 @@ class ChatbotShoppingItemIntentParser
 
     public function normalizeOperation(mixed $operation): ?string
     {
-        $normalized = strtolower(trim((string) ($operation ?? '')));
-
-        return match ($normalized) {
-            self::OP_ADD, 'increment', 'append' => self::OP_ADD,
-            self::OP_SET, 'replace', 'update' => self::OP_SET,
-            self::OP_REMOVE, 'delete' => self::OP_REMOVE,
-            default => null,
-        };
+        return ChatbotShoppingItemNormalizer::operation($operation);
     }
 
     private function detectOperation(string $message): ?string
@@ -74,7 +67,7 @@ class ChatbotShoppingItemIntentParser
     }
 
     /**
-     * @return array{name: string, quantity: int, operation: string, notes: null, is_heavy: false}|null
+     * @return array{name: string, quantity: int, operation: string, notes: null}|null
      */
     private function parsePart(string $part, string $operation): ?array
     {
@@ -94,7 +87,6 @@ class ChatbotShoppingItemIntentParser
             'quantity' => $quantity,
             'operation' => $operation,
             'notes' => null,
-            'is_heavy' => false,
         ];
     }
 

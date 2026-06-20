@@ -12,15 +12,7 @@ class CourierOrder extends Model
     protected $fillable = [
         'order_id',
         'package_description',
-        'careful_carry_required',
     ];
-
-    protected function casts(): array
-    {
-        return [
-            'careful_carry_required' => 'boolean',
-        ];
-    }
 
     public function order(): BelongsTo
     {

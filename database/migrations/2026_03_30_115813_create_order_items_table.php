@@ -25,11 +25,9 @@ return new class extends Migration
             $table->text('notes')->nullable();
             $table->json('metadata')->nullable();
             $table->boolean('is_available')->default(true); // driver update jika item habis
-            $table->boolean('is_heavy')->default(false);
             $table->timestamps();
 
             $table->index(['order_id', 'item_source'], 'shopping_order_items_order_source_idx');
-            $table->index(['order_id', 'is_heavy'], 'shopping_order_items_order_heavy_idx');
             $table->index(['order_id', 'pickup_location_id'], 'shopping_order_items_order_pickup_idx');
         });
 

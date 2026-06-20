@@ -24,7 +24,6 @@ class UpdateDriverShoppingItemsRequest extends FormRequest
             'items.*.unit_price' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
             'items.*.is_available' => ['nullable', 'boolean'],
             'items.*.notes' => ['nullable', 'string', 'max:500'],
-            'items.*.is_heavy' => ['nullable', 'boolean'],
         ];
     }
 }

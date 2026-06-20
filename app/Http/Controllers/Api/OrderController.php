@@ -363,7 +363,6 @@ class OrderController extends Controller
         $validated = $request->validate([
             'amount' => ['nullable', 'numeric', 'min:1', 'max:99999999'],
             'reason' => ['nullable', 'string', 'max:1000', 'required_with:amount'],
-            'careful_carry_required' => ['nullable', 'boolean'],
         ]);
 
         try {

@@ -3,7 +3,6 @@
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ChatbotController;
 use App\Http\Controllers\Api\DeviceTokenController;
-use App\Http\Controllers\Api\Driver\OrderExecutionController;
 use App\Http\Controllers\Api\DriverVerificationController;
 use App\Http\Controllers\Api\HomeController;
 use App\Http\Controllers\Api\OrderChatController;
@@ -18,8 +17,6 @@ Route::post('/auth/login', [AuthController::class, 'login'])->name('api.auth.log
 // Protected Auth Routes
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/chatbot/process', [ChatbotController::class, 'processChat'])->middleware('throttle:chatbot')->name('api.chatbot.process');
-    Route::get('/chatbot/sessions', [ChatbotController::class, 'listSessions'])->name('api.chatbot.sessions.index');
-    Route::get('/chatbot/sessions/{sessionId}/history', [ChatbotController::class, 'sessionHistory'])->name('api.chatbot.sessions.history');
     Route::post('/chatbot/sessions/{sessionId}/location', [ChatbotController::class, 'patchSessionLocation'])->name('api.chatbot.sessions.location');
     Route::post('/chatbot/sessions/{sessionId}/locations', [ChatbotController::class, 'patchSessionLocations'])->name('api.chatbot.sessions.locations');
     Route::post('/chatbot/sessions/{sessionId}/merchant', [ChatbotController::class, 'patchSessionMerchant'])->name('api.chatbot.sessions.merchant');
@@ -93,7 +90,6 @@ Route::prefix('v1')->group(function () {
             Route::patch('/driver/orders/{orderId}/location', [OrderController::class, 'updateDriverLocation'])->name('api.v1.driver.orders.location.update');
             Route::post('/driver/orders/{orderId}/proofs', [OrderController::class, 'uploadDriverProof'])->name('api.v1.driver.orders.proofs.store');
             Route::post('/driver/orders/{orderId}/status-transition', [OrderController::class, 'transitionStatusByDriver'])->name('api.v1.driver.orders.status-transition');
-            Route::patch('/driver/orders/{orderId}/status', [OrderExecutionController::class, 'updateStatus'])->name('api.v1.driver.orders.status.update');
             Route::post('/orders/{orderId}/attempt-failed', [OrderController::class, 'recordFailedAttemptByDriver'])->name('api.v1.driver.orders.attempt-failed');
             Route::post('/orders/{orderId}/payment/collect-cod', [OrderController::class, 'recordCodCollectionByDriver'])->name('api.v1.driver.orders.payment.collect-cod');
             Route::post('/orders/{orderId}/payment/transfer/confirm', [OrderController::class, 'recordTransferPaymentByDriver'])->name('api.v1.driver.orders.payment.transfer.confirm');
