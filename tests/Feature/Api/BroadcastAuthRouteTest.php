@@ -107,7 +107,6 @@ class BroadcastAuthRouteTest extends TestCase
         Driver::query()->create($this->driverAttributes([
             'user_id' => $driverUser->id,
             'vehicle_plate' => 'H 4321 RTA',
-            'license_number' => 'SIM-REALTIME-INACTIVE',
             'registration_status' => 'pending',
             'status' => 'offline',
         ]));
@@ -148,7 +147,6 @@ class BroadcastAuthRouteTest extends TestCase
         $driver = Driver::query()->create($this->driverAttributes([
             'user_id' => $driverUser->id,
             'vehicle_plate' => 'H 1234 RTA',
-            'license_number' => 'SIM-REALTIME-AUTH',
             'registration_status' => 'active',
             'status' => 'available',
         ]));

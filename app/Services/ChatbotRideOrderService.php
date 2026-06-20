@@ -188,16 +188,14 @@ class ChatbotRideOrderService
         if ($pickupText === null) {
             $text = "Baik {$name}, tujuan sebelumnya sudah saya reset.\n";
             $text .= "\nAlamat jemput dari profil belum tersedia.";
-            $text .= "\nSilakan isi Alamat Saya terlebih dahulu.";
-            $text .= "\n\nSetelah itu, klik tombol \"Atur Titik Jemput & Tujuan\" di bawah untuk memilih tujuan baru.";
+            $text .= "\nIsi Alamat Saya terlebih dahulu.";
         } else {
             $text = "Baik {$name}, tujuan sebelumnya sudah saya reset.\n";
             $text .= "\nJemput:";
             $text .= "\n{$pickupText}";
-            $text .= "\n\nSilakan klik tombol \"Atur Titik Jemput & Tujuan\" di bawah untuk memilih tujuan baru.";
         }
 
-        return [
+        $payload = [
             'intent' => 'ride_order',
             'service_type' => 'antar_jemput',
             'ride' => [
@@ -225,6 +223,16 @@ class ChatbotRideOrderService
             ],
             'assistant_text' => $text,
         ];
+
+        if ($pickupText !== null) {
+            $payload['action_payloads'] = [
+                'OPEN_ROUTE_PICKER' => [
+                    'label' => 'Pilih Tujuan Baru',
+                ],
+            ];
+        }
+
+        return $payload;
     }
 
     /**
@@ -456,7 +464,7 @@ class ChatbotRideOrderService
         }
 
         if ($destinationRaw === null) {
-            $reasons[] = 'Lokasi tujuan belum terbaca. Tulis contoh: "antar ke Stasiun Tawang" atau "tujuan ke Jalan Sudirman No 10".';
+            $reasons[] = 'Lokasi tujuan belum terbaca.';
             $missingFields[] = 'destination_address';
         } else {
             try {
@@ -959,7 +967,7 @@ class ChatbotRideOrderService
         }
 
         if (in_array('destination_address', $missingFields, true)) {
-            $buffer .= "\nContoh: antar ke Stasiun Tawang, tujuan ke Jalan Sudirman No 10, atau saya mau ke Polines.";
+            $buffer .= "\nContoh: Antar ke Ramayana Salatiga, atau Saya mau ke Alun-Alun Salatiga.";
         }
 
         return trim($buffer);
@@ -978,14 +986,11 @@ class ChatbotRideOrderService
         $buffer .= 'Tujuan: '.(string) $draft['destination_address']."\n";
         $buffer .= "Estimasi ongkir sementara: Rp {$deliveryFee} (kalkulasi detail menyusul).\n";
         $paymentMethod = $this->normalizePaymentMethodOrNull($draft['payment_method'] ?? null);
-        if ($paymentMethod === null) {
-            $buffer .= "Pilih metode pembayaran dulu: COD atau Transfer.\n";
-        } else {
+        if ($paymentMethod !== null) {
             $buffer .= 'Metode pembayaran: '.$this->paymentMethodLabel($paymentMethod)."\n";
         }
-        $buffer .= 'Ketik "Konfirmasi" untuk lanjut atau "Ubah Tujuan" untuk ganti tujuan.';
 
-        return $buffer;
+        return trim($buffer);
     }
 
     /**

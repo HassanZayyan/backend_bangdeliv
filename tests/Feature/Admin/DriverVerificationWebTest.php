@@ -28,7 +28,6 @@ class DriverVerificationWebTest extends TestCase
         $pendingDriver = Driver::query()->create($this->driverAttributes([
             'user_id' => $pendingUser->id,
             'vehicle_plate' => 'B 1234 PND',
-            'license_number' => 'SIMC-PND-WEB',
             'registration_status' => 'pending',
             'status' => 'offline',
         ]));
@@ -41,7 +40,6 @@ class DriverVerificationWebTest extends TestCase
         Driver::query()->create($this->driverAttributes([
             'user_id' => $rejectedUser->id,
             'vehicle_plate' => 'B 5678 REJ',
-            'license_number' => 'SIMC-REJ-WEB',
             'registration_status' => 'rejected',
             'status' => 'offline',
         ]));
@@ -73,7 +71,6 @@ class DriverVerificationWebTest extends TestCase
         $driver = Driver::query()->create($this->driverAttributes([
             'user_id' => $driverUser->id,
             'vehicle_plate' => 'B 9012 RVW',
-            'license_number' => 'SIMC-RVW-WEB',
             'registration_status' => 'pending',
             'status' => 'offline',
         ]));
@@ -127,7 +124,6 @@ class DriverVerificationWebTest extends TestCase
         $driver = Driver::query()->create($this->driverAttributes([
             'user_id' => $driverUser->id,
             'vehicle_plate' => 'B 3344 DEL',
-            'license_number' => 'SIMC-DEL-WEB',
             'registration_status' => 'active',
             'status' => 'available',
         ]));
@@ -194,7 +190,6 @@ class DriverVerificationWebTest extends TestCase
         $driver = Driver::query()->create($this->driverAttributes([
             'user_id' => $driverUser->id,
             'vehicle_plate' => 'B 7788 PRV',
-            'license_number' => 'SIMC-PRV-WEB',
             'registration_status' => 'pending',
             'status' => 'offline',
         ]));

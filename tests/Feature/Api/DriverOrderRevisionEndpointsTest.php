@@ -656,7 +656,6 @@ class DriverOrderRevisionEndpointsTest extends TestCase
             'vehicle_model' => 'Beat',
             'vehicle_plate' => 'H '.random_int(1000, 9999).' REV',
             'vehicle_color' => 'Hitam',
-            'license_number' => 'SIMC-REV-'.random_int(1000, 9999),
             'registration_status' => 'active',
             'status' => 'busy',
             'is_available' => true,

@@ -71,7 +71,7 @@ class ChatbotCourierFlowTest extends TestCase
 
         $draftMessage = (string) $response->json('data.assistant_text');
         $this->assertStringContainsString('Estimasi ongkir sementara', $draftMessage);
-        $this->assertStringContainsString('Ketik "Konfirmasi"', $draftMessage);
+        $this->assertStringNotContainsString('Ketik "Konfirmasi"', $draftMessage);
 
         $this->assertDatabaseCount('orders', 0);
         $this->assertDatabaseCount('courier_order_details', 0);
@@ -94,7 +94,6 @@ class ChatbotCourierFlowTest extends TestCase
         Driver::query()->create($this->driverAttributes([
             'user_id' => $driverUser->id,
             'vehicle_plate' => 'H 1234 CRT',
-            'license_number' => 'SIMC-CHATBOT-COURIER',
             'registration_status' => 'active',
             'status' => 'available',
         ]));

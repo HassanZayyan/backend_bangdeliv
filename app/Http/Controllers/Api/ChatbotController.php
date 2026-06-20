@@ -1099,9 +1099,14 @@ class ChatbotController extends Controller
         if (in_array('OPEN_ROUTE_PICKER', $nextActions, true)) {
             if ($serviceType === 'antar_jemput') {
                 $ride = is_array($payload['ride'] ?? null) ? $payload['ride'] : [];
+                $existing = is_array($actionPayloads['OPEN_ROUTE_PICKER'] ?? null)
+                    ? $actionPayloads['OPEN_ROUTE_PICKER']
+                    : [];
                 $actionPayloads['OPEN_ROUTE_PICKER'] = [
                     'service_type' => 'antar_jemput',
-                    'label' => 'Atur Titik Jemput & Tujuan',
+                    'label' => isset($existing['label']) && trim((string) $existing['label']) !== ''
+                        ? trim((string) $existing['label'])
+                        : 'Atur Titik Jemput & Tujuan',
                     'points' => [
                         'pickup' => [
                             'target' => 'pickup',
@@ -1123,9 +1128,14 @@ class ChatbotController extends Controller
                 ];
             } elseif ($serviceType === 'kurir') {
                 $courier = is_array($payload['courier'] ?? null) ? $payload['courier'] : [];
+                $existing = is_array($actionPayloads['OPEN_ROUTE_PICKER'] ?? null)
+                    ? $actionPayloads['OPEN_ROUTE_PICKER']
+                    : [];
                 $actionPayloads['OPEN_ROUTE_PICKER'] = [
                     'service_type' => 'kurir',
-                    'label' => 'Atur Titik Ambil & Tujuan',
+                    'label' => isset($existing['label']) && trim((string) $existing['label']) !== ''
+                        ? trim((string) $existing['label'])
+                        : 'Atur Titik Ambil & Tujuan',
                     'points' => [
                         'pickup' => [
                             'target' => 'pickup',

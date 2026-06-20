@@ -60,7 +60,6 @@
                                 <div class="driver-avatar" style="width: 45px; height: 45px; flex-shrink: 0;">{{ $initial }}</div>
                                 <div class="td-user">
                                     <span class="td-strong">{{ $driver['name'] ?? '-' }}</span>
-                                    <span class="td-sub"><i class='bx bx-id-card'></i> {{ $driver['license_number'] ?? '-' }}</span>
                                     <span class="td-sub"><i class='bx bx-phone'></i> {{ $driver['phone'] ?? '-' }}</span>
                                 </div>
                             </div>

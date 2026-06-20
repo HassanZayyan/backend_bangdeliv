@@ -34,7 +34,7 @@ autentikasi token mobile, dan Laravel Reverb untuk WebSocket realtime.
 
 | Tabel | Fungsi |
 | --- | --- |
-| `drivers` | Profil driver yang terhubung 1:1 ke `users`. Menyimpan kendaraan, nomor SIM, status verifikasi (`pending`, `active`, `rejected`, `suspended`), status kerja (`available`, `busy`, `offline`), koordinat terakhir, rating, dan total delivery. |
+| `drivers` | Profil driver yang terhubung 1:1 ke `users`. Menyimpan data kendaraan, status verifikasi (`pending`, `active`, `rejected`, `suspended`), status kerja (`available`, `busy`, `offline`), koordinat terakhir, rating, dan total delivery. |
 | `driver_documents` | Dokumen verifikasi driver seperti KTP, SIM, dan selfie. Mendukung status `pending`, `approved`, `rejected`, alasan penolakan, waktu verifikasi, dan admin verifier. |
 
 ### 2.3 Restoran dan Menu

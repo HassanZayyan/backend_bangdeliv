@@ -137,7 +137,6 @@ class AuthProfileTest extends TestCase
         $driver = Driver::query()->create($this->driverAttributes([
             'user_id' => $driverUser->id,
             'vehicle_plate' => 'B 1234 XYZ',
-            'license_number' => 'SIMC-8899123',
             'registration_status' => 'active',
             'status' => 'available',
         ]));
@@ -325,7 +324,6 @@ class AuthProfileTest extends TestCase
         Driver::query()->create($this->driverAttributes([
             'user_id' => $driverUser->id,
             'vehicle_plate' => 'B 9091 OLD',
-            'license_number' => 'SIMC-OLD-2026',
             'registration_status' => 'active',
             'status' => 'available',
         ]));

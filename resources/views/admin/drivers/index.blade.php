@@ -16,7 +16,6 @@
     if ($searchQuery) {
         $query->where(function ($q) use ($searchQuery) {
             $q->where('vehicle_plate', 'like', "%{$searchQuery}%")
-              ->orWhere('license_number', 'like', "%{$searchQuery}%")
               ->orWhereHas('user', function ($uq) use ($searchQuery) {
                   $uq->where('name', 'like', "%{$searchQuery}%")
                      ->orWhere('phone', 'like', "%{$searchQuery}%");
@@ -124,7 +123,6 @@
                         </td>
                         <td>
                             <span class="td-strong">{{ $driver->vehicle_plate }}</span>
-                            <span class="td-sub" style="display:block;">{{ $driver->license_number }}</span>
                         </td>
                         <td>
                             <span class="td-strong">{{ $driver->orders_count ?? 0 }} order terkait</span>

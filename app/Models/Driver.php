@@ -14,7 +14,6 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property string $vehicle_type
  * @property string $vehicle_brand
  * @property string $vehicle_model
- * @property string|null $license_number
  * @property string $registration_status
  * @property string $status
  * @property string|null $latitude
@@ -37,7 +36,6 @@ class Driver extends Model
         'vehicle_type',
         'vehicle_brand',
         'vehicle_model',
-        'license_number',
         'registration_status',
         'status',
         'latitude',
