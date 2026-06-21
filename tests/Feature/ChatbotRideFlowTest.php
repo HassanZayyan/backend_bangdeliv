@@ -93,6 +93,52 @@ class ChatbotRideFlowTest extends TestCase
         $this->assertDatabaseCount('orders', 1);
     }
 
+    public function test_chatbot_ride_qris_payment_uses_deterministic_fast_path(): void
+    {
+        $this->fakeGeminiAndGeocoding();
+
+        $user = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+            'phone' => '089900000102',
+        ]);
+
+        $this->createDefaultAddress($user);
+
+        $token = $user->createToken('test-chatbot-ride-qris')->plainTextToken;
+        $sessionId = 'sess-ride-qris';
+
+        $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/process', [
+                'message' => 'antar ke polines',
+                'service_type' => 'antar_jemput',
+                'session_id' => $sessionId,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.ride.ready_to_confirm', true);
+
+        $paymentResponse = $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/process', [
+                'message' => 'QRIS',
+                'service_type' => 'antar_jemput',
+                'session_id' => $sessionId,
+            ]);
+
+        $paymentResponse
+            ->assertOk()
+            ->assertJsonPath('model_used', 'deterministic-payment')
+            ->assertJsonPath('data.order.created', false)
+            ->assertJsonPath('data.ride.payment_method', 'TRANSFER')
+            ->assertJsonPath('data.validation.next_actions.0', 'CONFIRM_DRAFT');
+
+        $this->assertNotContains('SET_PAYMENT_COD', $paymentResponse->json('data.validation.next_actions'));
+        $this->assertNotContains('SET_PAYMENT_TRANSFER', $paymentResponse->json('data.validation.next_actions'));
+        $this->assertDatabaseCount('orders', 0);
+    }
+
     public function test_chatbot_ride_with_saved_address_offers_route_picker_when_destination_missing(): void
     {
         $this->fakeGeminiAndGeocoding();

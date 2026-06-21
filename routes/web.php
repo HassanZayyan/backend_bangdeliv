@@ -1,7 +1,7 @@
 <?php
 
-use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\CustomerController;
+use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\DriverController;
 use App\Http\Controllers\Admin\DriverVerificationController;
 use App\Http\Controllers\Admin\NotificationController;
@@ -45,6 +45,9 @@ Route::prefix('admin')->middleware(['auth', 'role:admin'])->group(function () {
     // Drivers
     Route::get('/driver', [DriverController::class, 'index'])
         ->name('admin.drivers.index');
+    Route::get('/driver/{driver}', [DriverController::class, 'show'])
+        ->whereNumber('driver')
+        ->name('admin.drivers.show');
     Route::get('/driver/verifikasi', [DriverVerificationController::class, 'index'])
         ->name('admin.verification');
     Route::get('/driver/verifikasi/{driverId}', [DriverVerificationController::class, 'show'])

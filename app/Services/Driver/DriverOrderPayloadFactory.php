@@ -22,6 +22,7 @@ class DriverOrderPayloadFactory
 {
     public function __construct(
         private readonly ShoppingPricingService $shoppingPricingService,
+        private readonly DriverIncomeFeeCalculator $driverIncomeFeeCalculator,
         private readonly OrderProofPolicyService $proofPolicyService,
         private readonly OrderPickupPointResolver $pickupPointResolver,
         private readonly DeliveryFeeNegotiationService $deliveryFeeNegotiationService,
@@ -112,6 +113,7 @@ class DriverOrderPayloadFactory
         $driverFee = $serviceCode === ServiceTypeCode::Shopping->value && $statusCode === 'CANCELLED_WITH_FEE'
             ? $this->shoppingPricingService->cancellationDriverFeeAmount($order)
             : $deliveryFee;
+        $incomeBreakdown = $this->driverIncomeFeeCalculator->breakdown($driverFee);
 
         $payload = [
             'id' => (string) $order->id,
@@ -127,6 +129,10 @@ class DriverOrderPayloadFactory
             'dropoff_latitude' => $dropoff['latitude'],
             'dropoff_longitude' => $dropoff['longitude'],
             'fee' => (int) round($driverFee),
+            'driver_income_gross' => $incomeBreakdown['gross_income'],
+            'driver_admin_fee_percent' => $incomeBreakdown['admin_fee_percent'],
+            'driver_admin_fee' => $incomeBreakdown['admin_fee'],
+            'driver_income_net' => $incomeBreakdown['net_income'],
             'delivery_distance_km' => $order->delivery_distance_km !== null ? round((float) $order->delivery_distance_km, 2) : null,
             'delivery_distance_text' => $order->delivery_distance_text,
             'delivery_fee' => $deliveryFee,

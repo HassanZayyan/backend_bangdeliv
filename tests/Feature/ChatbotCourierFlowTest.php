@@ -141,6 +141,65 @@ class ChatbotCourierFlowTest extends TestCase
         $this->assertStringContainsString('Estimasi ongkir sementara:', $finalMessage);
     }
 
+    public function test_chatbot_kurir_qris_payment_uses_deterministic_fast_path(): void
+    {
+        $this->fakeGeocoding();
+
+        $user = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+            'phone' => '081111111112',
+        ]);
+
+        $this->createDefaultAddress($user);
+
+        Address::query()->create([
+            'user_id' => $user->id,
+            'label' => 'Rumah',
+            'recipient_name' => $user->name,
+            'phone' => $user->phone,
+            'full_address' => 'Jl. Melati No. 3, Jakarta',
+            'detail' => 'Pagar hitam',
+            'latitude' => -6.20550000,
+            'longitude' => 106.82400000,
+            'is_default' => true,
+        ]);
+
+        $token = $user->createToken('test-chatbot-kurir-qris')->plainTextToken;
+        $sessionId = 'sess-kurir-qris';
+
+        $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/process', [
+                'message' => 'kirim ke polines, isi paket: ijazah',
+                'service_type' => 'kurir',
+                'session_id' => $sessionId,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.courier.ready_to_confirm', true);
+
+        $paymentResponse = $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/process', [
+                'message' => 'QRIS',
+                'service_type' => 'kurir',
+                'session_id' => $sessionId,
+            ]);
+
+        $paymentResponse
+            ->assertOk()
+            ->assertJsonPath('model_used', 'deterministic-payment')
+            ->assertJsonPath('data.order.created', false)
+            ->assertJsonPath('data.courier.payment_method', 'TRANSFER')
+            ->assertJsonPath('data.validation.next_actions.0', 'CONFIRM_DRAFT');
+
+        $this->assertNotContains('SET_PAYMENT_COD', $paymentResponse->json('data.validation.next_actions'));
+        $this->assertNotContains('SET_PAYMENT_TRANSFER', $paymentResponse->json('data.validation.next_actions'));
+        $this->assertDatabaseCount('orders', 0);
+        $this->assertDatabaseCount('courier_order_details', 0);
+    }
+
     public function test_chatbot_kurir_requests_profile_address_when_missing(): void
     {
         $this->fakeGeocoding();

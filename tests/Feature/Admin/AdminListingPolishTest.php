@@ -2,7 +2,11 @@
 
 namespace Tests\Feature\Admin;
 
+use App\Models\Driver;
+use App\Models\Order;
+use App\Models\OrderStatus;
 use App\Models\Restaurant;
+use App\Models\ServiceType;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -53,6 +57,80 @@ class AdminListingPolishTest extends TestCase
             ->assertSee('Cari Nama, Email, atau HP')
             ->assertDontSee('bx-filter-alt', false)
             ->assertDontSee('>Filter<', false);
+    }
+
+    public function test_driver_management_shows_system_and_manual_admin_fee_modes(): void
+    {
+        $admin = User::factory()->create([
+            'role' => 'admin',
+            'phone' => '081300000105',
+        ]);
+        $driverUser = User::factory()->create([
+            'role' => 'driver',
+            'name' => 'Driver Admin Fee',
+            'phone' => '081300000205',
+        ]);
+        $customer = User::factory()->create([
+            'role' => 'customer',
+            'phone' => '081300000305',
+        ]);
+        $driver = Driver::query()->create($this->driverAttributes([
+            'user_id' => $driverUser->id,
+            'vehicle_plate' => 'H 1500 FEE',
+            'registration_status' => 'active',
+            'status' => 'available',
+        ]));
+
+        Order::query()->create([
+            'order_number' => 'BD-ADMIN-FEE-001',
+            'user_id' => $customer->id,
+            'service_type_id' => ServiceType::query()->where('code', 'RIDE')->value('id'),
+            'driver_id' => $driver->id,
+            'delivery_fee' => 15000,
+            'service_fee' => 0,
+            'total_price' => 15000,
+            'status_id' => OrderStatus::query()->where('code', 'COMPLETED')->value('id'),
+            'payment_status' => 'paid',
+            'payment_method' => 'COD',
+        ]);
+
+        $this->actingAs($admin)
+            ->get(route('admin.drivers.index'))
+            ->assertOk()
+            ->assertSee('Driver Admin Fee')
+            ->assertSee(route('admin.drivers.show', ['driver' => $driver->id]), false)
+            ->assertDontSee(route('admin.verification.show', ['driverId' => $driver->id]), false)
+            ->assertDontSee('name="income_mode"', false)
+            ->assertSee('Rp 13.500')
+            ->assertSee('Bruto Rp 15.000')
+            ->assertSee('Potongan 10%: Rp 1.500');
+
+        $this->actingAs($admin)
+            ->get(route('admin.drivers.show', ['driver' => $driver->id]))
+            ->assertOk()
+            ->assertSee('Gaji Driver')
+            ->assertSee('By Sistem')
+            ->assertSee('Manual')
+            ->assertSee('BD-ADMIN-FEE-001')
+            ->assertSee('Rp 13.500')
+            ->assertSee('Pendapatan Bruto')
+            ->assertSee('Rp 15.000')
+            ->assertSee('Potongan Admin')
+            ->assertSee('Rp 1.500')
+            ->assertSee('10%')
+            ->assertSee(route('admin.verification.show', ['driverId' => $driver->id]), false);
+
+        $this->actingAs($admin)
+            ->get(route('admin.drivers.show', [
+                'driver' => $driver->id,
+                'income_mode' => 'manual',
+                'admin_fee_percent' => 20,
+            ]))
+            ->assertOk()
+            ->assertSee('Manual')
+            ->assertSee('Rp 12.000')
+            ->assertSee('Rp 3.000')
+            ->assertSee('20%');
     }
 
     public function test_customer_actions_show_detail_orders_and_blacklist_controls(): void

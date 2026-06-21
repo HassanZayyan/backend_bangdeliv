@@ -3,11 +3,18 @@
 namespace App\Services\Admin;
 
 use App\Models\Driver;
+use App\Models\Order;
+use App\Models\OrderStatus;
+use App\Services\Driver\DriverIncomeFeeCalculator;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 
 class AdminDriverQueryService
 {
+    public function __construct(
+        private readonly DriverIncomeFeeCalculator $driverIncomeFeeCalculator,
+    ) {}
+
     /**
      * @return array<string, mixed>
      */
@@ -15,6 +22,7 @@ class AdminDriverQueryService
     {
         $statusFilters = $this->statusFilters();
         $selectedStatus = $this->normalizeStatus((string) $request->query('status', 'semua'));
+        $selectedAdminFeePercent = $this->driverIncomeFeeCalculator->defaultAdminFeePercent();
         $search = trim((string) $request->query('q', ''));
 
         $query = Driver::query()
@@ -29,10 +37,31 @@ class AdminDriverQueryService
             ->paginate(AdminPagination::PER_PAGE)
             ->withQueryString();
 
-        $drivers->getCollection()->each(function (Driver $driver): void {
+        $driverCollection = $drivers->getCollection();
+        $driverCollection->load([
+            'orders' => function ($query): void {
+                $query
+                    ->with([
+                        'serviceType:id,code',
+                        'statusRef:id,code,display_name',
+                        'orderLocations:id,order_id,location_role,failed_attempt_count',
+                    ])
+                    ->whereIn('status_id', $this->incomeStatusIds());
+            },
+        ]);
+
+        $driverCollection->each(function (Driver $driver) use ($selectedAdminFeePercent): void {
+            $grossIncome = $driver->orders
+                ->sum(fn (Order $order): float => $this->driverIncomeFeeCalculator->grossIncomeForOrder($order));
+            $breakdown = $this->driverIncomeFeeCalculator->breakdown($grossIncome, $selectedAdminFeePercent);
+
             $driver->setAttribute('admin_status', $this->statusConfig($driver));
             $driver->setAttribute('admin_initial', strtoupper(substr($driver->user?->name ?? 'D', 0, 2)));
             $driver->setAttribute('admin_avatar_url', $this->avatarUrl((string) ($driver->user?->avatar ?? '')));
+            $driver->setAttribute('admin_income_summary', [
+                ...$breakdown,
+                'order_count' => $driver->orders->count(),
+            ]);
         });
 
         return [
@@ -40,7 +69,66 @@ class AdminDriverQueryService
             'statusFilters' => $statusFilters,
             'statusCounts' => $this->statusCounts(),
             'selectedStatus' => $selectedStatus,
+            'selectedAdminFeePercent' => $selectedAdminFeePercent,
             'search' => $search,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function showData(Driver $driver, Request $request): array
+    {
+        $selectedIncomeMode = $this->normalizeIncomeMode((string) $request->query('income_mode', 'system'));
+        $selectedAdminFeePercent = $this->selectedAdminFeePercent($request, $selectedIncomeMode);
+
+        $driver->load('user');
+        $driver->setAttribute('admin_status', $this->statusConfig($driver));
+        $driver->setAttribute('admin_initial', strtoupper(substr($driver->user?->name ?? 'D', 0, 2)));
+        $driver->setAttribute('admin_avatar_url', $this->avatarUrl((string) ($driver->user?->avatar ?? '')));
+
+        $incomeOrders = $driver->orders()
+            ->with([
+                'user:id,name',
+                'serviceType:id,code,display_name',
+                'statusRef:id,code,display_name',
+                'orderLocations:id,order_id,location_role,failed_attempt_count',
+            ])
+            ->whereIn('status_id', $this->incomeStatusIds())
+            ->latest('id')
+            ->limit(100)
+            ->get();
+
+        $incomeRows = $incomeOrders
+            ->map(function (Order $order) use ($selectedAdminFeePercent): array {
+                $grossIncome = $this->driverIncomeFeeCalculator->grossIncomeForOrder($order);
+                $breakdown = $this->driverIncomeFeeCalculator->breakdown($grossIncome, $selectedAdminFeePercent);
+
+                return [
+                    'order_number' => $order->order_number ?: (string) $order->id,
+                    'customer_name' => $order->user?->name ?? '-',
+                    'service_label' => $order->serviceType?->display_name ?? $order->serviceType?->code ?? '-',
+                    'status_label' => $order->statusRef?->display_name ?? '-',
+                    'date' => $order->delivered_at ?? $order->updated_at ?? $order->created_at,
+                    ...$breakdown,
+                ];
+            })
+            ->values();
+
+        $grossTotal = $incomeRows->sum(fn (array $row): float => (float) $row['gross_income']);
+        $incomeSummary = [
+            ...$this->driverIncomeFeeCalculator->breakdown($grossTotal, $selectedAdminFeePercent),
+            'order_count' => $incomeRows->count(),
+        ];
+
+        return [
+            'driver' => $driver,
+            'incomeRows' => $incomeRows,
+            'incomeSummary' => $incomeSummary,
+            'selectedIncomeMode' => $selectedIncomeMode,
+            'selectedAdminFeePercent' => $selectedAdminFeePercent,
+            'systemAdminFeePercent' => $this->driverIncomeFeeCalculator->defaultAdminFeePercent(),
+            'backUrl' => route('admin.drivers.index'),
         ];
     }
 
@@ -61,6 +149,22 @@ class AdminDriverQueryService
     private function normalizeStatus(string $status): string
     {
         return array_key_exists($status, $this->statusFilters()) ? $status : 'semua';
+    }
+
+    private function normalizeIncomeMode(string $mode): string
+    {
+        return in_array($mode, ['system', 'manual'], true) ? $mode : 'system';
+    }
+
+    private function selectedAdminFeePercent(Request $request, string $incomeMode): float
+    {
+        if ($incomeMode === 'manual') {
+            return $this->driverIncomeFeeCalculator->normalizePercent(
+                $request->query('admin_fee_percent', $this->driverIncomeFeeCalculator->defaultAdminFeePercent())
+            );
+        }
+
+        return $this->driverIncomeFeeCalculator->defaultAdminFeePercent();
     }
 
     private function applySearch($query, string $search): void
@@ -129,5 +233,17 @@ class AdminDriverQueryService
         return $avatarPath !== '' && Storage::disk('public')->exists($avatarPath)
             ? asset('storage/'.$avatarPath)
             : null;
+    }
+
+    /**
+     * @return array<int, int>
+     */
+    private function incomeStatusIds(): array
+    {
+        return OrderStatus::query()
+            ->whereIn('code', ['COMPLETED', 'CANCELLED'])
+            ->pluck('id')
+            ->map(fn ($id): int => (int) $id)
+            ->all();
     }
 }

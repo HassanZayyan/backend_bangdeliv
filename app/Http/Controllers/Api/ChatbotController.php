@@ -388,11 +388,11 @@ class ChatbotController extends Controller
             $nluPayload = null;
             $modelUsed = null;
             $nluFromModel = false;
-            $fastCommand = $this->detectTransportFastCommand($message);
+            $fastPayload = $this->detectTransportFastPayload($message);
 
-            if ($fastCommand !== null) {
-                $nluPayload = ['command' => $fastCommand];
-                $modelUsed = 'deterministic-command';
+            if ($fastPayload !== null) {
+                $nluPayload = $fastPayload['payload'];
+                $modelUsed = $fastPayload['model_used'];
             } else {
                 try {
                     $modelContext = $this->draftStore->context($user, $sessionId, $serviceType);
@@ -626,6 +626,42 @@ class ChatbotController extends Controller
 
         if (in_array($normalized, self::CONFIRM_COMMANDS, true)) {
             return 'confirm';
+        }
+
+        return null;
+    }
+
+    /**
+     * @return array{payload: array<string, mixed>, model_used: string}|null
+     */
+    private function detectTransportFastPayload(string $message): ?array
+    {
+        $command = $this->detectTransportFastCommand($message);
+        if ($command !== null) {
+            return [
+                'payload' => ['command' => $command],
+                'model_used' => 'deterministic-command',
+            ];
+        }
+
+        $normalized = strtolower(trim((string) preg_replace('/[^\p{L}\p{N}\s]+/u', ' ', $message)));
+        $normalized = strtolower(trim((string) preg_replace('/\s+/', ' ', $normalized)));
+        if ($normalized === '') {
+            return null;
+        }
+
+        if (in_array($normalized, ['cod', 'cash', 'tunai'], true)) {
+            return [
+                'payload' => ['payment_method' => 'COD'],
+                'model_used' => 'deterministic-payment',
+            ];
+        }
+
+        if (in_array($normalized, ['transfer', 'tf', 'bank', 'qris', 'non tunai', 'nontunai'], true)) {
+            return [
+                'payload' => ['payment_method' => 'TRANSFER'],
+                'model_used' => 'deterministic-payment',
+            ];
         }
 
         return null;

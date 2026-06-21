@@ -1118,6 +1118,10 @@ class DriverOrderWorkflowTest extends TestCase
             ->assertJsonPath('data.history_orders.0.delivery_fee', 6000)
             ->assertJsonPath('data.history_orders.0.service_fee', 0)
             ->assertJsonPath('data.history_orders.0.driver_income', 6000)
+            ->assertJsonPath('data.history_orders.0.driver_income_gross', 6000)
+            ->assertJsonPath('data.history_orders.0.driver_admin_fee_percent', 10)
+            ->assertJsonPath('data.history_orders.0.driver_admin_fee', 600)
+            ->assertJsonPath('data.history_orders.0.driver_income_net', 5400)
             ->assertJsonPath('data.history_orders.0.total_price', 23500)
             ->assertJsonPath('data.history_orders.0.status', 'Selesai');
 
@@ -1125,6 +1129,9 @@ class DriverOrderWorkflowTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.id', (string) $order->id)
             ->assertJsonPath('data.order_number', 'BD-DRV-HST-0001')
+            ->assertJsonPath('data.driver_income_gross', 6000)
+            ->assertJsonPath('data.driver_admin_fee', 600)
+            ->assertJsonPath('data.driver_income_net', 5400)
             ->assertJsonPath('data.status_code', 'COMPLETED');
 
         [$otherDriverUser] = $this->createActiveDriver('history-other');

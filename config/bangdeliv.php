@@ -109,6 +109,7 @@ return [
     'delivery_rate_10_25_per_km' => env('DELIVERY_RATE_10_25_PER_KM', 2500),
     'delivery_rate_25_50_per_km' => env('DELIVERY_RATE_25_50_PER_KM', 3000),
     'max_delivery_distance' => env('MAX_DELIVERY_DISTANCE', 50),      // 50 km
+    'driver_admin_fee_percent' => env('DRIVER_ADMIN_FEE_PERCENT', 10),
 
     /*
     |--------------------------------------------------------------------------

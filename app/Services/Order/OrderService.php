@@ -17,10 +17,11 @@ use App\Models\OrderStatus;
 use App\Models\OrderStatusHistory;
 use App\Models\Restaurant;
 use App\Models\User;
+use App\Services\Admin\AdminNotificationService;
 use App\Services\Driver\Dispatch\DriverCandidateSelector;
+use App\Services\Driver\DriverIncomeFeeCalculator;
 use App\Services\Driver\DriverOrderPayloadFactory;
 use App\Services\Driver\DriverOrderRealtimeService;
-use App\Services\Admin\AdminNotificationService;
 use App\Services\Notification\OrderPricingPushNotificationService;
 use App\Services\Notification\OrderRealtimeBroadcaster;
 use App\Services\Notification\OrderStatusPushNotificationService;
@@ -49,6 +50,7 @@ class OrderService
         private readonly ShoppingPricingService $shoppingPricingService,
         private readonly ShoppingRouteService $shoppingRouteService,
         private readonly DriverOrderPayloadFactory $driverOrderPayloadFactory,
+        private readonly DriverIncomeFeeCalculator $driverIncomeFeeCalculator,
         private readonly DriverOrderRealtimeService $driverOrderRealtimeService,
         private readonly DriverCandidateSelector $driverCandidateSelector,
         private readonly OrderStatusPushNotificationService $orderStatusPushNotificationService,
@@ -679,7 +681,8 @@ class OrderService
                 $date = $order->delivered_at ?? $order->updated_at ?? $order->created_at;
                 $deliveryFee = round((float) $order->delivery_fee, 2);
                 $serviceFee = round((float) $order->service_fee, 2);
-                $driverIncome = $this->driverHistoryIncomeAmount($order);
+                $driverIncome = $this->driverIncomeFeeCalculator->grossIncomeForOrder($order);
+                $incomeBreakdown = $this->driverIncomeFeeCalculator->breakdown($driverIncome);
 
                 return [
                     'id' => $order->order_number ?: (string) $order->id,
@@ -691,6 +694,10 @@ class OrderService
                     'delivery_fee' => $deliveryFee,
                     'service_fee' => $serviceFee,
                     'driver_income' => $driverIncome,
+                    'driver_income_gross' => $incomeBreakdown['gross_income'],
+                    'driver_admin_fee_percent' => $incomeBreakdown['admin_fee_percent'],
+                    'driver_admin_fee' => $incomeBreakdown['admin_fee'],
+                    'driver_income_net' => $incomeBreakdown['net_income'],
                     'total_price' => round((float) $order->total_price, 2),
                     'status' => $this->driverHistoryStatusLabel($statusCode, $order->statusRef?->display_name),
                     'status_code' => $statusCode,
@@ -702,31 +709,6 @@ class OrderService
         return [
             'history_orders' => $history,
         ];
-    }
-
-    private function driverHistoryIncomeAmount(Order $order): float
-    {
-        $order->loadMissing(['serviceType', 'statusRef']);
-        $serviceCode = strtoupper((string) ($order->serviceType?->code ?? ''));
-        $statusCode = strtoupper((string) ($order->statusRef?->code ?? ''));
-        if ($serviceCode === 'SHOPPING' && $statusCode === 'CANCELLED_WITH_FEE') {
-            $driverFee = $this->shoppingPricingService->cancellationDriverFeeAmount($order);
-            if ($driverFee > 0) {
-                return $driverFee;
-            }
-        }
-
-        $deliveryFee = round((float) $order->delivery_fee, 2);
-        if ($deliveryFee > 0) {
-            return $deliveryFee;
-        }
-
-        $paidAmount = round((float) ($order->paid_amount ?? 0), 2);
-        if ($paidAmount > 0) {
-            return $paidAmount;
-        }
-
-        return round((float) $order->total_price, 2);
     }
 
     /**
