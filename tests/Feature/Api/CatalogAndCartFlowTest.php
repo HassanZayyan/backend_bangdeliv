@@ -15,7 +15,6 @@ class CatalogAndCartFlowTest extends TestCase
         Restaurant::query()->create([
             'name' => 'Resto Aktif',
             'slug' => 'resto-aktif',
-            'description' => null,
             'address' => 'Jl. Aktif',
             'latitude' => -6.20000000,
             'longitude' => 106.81666600,
@@ -26,7 +25,6 @@ class CatalogAndCartFlowTest extends TestCase
         Restaurant::query()->create([
             'name' => 'Resto Kedua',
             'slug' => 'resto-kedua',
-            'description' => null,
             'address' => 'Jl. Kedua',
             'latitude' => -6.21000000,
             'longitude' => 106.82666600,
@@ -48,7 +46,6 @@ class CatalogAndCartFlowTest extends TestCase
         Restaurant::query()->create([
             'name' => 'Warung Zeta',
             'slug' => 'warung-zeta',
-            'description' => null,
             'merchant_type' => 'warung',
             'address' => 'Jl. Zeta',
             'latitude' => -6.20000000,
@@ -60,7 +57,6 @@ class CatalogAndCartFlowTest extends TestCase
         Restaurant::query()->create([
             'name' => 'Alfamart BangDeliv Point',
             'slug' => 'alfamart-bangdeliv-point',
-            'description' => null,
             'merchant_type' => 'convenience_store',
             'address' => 'Jl. Alfa',
             'latitude' => -6.21000000,

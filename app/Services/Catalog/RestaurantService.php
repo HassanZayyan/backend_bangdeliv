@@ -74,7 +74,6 @@ class RestaurantService
                 $query->where('id', $restaurantIdOrSlug)
                     ->orWhere('slug', $restaurantIdOrSlug);
             })
-            ->with('menuCategories')
             ->first();
 
         if (! $restaurant) {
@@ -94,7 +93,6 @@ class RestaurantService
             'name' => $restaurant->name,
             'slug' => $restaurant->slug,
             'merchant_type' => $restaurant->merchant_type,
-            'description' => $restaurant->description,
             'address' => $restaurant->address,
             'phone' => $restaurant->phone,
             'latitude' => (float) $restaurant->latitude,
@@ -102,7 +100,7 @@ class RestaurantService
             'banner_image' => $restaurant->banner_image,
             'is_open_now' => $this->isOpenNow($restaurant),
             'operating_hours' => [],
-            'total_categories' => $restaurant->menuCategories->count(),
+            'total_categories' => 0,
             'total_menus' => $restaurant->menus()->count(),
         ];
     }
@@ -110,17 +108,12 @@ class RestaurantService
     /**
      * @return array<string, mixed>
      */
-    public function menusPayload(Restaurant $restaurant, ?int $categoryId = null, ?string $search = null, bool $onlyAvailable = true): array
+    public function menusPayload(Restaurant $restaurant, ?string $search = null, bool $onlyAvailable = true): array
     {
-        $categoryQuery = $restaurant->menuCategories()->orderBy('sort_order')->orderBy('id');
-        $menuQuery = $restaurant->menus()->with('category')->orderBy('sort_order')->orderBy('id');
+        $menuQuery = $restaurant->menus()->orderBy('sort_order')->orderBy('id');
 
         if ($onlyAvailable) {
             $menuQuery->where('is_available', true);
-        }
-
-        if ($categoryId !== null) {
-            $menuQuery->where('menu_category_id', $categoryId);
         }
 
         if ($search !== null && $search !== '') {
@@ -128,7 +121,6 @@ class RestaurantService
         }
 
         $menus = $menuQuery->get();
-        $categories = $categoryQuery->get();
 
         return [
             'restaurant' => [
@@ -137,17 +129,12 @@ class RestaurantService
                 'slug' => $restaurant->slug,
                 'merchant_type' => $restaurant->merchant_type,
             ],
-            'categories' => $categories->map(fn ($category): array => [
-                'id' => $category->id,
-                'name' => $category->name,
-                'sort_order' => (int) $category->sort_order,
-            ])->values()->all(),
+            'categories' => [],
             'menus' => $menus->map(fn ($menu): array => [
                 'id' => $menu->id,
-                'menu_category_id' => $menu->menu_category_id,
-                'category_name' => $menu->category?->name,
+                'menu_category_id' => null,
+                'category_name' => null,
                 'name' => $menu->name,
-                'description' => $menu->description,
                 'price' => (float) $menu->price,
                 'image' => $menu->image,
                 'is_available' => (bool) $menu->is_available,

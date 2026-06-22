@@ -15,9 +15,7 @@ return new class extends Migration
         Schema::create('menus', function (Blueprint $table) {
             $table->id();
             $table->foreignId('restaurant_id')->constrained();
-            $table->foreignId('menu_category_id')->nullable()->constrained()->nullOnDelete();
             $table->string('name');
-            $table->text('description')->nullable();
             $table->decimal('price', 12, 2);
             $table->string('image')->nullable();
             $table->boolean('is_available')->default(true);

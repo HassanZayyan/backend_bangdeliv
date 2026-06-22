@@ -361,8 +361,8 @@ class OrderController extends Controller
     public function updateDeliveryFeeOverride(Request $request, int $orderId): JsonResponse
     {
         $validated = $request->validate([
-            'amount' => ['nullable', 'numeric', 'min:1', 'max:99999999'],
-            'reason' => ['nullable', 'string', 'max:1000', 'required_with:amount'],
+            'amount' => ['required', 'numeric', 'min:1', 'max:99999999'],
+            'reason' => ['required', 'string', 'max:1000'],
         ]);
 
         try {

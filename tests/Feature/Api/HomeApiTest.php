@@ -3,7 +3,6 @@
 namespace Tests\Feature\Api;
 
 use App\Models\Menu;
-use App\Models\MenuCategory;
 use App\Models\Restaurant;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -17,7 +16,6 @@ class HomeApiTest extends TestCase
         $restaurant = Restaurant::query()->create([
             'name' => 'Ayam Bakar Mantap',
             'slug' => 'ayam-bakar-mantap',
-            'description' => null,
             'address' => 'Jl. Veteran',
             'latitude' => -6.20000000,
             'longitude' => 106.81666600,
@@ -25,17 +23,9 @@ class HomeApiTest extends TestCase
             'banner_image' => null,
         ]);
 
-        $category = MenuCategory::query()->create([
-            'restaurant_id' => $restaurant->id,
-            'name' => 'Ayam',
-            'sort_order' => 1,
-        ]);
-
         Menu::query()->create([
             'restaurant_id' => $restaurant->id,
-            'menu_category_id' => $category->id,
             'name' => 'Ayam Bakar Paket',
-            'description' => 'Paket hemat',
             'price' => 28000,
             'image' => null,
             'is_available' => true,
@@ -46,8 +36,9 @@ class HomeApiTest extends TestCase
 
         $response->assertOk()
             ->assertJsonPath('success', true)
-            ->assertJsonPath('data.categories.0.name', 'Ayam')
+            ->assertJsonPath('data.categories', [])
             ->assertJsonPath('data.popular_menus.0.name', 'Ayam Bakar Paket')
+            ->assertJsonMissingPath('data.popular_menus.0.description')
             ->assertJsonPath('data.nearby_merchants.0.name', 'Ayam Bakar Mantap');
     }
 }

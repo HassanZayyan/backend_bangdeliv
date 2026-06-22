@@ -23,7 +23,6 @@ class RestaurantCrudTest extends TestCase
             ->post(route('admin.restaurants.store'), [
                 'name' => 'Resto Test Admin',
                 'slug' => 'resto-test-admin',
-                'description' => 'test',
                 'address' => 'Jl. Test No. 1',
                 'latitude' => -6.2,
                 'longitude' => 106.8,
@@ -37,7 +36,6 @@ class RestaurantCrudTest extends TestCase
             ->put(route('admin.restaurants.update', $restaurant), [
                 'name' => 'Resto Test Admin Updated',
                 'slug' => 'resto-test-admin-updated',
-                'description' => 'test update',
                 'address' => 'Jl. Test No. 2',
                 'latitude' => -6.21,
                 'longitude' => 106.81,
@@ -60,6 +58,12 @@ class RestaurantCrudTest extends TestCase
         $this->assertFalse(Schema::hasColumn('restaurants', 'status'));
     }
 
+    public function test_restaurants_and_menus_tables_have_no_description_columns(): void
+    {
+        $this->assertFalse(Schema::hasColumn('restaurants', 'description'));
+        $this->assertFalse(Schema::hasColumn('menus', 'description'));
+    }
+
     public function test_admin_can_create_update_and_delete_menu(): void
     {
         $admin = User::factory()->create([
@@ -70,7 +74,6 @@ class RestaurantCrudTest extends TestCase
         $restaurant = Restaurant::query()->create([
             'name' => 'Resto Menu Test',
             'slug' => 'resto-menu-test',
-            'description' => null,
             'address' => 'Jl. Menu Test',
             'latitude' => -6.2,
             'longitude' => 106.8,
@@ -81,10 +84,8 @@ class RestaurantCrudTest extends TestCase
             ->post(route('admin.restaurants.menus.store', $restaurant), [
                 'name' => 'Menu Test',
                 'price' => 15000,
-                'description' => 'desc',
                 'is_available' => 1,
                 'sort_order' => 1,
-                'new_category_name' => 'Kategori Test',
             ])
             ->assertRedirect(route('admin.restaurants.menus.index', $restaurant));
 
@@ -94,7 +95,6 @@ class RestaurantCrudTest extends TestCase
             ->put(route('admin.restaurants.menus.update', [$restaurant, $menu]), [
                 'name' => 'Menu Test Updated',
                 'price' => 17000,
-                'description' => 'desc updated',
                 'is_available' => 0,
                 'sort_order' => 2,
             ])
@@ -121,7 +121,6 @@ class RestaurantCrudTest extends TestCase
         $restaurant = Restaurant::query()->create([
             'name' => 'Resto No Status',
             'slug' => 'resto-no-status',
-            'description' => null,
             'address' => 'Jl. No Status',
             'latitude' => -6.2,
             'longitude' => 106.8,
@@ -143,7 +142,6 @@ class RestaurantCrudTest extends TestCase
         Restaurant::query()->create([
             'name' => 'Resto Clean UI',
             'slug' => 'resto-clean-ui',
-            'description' => null,
             'address' => 'Jl. Clean UI',
             'latitude' => -6.2,
             'longitude' => 106.8,

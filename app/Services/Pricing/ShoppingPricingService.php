@@ -139,6 +139,7 @@ class ShoppingPricingService
         string $triggerType,
         bool $writeHistory = true,
         ?string $historyNote = null,
+        bool $notifyTotalChanged = true,
     ): Order {
         $order->loadMissing(['items', 'serviceType', 'statusRef', 'shoppingReceipt']);
 
@@ -240,7 +241,7 @@ class ShoppingPricingService
             'delivery_fee_change_note' => $freshOrder->delivery_fee_change_note,
         ]);
 
-        if ($event->exists) {
+        if ($notifyTotalChanged && $event->exists) {
             $this->notifyTotalChangedAfterCommit(
                 $freshOrder,
                 $changedByUserId,

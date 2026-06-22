@@ -927,6 +927,11 @@ class DriverOrderWorkflowTest extends TestCase
         ])->assertOk()
             ->assertJsonPath('data.payment_status', 'paid');
 
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
+            'status_id' => $deliveredStatusId,
+        ]);
+
         $this->assertDatabaseHas('order_payments', [
             'order_id' => $order->id,
             'payment_method' => 'COD',
@@ -939,6 +944,7 @@ class DriverOrderWorkflowTest extends TestCase
         $paidDetailResponse = $this->getJson('/api/v1/driver/orders/'.$order->id);
 
         $paidDetailResponse->assertOk()
+            ->assertJsonPath('data.status_code', 'DELIVERED')
             ->assertJsonPath('data.payment_status', 'paid')
             ->assertJsonPath('data.available_actions.0.action_code', 'COMPLETE_ORDER')
             ->assertJsonPath('data.available_actions.0.blocked', false);
@@ -1542,7 +1548,6 @@ class DriverOrderWorkflowTest extends TestCase
         $merchant = \App\Models\Restaurant::query()->create([
             'name' => 'Resto Tutup Test',
             'slug' => 'resto-tutup-test-'.strtolower(str()->random(6)),
-            'description' => 'Merchant test',
             'merchant_type' => 'restaurant',
             'address' => 'Jl. Merchant Tutup',
             'latitude' => -7.001,

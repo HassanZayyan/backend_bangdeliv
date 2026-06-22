@@ -4,7 +4,6 @@ namespace Tests\Feature\Api;
 
 use App\Models\Address;
 use App\Models\Menu;
-use App\Models\MenuCategory;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Restaurant;
@@ -31,7 +30,6 @@ class ChatbotShoppingFlowTest extends TestCase
         Restaurant::query()->create([
             'name' => 'Warung Madura Pak Ali',
             'slug' => 'warung-madura-no-address-test',
-            'description' => 'Warung kebutuhan harian',
             'merchant_type' => 'warung',
             'address' => 'Jl. Warung No. 2',
             'latitude' => -7.002,
@@ -84,7 +82,6 @@ class ChatbotShoppingFlowTest extends TestCase
         Restaurant::query()->create([
             'name' => 'Warung Madura Koordinat Nol',
             'slug' => 'warung-madura-zero-address-test',
-            'description' => 'Warung kebutuhan harian',
             'merchant_type' => 'warung',
             'address' => 'Jl. Warung No. 3',
             'latitude' => -7.002,
@@ -319,7 +316,6 @@ class ChatbotShoppingFlowTest extends TestCase
         Restaurant::query()->create([
             'name' => 'Kedai Tinari',
             'slug' => 'kedai-tinari-route-limit-test',
-            'description' => 'Merchant test',
             'merchant_type' => 'restaurant',
             'address' => 'Jl. Kedai Tinari',
             'latitude' => -7.054932,
@@ -473,7 +469,6 @@ class ChatbotShoppingFlowTest extends TestCase
         $restaurant = Restaurant::query()->create([
             'name' => 'Ayam Geprek Juara',
             'slug' => 'ayam-geprek-juara-test',
-            'description' => 'Ayam geprek',
             'merchant_type' => 'restaurant',
             'address' => 'Jl. Merchant No. 1',
             'latitude' => -7.001,
@@ -481,15 +476,8 @@ class ChatbotShoppingFlowTest extends TestCase
             'phone' => '081200000002',
         ]);
 
-        $category = MenuCategory::query()->create([
-            'restaurant_id' => $restaurant->id,
-            'name' => 'Paket',
-            'sort_order' => 1,
-        ]);
-
         $menu = Menu::query()->create([
             'restaurant_id' => $restaurant->id,
-            'menu_category_id' => $category->id,
             'name' => 'Paket Geprek Original',
             'price' => 22000,
             'is_available' => true,
@@ -627,7 +615,6 @@ class ChatbotShoppingFlowTest extends TestCase
         $firstRestaurant = Restaurant::query()->create([
             'name' => 'Kedai Tinari',
             'slug' => 'kedai-tinari-chatbot-test',
-            'description' => 'Kedai ramen',
             'merchant_type' => 'restaurant',
             'address' => 'Jl. Kedai Tinari',
             'latitude' => -7.001,
@@ -637,7 +624,6 @@ class ChatbotShoppingFlowTest extends TestCase
         $secondRestaurant = Restaurant::query()->create([
             'name' => 'Warung Sembako Maju',
             'slug' => 'warung-sembako-maju-chatbot-test',
-            'description' => 'Warung sembako',
             'merchant_type' => 'warung',
             'address' => 'Jl. Warung Sembako',
             'latitude' => -7.004,
@@ -787,7 +773,6 @@ class ChatbotShoppingFlowTest extends TestCase
         Restaurant::query()->create([
             'name' => 'Resto Taman Kedai Satu',
             'slug' => 'resto-taman-kedai-satu',
-            'description' => 'Resto ayam geprek',
             'merchant_type' => 'restaurant',
             'address' => 'Jl. Taman Kedai No. 1',
             'latitude' => -7.001,
@@ -941,7 +926,6 @@ class ChatbotShoppingFlowTest extends TestCase
         $warung = Restaurant::query()->create([
             'name' => 'Warung Madura Pak Ali',
             'slug' => 'warung-madura-pak-ali',
-            'description' => 'Warung kebutuhan harian',
             'merchant_type' => 'warung',
             'address' => 'Jl. Warung No. 2',
             'latitude' => -7.002,

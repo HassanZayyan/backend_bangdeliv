@@ -1094,7 +1094,6 @@ class ShoppingOrderItemEditTest extends TestCase
         return Restaurant::query()->create([
             'name' => $name,
             'slug' => $slug,
-            'description' => 'Merchant test',
             'merchant_type' => $merchantType,
             'address' => 'Jl. '.$name,
             'latitude' => $latitude,

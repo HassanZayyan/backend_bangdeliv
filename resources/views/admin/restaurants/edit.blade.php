@@ -73,12 +73,6 @@
                     <input type="text" name="phone" value="{{ old('phone', $restaurant->phone) }}" class="form-control" placeholder="Contoh: 081234567890" required>
                     @error('phone') <div style="color:var(--color-danger); font-size:12px; margin-top:4px;"><i class='bx bx-error-circle'></i> {{ $message }}</div> @enderror
                 </div>
-
-                <div class="form-group" style="margin-bottom:0; grid-column: span 2;">
-                    <label>Deskripsi <span style="font-size:12px; font-weight:400; color:var(--text-muted);">(opsional)</span></label>
-                    <textarea name="description" rows="3" class="form-control" placeholder="Ceritakan sedikit tentang restoran ini...">{{ old('description', $restaurant->description) }}</textarea>
-                    @error('description') <div style="color:var(--color-danger); font-size:12px; margin-top:4px;"><i class='bx bx-error-circle'></i> {{ $message }}</div> @enderror
-                </div>
             </div>
         </div>
 

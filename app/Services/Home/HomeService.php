@@ -16,7 +16,6 @@ class HomeService
         $search = trim((string) ($filters['search'] ?? ''));
         $limitMerchants = (int) ($filters['limit_merchants'] ?? 10);
         $limitMenus = (int) ($filters['limit_menus'] ?? 8);
-        $limitCategories = (int) ($filters['limit_categories'] ?? 8);
         $latitude = isset($filters['latitude']) ? (float) $filters['latitude'] : null;
         $longitude = isset($filters['longitude']) ? (float) $filters['longitude'] : null;
         $hasLocation = $latitude !== null && $longitude !== null;
@@ -32,12 +31,8 @@ class HomeService
                 });
             })
             ->with([
-                'menuCategories' => function ($query): void {
-                    $query->orderBy('sort_order')->orderBy('id');
-                },
                 'menus' => function ($query): void {
                     $query->where('is_available', true)
-                        ->with('category')
                         ->orderBy('sort_order')
                         ->orderBy('id');
                 },
@@ -76,34 +71,14 @@ class HomeService
             ->values()
             ->all();
 
-        $categoryMap = [];
-        foreach ($restaurants as $restaurant) {
-            foreach ($restaurant->menuCategories as $category) {
-                $key = strtolower(trim((string) $category->name));
-                if ($key === '' || isset($categoryMap[$key])) {
-                    continue;
-                }
-
-                $categoryMap[$key] = [
-                    'id' => $category->id,
-                    'name' => $category->name,
-                ];
-
-                if (count($categoryMap) >= $limitCategories) {
-                    break 2;
-                }
-            }
-        }
-
         $popularMenus = [];
         foreach ($restaurants as $restaurant) {
             foreach ($restaurant->menus as $menu) {
                 $popularMenus[] = [
                     'id' => $menu->id,
-                    'menu_category_id' => $menu->menu_category_id,
-                    'category_name' => $menu->category?->name,
+                    'menu_category_id' => null,
+                    'category_name' => null,
                     'name' => $menu->name,
-                    'description' => $menu->description,
                     'price' => (float) $menu->price,
                     'image' => $menu->image,
                     'is_available' => (bool) $menu->is_available,
@@ -118,7 +93,7 @@ class HomeService
         }
 
         return [
-            'categories' => array_values($categoryMap),
+            'categories' => [],
             'popular_menus' => $popularMenus,
             'nearby_merchants' => $nearbyMerchants,
         ];

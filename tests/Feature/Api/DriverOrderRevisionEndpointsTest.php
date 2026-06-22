@@ -269,7 +269,21 @@ class DriverOrderRevisionEndpointsTest extends TestCase
         $this->postJson('/api/v1/driver/orders/'.$order->id.'/delivery-fee-override', [
             'reason' => 'Tidak ada nominal.',
         ])->assertUnprocessable()
-            ->assertJsonPath('success', false);
+            ->assertJsonValidationErrors(['amount']);
+    }
+
+    public function test_courier_delivery_fee_revision_requires_reason(): void
+    {
+        [$driverUser, $driver] = $this->createDriver();
+        $order = $this->createAssignedOrder($driver, 'COURIER', 'DRIVER_ASSIGNED', 10000);
+
+        Sanctum::actingAs($driverUser);
+
+        $this->postJson('/api/v1/driver/orders/'.$order->id.'/delivery-fee-override', [
+            'amount' => 12000,
+            'reason' => '',
+        ])->assertUnprocessable()
+            ->assertJsonValidationErrors(['reason']);
     }
 
     public function test_shopping_accepts_manual_delivery_fee_for_normal_negotiation(): void
@@ -712,6 +726,12 @@ class DriverOrderRevisionEndpointsTest extends TestCase
         ]);
 
         Sanctum::actingAs($driverUser);
+        $this->getJson('/api/v1/driver/orders/'.$order->id)
+            ->assertOk()
+            ->assertJsonPath('data.delivery_fee_negotiation.status', 'PENDING_DRIVER')
+            ->assertJsonPath('data.delivery_fee_negotiation.counter_amount', 19000)
+            ->assertJsonPath('data.delivery_fee_negotiation.can_driver_accept_counter', true);
+
         $this->postJson('/api/v1/driver/orders/'.$order->id.'/delivery-fee-override/accept-counter')
             ->assertOk()
             ->assertJsonPath('data.delivery_fee', 19000)
@@ -821,9 +841,15 @@ class DriverOrderRevisionEndpointsTest extends TestCase
 
         $response->assertOk()
             ->assertJsonPath('success', true)
+            ->assertJsonPath('data.status_code', 'DELIVERED')
             ->assertJsonPath('data.payment_status', 'paid')
             ->assertJsonPath('data.payment_method', 'TRANSFER');
         $this->assertSame(1, OrderPayment::query()->where('order_id', $order->id)->count());
+
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
+            'status_id' => OrderStatus::query()->where('code', 'DELIVERED')->value('id'),
+        ]);
 
         $this->assertDatabaseHas('order_payments', [
             'order_id' => $order->id,

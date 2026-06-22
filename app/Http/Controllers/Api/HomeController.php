@@ -20,7 +20,6 @@ class HomeController extends Controller
             'search' => ['nullable', 'string', 'max:100'],
             'limit_merchants' => ['nullable', 'integer', 'min:1', 'max:20'],
             'limit_menus' => ['nullable', 'integer', 'min:1', 'max:20'],
-            'limit_categories' => ['nullable', 'integer', 'min:1', 'max:20'],
             'latitude' => ['nullable', 'numeric', 'between:-90,90'],
             'longitude' => ['nullable', 'numeric', 'between:-180,180'],
         ]);

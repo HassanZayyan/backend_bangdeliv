@@ -16,7 +16,6 @@ return new class extends Migration
             $table->id();
             $table->string('name');
             $table->string('slug')->unique();
-            $table->text('description')->nullable();
             $table->enum('merchant_type', ['restaurant', 'warung', 'convenience_store', 'other'])
                 ->default('restaurant');
             $table->text('address');

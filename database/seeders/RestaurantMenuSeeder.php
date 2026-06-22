@@ -3,7 +3,6 @@
 namespace Database\Seeders;
 
 use App\Models\Menu;
-use App\Models\MenuCategory;
 use App\Models\Restaurant;
 use Illuminate\Database\Seeder;
 
@@ -45,10 +44,6 @@ class RestaurantMenuSeeder extends Seeder
                     ->where('restaurant_id', $restaurant->id)
                     ->forceDelete();
 
-                MenuCategory::query()
-                    ->where('restaurant_id', $restaurant->id)
-                    ->delete();
-
                 $restaurant->forceDelete();
             });
     }
@@ -73,7 +68,6 @@ class RestaurantMenuSeeder extends Seeder
         $restaurant->fill([
             'name' => (string) $restoData['name'],
             'slug' => (string) $restoData['slug'],
-            'description' => 'Merchant resmi BangDeliv.',
             'merchant_type' => (string) $restoData['merchant_type'],
             'address' => (string) $restoData['address'],
             'latitude' => $restoData['latitude'],
@@ -96,22 +90,10 @@ class RestaurantMenuSeeder extends Seeder
             ->where('restaurant_id', $restaurant->id)
             ->forceDelete();
 
-        MenuCategory::query()
-            ->where('restaurant_id', $restaurant->id)
-            ->delete();
-
-        $category = MenuCategory::query()->create([
-            'restaurant_id' => $restaurant->id,
-            'name' => 'Menu',
-            'sort_order' => 1,
-        ]);
-
         foreach (array_values($menus) as $index => $menu) {
             Menu::query()->create([
                 'restaurant_id' => $restaurant->id,
-                'menu_category_id' => $category->id,
                 'name' => (string) $menu['name'],
-                'description' => null,
                 'price' => max(0, (float) $menu['price']),
                 'image' => null,
                 'is_available' => true,

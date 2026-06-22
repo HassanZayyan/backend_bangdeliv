@@ -51,7 +51,6 @@ class RestaurantController extends Controller
     {
         try {
             $request->validate([
-                'category_id' => ['nullable', 'integer', 'exists:menu_categories,id'],
                 'search' => ['nullable', 'string', 'max:100'],
                 'only_available' => ['nullable', 'boolean'],
             ]);
@@ -59,7 +58,6 @@ class RestaurantController extends Controller
             $restaurant = $this->restaurantService->findByIdOrSlug($restaurantIdOrSlug);
             $payload = $this->restaurantService->menusPayload(
                 $restaurant,
-                $request->integer('category_id') ?: null,
                 $request->string('search')->toString(),
                 $request->boolean('only_available', true)
             );

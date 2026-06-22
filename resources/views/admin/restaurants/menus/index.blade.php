@@ -49,19 +49,6 @@
                 <input type="number" step="0.01" min="0" name="price" value="{{ old('price') }}" class="form-control" required>
             </div>
             <div class="form-group" style="margin-bottom:14px;">
-                <label>Kategori</label>
-                <select name="menu_category_id" class="form-control">
-                    <option value="">Tanpa Kategori</option>
-                    @foreach($categories as $category)
-                        <option value="{{ $category->id }}" @selected(old('menu_category_id') == $category->id)>{{ $category->name }}</option>
-                    @endforeach
-                </select>
-            </div>
-            <div class="form-group" style="margin-bottom:14px;">
-                <label>Kategori Baru (opsional)</label>
-                <input type="text" name="new_category_name" value="{{ old('new_category_name') }}" class="form-control" placeholder="Contoh: Paket Hemat">
-            </div>
-            <div class="form-group" style="margin-bottom:14px;">
                 <label>Urutan</label>
                 <input type="number" min="0" name="sort_order" value="{{ old('sort_order', 0) }}" class="form-control">
             </div>
@@ -71,10 +58,6 @@
                     <option value="1" @selected(old('is_available', '1') == '1')>Tersedia</option>
                     <option value="0" @selected(old('is_available') === '0')>Tidak Tersedia</option>
                 </select>
-            </div>
-            <div class="form-group" style="margin-bottom:16px;">
-                <label>Deskripsi</label>
-                <textarea name="description" rows="3" class="form-control">{{ old('description') }}</textarea>
             </div>
             <div style="display:flex; justify-content:flex-end;">
                 <button type="submit" class="btn btn-primary">Tambah Menu</button>
@@ -93,7 +76,6 @@
                 <thead>
                     <tr>
                         <th>Menu</th>
-                        <th>Kategori</th>
                         <th>Harga</th>
                         <th>Status</th>
                         <th>Aksi</th>
@@ -105,11 +87,8 @@
                             <td>
                                 <div class="td-user">
                                     <span class="td-strong">{{ $menu->name }}</span>
-                                    <span class="td-sub">{{ $menu->description ?: '-' }}</span>
+                                    <span class="td-sub">Urutan {{ (int) $menu->sort_order }}</span>
                                 </div>
-                            </td>
-                            <td>
-                                <span class="td-sub" style="font-size:13px;">{{ $menu->category?->name ?? '-' }}</span>
                             </td>
                             <td>
                                 <span class="td-strong" style="color:var(--color-primary);">Rp {{ number_format((float) $menu->price, 0, ',', '.') }}</span>
@@ -126,10 +105,8 @@
                                         data-update-url="{{ route('admin.restaurants.menus.update', [$restaurant, $menu]) }}"
                                         data-name="{{ $menu->name }}"
                                         data-price="{{ $menu->price }}"
-                                        data-category-id="{{ $menu->menu_category_id ?? '' }}"
                                         data-sort-order="{{ $menu->sort_order }}"
                                         data-is-available="{{ (int) $menu->is_available }}"
-                                        data-description="{{ $menu->description ?? '' }}"
                                     >
                                         <i class='bx bx-edit'></i>
                                     </button>
@@ -143,7 +120,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="5" class="td-sub" style="text-align:center; padding:24px;">Belum ada menu untuk restoran ini.</td>
+                            <td colspan="4" class="td-sub" style="text-align:center; padding:24px;">Belum ada menu untuk restoran ini.</td>
                         </tr>
                     @endforelse
                 </tbody>
@@ -152,5 +129,5 @@
     </div>
 </div>
 
-<x-menu-edit-modal :categories="$categories" title="Edit Menu" />
+<x-menu-edit-modal title="Edit Menu" />
 @endsection

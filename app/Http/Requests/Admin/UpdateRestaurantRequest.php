@@ -50,7 +50,6 @@ class UpdateRestaurantRequest extends FormRequest
         return [
             'name' => ['required', 'string', 'max:255'],
             'slug' => ['nullable', 'string', 'max:255', Rule::unique('restaurants', 'slug')->ignore($restaurantId)],
-            'description' => ['nullable', 'string'],
             'merchant_type' => ['required', 'in:restaurant,warung,convenience_store,other'],
             'address' => ['required', 'string'],
             'latitude' => ['required', 'numeric', 'between:-90,90'],

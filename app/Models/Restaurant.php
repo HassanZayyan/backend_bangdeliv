@@ -11,7 +11,6 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property int $id
  * @property string $name
  * @property string $slug
- * @property string|null $description
  * @property string $merchant_type
  * @property string|null $address
  * @property string|null $latitude
@@ -21,7 +20,6 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property \Carbon\Carbon|null $created_at
  * @property \Carbon\Carbon|null $updated_at
  * @property \Carbon\Carbon|null $deleted_at
- * @property-read \Illuminate\Database\Eloquent\Collection<int, \App\Models\MenuCategory> $menuCategories
  * @property-read \Illuminate\Database\Eloquent\Collection<int, \App\Models\Menu> $menus
  * @property-read \Illuminate\Database\Eloquent\Collection<int, \App\Models\OrderLocation> $orderLocations
  * @property-read \Illuminate\Database\Eloquent\Collection<int, \App\Models\Order> $orders
@@ -33,7 +31,6 @@ class Restaurant extends Model
     protected $fillable = [
         'name',
         'slug',
-        'description',
         'merchant_type',
         'address',
         'latitude',
@@ -49,11 +46,6 @@ class Restaurant extends Model
             'longitude' => 'decimal:8',
             'merchant_type' => 'string',
         ];
-    }
-
-    public function menuCategories(): HasMany
-    {
-        return $this->hasMany(MenuCategory::class);
     }
 
     public function menus(): HasMany

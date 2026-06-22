@@ -94,6 +94,11 @@ class AdminOrderWebTest extends TestCase
             'recorded_by_user_id' => $admin->id,
         ]);
 
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
+            'status_id' => OrderStatus::query()->where('code', 'DELIVERED')->value('id'),
+        ]);
+
         $this->assertDatabaseHas('order_events', [
             'order_id' => $order->id,
             'trigger_type' => 'PAYMENT_PROOF_APPROVED',

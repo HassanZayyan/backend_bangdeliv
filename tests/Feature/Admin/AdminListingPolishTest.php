@@ -222,7 +222,6 @@ class AdminListingPolishTest extends TestCase
             Restaurant::query()->create([
                 'name' => "Resto Page {$i}",
                 'slug' => "resto-page-{$i}",
-                'description' => null,
                 'address' => "Jl. Page {$i}",
                 'latitude' => -6.2,
                 'longitude' => 106.8 + ($i / 1000),

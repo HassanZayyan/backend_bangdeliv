@@ -1,5 +1,4 @@
 @props([
-    'categories' => [],
     'title' => 'Edit Menu',
 ])
 
@@ -25,19 +24,6 @@
                 <input type="number" step="0.01" min="0" id="edit-price" name="price" class="form-control" required>
             </div>
             <div class="form-group" style="margin-bottom:14px;">
-                <label>Kategori</label>
-                <select id="edit-category-id" name="menu_category_id" class="form-control">
-                    <option value="">Tanpa Kategori</option>
-                    @foreach($categories as $category)
-                        <option value="{{ $category->id }}">{{ $category->name }}</option>
-                    @endforeach
-                </select>
-            </div>
-            <div class="form-group" style="margin-bottom:14px;">
-                <label>Kategori Baru (opsional)</label>
-                <input type="text" id="edit-new-category-name" name="new_category_name" class="form-control" placeholder="Kategori baru (opsional)">
-            </div>
-            <div class="form-group" style="margin-bottom:14px;">
                 <label>Urutan</label>
                 <input type="number" min="0" id="edit-sort-order" name="sort_order" class="form-control">
             </div>
@@ -48,11 +34,6 @@
                     <option value="0">Tidak Tersedia</option>
                 </select>
             </div>
-            <div class="form-group" style="margin-bottom:16px;">
-                <label>Deskripsi</label>
-                <textarea id="edit-description" name="description" class="form-control" rows="3"></textarea>
-            </div>
-
             <div style="display:flex; justify-content:flex-end; gap:8px;">
                 <button type="button" id="menu-edit-cancel-btn" class="btn" style="background:var(--bg-hover); color:var(--text-muted);">Batal</button>
                 <button type="submit" class="btn btn-primary"><i class='bx bx-save'></i> Simpan</button>
@@ -77,11 +58,8 @@
 
         const fieldName = document.getElementById('edit-name');
         const fieldPrice = document.getElementById('edit-price');
-        const fieldCategory = document.getElementById('edit-category-id');
-        const fieldNewCategory = document.getElementById('edit-new-category-name');
         const fieldSortOrder = document.getElementById('edit-sort-order');
         const fieldIsAvailable = document.getElementById('edit-is-available');
-        const fieldDescription = document.getElementById('edit-description');
 
         const openModal = () => {
             modal.style.display = 'flex';
@@ -98,11 +76,8 @@
                 editForm.action = button.dataset.updateUrl;
                 fieldName.value = button.dataset.name || '';
                 fieldPrice.value = button.dataset.price || '';
-                fieldCategory.value = button.dataset.categoryId || '';
-                fieldNewCategory.value = '';
                 fieldSortOrder.value = button.dataset.sortOrder || '0';
                 fieldIsAvailable.value = button.dataset.isAvailable || '1';
-                fieldDescription.value = button.dataset.description || '';
                 openModal();
                 fieldName.focus();
             });

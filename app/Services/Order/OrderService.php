@@ -26,6 +26,7 @@ use App\Services\Notification\OrderPricingPushNotificationService;
 use App\Services\Notification\OrderRealtimeBroadcaster;
 use App\Services\Notification\OrderStatusPushNotificationService;
 use App\Services\Notification\PaymentProofReminderNotificationService;
+use App\Services\Notification\ShoppingItemAvailabilityPushNotificationService;
 use App\Services\Pricing\ShoppingPricingService;
 use App\Services\Shopping\ShoppingItemChangeRequestService;
 use App\Services\Shopping\ShoppingMerchantCandidate;
@@ -64,6 +65,7 @@ class OrderService
         private readonly ShoppingItemChangeRequestService $shoppingItemChangeRequestService,
         private readonly ShoppingOrderCapabilityService $shoppingOrderCapabilityService,
         private readonly ShoppingUnavailableItemDecisionService $shoppingUnavailableItemDecisionService,
+        private readonly ShoppingItemAvailabilityPushNotificationService $shoppingItemAvailabilityPushNotificationService,
         private readonly DeliveryFeeNegotiationService $deliveryFeeNegotiationService,
         private readonly DriverArrivalEtaService $driverArrivalEtaService
     ) {}
@@ -2403,8 +2405,10 @@ class OrderService
     public function updateShoppingItemsByDriver(User $actor, int $orderId, array $payload): array
     {
         $driver = $this->resolveActiveDriverProfile($actor);
+        /** @var array{pickup_location_id: int, item_names: list<string>, event_id: int}|null $unavailableItemNotification */
+        $unavailableItemNotification = null;
 
-        $order = DB::transaction(function () use ($actor, $driver, $orderId, $payload): Order {
+        $order = DB::transaction(function () use ($actor, $driver, $orderId, $payload, &$unavailableItemNotification): Order {
             $order = Order::query()
                 ->with(['statusRef', 'serviceType', 'items', 'orderLocations', 'shoppingReceipt'])
                 ->lockForUpdate()
@@ -2442,6 +2446,8 @@ class OrderService
             $submittedPickupIds = [];
             $submittedItemIds = [];
             $submittedHasUnavailableItem = false;
+            $newUnavailableItemNamesByPickup = [];
+            $availabilityEvent = null;
 
             foreach ($items as $itemPayload) {
                 if (! is_array($itemPayload)) {
@@ -2469,12 +2475,13 @@ class OrderService
                 $unitPrice = array_key_exists('unit_price', $itemPayload) && $itemPayload['unit_price'] !== null
                     ? max(0.0, (float) $itemPayload['unit_price'])
                     : (float) $item->unit_price;
+                $wasAvailable = (bool) $item->is_available;
                 $isAvailable = array_key_exists('is_available', $itemPayload)
                     ? (bool) $itemPayload['is_available']
-                    : (bool) $item->is_available;
+                    : $wasAvailable;
                 $itemChanged = $quantity !== (int) $item->quantity
                     || $unitPrice !== (float) $item->unit_price
-                    || $isAvailable !== (bool) $item->is_available;
+                    || $isAvailable !== $wasAvailable;
                 $requiresRequote = $requiresRequote || $itemChanged;
                 if ($itemChanged && $item->pickup_location_id !== null) {
                     $affectedPickupIds[(int) $item->pickup_location_id] = true;
@@ -2484,6 +2491,12 @@ class OrderService
                 }
                 $submittedItemIds[] = (int) $item->id;
                 $submittedHasUnavailableItem = $submittedHasUnavailableItem || ! $isAvailable;
+                if ($wasAvailable && ! $isAvailable && $itemPickupId !== null) {
+                    $itemName = trim((string) ($item->menu_name ?? ''));
+                    $newUnavailableItemNamesByPickup[$itemPickupId][] = $itemName !== ''
+                        ? $itemName
+                        : 'Item Nitip';
+                }
 
                 $metadata = is_array($item->metadata) ? $item->metadata : [];
                 if ($item->item_source === 'MANUAL') {
@@ -2520,7 +2533,7 @@ class OrderService
             }
 
             if ($targetPickupLocationId !== null) {
-                OrderLog::query()->create([
+                $availabilityEvent = OrderLog::query()->create([
                     'order_id' => $order->id,
                     'event_type' => 'SHOPPING_ITEM_AVAILABILITY',
                     'trigger_type' => 'DRIVER_CONFIRMED_ITEM_AVAILABILITY',
@@ -2555,14 +2568,41 @@ class OrderService
                 }
             }
 
-            return $this->shoppingPricingService->recalculate(
+            $newUnavailableItemNames = $targetPickupLocationId !== null
+                ? ($newUnavailableItemNamesByPickup[$targetPickupLocationId] ?? [])
+                : [];
+            $shouldNotifyUnavailableItems = $availabilityEvent !== null && $newUnavailableItemNames !== [];
+
+            $freshOrder = $this->shoppingPricingService->recalculate(
                 $order->refresh()->load(['items', 'statusRef', 'serviceType', 'shoppingReceipt']),
                 $actor->id,
                 'DRIVER_RECEIPT_UPDATE',
                 true,
-                'Driver memperbarui ketersediaan item Nitip.'
+                'Driver memperbarui ketersediaan item Nitip.',
+                ! $shouldNotifyUnavailableItems
             );
+
+            if ($shouldNotifyUnavailableItems) {
+                $unavailableItemNotification = [
+                    'pickup_location_id' => (int) $targetPickupLocationId,
+                    'item_names' => $newUnavailableItemNames,
+                    'event_id' => (int) $availabilityEvent->id,
+                ];
+            }
+
+            return $freshOrder;
         });
+
+        if (is_array($unavailableItemNotification)) {
+            $this->shoppingItemAvailabilityPushNotificationService->sendUnavailableItems(
+                $order,
+                (int) ($unavailableItemNotification['pickup_location_id'] ?? 0),
+                is_array($unavailableItemNotification['item_names'] ?? null)
+                    ? $unavailableItemNotification['item_names']
+                    : [],
+                (int) ($unavailableItemNotification['event_id'] ?? 0),
+            );
+        }
 
         return $this->driverOrderPayloadFactory->serialize(
             $order->fresh($this->driverOrderPayloadFactory->relations()),

@@ -17,7 +17,6 @@ class ChatbotOrderValidationServiceTest extends TestCase
         Restaurant::query()->create([
             'name' => 'Ayam Geprek Juara',
             'slug' => 'ayam-geprek-juara',
-            'description' => null,
             'address' => 'Jl. Raya',
             'latitude' => -6.20000000,
             'longitude' => 106.81666600,
@@ -43,7 +42,6 @@ class ChatbotOrderValidationServiceTest extends TestCase
         $restaurant = Restaurant::query()->create([
             'name' => 'Ayam Geprek Juara',
             'slug' => 'ayam-geprek-juara',
-            'description' => null,
             'address' => 'Jl. Raya',
             'latitude' => -6.20000000,
             'longitude' => 106.81666600,
@@ -53,9 +51,7 @@ class ChatbotOrderValidationServiceTest extends TestCase
 
         Menu::query()->create([
             'restaurant_id' => $restaurant->id,
-            'menu_category_id' => null,
             'name' => 'Ayam Geprek Original',
-            'description' => null,
             'price' => 22000,
             'image' => null,
             'is_available' => true,
