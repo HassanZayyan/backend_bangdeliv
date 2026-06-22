@@ -72,30 +72,31 @@
                     ];
                     $proofStatus = $proofDecision['status'];
                 @endphp
-                <div class="proof-item">
-                    <a href="{{ $proof->file_url }}" target="_blank" class="proof-thumb" aria-label="Buka bukti QRIS">
+                <div class="proof-item {{ $proofStatus === 'pending' ? 'has-review' : '' }}">
+                    <a href="{{ $proof->file_url }}" target="_blank" rel="noopener noreferrer" class="proof-thumb" aria-label="Buka bukti QRIS">
                         <img src="{{ $proof->file_url }}" alt="Bukti QRIS untuk pesanan {{ $order->order_number }}">
                     </a>
-                    <div class="proof-content">
-                        <div class="proof-meta">
-                            <span class="badge {{ $proofDecision['class'] }}">{{ $proofDecision['label'] }}</span>
-                            <small>{{ $proof->uploaded_at?->format('d M Y, H:i') ?? '-' }}</small>
+                    <div class="proof-content {{ $proofStatus === 'pending' ? 'has-actions' : '' }}">
+                        <div class="proof-details">
+                            <div class="proof-meta">
+                                <span class="badge {{ $proofDecision['class'] }}">{{ $proofDecision['label'] }}</span>
+                                <small>{{ $proof->uploaded_at?->format('d M Y, H:i') ?? '-' }}</small>
+                            </div>
+                            <strong class="proof-customer">{{ $proof->user?->name ?? 'Customer' }}</strong>
+                            <p class="proof-note">{{ $proof->notes ?: 'Tidak ada catatan.' }}</p>
+                            @if($proofDecision['decided_by'] || $proofDecision['decided_at'])
+                                <small>
+                                    Diverifikasi oleh {{ $proofDecision['decided_by'] ?? '-' }}
+                                    pada {{ $proofDecision['decided_at']?->format('d M Y, H:i') ?? '-' }}
+                                </small>
+                            @endif
+                            @if($proofDecision['reason'])
+                                <small class="text-danger">Alasan: {{ $proofDecision['reason'] }}</small>
+                            @endif
                         </div>
-                        <strong>{{ $proof->user?->name ?? 'Customer' }}</strong>
-                        <p>{{ $proof->notes ?: 'Tidak ada catatan.' }}</p>
-                        @if($proofDecision['decided_by'] || $proofDecision['decided_at'])
-                            <small>
-                                Diverifikasi oleh {{ $proofDecision['decided_by'] ?? '-' }}
-                                pada {{ $proofDecision['decided_at']?->format('d M Y, H:i') ?? '-' }}
-                            </small>
-                        @endif
-                        @if($proofDecision['reason'])
-                            <small class="text-danger">Alasan: {{ $proofDecision['reason'] }}</small>
-                        @endif
-
                         @if($proofStatus === 'pending')
                             <div class="proof-actions">
-                                <form method="POST" action="{{ route('admin.orders.payment-proofs.approve', ['order' => $order->id, 'evidence' => $proof->id]) }}">
+                                <form method="POST" action="{{ route('admin.orders.payment-proofs.approve', ['order' => $order->id, 'evidence' => $proof->id]) }}" class="approve-form">
                                     @csrf
                                     <button type="submit" class="btn btn-primary" onclick="return confirm('Setujui bukti QRIS ini dan tandai pembayaran lunas?')">
                                         <i class="bx bx-check" aria-hidden="true"></i>

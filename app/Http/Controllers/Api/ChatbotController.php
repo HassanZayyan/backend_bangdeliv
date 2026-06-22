@@ -210,13 +210,13 @@ class ChatbotController extends Controller
             is_array($activeStop) ? 'merchant.name' : 'shopping.merchant.name',
             ''
         ));
-        $assistantText = trim((string) ($patchedPayload['assistant_text'] ?? 'Merchant Nitip berhasil diperbarui.'));
+        $assistantText = trim((string) ($patchedPayload['assistant_text'] ?? 'Tempat Nitip berhasil diperbarui.'));
 
         $this->persistChatbotDraftTurn(
             $user,
             $normalizedSessionId,
-            ($mode === 'add' ? '[MERCHANT_PICKER] tambah merchant => ' : '[MERCHANT_PICKER] merchant => ')
-                .($merchantName !== '' ? $merchantName : 'Merchant dipilih'),
+            ($mode === 'add' ? '[MERCHANT_PICKER] tambah tempat => ' : '[MERCHANT_PICKER] tempat => ')
+                .($merchantName !== '' ? $merchantName : 'Tempat dipilih'),
             $assistantText,
             $patchedPayload,
             'nitip'
@@ -685,7 +685,7 @@ class ChatbotController extends Controller
             ];
         }
 
-        if (preg_match('/\b(?:tambah|nambah|add)\s+(?:merchant|toko|resto|restaurant|warung|minimarket|order)\b/u', $normalized) === 1
+        if (preg_match('/\b(?:tambah|nambah|add)\s+(?:tempat|merchant|toko|resto|restaurant|warung|minimarket|order)\b/u', $normalized) === 1
             || preg_match('/\border\s+baru\b/u', $normalized) === 1) {
             return [
                 'payload' => ['command' => 'add_merchant'],

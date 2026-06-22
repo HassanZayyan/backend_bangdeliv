@@ -1536,6 +1536,132 @@ class DriverOrderWorkflowTest extends TestCase
         ]);
     }
 
+    public function test_driver_failed_pickups_preserve_last_delivery_fee_for_half_fee_cancellation(): void
+    {
+        Config::set('bangdeliv.google_maps_api_key', 'test-google-key');
+        Config::set('bangdeliv.routes.optimize_shopping_waypoints', false);
+        $this->fakeEtaRouteResponse(durationSeconds: 120, distanceMeters: 1000);
+
+        [$driverUser, $driver] = $this->createActiveDriver('shopping-preserve-fee');
+        $order = $this->createShoppingOrder($driver, 'ARRIVED_MERCHANT');
+        $order->forceFill([
+            'subtotal' => 30000,
+            'delivery_fee' => 30000,
+            'total_price' => 60000,
+        ])->save();
+
+        $pickups = [
+            $this->createShoppingPickupWithItem($order, 1, 'Tempat Tutup 1', -7.001, 110.401, 'Item 1'),
+            $this->createShoppingPickupWithItem($order, 2, 'Tempat Tutup 2', -7.011, 110.411, 'Item 2'),
+            $this->createShoppingPickupWithItem($order, 3, 'Tempat Tutup 3', -7.021, 110.421, 'Item 3'),
+        ];
+        $this->createDropoffLocation($order, -7.050, 110.450, 'Customer Tiga Tempat Tutup');
+
+        Sanctum::actingAs($driverUser);
+
+        foreach (array_slice($pickups, 0, 2) as $pickup) {
+            $response = $this->postJson('/api/v1/orders/'.$order->id.'/attempt-failed', [
+                'failure_type' => 'PICKUP',
+                'reason' => 'Tempat tutup saat driver tiba.',
+                'pickup_location_id' => $pickup->id,
+            ]);
+
+            $response->assertOk()
+                ->assertJsonPath('data.status_ref.code', 'ARRIVED_MERCHANT');
+            $this->assertSame(30000.0, round((float) $order->refresh()->delivery_fee, 2));
+        }
+
+        $finalResponse = $this->postJson('/api/v1/orders/'.$order->id.'/attempt-failed', [
+            'failure_type' => 'PICKUP',
+            'reason' => 'Tempat tutup saat driver tiba.',
+            'pickup_location_id' => $pickups[2]->id,
+        ]);
+
+        $finalResponse->assertOk()
+            ->assertJsonPath('data.status_ref.code', 'CANCELLED_WITH_FEE')
+            ->assertJsonPath('data.delivery_fee', '0.00')
+            ->assertJsonPath('data.service_fee', '15000.00')
+            ->assertJsonPath('data.total_price', '15000.00')
+            ->assertJsonPath('data.payment_method', 'TRANSFER')
+            ->assertJsonPath('data.payment_status', 'unpaid');
+
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
+            'delivery_fee' => 0,
+            'total_price' => 15000,
+        ]);
+        $this->assertDatabaseHas('order_payments', [
+            'order_id' => $order->id,
+            'payment_method' => 'TRANSFER',
+            'payment_status' => 'PENDING',
+            'amount' => 15000,
+        ]);
+        $this->assertTrue($this->orderHasPenaltyBaseLog($order, 30000));
+    }
+
+    public function test_customer_cancelled_places_preserve_last_delivery_fee_for_half_fee_cancellation(): void
+    {
+        Config::set('bangdeliv.google_maps_api_key', 'test-google-key');
+        Config::set('bangdeliv.routes.optimize_shopping_waypoints', false);
+        $this->fakeEtaRouteResponse(durationSeconds: 120, distanceMeters: 1000);
+
+        [$driverUser, $driver] = $this->createActiveDriver('shopping-customer-preserve-fee');
+        $order = $this->createShoppingOrder($driver, 'ARRIVED_MERCHANT');
+        $order->forceFill([
+            'subtotal' => 30000,
+            'delivery_fee' => 30000,
+            'total_price' => 60000,
+        ])->save();
+
+        $pickups = [
+            $this->createShoppingPickupWithItem($order, 1, 'Tempat Batal 1', -7.001, 110.401, 'Item A'),
+            $this->createShoppingPickupWithItem($order, 2, 'Tempat Batal 2', -7.011, 110.411, 'Item B'),
+            $this->createShoppingPickupWithItem($order, 3, 'Tempat Batal 3', -7.021, 110.421, 'Item C'),
+        ];
+        $this->createDropoffLocation($order, -7.050, 110.450, 'Customer Batal Tiga Tempat');
+
+        foreach ($pickups as $index => $pickup) {
+            Sanctum::actingAs($driverUser);
+            $this->postJson('/api/v1/driver/orders/'.$order->id.'/shopping/price-quote', [
+                'pickup_location_id' => $pickup->id,
+                'amount' => 10000,
+            ])->assertOk();
+
+            Sanctum::actingAs($order->user);
+            $response = $this->postJson('/api/v1/orders/'.$order->id.'/shopping/price-quote/respond', [
+                'action' => 'CANCEL_MERCHANT',
+                'pickup_location_id' => $pickup->id,
+            ]);
+
+            if ($index < 2) {
+                $response->assertOk()
+                    ->assertJsonPath('data.status_ref.code', 'ARRIVED_MERCHANT');
+                $this->assertSame(30000.0, round((float) $order->refresh()->delivery_fee, 2));
+            } else {
+                $response->assertOk()
+                    ->assertJsonPath('data.status_ref.code', 'CANCELLED_WITH_FEE')
+                    ->assertJsonPath('data.delivery_fee', '0.00')
+                    ->assertJsonPath('data.service_fee', '15000.00')
+                    ->assertJsonPath('data.total_price', '15000.00')
+                    ->assertJsonPath('data.payment_method', 'TRANSFER')
+                    ->assertJsonPath('data.payment_status', 'unpaid');
+            }
+        }
+
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
+            'delivery_fee' => 0,
+            'total_price' => 15000,
+        ]);
+        $this->assertDatabaseHas('order_payments', [
+            'order_id' => $order->id,
+            'payment_method' => 'TRANSFER',
+            'payment_status' => 'PENDING',
+            'amount' => 15000,
+        ]);
+        $this->assertTrue($this->orderHasPenaltyBaseLog($order, 30000));
+    }
+
     public function test_driver_can_cancel_shopping_with_fee_after_three_failed_pickups(): void
     {
         [$driverUser, $driver] = $this->createActiveDriver('shopping-closed');
@@ -1882,6 +2008,48 @@ class DriverOrderWorkflowTest extends TestCase
             'sequence_no' => 1,
             'fulfillment_status' => 'PENDING',
         ]);
+    }
+
+    private function createShoppingPickupWithItem(
+        Order $order,
+        int $sequenceNo,
+        string $label,
+        float $latitude,
+        float $longitude,
+        string $itemName,
+    ): OrderLocation {
+        $pickup = OrderLocation::query()->create([
+            'order_id' => $order->id,
+            'restaurant_id' => null,
+            'location_role' => 'PICKUP',
+            'label' => $label,
+            'full_address' => $label,
+            'latitude' => $latitude,
+            'longitude' => $longitude,
+            'sequence_no' => $sequenceNo,
+            'fulfillment_status' => 'ITEMS_CONFIRMED',
+        ]);
+
+        OrderItem::query()->create([
+            'order_id' => $order->id,
+            'pickup_location_id' => $pickup->id,
+            'item_source' => 'MANUAL',
+            'menu_name' => $itemName,
+            'quantity' => 1,
+            'unit_price' => 10000,
+            'subtotal' => 10000,
+            'is_available' => true,
+        ]);
+
+        return $pickup;
+    }
+
+    private function orderHasPenaltyBaseLog(Order $order, float $amount): bool
+    {
+        return OrderLog::query()
+            ->where('order_id', $order->id)
+            ->get(['metadata'])
+            ->contains(fn (OrderLog $event): bool => round((float) data_get($event->metadata ?? [], 'penalty_base_delivery_fee'), 2) === round($amount, 2));
     }
 
     private function createDropoffLocation(Order $order, float $latitude, float $longitude, string $label): OrderLocation

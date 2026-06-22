@@ -269,6 +269,11 @@ class ShoppingPricingService
         return round($deliveryFee * ($percent / 100), 2);
     }
 
+    public function cancellationPenaltyBaseAmount(Order $order): float
+    {
+        return $this->cancellationPenaltyBaseDeliveryFee($order);
+    }
+
     public function cancellationDriverFeeAmount(Order $order): float
     {
         return $this->storedCancellationPenaltyAmount($order)
@@ -522,7 +527,6 @@ class ShoppingPricingService
 
         $recordedBase = OrderLog::query()
             ->where('order_id', $order->id)
-            ->where('event_type', 'PRICE_RECALCULATION')
             ->latest('id')
             ->get(['metadata'])
             ->map(fn (OrderLog $event): mixed => data_get($event->metadata ?? [], 'penalty_base_delivery_fee'))

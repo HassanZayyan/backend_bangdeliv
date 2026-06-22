@@ -140,13 +140,23 @@ class ShoppingRouteService
     /**
      * @return array<string, mixed>
      */
-    public function applyRouteToOrder(Order $order): ?array
+    public function applyRouteToOrder(
+        Order $order,
+        ?float $preservedDeliveryFee = null,
+        ?string $preservedDeliveryFeeSource = null,
+    ): ?array
     {
         $order->refresh()->load(['orderLocations.restaurant']);
-        $deliveryFeeLock = $this->deliveryFeeLockResolver->resolve($order);
-        $lockedDeliveryFee = (bool) $deliveryFeeLock['is_locked']
-            ? (float) $deliveryFeeLock['amount']
+        $preservedDeliveryFee = is_numeric($preservedDeliveryFee) && $preservedDeliveryFee > 0
+            ? round((float) $preservedDeliveryFee, 2)
             : null;
+        $deliveryFeeLock = $this->deliveryFeeLockResolver->resolve($order);
+        $lockedDeliveryFee = $preservedDeliveryFee ?? ((bool) $deliveryFeeLock['is_locked']
+            ? (float) $deliveryFeeLock['amount']
+            : null);
+        $deliveryFeeLockSource = $preservedDeliveryFee !== null
+            ? ($preservedDeliveryFeeSource ?: 'PRESERVED_DELIVERY_FEE')
+            : $deliveryFeeLock['source'];
 
         if ($this->activePickupLocations($order)->isEmpty()) {
             $this->storeRouteSnapshot($order, [
@@ -161,6 +171,10 @@ class ShoppingRouteService
                 'encoded_polyline' => null,
                 'route_provider' => 'none',
                 'route_status' => 'NO_ACTIVE_PICKUPS',
+                ...($lockedDeliveryFee !== null ? [
+                    'delivery_fee_locked' => true,
+                    'delivery_fee_lock_source' => $deliveryFeeLockSource,
+                ] : []),
             ]);
 
             return null;
@@ -172,7 +186,7 @@ class ShoppingRouteService
         if ($lockedDeliveryFee !== null) {
             $route['delivery_fee'] = round($lockedDeliveryFee, 2);
             $route['delivery_fee_locked'] = true;
-            $route['delivery_fee_lock_source'] = $deliveryFeeLock['source'];
+            $route['delivery_fee_lock_source'] = $deliveryFeeLockSource;
         }
 
         $order->update([

@@ -154,7 +154,7 @@ class ChatbotShoppingFlowTest extends TestCase
             ->assertJsonPath('data.shopping.ready_to_confirm', false)
             ->assertJsonPath('data.validation.missing_fields.0', 'merchant')
             ->assertJsonPath('data.validation.next_actions.0', 'OPEN_MERCHANT_PICKER')
-            ->assertJsonPath('data.action_payloads.OPEN_MERCHANT_PICKER.label', 'Pilih Merchant di Map');
+            ->assertJsonPath('data.action_payloads.OPEN_MERCHANT_PICKER.label', 'Pilih Tempat di Map');
     }
 
     public function test_chatbot_shopping_merchant_picker_guides_item_completion(): void
@@ -215,9 +215,9 @@ class ChatbotShoppingFlowTest extends TestCase
             ->assertJsonPath('data.shopping.merchant.name', 'Kedai Tinari');
 
         $assistantText = (string) $merchantResponse->json('data.assistant_text');
-        $this->assertStringContainsString('Merchant', $assistantText);
+        $this->assertStringContainsString('Tempat', $assistantText);
         $this->assertStringContainsString('Kedai Tinari', $assistantText);
-        $this->assertStringContainsString('Tulis item dan jumlah untuk merchant ini.', $assistantText);
+        $this->assertStringContainsString('Tulis item dan jumlah untuk tempat ini.', $assistantText);
         $this->assertStringContainsString('- susu 1', $assistantText);
         $this->assertStringContainsString('- roti tawar 2', $assistantText);
     }
@@ -652,17 +652,17 @@ class ChatbotShoppingFlowTest extends TestCase
         $firstDraftResponse->assertOk()
             ->assertJsonPath('data.shopping.ready_to_confirm', true)
             ->assertJsonPath('data.shopping.stops.0.merchant.name', 'Kedai Tinari')
-            ->assertJsonPath('data.action_payloads.OPEN_ADD_MERCHANT_PICKER.label', 'Tambah Merchant')
+            ->assertJsonPath('data.action_payloads.OPEN_ADD_MERCHANT_PICKER.label', 'Tambah Tempat')
             ->assertJsonPath('data.action_payloads.OPEN_ADD_MERCHANT_PICKER.mode', 'add');
         $this->assertStringContainsString(
-            'Mau tambah merchant lain? Pilih merchantnya dulu.',
+            'Mau tambah tempat lain? Pilih tempatnya dulu.',
             (string) $firstDraftResponse->json('data.assistant_text')
         );
 
         $addCommandResponse = $this->postJson('/api/chatbot/process', [
             'session_id' => $sessionId,
             'service_type' => 'nitip',
-            'message' => 'tambah order',
+            'message' => 'tambah tempat',
         ]);
 
         $addCommandResponse->assertOk()
@@ -682,7 +682,7 @@ class ChatbotShoppingFlowTest extends TestCase
             ->assertJsonPath('data.shopping.stops.1.merchant.name', 'Warung Sembako Maju')
             ->assertJsonPath('data.validation.missing_fields.0', 'items');
         $this->assertStringContainsString(
-            'Tulis item dan jumlah untuk merchant ini.',
+            'Tulis item dan jumlah untuk tempat ini.',
             (string) $secondMerchantResponse->json('data.assistant_text')
         );
 

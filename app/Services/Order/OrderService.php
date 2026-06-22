@@ -364,6 +364,8 @@ class OrderService
                 }
             }
 
+            $penaltyBaseDeliveryFee = round(max(0.0, (float) $order->delivery_fee), 2);
+
             if ($pickup !== null) {
                 $pickup->update([
                     'fulfillment_status' => 'FAILED',
@@ -390,7 +392,11 @@ class OrderService
             $order->refresh()->load(['orderLocations.restaurant', 'items', 'shoppingReceipt']);
             $nextFailedAttemptCount = $this->shoppingPricingService->failedAttemptCount($order);
 
-            $this->shoppingRouteService->applyRouteToOrder($order);
+            $this->shoppingRouteService->applyRouteToOrder(
+                $order,
+                $penaltyBaseDeliveryFee,
+                'FAILED_ATTEMPT_'.$normalizedFailureType
+            );
 
             $pickupLocationIdForAudit = $pickup instanceof OrderLocation
                 ? (int) $pickup->id
@@ -411,6 +417,7 @@ class OrderService
                     'fulfillment_status' => $pickup !== null ? 'FAILED' : null,
                     'failure_reason' => $reason,
                     'failed_at' => now()->toIso8601String(),
+                    'penalty_base_delivery_fee' => $penaltyBaseDeliveryFee,
                 ],
             ]);
 
@@ -1155,6 +1162,7 @@ class OrderService
             }
 
             $shoppingCancellationPenalty = null;
+            $shoppingCancellationPenaltyBaseDeliveryFee = null;
             if (strtoupper((string) $serviceCode) === 'SHOPPING' && $normalizedActionCode === 'CANCEL_WITH_FEE') {
                 if (! $this->shoppingPricingService->isCancellationPenaltyEligible($order)) {
                     throw new ApiException('Order belum memenuhi batas failed attempt untuk dibatalkan dengan fee.', 409);
@@ -1164,6 +1172,7 @@ class OrderService
                     throw new ApiException('Order sudah memiliki pembayaran lunas dan tidak bisa dibatalkan dengan fee.', 409);
                 }
 
+                $shoppingCancellationPenaltyBaseDeliveryFee = $this->shoppingPricingService->cancellationPenaltyBaseAmount($order);
                 $shoppingCancellationPenalty = $this->shoppingPricingService->calculateCancellationPenalty($order);
                 if ($shoppingCancellationPenalty <= 0) {
                     throw new ApiException('Penalty pembatalan belum dapat dihitung.', 409);
@@ -1204,6 +1213,9 @@ class OrderService
             $snapshot = [
                 'action_code' => $normalizedActionCode,
                 'service_type' => $serviceCode,
+                ...($shoppingCancellationPenaltyBaseDeliveryFee !== null ? [
+                    'penalty_base_delivery_fee' => round($shoppingCancellationPenaltyBaseDeliveryFee, 2),
+                ] : []),
             ];
 
             $statusHistory = OrderStatusHistory::query()->create([
@@ -2089,13 +2101,18 @@ class OrderService
             isset($payload['pickup_location_id']) ? (int) $payload['pickup_location_id'] : null
         );
         $reason = 'Resto tutup/order batal.';
+        $penaltyBaseDeliveryFee = round(max(0.0, (float) $order->delivery_fee), 2);
 
         $this->markShoppingPickupFailedForCustomerCancel($order, $pickup, $reason);
 
         $order->refresh()->load(['statusRef', 'serviceType', 'orderLocations.restaurant', 'items', 'shoppingReceipt']);
         $failedAttemptCount = $this->shoppingPricingService->failedAttemptCount($order);
 
-        $this->shoppingRouteService->applyRouteToOrder($order);
+        $this->shoppingRouteService->applyRouteToOrder(
+            $order,
+            $penaltyBaseDeliveryFee,
+            'CUSTOMER_CANCEL_MERCHANT'
+        );
 
         OrderLog::query()->create([
             'order_id' => $order->id,
@@ -2109,6 +2126,7 @@ class OrderService
                 'fulfillment_status' => 'FAILED',
                 'failure_reason' => $reason,
                 'failed_at' => now()->toIso8601String(),
+                'penalty_base_delivery_fee' => $penaltyBaseDeliveryFee,
             ],
         ]);
 
@@ -2121,6 +2139,7 @@ class OrderService
                 'pickup_location_id' => $pickup?->id,
                 'failed_attempt_count' => $failedAttemptCount,
                 'status' => 'CANCELLED_MERCHANT',
+                'penalty_base_delivery_fee' => $penaltyBaseDeliveryFee,
             ]
         );
 
@@ -2188,8 +2207,10 @@ class OrderService
         $statusId = $this->resolveStatusId($statusCode);
         $previousStatusCode = strtoupper((string) ($order->statusRef->code ?? ''));
         $penalty = 0.0;
+        $penaltyBaseDeliveryFee = null;
 
         if ($withFee) {
+            $penaltyBaseDeliveryFee = $this->shoppingPricingService->cancellationPenaltyBaseAmount($order);
             $penalty = $this->shoppingPricingService->calculateCancellationPenalty($order);
             if ($penalty <= 0) {
                 throw new ApiException('Penalty pembatalan belum dapat dihitung.', 409);
@@ -2207,6 +2228,9 @@ class OrderService
             'note' => $reason,
             'price_snapshot' => [
                 'cancellation_penalty' => round($penalty, 2),
+                ...($penaltyBaseDeliveryFee !== null ? [
+                    'penalty_base_delivery_fee' => round($penaltyBaseDeliveryFee, 2),
+                ] : []),
                 'source' => $recalculationTrigger,
             ],
         ]);

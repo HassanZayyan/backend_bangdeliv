@@ -706,8 +706,8 @@ class ChatbotShoppingOrderService
             if ($candidate === null) {
                 $missingFields[] = 'merchant';
                 $rejectionReasons[] = $stopNumber === 1
-                    ? 'Merchant/toko belum dipilih.'
-                    : "Merchant ke-{$stopNumber} belum dipilih.";
+                    ? 'Tempat belum dipilih.'
+                    : "Tempat ke-{$stopNumber} belum dipilih.";
             } elseif (! $this->hasUsableCoordinatePair($candidate->latitude, $candidate->longitude)) {
                 $missingFields[] = 'merchant_location';
                 $rejectionReasons[] = "Koordinat {$candidate->name} belum lengkap.";
@@ -717,7 +717,7 @@ class ChatbotShoppingOrderService
 
             if ($stopItems === []) {
                 $missingFields[] = 'items';
-                $merchantName = trim((string) ($merchantPayload['name'] ?? 'merchant ini'));
+                $merchantName = trim((string) ($merchantPayload['name'] ?? 'tempat ini'));
                 $rejectionReasons[] = "Item belanja untuk {$merchantName} belum disebutkan.";
             }
 
@@ -746,7 +746,7 @@ class ChatbotShoppingOrderService
         if ($resolvedStops === []) {
             $missingFields[] = 'merchant';
             $missingFields[] = 'items';
-            $rejectionReasons[] = 'Merchant/toko belum dipilih.';
+            $rejectionReasons[] = 'Tempat belum dipilih.';
             $rejectionReasons[] = 'Item belanja belum disebutkan.';
         }
 
@@ -867,14 +867,14 @@ class ChatbotShoppingOrderService
                 'label' => 'Isi Alamat Saya',
             ],
             'OPEN_MERCHANT_PICKER' => [
-                'label' => 'Pilih Merchant di Map',
+                'label' => 'Pilih Tempat di Map',
                 'mode' => 'select',
                 'query' => $this->normalizeOptionalString($draftSeed['merchant_name'] ?? null),
                 'initial_latitude' => $initialLatitude,
                 'initial_longitude' => $initialLongitude,
             ],
             'OPEN_ADD_MERCHANT_PICKER' => [
-                'label' => 'Tambah Merchant',
+                'label' => 'Tambah Tempat',
                 'mode' => 'add',
                 'query' => null,
                 'initial_latitude' => $initialLatitude,
@@ -1194,7 +1194,7 @@ class ChatbotShoppingOrderService
                     'id' => null,
                     'order_number' => null,
                 ],
-                'assistant_text' => 'Draft Nitip belum lengkap. Tulis merchant dan itemnya dulu, lalu pilih titik antar.',
+                'assistant_text' => 'Draft Nitip belum lengkap. Tulis tempat dan itemnya dulu, lalu pilih titik antar.',
             ];
         }
 
@@ -1237,7 +1237,7 @@ class ChatbotShoppingOrderService
             $merchantPayload = is_array($stopPayload['merchant'] ?? null) ? $stopPayload['merchant'] : [];
             $candidate = $this->resolveMerchantCandidate($this->draftSeedFromMerchantPayload($merchantPayload));
             if (! $candidate instanceof ShoppingMerchantCandidate) {
-                throw new ApiException('Merchant draft tidak ditemukan.', 404);
+                throw new ApiException('Tempat draft tidak ditemukan.', 404);
             }
 
             $stopItems = is_array($stopPayload['items'] ?? null) ? $stopPayload['items'] : [];
@@ -1587,8 +1587,8 @@ class ChatbotShoppingOrderService
 
         $lines = [
             count($stops) === 1
-                ? 'Draft Nitip merchant pertama sudah aman.'
-                : "Baik {$name}, saya sudah siapkan draft Nitip multi-merchant.",
+                ? 'Draft Nitip tempat pertama sudah aman.'
+                : "Baik {$name}, saya sudah siapkan draft Nitip multi-tempat.",
             '',
         ];
 
@@ -1599,7 +1599,7 @@ class ChatbotShoppingOrderService
 
             $stopMerchant = is_array($stop['merchant'] ?? null) ? $stop['merchant'] : [];
             $stopItems = is_array($stop['items'] ?? null) ? $stop['items'] : [];
-            $lines[] = count($stops) === 1 ? 'Merchant' : 'Merchant '.($stopIndex + 1);
+            $lines[] = count($stops) === 1 ? 'Tempat' : 'Tempat '.($stopIndex + 1);
             $lines[] = (string) ($stopMerchant['name'] ?? '-');
             $lines[] = '';
             $lines[] = 'Daftar belanja';
@@ -1628,11 +1628,11 @@ class ChatbotShoppingOrderService
             : 'Metode pembayaran: '.$this->paymentMethodLabel($paymentMethod).'.';
         $lines[] = '';
         if ((bool) data_get($payload, 'shopping.merchant_limit_reached', false)) {
-            $lines[] = 'Maksimal 3 merchant dalam satu pesanan Nitip. Draft yang sudah ada tetap aman.';
+            $lines[] = 'Maksimal 3 tempat dalam satu pesanan Nitip. Draft yang sudah ada tetap aman.';
             $lines[] = '';
         } elseif (count($stops) < self::MAX_MERCHANT_STOPS) {
-            $lines[] = 'Mau tambah merchant lain? Pilih merchantnya dulu.';
-            $lines[] = 'Contoh setelah merchant berikutnya dipilih:';
+            $lines[] = 'Mau tambah tempat lain? Pilih tempatnya dulu.';
+            $lines[] = 'Contoh setelah tempat berikutnya dipilih:';
             $lines[] = '- susu 1';
             $lines[] = '- roti tawar 2';
             $lines[] = '';
@@ -1666,7 +1666,7 @@ class ChatbotShoppingOrderService
         $missing = implode(', ', $missingFields);
         $baseText = 'Draft Nitip belum lengkap. Lengkapi: '.($missing === '' ? 'draft' : $missing).'.';
         if ((bool) ($shopping['merchant_limit_reached'] ?? false)) {
-            return 'Maksimal 3 merchant dalam satu pesanan Nitip. Draft yang sudah ada tetap aman, kamu bisa pilih pembayaran atau konfirmasi.';
+            return 'Maksimal 3 tempat dalam satu pesanan Nitip. Draft yang sudah ada tetap aman, kamu bisa pilih pembayaran atau konfirmasi.';
         }
 
         $stops = is_array($shopping['stops'] ?? null) ? $shopping['stops'] : [];
@@ -1676,9 +1676,9 @@ class ChatbotShoppingOrderService
         ));
         if (in_array('merchant', $missingFields, true) && $completeStopCount > 0) {
             return implode("\n", [
-                'Mau tambah merchant lain? Pilih merchantnya dulu.',
+                'Mau tambah tempat lain? Pilih tempatnya dulu.',
                 '',
-                'Contoh setelah merchant berikutnya dipilih:',
+                'Contoh setelah tempat berikutnya dipilih:',
                 '- susu 1',
                 '- roti tawar 2',
             ]);
@@ -1705,10 +1705,10 @@ class ChatbotShoppingOrderService
         return implode("\n", [
             $baseText,
             '',
-            'Merchant',
+            'Tempat',
             $activeMerchantName,
             '',
-            'Tulis item dan jumlah untuk merchant ini.',
+            'Tulis item dan jumlah untuk tempat ini.',
             'Contoh:',
             '- susu 1',
             '- roti tawar 2',
@@ -1734,14 +1734,14 @@ class ChatbotShoppingOrderService
     private function isAddMerchantCommand(string $message, ?array $nluPayload = null): bool
     {
         $command = strtolower(trim((string) ($nluPayload['command'] ?? '')));
-        if (in_array($command, ['add_merchant', 'tambah_merchant'], true)) {
+        if (in_array($command, ['add_merchant', 'tambah_merchant', 'tambah_tempat'], true)) {
             return true;
         }
 
         $normalized = strtolower(trim((string) preg_replace('/[^\p{L}\p{N}\s]+/u', ' ', $message)));
         $normalized = $this->normalizeWhitespace($normalized);
 
-        return preg_match('/\b(?:tambah|nambah|add)\s+(?:merchant|toko|resto|restaurant|warung|minimarket|order)\b/u', $normalized) === 1
+        return preg_match('/\b(?:tambah|nambah|add)\s+(?:tempat|merchant|toko|resto|restaurant|warung|minimarket|order)\b/u', $normalized) === 1
             || preg_match('/\border\s+baru\b/u', $normalized) === 1;
     }
 

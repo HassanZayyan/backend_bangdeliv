@@ -66,7 +66,7 @@ class ChatbotContextLimitService
         return [
             'intent' => 'out_of_domain',
             'service_type' => $serviceType,
-            'assistant_text' => 'BangBot hanya membantu membuat pesanan di BangDeliv. Tulis detail pesanan seperti tujuan, merchant, barang, atau metode pembayaran.',
+            'assistant_text' => 'BangBot hanya membantu membuat pesanan di BangDeliv. Tulis detail pesanan seperti tujuan, tempat, barang, atau metode pembayaran.',
             'validation' => [
                 'is_valid_order' => false,
                 'rejection_reasons' => ['Pesan tidak sesuai konteks pemesanan.'],
