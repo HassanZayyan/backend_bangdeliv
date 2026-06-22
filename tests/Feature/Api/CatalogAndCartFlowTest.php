@@ -19,7 +19,11 @@ class CatalogAndCartFlowTest extends TestCase
             'latitude' => -6.20000000,
             'longitude' => 106.81666600,
             'phone' => '081234567890',
-            'banner_image' => null,
+            'banner_image' => 'restaurants/test-1.JPG',
+            'gallery_images' => [
+                'restaurants/test-1.JPG',
+                'restaurants/test-2.PNG',
+            ],
         ]);
 
         Restaurant::query()->create([
@@ -38,7 +42,34 @@ class CatalogAndCartFlowTest extends TestCase
             ->assertJsonPath('success', true)
             ->assertJsonCount(2, 'data')
             ->assertJsonPath('data.0.slug', 'resto-aktif')
+            ->assertJsonPath('data.0.banner_image', 'restaurants/test-1.JPG')
+            ->assertJsonPath('data.0.gallery_images.1', 'restaurants/test-2.PNG')
             ->assertJsonPath('data.1.slug', 'resto-kedua');
+    }
+
+    public function test_restaurant_detail_returns_gallery_images_for_carousel(): void
+    {
+        Restaurant::query()->create([
+            'name' => 'Resto Galeri',
+            'slug' => 'resto-galeri',
+            'address' => 'Jl. Galeri',
+            'latitude' => -6.20000000,
+            'longitude' => 106.81666600,
+            'phone' => '081234567890',
+            'banner_image' => 'restaurants/galeri-1.JPG',
+            'gallery_images' => [
+                'restaurants/galeri-1.JPG',
+                'restaurants/galeri-2.PNG',
+            ],
+        ]);
+
+        $response = $this->getJson('/api/v1/restaurants/resto-galeri');
+
+        $response->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.banner_image', 'restaurants/galeri-1.JPG')
+            ->assertJsonPath('data.gallery_images.0', 'restaurants/galeri-1.JPG')
+            ->assertJsonPath('data.gallery_images.1', 'restaurants/galeri-2.PNG');
     }
 
     public function test_restaurant_list_accepts_name_sort_for_shopping_merchant_picker(): void
@@ -71,5 +102,76 @@ class CatalogAndCartFlowTest extends TestCase
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.0.name', 'Alfamart BangDeliv Point')
             ->assertJsonPath('data.1.name', 'Warung Zeta');
+    }
+
+    public function test_restaurant_list_sorts_nearest_before_pagination(): void
+    {
+        Restaurant::query()->create([
+            'name' => 'Resto Dekat',
+            'slug' => 'resto-dekat',
+            'address' => 'Jl. Dekat',
+            'latitude' => -7.31780000,
+            'longitude' => 110.46348000,
+            'phone' => '081234567890',
+            'banner_image' => null,
+        ]);
+
+        Restaurant::query()->create([
+            'name' => 'Resto Jauh',
+            'slug' => 'resto-jauh',
+            'address' => 'Jl. Jauh',
+            'latitude' => -7.90000000,
+            'longitude' => 110.90000000,
+            'phone' => '081111111111',
+            'banner_image' => null,
+        ]);
+
+        $response = $this->getJson(
+            '/api/v1/restaurants?sort=nearest&latitude=-7.3178&longitude=110.46348&per_page=1'
+        );
+
+        $response->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.slug', 'resto-dekat')
+            ->assertJsonPath('meta.total', 2)
+            ->assertJsonPath('meta.last_page', 2);
+    }
+
+    public function test_restaurant_list_keeps_merchants_without_coordinates_after_nearest_results(): void
+    {
+        Restaurant::query()->create([
+            'name' => 'Resto Dekat',
+            'slug' => 'resto-dekat-null-coordinate-test',
+            'address' => 'Jl. Dekat',
+            'latitude' => -7.31780000,
+            'longitude' => 110.46348000,
+            'phone' => '081234567890',
+            'banner_image' => null,
+        ]);
+
+        Restaurant::query()->create([
+            'name' => 'Resto Tanpa Koordinat',
+            'slug' => 'resto-tanpa-koordinat',
+            'address' => null,
+            'latitude' => null,
+            'longitude' => null,
+            'phone' => '081111111111',
+            'banner_image' => null,
+        ]);
+
+        $response = $this->getJson(
+            '/api/v1/restaurants?sort=nearest&latitude=-7.3178&longitude=110.46348&per_page=20'
+        );
+
+        $response->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonCount(2, 'data')
+            ->assertJsonPath('data.0.slug', 'resto-dekat-null-coordinate-test')
+            ->assertJsonPath('data.0.distance_km', 0)
+            ->assertJsonPath('data.1.slug', 'resto-tanpa-koordinat')
+            ->assertJsonPath('data.1.latitude', null)
+            ->assertJsonPath('data.1.longitude', null)
+            ->assertJsonPath('data.1.distance_km', null);
     }
 }

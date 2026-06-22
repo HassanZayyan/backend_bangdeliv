@@ -69,11 +69,12 @@ class RestaurantMenuSeeder extends Seeder
             'name' => (string) $restoData['name'],
             'slug' => (string) $restoData['slug'],
             'merchant_type' => (string) $restoData['merchant_type'],
-            'address' => (string) $restoData['address'],
-            'latitude' => $restoData['latitude'],
-            'longitude' => $restoData['longitude'],
+            'address' => $restoData['address'] ?? null,
+            'latitude' => $restoData['latitude'] ?? null,
+            'longitude' => $restoData['longitude'] ?? null,
             'phone' => (string) $restoData['phone'],
-            'banner_image' => null,
+            'banner_image' => $restoData['banner_image'] ?? null,
+            'gallery_images' => array_values($restoData['gallery_images'] ?? []),
         ]);
 
         $restaurant->save();

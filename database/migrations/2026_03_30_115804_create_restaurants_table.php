@@ -18,11 +18,12 @@ return new class extends Migration
             $table->string('slug')->unique();
             $table->enum('merchant_type', ['restaurant', 'warung', 'convenience_store', 'other'])
                 ->default('restaurant');
-            $table->text('address');
-            $table->decimal('latitude', 10, 8);
-            $table->decimal('longitude', 11, 8);
+            $table->text('address')->nullable();
+            $table->decimal('latitude', 10, 8)->nullable();
+            $table->decimal('longitude', 11, 8)->nullable();
             $table->string('phone', 20); // NOT NULL — driver wajib telepon untuk konfirmasi ketersediaan
             $table->string('banner_image')->nullable();
+            $table->json('gallery_images')->nullable();
             $table->timestamps();
             $table->softDeletes();
 

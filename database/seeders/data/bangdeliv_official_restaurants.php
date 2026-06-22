@@ -10,6 +10,12 @@ return [
         'phone' => '-',
         'latitude' => -7.32082769,
         'longitude' => 110.47428439,
+        'banner_image' => 'restaurants/1-1.JPG',
+        'gallery_images' => [
+            'restaurants/1-1.JPG',
+            'restaurants/1-2.PNG',
+            'restaurants/1-3.PNG',
+        ],
         'menus' => [
             ['name' => 'Mie Ayam Biasa', 'price' => 10000],
             ['name' => 'Mie Ayam Bakso', 'price' => 14000],
@@ -41,6 +47,12 @@ return [
         'phone' => '-',
         'latitude' => -7.321,
         'longitude' => 110.474,
+        'banner_image' => 'restaurants/2-1.JPG',
+        'gallery_images' => [
+            'restaurants/2-1.JPG',
+            'restaurants/2-2.PNG',
+            'restaurants/2-3.PNG',
+        ],
         'menus' => [
             ['name' => 'Tansu Keju', 'price' => 6000],
             ['name' => 'Tansu Meises', 'price' => 5000],
@@ -52,6 +64,35 @@ return [
         ],
     ],
     [
+        'source_no' => 3,
+        'name' => 'Santoso Food Kumpulrejo',
+        'slug' => 'santoso-food-kumpulrejo',
+        'merchant_type' => 'restaurant',
+        'address' => null,
+        'phone' => '-',
+        'latitude' => null,
+        'longitude' => null,
+        'banner_image' => 'restaurants/3-1.PNG',
+        'gallery_images' => [
+            'restaurants/3-1.PNG',
+            'restaurants/3-2.JPG',
+            'restaurants/3-3.PNG',
+        ],
+        'menus' => [
+            ['name' => 'Dimsum Ori (1 pcs)', 'price' => 2500],
+            ['name' => 'Dimsum Mentai', 'price' => 15000],
+            ['name' => 'Dimsum Mentai (5 pcs)', 'price' => 17500],
+            ['name' => 'Dimsum Moza (1 pcs)', 'price' => 3500],
+            ['name' => 'Cireng Ayam Suwir (1 pcs)', 'price' => 2000],
+            ['name' => 'Cireng Isi Ayam (1 pcs)', 'price' => 2000],
+            ['name' => 'Mie Cuan', 'price' => 3000],
+            ['name' => 'Tahu Kocek', 'price' => 5000],
+            ['name' => 'Dimsum Goreng Mentai Isi 4', 'price' => 20000],
+            ['name' => 'Tempura Chili Oil', 'price' => 5000],
+            ['name' => 'Ubi Molor', 'price' => 2500],
+        ],
+    ],
+    [
         'source_no' => 4,
         'name' => 'Belut Tiga Saudara',
         'slug' => 'belut-tiga-saudara',
@@ -60,6 +101,10 @@ return [
         'phone' => '-',
         'latitude' => -7.31763133,
         'longitude' => 110.47817245,
+        'banner_image' => 'restaurants/4.JPG',
+        'gallery_images' => [
+            'restaurants/4.JPG',
+        ],
         'menus' => [
             ['name' => 'Belut Goreng Tepung', 'price' => 14000],
             ['name' => 'Belut Tepung Penyet', 'price' => 14000],
@@ -97,10 +142,57 @@ return [
         'phone' => '-',
         'latitude' => -7.32188576,
         'longitude' => 110.46466389,
+        'banner_image' => 'restaurants/5.JPG',
+        'gallery_images' => [
+            'restaurants/5.JPG',
+        ],
         'menus' => [
             ['name' => 'Jasuke Original (Susu + Keju)', 'price' => 8000],
             ['name' => 'Jasuke Coklat (Susu + Keju + Meses)', 'price' => 8000],
             ['name' => 'Jasuke Pedas (Susu + Keju + Saos Sambal)', 'price' => 8000],
+        ],
+    ],
+    [
+        'source_no' => 6,
+        'name' => 'Kedai Mr Top',
+        'slug' => 'kedai-mr-top',
+        'merchant_type' => 'restaurant',
+        'address' => null,
+        'phone' => '-',
+        'latitude' => null,
+        'longitude' => null,
+        'banner_image' => 'restaurants/6-1.JPG',
+        'gallery_images' => [
+            'restaurants/6-1.JPG',
+            'restaurants/6-2.PNG',
+        ],
+        'menus' => [
+            ['name' => 'Soto Ayam Kecil', 'price' => 5000],
+            ['name' => 'Soto Ayam Besar', 'price' => 7000],
+            ['name' => 'Soto Sapi Kecil', 'price' => 5000],
+            ['name' => 'Soto Sapi Besar', 'price' => 8000],
+            ['name' => 'Ayam Geprek', 'price' => 11000],
+            ['name' => 'Ayam Kremes + Nasi Daun Jeruk', 'price' => 18000],
+            ['name' => 'Chicken Crispy Steak', 'price' => 15000],
+            ['name' => 'Nasi Goreng Biasa', 'price' => 10000],
+            ['name' => 'Nasi Goreng Ayam', 'price' => 14000],
+            ['name' => 'Nasi Goreng Special', 'price' => 17000],
+            ['name' => 'Nasi Goreng Special Cabe Ijo', 'price' => 17000],
+            ['name' => 'Kentang', 'price' => 10000],
+            ['name' => 'Mendoan', 'price' => 10000],
+            ['name' => 'Pisang Crispy', 'price' => 10000],
+            ['name' => 'Ekstra Nasi', 'price' => 4000],
+            ['name' => 'Ekstra Telur', 'price' => 4000],
+            ['name' => 'Es Teh', 'price' => 3000],
+            ['name' => 'Teh Panas', 'price' => 3000],
+            ['name' => 'Es Jeruk', 'price' => 4000],
+            ['name' => 'Jeruk Panas', 'price' => 4000],
+            ['name' => 'Kopi Hitam', 'price' => 5000],
+            ['name' => 'Good Day (Panas/Es)', 'price' => 5000],
+            ['name' => 'Susu Putih', 'price' => 5000],
+            ['name' => 'Susu Coklat', 'price' => 5000],
+            ['name' => 'Leci Tea', 'price' => 6000],
+            ['name' => 'Ice Cream Ketan Hitam', 'price' => 13000],
         ],
     ],
     [
@@ -112,6 +204,10 @@ return [
         'phone' => '-',
         'latitude' => -7.31368869,
         'longitude' => 110.47861364,
+        'banner_image' => 'restaurants/7.JPG',
+        'gallery_images' => [
+            'restaurants/7.JPG',
+        ],
         'menus' => [
             ['name' => 'Original Chicken Steak', 'price' => 22000],
             ['name' => 'Double Crispy Chicken Steak', 'price' => 26000],
@@ -160,6 +256,10 @@ return [
         'phone' => '-',
         'latitude' => -7.31559352,
         'longitude' => 110.46664161,
+        'banner_image' => 'restaurants/8.JPG',
+        'gallery_images' => [
+            'restaurants/8.JPG',
+        ],
         'menus' => [
             ['name' => 'Bakso Urat', 'price' => 12000],
             ['name' => 'Mie Ayam', 'price' => 10000],
@@ -174,6 +274,36 @@ return [
         ],
     ],
     [
+        'source_no' => 9,
+        'name' => 'Teh Santri',
+        'slug' => 'teh-santri',
+        'merchant_type' => 'restaurant',
+        'address' => null,
+        'phone' => '-',
+        'latitude' => null,
+        'longitude' => null,
+        'banner_image' => 'restaurants/9.JPG',
+        'gallery_images' => [
+            'restaurants/9.JPG',
+        ],
+        'menus' => [
+            ['name' => 'Good Day Capucino Blendshake', 'price' => 8000],
+            ['name' => 'Good Day Butterschoff Blendshake', 'price' => 8000],
+            ['name' => 'Good Day Freezz Blendshake', 'price' => 8000],
+            ['name' => 'Good Day Carrebian Nut Blendshake', 'price' => 6000],
+            ['name' => 'Good Day Mocacino Blendshake', 'price' => 6000],
+            ['name' => 'Good Day Chocochino Blendshake', 'price' => 6000],
+            ['name' => 'Good Day Vanilla Latte Blendshake', 'price' => 6000],
+            ['name' => 'Good Day Caramel Macchiato', 'price' => 6000],
+            ['name' => 'Good Day Original', 'price' => 6000],
+            ['name' => 'Milo', 'price' => 8000],
+            ['name' => 'Chocolatos All Varian', 'price' => 8000],
+            ['name' => 'Teh Jumbo', 'price' => 2500],
+            ['name' => 'Lemon Tea', 'price' => 5000],
+            ['name' => 'Es Jeruk', 'price' => 5000],
+        ],
+    ],
+    [
         'source_no' => 10,
         'name' => 'Dimsum Dan Seblak Wolu',
         'slug' => 'dimsum-dan-seblak-wolu',
@@ -182,6 +312,13 @@ return [
         'phone' => '-',
         'latitude' => -7.31780695,
         'longitude' => 110.46348435,
+        'banner_image' => 'restaurants/10-1.JPG',
+        'gallery_images' => [
+            'restaurants/10-1.JPG',
+            'restaurants/10-2.PNG',
+            'restaurants/10-3.PNG',
+            'restaurants/10-4.PNG',
+        ],
         'menus' => [
             ['name' => 'Dimsum Original (isi 5)', 'price' => 10000],
             ['name' => 'Dimsum Mentai (isi 4)', 'price' => 12000],
@@ -227,6 +364,26 @@ return [
         ],
     ],
     [
+        'source_no' => 11,
+        'name' => 'Warung Mama Vicel',
+        'slug' => 'warung-mama-vicel',
+        'merchant_type' => 'warung',
+        'address' => null,
+        'phone' => '-',
+        'latitude' => null,
+        'longitude' => null,
+        'banner_image' => 'restaurants/11-1.JPG',
+        'gallery_images' => [
+            'restaurants/11-1.JPG',
+            'restaurants/11-2.PNG',
+        ],
+        'menus' => [
+            ['name' => 'Risol Mayo (3 pcs)', 'price' => 10000],
+            ['name' => 'Cireng Isi', 'price' => 3500],
+            ['name' => 'Pisgor Coklat Keju', 'price' => 10000],
+        ],
+    ],
+    [
         'source_no' => 12,
         'name' => 'TERAS JAJAN MBAK MUN',
         'slug' => 'teras-jajan-mbak-mun',
@@ -235,6 +392,11 @@ return [
         'phone' => '-',
         'latitude' => -7.31974771,
         'longitude' => 110.46618877,
+        'banner_image' => 'restaurants/12-1.JPG',
+        'gallery_images' => [
+            'restaurants/12-1.JPG',
+            'restaurants/12-2.PNG',
+        ],
         'menus' => [
             ['name' => 'Wonton Goreng Chili Oil', 'price' => 10000],
             ['name' => 'Wonton Basah Chili Oil', 'price' => 10000],
@@ -265,6 +427,10 @@ return [
         'phone' => '-',
         'latitude' => -7.26399522,
         'longitude' => 110.48616866,
+        'banner_image' => 'restaurants/13.JPG',
+        'gallery_images' => [
+            'restaurants/13.JPG',
+        ],
         'menus' => [
             ['name' => 'Gecok Kambing', 'price' => 35000],
             ['name' => 'Gulai Sapi', 'price' => 30000],
@@ -281,6 +447,10 @@ return [
         'phone' => '-',
         'latitude' => -7.31555041,
         'longitude' => 110.46911003,
+        'banner_image' => 'restaurants/14.JPG',
+        'gallery_images' => [
+            'restaurants/14.JPG',
+        ],
         'menus' => [
             ['name' => 'Bakso Balungan', 'price' => 15000],
             ['name' => 'Bakso Balungan Mie', 'price' => 15000],
@@ -304,6 +474,10 @@ return [
         'phone' => '-',
         'latitude' => -7.31674239,
         'longitude' => 110.46618112,
+        'banner_image' => 'restaurants/15.JPG',
+        'gallery_images' => [
+            'restaurants/15.JPG',
+        ],
         'menus' => [
             ['name' => 'Chicken Katsu Saos Lada Hitam', 'price' => 13000],
             ['name' => 'Chicken Katsu Saos Tomat Cabe', 'price' => 13000],
@@ -343,6 +517,10 @@ return [
         'phone' => '-',
         'latitude' => -7.31652860,
         'longitude' => 110.47760244,
+        'banner_image' => 'restaurants/16.JPG',
+        'gallery_images' => [
+            'restaurants/16.JPG',
+        ],
         'menus' => [
             ['name' => 'Nasi Goreng Jowo', 'price' => 18000],
             ['name' => 'Nasi Godok', 'price' => 18000],
@@ -367,6 +545,11 @@ return [
         'phone' => '-',
         'latitude' => -7.33142520,
         'longitude' => 110.45380615,
+        'banner_image' => 'restaurants/17-1.JPG',
+        'gallery_images' => [
+            'restaurants/17-1.JPG',
+            'restaurants/17-2.PNG',
+        ],
         'menus' => [
             ['name' => 'Dimsum Cake Mini', 'price' => 30000],
             ['name' => 'Dimsum Cake', 'price' => 75000],
@@ -405,6 +588,11 @@ return [
         'phone' => '-',
         'latitude' => -7.31655684,
         'longitude' => 110.46705588,
+        'banner_image' => 'restaurants/18-1.JPG',
+        'gallery_images' => [
+            'restaurants/18-1.JPG',
+            'restaurants/18-2.PNG',
+        ],
         'menus' => [
             ['name' => 'Nasi Liwet', 'price' => 10000],
         ],
@@ -418,6 +606,11 @@ return [
         'phone' => '-',
         'latitude' => -7.32046464,
         'longitude' => 110.47176694,
+        'banner_image' => 'restaurants/19-1.JPG',
+        'gallery_images' => [
+            'restaurants/19-1.JPG',
+            'restaurants/19-2.PNG',
+        ],
         'menus' => [
             ['name' => 'Nasi Goreng', 'price' => 12000],
             ['name' => 'Nasi Ruwet', 'price' => 12000],
@@ -441,6 +634,12 @@ return [
         'phone' => '-',
         'latitude' => -7.33124288,
         'longitude' => 110.47639027,
+        'banner_image' => 'restaurants/20-1.JPG',
+        'gallery_images' => [
+            'restaurants/20-1.JPG',
+            'restaurants/20-2.PNG',
+            'restaurants/20-3.PNG',
+        ],
         'menus' => [
             ['name' => 'Paket 1', 'price' => 10000],
             ['name' => 'Paket 2', 'price' => 12000],
@@ -513,6 +712,10 @@ return [
         'phone' => '-',
         'latitude' => -7.31960385,
         'longitude' => 110.46528864,
+        'banner_image' => 'restaurants/21.JPG',
+        'gallery_images' => [
+            'restaurants/21.JPG',
+        ],
         'menus' => [
             ['name' => 'Es Pisang Ijo', 'price' => 8000],
             ['name' => 'Es Teler', 'price' => 8000],
@@ -549,6 +752,10 @@ return [
         'phone' => '-',
         'latitude' => -7.32065876,
         'longitude' => 110.47334801,
+        'banner_image' => 'restaurants/22.JPG',
+        'gallery_images' => [
+            'restaurants/22.JPG',
+        ],
         'menus' => [
             ['name' => 'Jus Alpukat', 'price' => 8000],
             ['name' => 'Jus Mangga', 'price' => 8000],
@@ -587,6 +794,10 @@ return [
         'phone' => '-',
         'latitude' => -7.32001545,
         'longitude' => 110.47824980,
+        'banner_image' => 'restaurants/23.JPG',
+        'gallery_images' => [
+            'restaurants/23.JPG',
+        ],
         'menus' => [
             ['name' => 'Sate Kambing', 'price' => 38000],
             ['name' => 'Sate Sapi', 'price' => 38000],
@@ -601,6 +812,37 @@ return [
         ],
     ],
     [
+        'source_no' => 24,
+        'name' => 'Nasi Goreng Nikmal',
+        'slug' => 'nasi-goreng-nikmal',
+        'merchant_type' => 'restaurant',
+        'address' => null,
+        'phone' => '-',
+        'latitude' => null,
+        'longitude' => null,
+        'banner_image' => 'restaurants/24-1.JPG',
+        'gallery_images' => [
+            'restaurants/24-1.JPG',
+            'restaurants/24-2.PNG',
+        ],
+        'menus' => [
+            ['name' => 'Nasi Goreng Telor', 'price' => 9000],
+            ['name' => 'Nasi Goreng Sosis', 'price' => 10000],
+            ['name' => 'Nasi Goreng Ayam', 'price' => 10000],
+            ['name' => 'Nasi Goreng Babat', 'price' => 13000],
+            ['name' => 'Nasi Goreng Udang', 'price' => 15000],
+            ['name' => 'Nasi Goreng Cumi', 'price' => 15000],
+            ['name' => 'Nasi Goreng Pete', 'price' => 13000],
+            ['name' => 'Nasi Goreng Spesial', 'price' => 17000],
+            ['name' => 'Nasi Goreng Seafood', 'price' => 17000],
+            ['name' => 'Nasi Goreng Bakso', 'price' => 10000],
+            ['name' => 'Nasi Goreng Ati', 'price' => 10000],
+            ['name' => 'Mie Goreng/Godok', 'price' => 12000],
+            ['name' => 'Kwetiaw Goreng/Godok', 'price' => 12000],
+            ['name' => 'Capcay', 'price' => 13000],
+        ],
+    ],
+    [
         'source_no' => 25,
         'name' => 'Martabak Bangka Idola Cabang Krenceng',
         'slug' => 'martabak-bangka-idola-cabang-krenceng',
@@ -609,6 +851,12 @@ return [
         'phone' => '-',
         'latitude' => -7.32061462,
         'longitude' => 110.47362831,
+        'banner_image' => 'restaurants/25-1.JPG',
+        'gallery_images' => [
+            'restaurants/25-1.JPG',
+            'restaurants/25-2.PNG',
+            'restaurants/25-3.PNG',
+        ],
         'menus' => [
             ['name' => 'Martabak Manis Coklat Susu', 'price' => 18000],
             ['name' => 'Martabak Manis Kacang Susu', 'price' => 18000],
@@ -657,6 +905,11 @@ return [
         'phone' => '-',
         'latitude' => -7.31948581,
         'longitude' => 110.48004863,
+        'banner_image' => 'restaurants/26-1.JPG',
+        'gallery_images' => [
+            'restaurants/26-1.JPG',
+            'restaurants/26-2.PNG',
+        ],
         'menus' => [
             ['name' => 'Es Kopi Susu', 'price' => 14000],
             ['name' => 'Es Kopi Susu Aren', 'price' => 14000],
@@ -750,6 +1003,10 @@ return [
         'phone' => '-',
         'latitude' => -7.32053682,
         'longitude' => 110.47065237,
+        'banner_image' => 'restaurants/27.JPG',
+        'gallery_images' => [
+            'restaurants/27.JPG',
+        ],
         'menus' => [
             ['name' => 'Ayam Krispi Sayap', 'price' => 5000],
             ['name' => 'Ayam Krispi Paha Bawah', 'price' => 7000],
@@ -771,6 +1028,11 @@ return [
         'phone' => '-',
         'latitude' => -7.31948304,
         'longitude' => 110.48006335,
+        'banner_image' => 'restaurants/28-1.JPG',
+        'gallery_images' => [
+            'restaurants/28-1.JPG',
+            'restaurants/28-2.PNG',
+        ],
         'menus' => [
             ['name' => 'Martabak Manis Coklat Susu', 'price' => 20000],
             ['name' => 'Martabak Manis Kacang Susu', 'price' => 20000],
@@ -820,6 +1082,10 @@ return [
         'phone' => '-',
         'latitude' => -7.31992755,
         'longitude' => 110.46402142,
+        'banner_image' => 'restaurants/29.JPG',
+        'gallery_images' => [
+            'restaurants/29.JPG',
+        ],
         'menus' => [
             ['name' => 'Lotek', 'price' => 0],
             ['name' => 'Tahu Campur', 'price' => 0],
@@ -851,6 +1117,10 @@ return [
         'phone' => '-',
         'latitude' => -7.32369950,
         'longitude' => 110.46464769,
+        'banner_image' => 'restaurants/30.JPG',
+        'gallery_images' => [
+            'restaurants/30.JPG',
+        ],
         'menus' => [
             ['name' => 'Nasi Goreng Ayam', 'price' => 14000],
             ['name' => 'Nasi Goreng Bakso', 'price' => 17000],
@@ -874,6 +1144,11 @@ return [
         'phone' => '-',
         'latitude' => -7.31792643,
         'longitude' => 110.45581695,
+        'banner_image' => 'restaurants/31-1.JPG',
+        'gallery_images' => [
+            'restaurants/31-1.JPG',
+            'restaurants/31-2.PNG',
+        ],
         'menus' => [
             ['name' => 'Seblak Original', 'price' => 6000],
             ['name' => 'Topping Mie Kuning', 'price' => 3000],
@@ -970,6 +1245,36 @@ return [
             ['name' => 'Uwuh', 'price' => 10000],
             ['name' => 'Bandrek', 'price' => 10000],
             ['name' => 'Teh Jahe', 'price' => 5000],
+        ],
+    ],
+    [
+        'source_no' => 32,
+        'name' => 'Kedai El-Sha',
+        'slug' => 'kedai-el-sha',
+        'merchant_type' => 'restaurant',
+        'address' => null,
+        'phone' => '-',
+        'latitude' => null,
+        'longitude' => null,
+        'banner_image' => 'restaurants/32-1.JPG',
+        'gallery_images' => [
+            'restaurants/32-1.JPG',
+            'restaurants/32-2.PNG',
+        ],
+        'menus' => [
+            ['name' => 'Ayam Crispy Paha Atas', 'price' => 9000],
+            ['name' => 'Ayam Crispy Paha Bawah', 'price' => 8000],
+            ['name' => 'Ayam Crispy Dada', 'price' => 8000],
+            ['name' => 'Ayam Crispy Sayap', 'price' => 7000],
+            ['name' => 'Geprek', 'price' => 10000],
+            ['name' => 'Paket Geprek Dada', 'price' => 13000],
+            ['name' => 'Paket Geprek Sayap', 'price' => 12000],
+            ['name' => 'Paket Geprek + Es Teh Jumbo', 'price' => 15000],
+            ['name' => 'Es Teh Cup 12oz', 'price' => 1000],
+            ['name' => 'Es Teh Cup 14oz', 'price' => 1500],
+            ['name' => 'Es Teh Cup 16oz', 'price' => 2000],
+            ['name' => 'Es Teh Jumbo 22oz', 'price' => 3000],
+            ['name' => 'Es Teh Lemon Jumbo', 'price' => 5000],
         ],
     ],
 ];

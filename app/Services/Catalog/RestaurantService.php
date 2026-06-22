@@ -15,6 +15,8 @@ class RestaurantService
     public function paginate(array $filters): LengthAwarePaginator
     {
         $query = Restaurant::query();
+        $latitude = isset($filters['latitude']) ? (float) $filters['latitude'] : null;
+        $longitude = isset($filters['longitude']) ? (float) $filters['longitude'] : null;
 
         if (! empty($filters['search'])) {
             $search = trim((string) $filters['search']);
@@ -31,7 +33,18 @@ class RestaurantService
 
         $sort = (string) ($filters['sort'] ?? 'newest');
 
-        if ($sort === 'name') {
+        if ($sort === 'nearest' && $latitude !== null && $longitude !== null) {
+            $query
+                ->select('restaurants.*')
+                ->selectRaw(
+                    '((latitude - ?) * (latitude - ?) + (longitude - ?) * (longitude - ?)) as distance_sort',
+                    [$latitude, $latitude, $longitude, $longitude]
+                )
+                ->orderByRaw('CASE WHEN latitude IS NULL OR longitude IS NULL THEN 1 ELSE 0 END')
+                ->orderBy('distance_sort')
+                ->orderBy('name')
+                ->orderBy('id');
+        } elseif ($sort === 'name') {
             $query->orderBy('name')->orderBy('id');
         } else {
             $query->latest('id');
@@ -40,9 +53,6 @@ class RestaurantService
         $perPage = (int) ($filters['per_page'] ?? 10);
         $paginator = $query->paginate($perPage);
 
-        $latitude = isset($filters['latitude']) ? (float) $filters['latitude'] : null;
-        $longitude = isset($filters['longitude']) ? (float) $filters['longitude'] : null;
-
         $transformed = $paginator->getCollection()->map(function (Restaurant $restaurant) use ($latitude, $longitude): array {
             return [
                 'id' => $restaurant->id,
@@ -50,17 +60,14 @@ class RestaurantService
                 'slug' => $restaurant->slug,
                 'merchant_type' => $restaurant->merchant_type,
                 'address' => $restaurant->address,
-                'latitude' => (float) $restaurant->latitude,
-                'longitude' => (float) $restaurant->longitude,
+                'latitude' => $this->nullableFloat($restaurant->latitude),
+                'longitude' => $this->nullableFloat($restaurant->longitude),
                 'banner_image' => $restaurant->banner_image,
+                'gallery_images' => $this->galleryImages($restaurant),
                 'is_open_now' => $this->isOpenNow($restaurant),
                 'distance_km' => $this->distanceKm($restaurant, $latitude, $longitude),
             ];
         });
-
-        if ($sort === 'nearest' && $latitude !== null && $longitude !== null) {
-            $transformed = $transformed->sortBy('distance_km')->values();
-        }
 
         $paginator->setCollection($transformed);
 
@@ -95,9 +102,10 @@ class RestaurantService
             'merchant_type' => $restaurant->merchant_type,
             'address' => $restaurant->address,
             'phone' => $restaurant->phone,
-            'latitude' => (float) $restaurant->latitude,
-            'longitude' => (float) $restaurant->longitude,
+            'latitude' => $this->nullableFloat($restaurant->latitude),
+            'longitude' => $this->nullableFloat($restaurant->longitude),
             'banner_image' => $restaurant->banner_image,
+            'gallery_images' => $this->galleryImages($restaurant),
             'is_open_now' => $this->isOpenNow($restaurant),
             'operating_hours' => [],
             'total_categories' => 0,
@@ -150,15 +158,23 @@ class RestaurantService
 
     private function distanceKm(Restaurant $restaurant, ?float $latitude, ?float $longitude): ?float
     {
-        if ($latitude === null || $longitude === null) {
+        $restaurantLatitude = $this->nullableFloat($restaurant->latitude);
+        $restaurantLongitude = $this->nullableFloat($restaurant->longitude);
+
+        if (
+            $latitude === null ||
+            $longitude === null ||
+            $restaurantLatitude === null ||
+            $restaurantLongitude === null
+        ) {
             return null;
         }
 
         $earthRadiusKm = 6371;
         $latFrom = deg2rad($latitude);
         $lonFrom = deg2rad($longitude);
-        $latTo = deg2rad((float) $restaurant->latitude);
-        $lonTo = deg2rad((float) $restaurant->longitude);
+        $latTo = deg2rad($restaurantLatitude);
+        $lonTo = deg2rad($restaurantLongitude);
 
         $latDelta = $latTo - $latFrom;
         $lonDelta = $lonTo - $lonFrom;
@@ -169,5 +185,21 @@ class RestaurantService
         ));
 
         return round($earthRadiusKm * $angle, 2);
+    }
+
+    private function nullableFloat(mixed $value): ?float
+    {
+        return $value === null ? null : (float) $value;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function galleryImages(Restaurant $restaurant): array
+    {
+        return collect($restaurant->gallery_images ?? [])
+            ->filter(fn ($image): bool => is_string($image) && trim($image) !== '')
+            ->values()
+            ->all();
     }
 }

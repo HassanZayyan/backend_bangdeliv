@@ -17,6 +17,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property string|null $longitude
  * @property string|null $phone
  * @property string|null $banner_image
+ * @property array<int, string>|null $gallery_images
  * @property \Carbon\Carbon|null $created_at
  * @property \Carbon\Carbon|null $updated_at
  * @property \Carbon\Carbon|null $deleted_at
@@ -37,6 +38,7 @@ class Restaurant extends Model
         'longitude',
         'phone',
         'banner_image',
+        'gallery_images',
     ];
 
     protected function casts(): array
@@ -45,6 +47,7 @@ class Restaurant extends Model
             'latitude' => 'decimal:8',
             'longitude' => 'decimal:8',
             'merchant_type' => 'string',
+            'gallery_images' => 'array',
         ];
     }
 

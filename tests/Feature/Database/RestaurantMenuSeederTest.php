@@ -35,14 +35,19 @@ class RestaurantMenuSeederTest extends TestCase
         $this->assertDatabaseMissing('restaurants', [
             'slug' => 'resto-taman-kedai-satu',
         ]);
-        $this->assertSame(26, Restaurant::query()->count());
-        $this->assertSame(659, Menu::query()->count());
+        $this->assertSame(32, Restaurant::query()->count());
+        $this->assertSame(740, Menu::query()->count());
 
         $restaurant = Restaurant::query()
             ->where('slug', 'mie-ayam-bakso-pak-kumaidi')
             ->firstOrFail();
         $this->assertSame('restaurant', $restaurant->merchant_type);
-        $this->assertNull($restaurant->banner_image);
+        $this->assertSame('restaurants/1-1.JPG', $restaurant->banner_image);
+        $this->assertSame([
+            'restaurants/1-1.JPG',
+            'restaurants/1-2.PNG',
+            'restaurants/1-3.PNG',
+        ], $restaurant->gallery_images);
         $this->assertSame('-', $restaurant->phone);
         $this->assertSame(19, $restaurant->menus()->count());
         $this->assertDatabaseHas('menus', [
@@ -57,6 +62,14 @@ class RestaurantMenuSeederTest extends TestCase
             ->where('slug', 'warung-bunda-dhia')
             ->firstOrFail();
         $this->assertSame('warung', $warung->merchant_type);
+
+        $restaurantWithoutCoordinates = Restaurant::query()
+            ->where('slug', 'santoso-food-kumpulrejo')
+            ->firstOrFail();
+        $this->assertNull($restaurantWithoutCoordinates->address);
+        $this->assertNull($restaurantWithoutCoordinates->latitude);
+        $this->assertNull($restaurantWithoutCoordinates->longitude);
+        $this->assertSame(11, $restaurantWithoutCoordinates->menus()->count());
 
         $kedaiMbakVita = Restaurant::query()
             ->where('slug', 'kedai-mbak-vita')

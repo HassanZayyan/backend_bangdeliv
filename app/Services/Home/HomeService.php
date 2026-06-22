@@ -45,8 +45,7 @@ class HomeService
                     '((latitude - ?) * (latitude - ?) + (longitude - ?) * (longitude - ?)) as distance_sort',
                     [$latitude, $latitude, $longitude, $longitude]
                 )
-                ->whereNotNull('latitude')
-                ->whereNotNull('longitude')
+                ->orderByRaw('CASE WHEN latitude IS NULL OR longitude IS NULL THEN 1 ELSE 0 END')
                 ->orderBy('distance_sort')
                 ->orderBy('name');
         } else {
@@ -66,6 +65,7 @@ class HomeService
                 'slug' => $restaurant->slug,
                 'merchant_type' => $restaurant->merchant_type,
                 'banner_image' => $restaurant->banner_image,
+                'gallery_images' => $this->galleryImages($restaurant),
                 'distance_km' => $this->distanceKm($restaurant, $latitude, $longitude),
             ])
             ->values()
@@ -101,14 +101,15 @@ class HomeService
 
     private function distanceKm(Restaurant $restaurant, ?float $latitude, ?float $longitude): ?float
     {
-        if ($latitude === null || $longitude === null) {
-            return null;
-        }
+        $restaurantLatitude = $this->nullableFloat($restaurant->latitude);
+        $restaurantLongitude = $this->nullableFloat($restaurant->longitude);
 
-        $restaurantLatitude = (float) $restaurant->latitude;
-        $restaurantLongitude = (float) $restaurant->longitude;
-
-        if ($restaurantLatitude === 0.0 && $restaurantLongitude === 0.0) {
+        if (
+            $latitude === null ||
+            $longitude === null ||
+            $restaurantLatitude === null ||
+            $restaurantLongitude === null
+        ) {
             return null;
         }
 
@@ -127,5 +128,21 @@ class HomeService
         ));
 
         return round($earthRadiusKm * $angle, 2);
+    }
+
+    private function nullableFloat(mixed $value): ?float
+    {
+        return $value === null ? null : (float) $value;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function galleryImages(Restaurant $restaurant): array
+    {
+        return collect($restaurant->gallery_images ?? [])
+            ->filter(fn ($image): bool => is_string($image) && trim($image) !== '')
+            ->values()
+            ->all();
     }
 }
