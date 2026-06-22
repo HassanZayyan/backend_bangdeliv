@@ -28,6 +28,58 @@
         </div>
 
         <div class="settings-section">
+            <div class="settings-section-header">
+                <div>
+                    <div class="settings-section-title">QRIS Pembayaran</div>
+                    <p class="settings-section-note">Gambar ini dipakai customer saat memilih pembayaran QRIS di tracking order.</p>
+                </div>
+                <span class="badge {{ ($qrisAsset['source'] ?? '') === 'uploaded' ? 'badge-success' : 'badge-warning' }}">
+                    {{ $qrisAsset['source_label'] ?? 'Fallback dummy' }}
+                </span>
+            </div>
+
+            <div class="qris-settings-grid">
+                <a href="{{ route('payments.qris.show') }}" target="_blank" rel="noopener noreferrer" class="qris-preview-frame" aria-label="Buka QRIS BangDeliv">
+                    <img src="{{ $qrisAsset['url'] ?? route('payments.qris.show') }}" alt="QRIS pembayaran BangDeliv">
+                </a>
+
+                <div class="qris-settings-content">
+                    <div class="settings-list qris-meta-list">
+                        <div class="settings-row">
+                            <span>URL publik</span>
+                            <strong>{{ route('payments.qris.show') }}</strong>
+                        </div>
+                        <div class="settings-row">
+                            <span>Lokasi aktif</span>
+                            <strong>{{ $qrisAsset['location_label'] ?? 'public/images/payments/qris-bangdeliv-dummy.jpeg' }}</strong>
+                        </div>
+                        <div class="settings-row">
+                            <span>Terakhir diperbarui</span>
+                            <strong>{{ $qrisAsset['updated_at_label'] ?? '-' }}</strong>
+                        </div>
+                    </div>
+
+                    <form action="{{ route('admin.settings.qris.update') }}" method="POST" enctype="multipart/form-data" class="qris-upload-form">
+                        @csrf
+                        <div class="form-group">
+                            <label for="qris_image">Ganti gambar QRIS</label>
+                            <input id="qris_image" type="file" name="qris_image" class="form-control qris-file-input" accept="image/jpeg,image/png,image/webp" required>
+                            @error('qris_image')
+                                <div class="form-error">{{ $message }}</div>
+                            @enderror
+                            <small class="form-help">Format JPG, PNG, atau WebP. Maksimal 5 MB. Upload baru akan menggantikan QRIS upload sebelumnya.</small>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary">
+                            <i class="bx bx-upload" aria-hidden="true"></i>
+                            Simpan QRIS Baru
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="settings-section">
             <div class="settings-section-title">Notifikasi Admin</div>
             <div class="settings-list settings-list-grid">
                 <div class="settings-row">

@@ -194,7 +194,7 @@ class ShoppingOrderItemEditTest extends TestCase
             ->assertJsonPath('message', 'Menu database hanya tersedia untuk merchant resmi BangDeliv.');
     }
 
-    public function test_google_place_item_still_respects_maximum_shopping_route_distance(): void
+    public function test_google_place_item_still_respects_bang_deliv_service_radius(): void
     {
         Config::set('bangdeliv.google_maps_api_key', 'test-key');
         $this->fakeDistance(26000);

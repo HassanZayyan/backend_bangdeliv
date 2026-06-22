@@ -7,6 +7,7 @@ use App\Models\Order;
 use App\Models\OrderStatus;
 use App\Models\ServiceType;
 use App\Models\User;
+use App\Services\Geo\BangDelivServiceAreaService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Laravel\Sanctum\Sanctum;
@@ -39,8 +40,8 @@ class RideOrderCreationTest extends TestCase
             'phone' => '081211110001',
             'full_address' => 'Jl. Mawar No. 1',
             'detail' => 'Lobi depan',
-            'latitude' => -6.20000000,
-            'longitude' => 106.81666600,
+            'latitude' => -7.31991677,
+            'longitude' => 110.46393595,
             'is_default' => true,
         ]);
 
@@ -76,11 +77,11 @@ class RideOrderCreationTest extends TestCase
                 'status' => 'OK',
                 'results' => [
                     [
-                        'formatted_address' => 'Jl. Sudirman No. 10, Jakarta',
+                        'formatted_address' => 'Lapangan Pancasila Salatiga, Jawa Tengah',
                         'geometry' => [
                             'location' => [
-                                'lat' => -6.21462000,
-                                'lng' => 106.84513000,
+                                'lat' => -7.33120000,
+                                'lng' => 110.50770000,
                             ],
                         ],
                     ],
@@ -90,11 +91,11 @@ class RideOrderCreationTest extends TestCase
                 'status' => 'OK',
                 'results' => [
                     [
-                        'formatted_address' => 'Jl. Sudirman No. 10, Jakarta',
+                        'formatted_address' => 'Lapangan Pancasila Salatiga, Jawa Tengah',
                         'geometry' => [
                             'location' => [
-                                'lat' => -6.21462000,
-                                'lng' => 106.84513000,
+                                'lat' => -7.33120000,
+                                'lng' => 110.50770000,
                             ],
                         ],
                     ],
@@ -104,7 +105,7 @@ class RideOrderCreationTest extends TestCase
 
         $response = $this->postJson('/api/v1/orders/ride', [
             'address_id' => $address->id,
-            'destination_address' => 'Jl. Sudirman No. 10, Jakarta',
+            'destination_address' => 'Lapangan Pancasila Salatiga',
         ]);
 
         $rideServiceTypeId = ServiceType::query()->where('code', 'RIDE')->value('id');
@@ -115,9 +116,9 @@ class RideOrderCreationTest extends TestCase
             ->assertJsonPath('data.user_id', $user->id)
             ->assertJsonPath('data.service_type_id', $rideServiceTypeId)
             ->assertJsonPath('data.status_id', $pendingStatusId)
-            ->assertJsonPath('data.delivery_address', 'Jl. Sudirman No. 10, Jakarta')
-            ->assertJsonPath('data.delivery_latitude', '-6.21462000')
-            ->assertJsonPath('data.delivery_longitude', '106.84513000')
+            ->assertJsonPath('data.delivery_address', 'Lapangan Pancasila Salatiga, Jawa Tengah')
+            ->assertJsonPath('data.delivery_latitude', '-7.33120000')
+            ->assertJsonPath('data.delivery_longitude', '110.50770000')
             ->assertJsonPath('data.route.encoded_polyline', '_p~iF~ps|U_ulLnnqC_mqNvxq`@')
             ->assertJsonPath('data.route.route_provider', 'routes_api');
 
@@ -134,16 +135,16 @@ class RideOrderCreationTest extends TestCase
             'order_id' => $orderId,
             'location_role' => 'PICKUP',
             'full_address' => 'Jl. Mawar No. 1',
-            'latitude' => -6.20000000,
-            'longitude' => 106.81666600,
+            'latitude' => -7.31991677,
+            'longitude' => 110.46393595,
         ]);
 
         $this->assertDatabaseHas('order_locations', [
             'order_id' => $orderId,
             'location_role' => 'DROPOFF',
-            'full_address' => 'Jl. Sudirman No. 10, Jakarta',
-            'latitude' => -6.21462000,
-            'longitude' => 106.84513000,
+            'full_address' => 'Lapangan Pancasila Salatiga, Jawa Tengah',
+            'latitude' => -7.33120000,
+            'longitude' => 110.50770000,
         ]);
 
         $this->assertDatabaseHas('ride_order_details', [
@@ -183,8 +184,8 @@ class RideOrderCreationTest extends TestCase
             'phone' => '081211110010',
             'full_address' => 'Jl. Mawar No. 1',
             'detail' => 'Lobi depan',
-            'latitude' => -6.20000000,
-            'longitude' => 106.81666600,
+            'latitude' => -7.31991677,
+            'longitude' => 110.46393595,
             'is_default' => true,
         ]);
 
@@ -244,15 +245,15 @@ class RideOrderCreationTest extends TestCase
         $response = $this->postJson('/api/v1/orders/ride', [
             'address_id' => $address->id,
             'destination_address' => 'Titik pin manual customer',
-            'destination_latitude' => -7.76371000,
-            'destination_longitude' => 110.40642000,
+            'destination_latitude' => -7.33120000,
+            'destination_longitude' => 110.50770000,
         ]);
 
         $response->assertCreated()
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.delivery_address', 'Titik pin manual customer')
-            ->assertJsonPath('data.delivery_latitude', '-7.76371000')
-            ->assertJsonPath('data.delivery_longitude', '110.40642000');
+            ->assertJsonPath('data.delivery_latitude', '-7.33120000')
+            ->assertJsonPath('data.delivery_longitude', '110.50770000');
 
         $orderId = (int) $response->json('data.id');
 
@@ -260,8 +261,8 @@ class RideOrderCreationTest extends TestCase
             'order_id' => $orderId,
             'location_role' => 'DROPOFF',
             'full_address' => 'Titik pin manual customer',
-            'latitude' => -7.76371000,
-            'longitude' => 110.40642000,
+            'latitude' => -7.33120000,
+            'longitude' => 110.50770000,
         ]);
 
         $this->assertSame(0, $geocodingCalls, 'Destination geocoding should be skipped when explicit coordinates are provided.');
@@ -281,8 +282,8 @@ class RideOrderCreationTest extends TestCase
             'phone' => '081211110011',
             'full_address' => 'Jl. Mawar No. 1',
             'detail' => 'Lobi depan',
-            'latitude' => -6.20000000,
-            'longitude' => 106.81666600,
+            'latitude' => -7.31991677,
+            'longitude' => 110.46393595,
             'is_default' => true,
         ]);
 
@@ -292,8 +293,8 @@ class RideOrderCreationTest extends TestCase
         $response = $this->postJson('/api/v1/orders/ride', [
             'address_id' => $address->id,
             'destination_address' => 'Titik sama dengan pickup',
-            'destination_latitude' => -6.20000000,
-            'destination_longitude' => 106.81666600,
+            'destination_latitude' => -7.31991677,
+            'destination_longitude' => 110.46393595,
         ]);
 
         $response
@@ -301,6 +302,46 @@ class RideOrderCreationTest extends TestCase
             ->assertJsonPath('success', false)
             ->assertJsonPath('message', 'Titik tujuan terlalu dekat dengan titik jemput. Pilih titik tujuan yang berbeda.');
 
+        $this->assertDatabaseCount('ride_order_details', 0);
+        Http::assertNothingSent();
+    }
+
+    public function test_customer_cannot_create_ride_order_when_destination_is_outside_service_radius(): void
+    {
+        $user = User::factory()->create([
+            'role' => 'customer',
+            'phone' => '081211110012',
+        ]);
+
+        $address = Address::query()->create([
+            'user_id' => $user->id,
+            'label' => 'Rumah',
+            'recipient_name' => 'Customer Ride Outside Radius',
+            'phone' => '081211110012',
+            'full_address' => 'Angkringan 54',
+            'detail' => null,
+            'latitude' => -7.31991677,
+            'longitude' => 110.46393595,
+            'is_default' => true,
+        ]);
+
+        Sanctum::actingAs($user);
+        Http::fake();
+
+        $response = $this->postJson('/api/v1/orders/ride', [
+            'address_id' => $address->id,
+            'destination_address' => 'Monas Jakarta',
+            'destination_latitude' => -6.175392,
+            'destination_longitude' => 106.827153,
+        ]);
+
+        $response
+            ->assertStatus(422)
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('errors.code', BangDelivServiceAreaService::ERROR_DISTANCE_LIMIT)
+            ->assertJsonPath('errors.point_role', 'tujuan');
+
+        $this->assertStringContainsString('melebihi batas layanan', (string) $response->json('message'));
         $this->assertDatabaseCount('ride_order_details', 0);
         Http::assertNothingSent();
     }

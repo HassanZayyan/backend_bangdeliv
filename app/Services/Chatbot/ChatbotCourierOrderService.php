@@ -12,6 +12,7 @@ use App\Models\ServiceType;
 use App\Models\User;
 use App\Services\Address\ChatbotAddressReadinessService;
 use App\Services\Driver\DriverOrderRealtimeService;
+use App\Services\Geo\BangDelivServiceAreaService;
 use App\Services\Maps\GoogleMapsDistanceMatrixService;
 use App\Services\Maps\GoogleMapsGeocodingService;
 use App\Services\Order\OrderPaymentService;
@@ -89,7 +90,8 @@ class ChatbotCourierOrderService
         private readonly OrderPaymentService $orderPaymentService,
         private readonly DriverOrderRealtimeService $driverOrderRealtimeService,
         private readonly ChatbotAddressReadinessService $addressReadinessService,
-        private readonly ChatbotDraftStore $draftStore
+        private readonly ChatbotDraftStore $draftStore,
+        private readonly BangDelivServiceAreaService $serviceAreaService
     ) {}
 
     /**
@@ -573,7 +575,57 @@ class ChatbotCourierOrderService
             $dropoffLatitude !== null &&
             $dropoffLongitude !== null
         ) {
-            if ($this->routePointsAreTooClose(
+            $pointsWithinServiceArea = true;
+
+            try {
+                $this->serviceAreaService->assertPointWithinRadius(
+                    $pickupLatitude,
+                    $pickupLongitude,
+                    'ambil',
+                    $pickupAddress
+                );
+            } catch (ApiException $exception) {
+                if ($exception->status() !== 422) {
+                    throw $exception;
+                }
+
+                $pointsWithinServiceArea = false;
+                $reasons[] = $exception->getMessage();
+                $missingFields[] = 'pickup_address';
+                $nextActions[] = 'OPEN_MAP_PICKER_PICKUP';
+                $actionPayloads['OPEN_MAP_PICKER_PICKUP'] = [
+                    'target' => 'pickup',
+                    'label' => 'Pilih Lokasi Ambil di Map',
+                    'initial_latitude' => $pickupLatitude,
+                    'initial_longitude' => $pickupLongitude,
+                ];
+            }
+
+            try {
+                $this->serviceAreaService->assertPointWithinRadius(
+                    $dropoffLatitude,
+                    $dropoffLongitude,
+                    'tujuan',
+                    $dropoffAddress
+                );
+            } catch (ApiException $exception) {
+                if ($exception->status() !== 422) {
+                    throw $exception;
+                }
+
+                $pointsWithinServiceArea = false;
+                $reasons[] = $exception->getMessage();
+                $missingFields[] = 'dropoff_address';
+                $nextActions[] = 'OPEN_MAP_PICKER_DROPOFF';
+                $actionPayloads['OPEN_MAP_PICKER_DROPOFF'] = [
+                    'target' => 'dropoff',
+                    'label' => 'Pilih Lokasi Tujuan di Map',
+                    'initial_latitude' => $dropoffLatitude,
+                    'initial_longitude' => $dropoffLongitude,
+                ];
+            }
+
+            if ($pointsWithinServiceArea && $this->routePointsAreTooClose(
                 $pickupLatitude,
                 $pickupLongitude,
                 $dropoffLatitude,
@@ -584,13 +636,13 @@ class ChatbotCourierOrderService
                 $nextActions[] = 'OPEN_MAP_PICKER_DROPOFF';
                 $actionPayloads['OPEN_MAP_PICKER_DROPOFF'] = [
                     'target' => 'dropoff',
-                    'label' => 'Pilih Titik Tujuan di Map',
+                    'label' => 'Pilih Lokasi Tujuan di Map',
                     'initial_latitude' => null,
                     'initial_longitude' => null,
                 ];
                 $distanceMeters = 0.0;
                 $distanceKm = null;
-            } else {
+            } elseif ($pointsWithinServiceArea) {
                 try {
                     $route = $this->distanceMatrixService->resolveRoute(
                         $pickupLatitude,
@@ -601,50 +653,6 @@ class ChatbotCourierOrderService
 
                     $distanceMeters = (float) $route['distance_meters'];
                     $distanceKm = (float) $route['distance_km'];
-
-                    if (! $this->deliveryPricingService->isWithinMaxDistance($distanceMeters)) {
-                        $mapField = $dropoffRawAddress !== null
-                            ? 'dropoff_address'
-                            : (! $usedDefaultPickup && $pickupRawAddress !== null ? 'pickup_address' : null);
-
-                        if ($mapField === 'dropoff_address') {
-                            $reasons[] = $this->buildMapSelectionReason('tujuan', $dropoffRawAddress);
-                            $missingFields[] = 'dropoff_address';
-                            $nextActions[] = 'OPEN_MAP_PICKER_DROPOFF';
-                            $actionPayloads['OPEN_MAP_PICKER_DROPOFF'] = [
-                                'target' => 'dropoff',
-                                'label' => 'Pilih Titik Tujuan di Map',
-                                'initial_latitude' => null,
-                                'initial_longitude' => null,
-                            ];
-                            $dropoffAddress = is_string($dropoffRawAddress) ? $dropoffRawAddress : $dropoffAddress;
-                            $dropoffLatitude = null;
-                            $dropoffLongitude = null;
-                            $distanceMeters = 0.0;
-                            $distanceKm = null;
-                        } elseif ($mapField === 'pickup_address') {
-                            $reasons[] = $this->buildMapSelectionReason('ambil', $pickupRawAddress);
-                            $missingFields[] = 'pickup_address';
-                            $nextActions[] = 'OPEN_MAP_PICKER_PICKUP';
-                            $actionPayloads['OPEN_MAP_PICKER_PICKUP'] = [
-                                'target' => 'pickup',
-                                'label' => 'Pilih Titik Ambil di Map',
-                                'initial_latitude' => null,
-                                'initial_longitude' => null,
-                            ];
-                            $pickupAddress = is_string($pickupRawAddress) ? $pickupRawAddress : $pickupAddress;
-                            $pickupLatitude = null;
-                            $pickupLongitude = null;
-                            $distanceMeters = 0.0;
-                            $distanceKm = null;
-                        } else {
-                            $reasons[] = sprintf(
-                                'Jarak %.2f km melebihi batas layanan %.2f km.',
-                                $distanceKm,
-                                $this->deliveryPricingService->getMaxDistanceKm()
-                            );
-                        }
-                    }
                 } catch (ApiException $exception) {
                     if ($exception->status() === 422) {
                         $reasons[] = 'Rute pickup ke tujuan tidak ditemukan. Gunakan alamat yang lebih spesifik.';
@@ -821,6 +829,21 @@ class ChatbotCourierOrderService
         $dropoffLatitude = (float) $parsed['dropoff_latitude'];
         $dropoffLongitude = (float) $parsed['dropoff_longitude'];
 
+        $this->serviceAreaService->assertPointsWithinRadius([
+            [
+                'role' => 'ambil',
+                'label' => $pickupAddress,
+                'latitude' => $pickupLatitude,
+                'longitude' => $pickupLongitude,
+            ],
+            [
+                'role' => 'tujuan',
+                'label' => $dropoffAddress,
+                'latitude' => $dropoffLatitude,
+                'longitude' => $dropoffLongitude,
+            ],
+        ]);
+
         $this->assertRoutePointsSeparated(
             $pickupLatitude,
             $pickupLongitude,
@@ -836,15 +859,6 @@ class ChatbotCourierOrderService
         );
 
         $distanceMeters = (float) $route['distance_meters'];
-        $distanceKm = (float) $route['distance_km'];
-
-        if (! $this->deliveryPricingService->isWithinMaxDistance($distanceMeters)) {
-            throw new ApiException(sprintf(
-                'Jarak %.2f km melebihi batas layanan %.2f km.',
-                $distanceKm,
-                $this->deliveryPricingService->getMaxDistanceKm()
-            ), 422);
-        }
 
         $pricing = $this->deliveryPricingService->calculateFromDistanceMeters($distanceMeters);
         $deliveryFee = (float) $pricing['total_fee'];
@@ -1350,20 +1364,30 @@ class ChatbotCourierOrderService
             return 'Data kurir belum lengkap. Mohon isi lokasi ambil, tujuan kirim, dan isi paket.';
         }
 
-        if ($this->isAwaitingPackageOnly($parsed)) {
-            return 'Titik ambil dan tujuan sudah saya simpan. Barang apa yang mau dikirim? Contoh: "kirim laundry".';
-        }
-
         if (
             is_array($nextActions) &&
             (in_array('OPEN_MAP_PICKER_DROPOFF', $nextActions, true) ||
                 in_array('OPEN_MAP_PICKER_PICKUP', $nextActions, true))
         ) {
-            $message = trim((string) $reasons[0]);
+            $message = '';
+            foreach ($reasons as $reason) {
+                $candidate = trim((string) $reason);
+                if ($candidate !== '' && ! str_starts_with($candidate, 'Isi paket')) {
+                    $message = $candidate;
+                    break;
+                }
+            }
+            if ($message === '') {
+                $message = trim((string) $reasons[0]);
+            }
 
             return $message === ''
                 ? 'Alamat belum pas di peta. Pilih titiknya langsung di map.'
                 : $message;
+        }
+
+        if ($this->isAwaitingPackageOnly($parsed)) {
+            return 'Titik ambil dan tujuan sudah saya simpan. Barang apa yang mau dikirim? Contoh: "kirim laundry".';
         }
 
         if (count($reasons) === 1) {

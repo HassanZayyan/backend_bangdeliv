@@ -30,12 +30,12 @@ return [
             'enabled' => (bool) env('ADDRESS_GEOCODING_SERVICE_AREA_ENABLED', true),
             'bounds' => [
                 'southwest' => [
-                    'latitude' => (float) env('ADDRESS_GEOCODING_SW_LATITUDE', -7.65),
-                    'longitude' => (float) env('ADDRESS_GEOCODING_SW_LONGITUDE', 110.05),
+                    'latitude' => (float) env('ADDRESS_GEOCODING_SW_LATITUDE', -7.77),
+                    'longitude' => (float) env('ADDRESS_GEOCODING_SW_LONGITUDE', 110.01),
                 ],
                 'northeast' => [
-                    'latitude' => (float) env('ADDRESS_GEOCODING_NE_LATITUDE', -6.90),
-                    'longitude' => (float) env('ADDRESS_GEOCODING_NE_LONGITUDE', 110.80),
+                    'latitude' => (float) env('ADDRESS_GEOCODING_NE_LATITUDE', -6.87),
+                    'longitude' => (float) env('ADDRESS_GEOCODING_NE_LONGITUDE', 110.92),
                 ],
             ],
             'components' => env('ADDRESS_GEOCODING_COMPONENTS', 'country:ID'),
@@ -108,8 +108,29 @@ return [
     'delivery_rate_0_10_per_km' => env('DELIVERY_RATE_0_10_PER_KM', 2000),
     'delivery_rate_10_25_per_km' => env('DELIVERY_RATE_10_25_PER_KM', 2500),
     'delivery_rate_25_50_per_km' => env('DELIVERY_RATE_25_50_PER_KM', 3000),
-    'max_delivery_distance' => env('MAX_DELIVERY_DISTANCE', 50),      // 50 km
     'driver_admin_fee_percent' => env('DRIVER_ADMIN_FEE_PERCENT', 10),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Pelanggan 15 Service Area
+    |--------------------------------------------------------------------------
+    |
+    | Batas layanan dihitung sebagai radius dari titik kumpul Pelanggan 15.
+    | Ongkir tetap dihitung dari jarak rute aktual.
+    |
+    */
+    'service_area' => [
+        'name' => env('BANGDELIV_SERVICE_AREA_NAME', 'Angkringan 54'),
+        'address' => env(
+            'BANGDELIV_SERVICE_AREA_ADDRESS',
+            'Jl. Raya Sraten No.8, Sraten Satu, Gedangan, Kec. Tuntang, Kabupaten Semarang, Jawa Tengah 50773'
+        ),
+        'center' => [
+            'latitude' => (float) env('BANGDELIV_SERVICE_AREA_CENTER_LATITUDE', -7.319916770351389),
+            'longitude' => (float) env('BANGDELIV_SERVICE_AREA_CENTER_LONGITUDE', 110.46393594806243),
+        ],
+        'radius_km' => (float) env('BANGDELIV_SERVICE_AREA_RADIUS_KM', 50),
+    ],
 
     /*
     |--------------------------------------------------------------------------

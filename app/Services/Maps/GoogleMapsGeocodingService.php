@@ -3,11 +3,16 @@
 namespace App\Services\Maps;
 
 use App\Exceptions\ApiException;
+use App\Services\Geo\BangDelivServiceAreaService;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class GoogleMapsGeocodingService
 {
+    public function __construct(
+        private readonly BangDelivServiceAreaService $serviceAreaService
+    ) {}
+
     /**
      * @return array{latitude: float, longitude: float, formatted_address: string}|null
      */
@@ -363,24 +368,19 @@ class GoogleMapsGeocodingService
     {
         return [
             'southwest' => [
-                'latitude' => (float) config('bangdeliv.geocoding.service_area.bounds.southwest.latitude', -7.65),
-                'longitude' => (float) config('bangdeliv.geocoding.service_area.bounds.southwest.longitude', 110.05),
+                'latitude' => (float) config('bangdeliv.geocoding.service_area.bounds.southwest.latitude', -7.77),
+                'longitude' => (float) config('bangdeliv.geocoding.service_area.bounds.southwest.longitude', 110.01),
             ],
             'northeast' => [
-                'latitude' => (float) config('bangdeliv.geocoding.service_area.bounds.northeast.latitude', -6.90),
-                'longitude' => (float) config('bangdeliv.geocoding.service_area.bounds.northeast.longitude', 110.80),
+                'latitude' => (float) config('bangdeliv.geocoding.service_area.bounds.northeast.latitude', -6.87),
+                'longitude' => (float) config('bangdeliv.geocoding.service_area.bounds.northeast.longitude', 110.92),
             ],
         ];
     }
 
     private function isInsideServiceArea(float $latitude, float $longitude): bool
     {
-        $bounds = $this->serviceAreaBounds();
-
-        return $latitude >= $bounds['southwest']['latitude']
-            && $latitude <= $bounds['northeast']['latitude']
-            && $longitude >= $bounds['southwest']['longitude']
-            && $longitude <= $bounds['northeast']['longitude'];
+        return $this->serviceAreaService->isWithinRadius($latitude, $longitude);
     }
 
     /**

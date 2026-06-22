@@ -11,6 +11,7 @@ use App\Models\RideOrder;
 use App\Models\ServiceType;
 use App\Models\User;
 use App\Services\Driver\DriverOrderRealtimeService;
+use App\Services\Geo\BangDelivServiceAreaService;
 use App\Services\Maps\GoogleMapsDistanceMatrixService;
 use App\Services\Maps\GoogleMapsGeocodingService;
 use App\Services\Pricing\DeliveryPricingService;
@@ -26,7 +27,8 @@ class RideOrderService
         private readonly GoogleMapsDistanceMatrixService $distanceMatrixService,
         private readonly DeliveryPricingService $deliveryPricingService,
         private readonly OrderPaymentService $orderPaymentService,
-        private readonly DriverOrderRealtimeService $driverOrderRealtimeService
+        private readonly DriverOrderRealtimeService $driverOrderRealtimeService,
+        private readonly BangDelivServiceAreaService $serviceAreaService
     ) {}
 
     /**
@@ -106,6 +108,21 @@ class RideOrderService
             $pickupAddressText = sprintf('Pin %.6f, %.6f', $pickupLatitude, $pickupLongitude);
         }
 
+        $this->serviceAreaService->assertPointsWithinRadius([
+            [
+                'role' => 'jemput',
+                'label' => $pickupAddressText,
+                'latitude' => $pickupLatitude,
+                'longitude' => $pickupLongitude,
+            ],
+            [
+                'role' => 'tujuan',
+                'label' => $normalizedDestinationAddress,
+                'latitude' => $destinationLatitude,
+                'longitude' => $destinationLongitude,
+            ],
+        ]);
+
         $this->assertRoutePointsSeparated(
             $pickupLatitude,
             $pickupLongitude,
@@ -121,15 +138,6 @@ class RideOrderService
         );
 
         $distanceMeters = (float) $route['distance_meters'];
-        $distanceKm = (float) $route['distance_km'];
-
-        if (! $this->deliveryPricingService->isWithinMaxDistance($distanceMeters)) {
-            throw new ApiException(sprintf(
-                'Jarak %.2f km melebihi batas layanan %.2f km.',
-                $distanceKm,
-                $this->deliveryPricingService->getMaxDistanceKm()
-            ), 422);
-        }
 
         $pricing = $this->deliveryPricingService->calculateFromDistanceMeters($distanceMeters);
         $paymentMethod = $this->orderPaymentService->normalizePaymentMethod(

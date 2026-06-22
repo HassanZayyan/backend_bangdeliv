@@ -5,13 +5,15 @@ namespace App\Services\Address;
 use App\Exceptions\ApiException;
 use App\Models\Address;
 use App\Models\User;
+use App\Services\Geo\BangDelivServiceAreaService;
 use App\Services\Maps\GoogleMapsGeocodingService;
 use Illuminate\Support\Facades\DB;
 
 class AddressService
 {
     public function __construct(
-        private readonly GoogleMapsGeocodingService $geocodingService
+        private readonly GoogleMapsGeocodingService $geocodingService,
+        private readonly BangDelivServiceAreaService $serviceAreaService
     ) {}
 
     /**
@@ -90,6 +92,13 @@ class AddressService
             ]);
         }
 
+        $this->serviceAreaService->assertPointWithinRadius(
+            $resolved['latitude'],
+            $resolved['longitude'],
+            'alamat',
+            $normalizedAddress
+        );
+
         return $resolved;
     }
 
@@ -122,6 +131,13 @@ class AddressService
                 'longitude' => ['Latitude atau longitude di luar rentang yang diizinkan.'],
             ]);
         }
+
+        $this->serviceAreaService->assertPointWithinRadius(
+            $latitude,
+            $longitude,
+            'alamat',
+            $this->normalizeOptionalAddressLabel($payload['full_address'] ?? null)
+        );
 
         return [
             'latitude' => $latitude,
@@ -160,6 +176,13 @@ class AddressService
         }
 
         return $normalizedAddress;
+    }
+
+    private function normalizeOptionalAddressLabel(mixed $value): ?string
+    {
+        $normalized = trim((string) ($value ?? ''));
+
+        return $normalized === '' ? null : $normalized;
     }
 
     private function normalizePhone(string $phone): string

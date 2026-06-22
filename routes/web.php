@@ -7,15 +7,20 @@ use App\Http\Controllers\Admin\DriverVerificationController;
 use App\Http\Controllers\Admin\NotificationController;
 use App\Http\Controllers\Admin\OrderController as AdminOrderController;
 use App\Http\Controllers\Admin\PaymentProofController;
+use App\Http\Controllers\Admin\QrisAssetController as AdminQrisAssetController;
 use App\Http\Controllers\Admin\RestaurantController;
 use App\Http\Controllers\Admin\RestaurantMenuController;
 use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\AdminAuthController;
+use App\Http\Controllers\QrisAssetController as PublicQrisAssetController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
     return redirect()->route('admin.dashboard');
 });
+
+Route::get('/images/payments/qris-bangdeliv', PublicQrisAssetController::class)
+    ->name('payments.qris.show');
 
 // Auth routes (guest only)
 Route::get('/admin/login', [AdminAuthController::class, 'showLoginForm'])->name('login');
@@ -82,5 +87,7 @@ Route::prefix('admin')->middleware(['auth', 'role:admin'])->group(function () {
 
     // Settings
     Route::get('/pengaturan', SettingsController::class)->name('admin.settings');
+    Route::post('/pengaturan/qris', AdminQrisAssetController::class)
+        ->name('admin.settings.qris.update');
 
 });

@@ -44,10 +44,10 @@ class ChatbotCourierFlowTest extends TestCase
             'label' => 'Rumah',
             'recipient_name' => $user->name,
             'phone' => $user->phone,
-            'full_address' => 'Jl. Melati No. 3, Jakarta',
+            'full_address' => 'Jl. Melati No. 3, Semarang',
             'detail' => 'Pagar hitam',
-            'latitude' => -6.20550000,
-            'longitude' => 106.82400000,
+            'latitude' => -7.05090000,
+            'longitude' => 110.43150000,
             'is_default' => true,
         ]);
 
@@ -159,10 +159,10 @@ class ChatbotCourierFlowTest extends TestCase
             'label' => 'Rumah',
             'recipient_name' => $user->name,
             'phone' => $user->phone,
-            'full_address' => 'Jl. Melati No. 3, Jakarta',
+            'full_address' => 'Jl. Melati No. 3, Semarang',
             'detail' => 'Pagar hitam',
-            'latitude' => -6.20550000,
-            'longitude' => 106.82400000,
+            'latitude' => -7.05090000,
+            'longitude' => 110.43150000,
             'is_default' => true,
         ]);
 
@@ -660,7 +660,7 @@ class ChatbotCourierFlowTest extends TestCase
             ->assertJsonPath('data.validation.next_actions.0', 'OPEN_ROUTE_PICKER')
             ->assertJsonPath('data.action_payloads.OPEN_ROUTE_PICKER.label', 'Atur Titik Ambil & Tujuan');
 
-        $this->assertStringContainsString('belum pas di peta', (string) $response->json('data.assistant_text'));
+        $this->assertStringContainsString('melebihi batas layanan', (string) $response->json('data.assistant_text'));
         $this->assertStringNotContainsString('Format cepat', (string) $response->json('data.assistant_text'));
 
         $pinResponse = $this
@@ -858,6 +858,51 @@ class ChatbotCourierFlowTest extends TestCase
         $confirmResponse
             ->assertOk()
             ->assertJsonPath('data.order.created', true);
+    }
+
+    public function test_chatbot_kurir_route_patch_outside_radius_prioritizes_map_error_before_package_prompt(): void
+    {
+        $user = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+            'phone' => '089333333339',
+        ]);
+
+        $token = $user->createToken('test-chatbot')->plainTextToken;
+        $sessionId = 'sess-kurir-route-outside-radius-package-missing';
+
+        $response = $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/sessions/'.$sessionId.'/locations', [
+                'service_type' => 'kurir',
+                'locations' => [
+                    [
+                        'target' => 'pickup',
+                        'latitude' => -7.403996,
+                        'longitude' => 109.689086,
+                        'address' => 'Banjarnegara',
+                    ],
+                    [
+                        'target' => 'dropoff',
+                        'latitude' => -7.331200,
+                        'longitude' => 110.507700,
+                        'address' => 'Lapangan Pancasila Salatiga',
+                    ],
+                ],
+            ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('model_used', 'map-route-action')
+            ->assertJsonPath('data.validation.is_valid_order', false)
+            ->assertJsonPath('data.courier.ready_to_confirm', false)
+            ->assertJsonPath('data.validation.next_actions.0', 'OPEN_ROUTE_PICKER')
+            ->assertJsonPath('data.action_payloads.OPEN_ROUTE_PICKER.label', 'Atur Titik Ambil & Tujuan');
+
+        $assistantText = (string) $response->json('data.assistant_text');
+        $this->assertStringContainsString('melebihi batas layanan', $assistantText);
+        $this->assertStringNotContainsString('Barang apa yang mau dikirim', $assistantText);
     }
 
     public function test_chatbot_kurir_bulk_route_patch_rejects_overlapping_points(): void

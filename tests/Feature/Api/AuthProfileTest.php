@@ -9,6 +9,7 @@ use App\Models\OrderStatus;
 use App\Models\Restaurant;
 use App\Models\ServiceType;
 use App\Models\User;
+use App\Services\Geo\BangDelivServiceAreaService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Hash;
@@ -543,7 +544,7 @@ class AuthProfileTest extends TestCase
         Http::assertSent(function ($request): bool {
             $data = $request->data();
 
-            return ($data['bounds'] ?? null) === '-7.650000,110.050000|-6.900000,110.800000'
+            return ($data['bounds'] ?? null) === '-7.770000,110.010000|-6.870000,110.920000'
                 && ($data['components'] ?? null) === 'country:ID';
         });
     }
@@ -621,7 +622,7 @@ class AuthProfileTest extends TestCase
         Http::assertSent(function ($request): bool {
             $data = $request->data();
 
-            return ($data['bounds'] ?? null) === '-7.650000,110.050000|-6.900000,110.800000'
+            return ($data['bounds'] ?? null) === '-7.770000,110.010000|-6.870000,110.920000'
                 && ($data['components'] ?? null) === 'country:ID';
         });
     }
@@ -646,29 +647,66 @@ class AuthProfileTest extends TestCase
             'label' => 'Rumah GPS',
             'recipient_name' => 'Alamat GPS',
             'phone' => '0812-1122-3344',
-            'full_address' => 'Perumahan Bukit Sari Blok A2',
+            'full_address' => 'Jl. Raya Sraten No. 8',
             'detail' => 'Rumah cat putih',
-            'latitude' => -7.76371000,
-            'longitude' => 110.40642000,
+            'latitude' => -7.31991677,
+            'longitude' => 110.46393595,
             'is_default' => true,
         ]);
 
         $response->assertCreated()
             ->assertJsonPath('message', 'Alamat berhasil disimpan.')
-            ->assertJsonPath('data.full_address', 'Perumahan Bukit Sari Blok A2')
-            ->assertJsonPath('data.latitude', '-7.76371000')
-            ->assertJsonPath('data.longitude', '110.40642000');
+            ->assertJsonPath('data.full_address', 'Jl. Raya Sraten No. 8')
+            ->assertJsonPath('data.latitude', '-7.31991677')
+            ->assertJsonPath('data.longitude', '110.46393595');
 
         $this->assertDatabaseHas('addresses', [
             'user_id' => $user->id,
             'label' => 'Rumah GPS',
-            'full_address' => 'Perumahan Bukit Sari Blok A2',
-            'latitude' => -7.76371000,
-            'longitude' => 110.40642000,
+            'full_address' => 'Jl. Raya Sraten No. 8',
+            'latitude' => -7.31991677,
+            'longitude' => 110.46393595,
             'is_default' => true,
         ]);
 
         Http::assertSentCount(0);
+    }
+
+    public function test_authenticated_user_cannot_store_saved_address_with_coordinates_outside_service_radius(): void
+    {
+        $user = User::query()->create([
+            'name' => 'Alamat GPS Luar Radius',
+            'email' => 'alamat.gps.luar@example.com',
+            'phone' => '081211223355',
+            'password' => Hash::make('rahasia123'),
+            'role' => 'customer',
+        ]);
+
+        Sanctum::actingAs($user);
+        Http::fake();
+
+        $response = $this->postJson('/api/user/addresses', [
+            'label' => 'Luar Radius',
+            'recipient_name' => 'Alamat GPS Luar',
+            'phone' => '0812-1122-3355',
+            'full_address' => 'Monas Jakarta',
+            'detail' => null,
+            'latitude' => -6.175392,
+            'longitude' => 106.827153,
+            'is_default' => true,
+        ]);
+
+        $response
+            ->assertStatus(422)
+            ->assertJsonPath('errors.code', BangDelivServiceAreaService::ERROR_DISTANCE_LIMIT)
+            ->assertJsonPath('errors.point_role', 'alamat');
+
+        $this->assertStringContainsString('melebihi batas layanan', (string) $response->json('message'));
+        $this->assertDatabaseMissing('addresses', [
+            'user_id' => $user->id,
+            'full_address' => 'Monas Jakarta',
+        ]);
+        Http::assertNothingSent();
     }
 
     public function test_authenticated_user_update_keeps_payload_coordinates_even_if_geocode_differs(): void
@@ -688,8 +726,8 @@ class AuthProfileTest extends TestCase
             'phone' => '081200011122',
             'full_address' => 'Alamat Lama',
             'detail' => null,
-            'latitude' => -6.90000000,
-            'longitude' => 107.60000000,
+            'latitude' => -7.31991677,
+            'longitude' => 110.46393595,
             'is_default' => true,
         ]);
 
@@ -700,11 +738,11 @@ class AuthProfileTest extends TestCase
                 'status' => 'OK',
                 'results' => [
                     [
-                        'formatted_address' => 'Alamat Baru Geocoded, Kota Bandung, Jawa Barat, Indonesia',
+                        'formatted_address' => 'Alamat Baru Geocoded, Kota Semarang, Jawa Tengah, Indonesia',
                         'geometry' => [
                             'location' => [
-                                'lat' => -6.91234567,
-                                'lng' => 107.61234567,
+                                'lat' => -7.33165000,
+                                'lng' => 110.49950000,
                             ],
                         ],
                     ],
@@ -718,23 +756,23 @@ class AuthProfileTest extends TestCase
             'phone' => '0812-0001-1122',
             'full_address' => 'Alamat Baru Input Pengguna',
             'detail' => 'Dekat masjid',
-            'latitude' => -6.93456789,
-            'longitude' => 107.65432109,
+            'latitude' => -7.33120000,
+            'longitude' => 110.50770000,
             'is_default' => true,
         ]);
 
         $response->assertOk()
             ->assertJsonPath('message', 'Alamat berhasil diperbarui.')
             ->assertJsonPath('data.full_address', 'Alamat Baru Input Pengguna')
-            ->assertJsonPath('data.latitude', '-6.93456789')
-            ->assertJsonPath('data.longitude', '107.65432109');
+            ->assertJsonPath('data.latitude', '-7.33120000')
+            ->assertJsonPath('data.longitude', '110.50770000');
 
         $this->assertDatabaseHas('addresses', [
             'id' => $address->id,
             'label' => 'Rumah Baru',
             'full_address' => 'Alamat Baru Input Pengguna',
-            'latitude' => -6.93456789,
-            'longitude' => 107.65432109,
+            'latitude' => -7.33120000,
+            'longitude' => 110.50770000,
         ]);
 
         Http::assertSentCount(0);
@@ -782,7 +820,7 @@ class AuthProfileTest extends TestCase
         Http::assertSent(function ($request): bool {
             $data = $request->data();
 
-            return ($data['bounds'] ?? null) === '-7.650000,110.050000|-6.900000,110.800000'
+            return ($data['bounds'] ?? null) === '-7.770000,110.010000|-6.870000,110.920000'
                 && ($data['components'] ?? null) === 'country:ID';
         });
     }
@@ -826,7 +864,7 @@ class AuthProfileTest extends TestCase
         Http::assertSent(function ($request): bool {
             $data = $request->data();
 
-            return ($data['bounds'] ?? null) === '-7.650000,110.050000|-6.900000,110.800000'
+            return ($data['bounds'] ?? null) === '-7.770000,110.010000|-6.870000,110.920000'
                 && ($data['components'] ?? null) === 'country:ID';
         });
     }

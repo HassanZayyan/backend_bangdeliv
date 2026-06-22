@@ -61,7 +61,7 @@ final class ChatbotTransportSupport
 
         if ($includeConfirm) {
             $payloads['CONFIRM_DRAFT'] = [
-                'label' => 'Konfirmasi',
+                'label' => 'Buat Pesanan',
                 'message' => 'Konfirmasi',
             ];
         }

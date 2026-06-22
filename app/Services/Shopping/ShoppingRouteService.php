@@ -6,6 +6,7 @@ use App\Exceptions\ApiException;
 use App\Models\Order;
 use App\Models\OrderLocation;
 use App\Models\Restaurant;
+use App\Services\Geo\BangDelivServiceAreaService;
 use App\Services\Maps\GoogleMapsDistanceMatrixService;
 use App\Services\Pricing\DeliveryPricingService;
 use Illuminate\Support\Collection;
@@ -13,14 +14,13 @@ use Illuminate\Support\Facades\Log;
 
 class ShoppingRouteService
 {
-    public const ERROR_ROUTE_DISTANCE_LIMIT = 'SHOPPING_ROUTE_DISTANCE_LIMIT';
-
     private const MINIMUM_ROUTE_DISTANCE_METERS = 20;
 
     public function __construct(
         private readonly GoogleMapsDistanceMatrixService $distanceMatrixService,
         private readonly DeliveryPricingService $deliveryPricingService,
         private readonly ShoppingDeliveryFeeLockResolver $deliveryFeeLockResolver,
+        private readonly BangDelivServiceAreaService $serviceAreaService,
     ) {}
 
     /**
@@ -63,6 +63,11 @@ class ShoppingRouteService
             static fn (array $point): ?int => isset($point['id']) ? (int) $point['id'] : null,
             array_slice($points, 0, -1)
         )));
+
+        $this->assertShoppingPointsWithinServiceArea(
+            array_slice($points, 0, -1),
+            $points[count($points) - 1]
+        );
 
         if (count($points) === 2) {
             $this->assertSingleShoppingRouteSeparated($points[0], $points[1]);
@@ -113,8 +118,6 @@ class ShoppingRouteService
         if (count($points) > 2) {
             $this->assertTotalRouteDistanceNotTooShort($totalDistanceMeters);
         }
-
-        $this->assertRouteWithinServiceDistance($totalDistanceMeters);
 
         $deliveryPricing = $this->deliveryPricingService->calculateFromDistanceMeters((float) $totalDistanceMeters);
         $distanceKm = round($totalDistanceMeters / 1000, 2);
@@ -243,6 +246,8 @@ class ShoppingRouteService
         $pickupPoints = $pickups->map(fn (OrderLocation $location): array => $this->pointFromLocation($location))->all();
         $dropoffPoint = $this->pointFromLocation($dropoff);
 
+        $this->assertShoppingPointsWithinServiceArea($pickupPoints, $dropoffPoint);
+
         if ((bool) config('bangdeliv.routes.optimize_shopping_waypoints', true) && count($pickupPoints) > 1) {
             try {
                 $route = $this->distanceMatrixService->resolveOptimizedShoppingRoute(
@@ -253,7 +258,6 @@ class ShoppingRouteService
 
                 $routeDistanceMeters = (int) ($route['distance_meters'] ?? 0);
                 $this->assertTotalRouteDistanceNotTooShort($routeDistanceMeters);
-                $this->assertRouteWithinServiceDistance($routeDistanceMeters);
                 $route['delivery_pricing'] = $this->deliveryPricingService->calculateFromDistanceMeters(
                     (float) $routeDistanceMeters
                 );
@@ -345,19 +349,45 @@ class ShoppingRouteService
         ];
     }
 
-    private function assertRouteWithinServiceDistance(int $totalDistanceMeters): void
+    /**
+     * @param  array<string, mixed>  $dropoffPoint
+     */
+    public function assertDeliveryPointWithinServiceArea(array $dropoffPoint): void
     {
-        if (! $this->deliveryPricingService->isWithinMaxDistance((float) $totalDistanceMeters)) {
-            throw new ApiException(sprintf(
-                'Jarak rute belanja %.2f km melebihi batas layanan %.2f km.',
-                $totalDistanceMeters / 1000,
-                $this->deliveryPricingService->getMaxDistanceKm()
-            ), 422, [
-                'code' => self::ERROR_ROUTE_DISTANCE_LIMIT,
-                'distance_km' => round($totalDistanceMeters / 1000, 2),
-                'max_distance_km' => $this->deliveryPricingService->getMaxDistanceKm(),
-            ]);
-        }
+        $point = $this->normalizePoint($dropoffPoint, 'Koordinat titik antar belum lengkap.');
+
+        $this->serviceAreaService->assertPointWithinRadius(
+            $point['latitude'],
+            $point['longitude'],
+            'titik antar',
+            $point['label']
+        );
+    }
+
+    /**
+     * @param  array<int, array{label: string, latitude: float, longitude: float}>  $pickupPoints
+     * @param  array{label: string, latitude: float, longitude: float}  $dropoffPoint
+     */
+    private function assertShoppingPointsWithinServiceArea(array $pickupPoints, array $dropoffPoint): void
+    {
+        $points = array_map(
+            static fn (array $point): array => [
+                'role' => 'merchant',
+                'label' => $point['label'],
+                'latitude' => $point['latitude'],
+                'longitude' => $point['longitude'],
+            ],
+            $pickupPoints
+        );
+
+        $points[] = [
+            'role' => 'titik antar',
+            'label' => $dropoffPoint['label'],
+            'latitude' => $dropoffPoint['latitude'],
+            'longitude' => $dropoffPoint['longitude'],
+        ];
+
+        $this->serviceAreaService->assertPointsWithinRadius($points);
     }
 
     /**

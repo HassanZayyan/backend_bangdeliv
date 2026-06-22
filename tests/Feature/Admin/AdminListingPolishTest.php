@@ -17,7 +17,7 @@ class AdminListingPolishTest extends TestCase
 
     public function test_settings_shows_single_full_width_card_without_helper_copy(): void
     {
-        config(['bangdeliv.max_delivery_distance' => 50]);
+        config(['bangdeliv.service_area.radius_km' => 50]);
 
         $admin = User::factory()->create([
             'role' => 'admin',
@@ -27,8 +27,10 @@ class AdminListingPolishTest extends TestCase
         $this->actingAs($admin)
             ->get(route('admin.settings'))
             ->assertOk()
-            ->assertSee('Jarak maksimum')
+            ->assertSee('Radius area layanan')
             ->assertSee('50 km')
+            ->assertSee('Pusat layanan')
+            ->assertSee('Angkringan 54')
             ->assertDontSee('>5 km<', false)
             ->assertSee('settings-overview-panel', false)
             ->assertSee('settings-metric-grid', false)

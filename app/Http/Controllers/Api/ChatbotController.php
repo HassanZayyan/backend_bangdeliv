@@ -813,7 +813,7 @@ class ChatbotController extends Controller
                     'service_type' => 'antar_jemput',
                     'label' => isset($existing['label']) && trim((string) $existing['label']) !== ''
                         ? trim((string) $existing['label'])
-                        : 'Atur Titik Jemput & Tujuan',
+                        : 'Atur Lokasi Jemput/Tujuan',
                     'points' => [
                         'pickup' => [
                             'target' => 'pickup',
@@ -842,7 +842,7 @@ class ChatbotController extends Controller
                     'service_type' => 'kurir',
                     'label' => isset($existing['label']) && trim((string) $existing['label']) !== ''
                         ? trim((string) $existing['label'])
-                        : 'Atur Titik Ambil & Tujuan',
+                        : 'Atur Lokasi Ambil/Tujuan',
                     'points' => [
                         'pickup' => [
                             'target' => 'pickup',
@@ -874,7 +874,7 @@ class ChatbotController extends Controller
                     : [];
                 $actionPayloads['OPEN_MAP_PICKER_PICKUP'] = array_merge([
                     'target' => 'pickup',
-                    'label' => 'Pilih Titik Jemput',
+                    'label' => 'Pilih Lokasi Jemput',
                     'initial_latitude' => $ride['pickup_latitude'] ?? null,
                     'initial_longitude' => $ride['pickup_longitude'] ?? null,
                 ], $existing);
@@ -886,7 +886,7 @@ class ChatbotController extends Controller
                     : [];
                 $actionPayloads['OPEN_MAP_PICKER_DESTINATION'] = array_merge([
                     'target' => 'destination',
-                    'label' => 'Pilih Titik Tujuan',
+                    'label' => 'Pilih Lokasi Tujuan',
                     'initial_latitude' => $ride['destination_latitude'] ?? null,
                     'initial_longitude' => $ride['destination_longitude'] ?? null,
                 ], $existing);
@@ -902,7 +902,7 @@ class ChatbotController extends Controller
                     : [];
                 $actionPayloads['OPEN_MAP_PICKER_PICKUP'] = array_merge([
                     'target' => 'pickup',
-                    'label' => 'Pilih Titik Ambil',
+                    'label' => 'Pilih Lokasi Ambil',
                     'initial_latitude' => $courier['pickup_latitude'] ?? null,
                     'initial_longitude' => $courier['pickup_longitude'] ?? null,
                 ], $existing);
@@ -914,7 +914,7 @@ class ChatbotController extends Controller
                     : [];
                 $actionPayloads['OPEN_MAP_PICKER_DROPOFF'] = array_merge([
                     'target' => 'dropoff',
-                    'label' => 'Pilih Titik Tujuan',
+                    'label' => 'Pilih Lokasi Tujuan',
                     'initial_latitude' => $courier['dropoff_latitude'] ?? null,
                     'initial_longitude' => $courier['dropoff_longitude'] ?? null,
                 ], $existing);
@@ -923,7 +923,7 @@ class ChatbotController extends Controller
 
         if (in_array('CONFIRM_DRAFT', $nextActions, true)) {
             $actionPayloads['CONFIRM_DRAFT'] = [
-                'label' => 'Konfirmasi',
+                'label' => 'Buat Pesanan',
                 'message' => 'Konfirmasi',
             ];
         }
@@ -941,7 +941,7 @@ class ChatbotController extends Controller
                 $ride = is_array($payload['ride'] ?? null) ? $payload['ride'] : [];
                 $actionPayloads['CHANGE_PICKUP'] = [
                     'target' => 'pickup',
-                    'label' => 'Ubah Titik Jemput',
+                    'label' => 'Ubah Lokasi Jemput',
                     'initial_latitude' => $ride['pickup_latitude'] ?? null,
                     'initial_longitude' => $ride['pickup_longitude'] ?? null,
                 ];
@@ -949,7 +949,7 @@ class ChatbotController extends Controller
                 $courier = is_array($payload['courier'] ?? null) ? $payload['courier'] : [];
                 $actionPayloads['CHANGE_PICKUP'] = [
                     'target' => 'pickup',
-                    'label' => 'Ubah Titik Ambil',
+                    'label' => 'Ubah Lokasi Ambil',
                     'initial_latitude' => $courier['pickup_latitude'] ?? null,
                     'initial_longitude' => $courier['pickup_longitude'] ?? null,
                 ];

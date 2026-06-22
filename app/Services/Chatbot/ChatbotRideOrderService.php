@@ -7,6 +7,7 @@ use App\Models\Address;
 use App\Models\Order;
 use App\Models\User;
 use App\Services\Address\ChatbotAddressReadinessService;
+use App\Services\Geo\BangDelivServiceAreaService;
 use App\Services\Maps\GoogleMapsDistanceMatrixService;
 use App\Services\Maps\GoogleMapsGeocodingService;
 use App\Services\Order\OrderPaymentService;
@@ -41,7 +42,8 @@ class ChatbotRideOrderService
         private readonly GoogleMapsDistanceMatrixService $distanceMatrixService,
         private readonly DeliveryPricingService $deliveryPricingService,
         private readonly ChatbotAddressReadinessService $addressReadinessService,
-        private readonly ChatbotDraftStore $draftStore
+        private readonly ChatbotDraftStore $draftStore,
+        private readonly BangDelivServiceAreaService $serviceAreaService
     ) {}
 
     /**
@@ -471,7 +473,45 @@ class ChatbotRideOrderService
             $destinationLatitude !== null &&
             $destinationLongitude !== null
         ) {
-            if ($this->routePointsAreTooClose(
+            $pointsWithinServiceArea = true;
+
+            try {
+                $this->serviceAreaService->assertPointWithinRadius(
+                    $pickupLatitude,
+                    $pickupLongitude,
+                    'jemput',
+                    $pickupAddress
+                );
+            } catch (ApiException $exception) {
+                if ($exception->status() !== 422) {
+                    throw $exception;
+                }
+
+                $pointsWithinServiceArea = false;
+                $reasons[] = $exception->getMessage();
+                $missingFields[] = 'pickup_address';
+                $nextActions[] = 'OPEN_MAP_PICKER_PICKUP';
+            }
+
+            try {
+                $this->serviceAreaService->assertPointWithinRadius(
+                    $destinationLatitude,
+                    $destinationLongitude,
+                    'tujuan',
+                    $destinationAddress
+                );
+            } catch (ApiException $exception) {
+                if ($exception->status() !== 422) {
+                    throw $exception;
+                }
+
+                $pointsWithinServiceArea = false;
+                $reasons[] = $exception->getMessage();
+                $missingFields[] = 'destination_address';
+                $nextActions[] = 'OPEN_MAP_PICKER_DESTINATION';
+            }
+
+            if ($pointsWithinServiceArea && $this->routePointsAreTooClose(
                 $pickupLatitude,
                 $pickupLongitude,
                 $destinationLatitude,
@@ -480,7 +520,7 @@ class ChatbotRideOrderService
                 $reasons[] = 'Titik tujuan terlalu dekat dengan titik jemput. Pilih titik tujuan yang berbeda.';
                 $missingFields[] = 'destination_address';
                 $nextActions[] = 'OPEN_MAP_PICKER_DESTINATION';
-            } else {
+            } elseif ($pointsWithinServiceArea) {
                 try {
                     $route = $this->distanceMatrixService->resolveRoute(
                         $pickupLatitude,
@@ -491,14 +531,6 @@ class ChatbotRideOrderService
 
                     $distanceMeters = (float) $route['distance_meters'];
                     $distanceKm = (float) $route['distance_km'];
-
-                    if (! $this->deliveryPricingService->isWithinMaxDistance($distanceMeters)) {
-                        $reasons[] = sprintf(
-                            'Jarak %.2f km melebihi batas layanan %.2f km.',
-                            $distanceKm,
-                            $this->deliveryPricingService->getMaxDistanceKm()
-                        );
-                    }
 
                     $deliveryFee = (float) $this->deliveryPricingService
                         ->calculateFromDistanceMeters($distanceMeters)['total_fee'];

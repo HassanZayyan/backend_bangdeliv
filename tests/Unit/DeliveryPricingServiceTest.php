@@ -14,7 +14,6 @@ class DeliveryPricingServiceTest extends TestCase
             'bangdeliv.delivery_rate_0_10_per_km' => 2000,
             'bangdeliv.delivery_rate_10_25_per_km' => 2500,
             'bangdeliv.delivery_rate_25_50_per_km' => 3000,
-            'bangdeliv.max_delivery_distance' => 50,
         ]);
 
         $service = app(DeliveryPricingService::class);
@@ -30,6 +29,7 @@ class DeliveryPricingServiceTest extends TestCase
             [24.9, 25, 67500.0, 2500.0],
             [25.0, 25, 80000.0, 3000.0],
             [50.0, 50, 155000.0, 3000.0],
+            [80.0, 80, 245000.0, 3000.0],
         ];
 
         foreach ($cases as [$distanceKm, $expectedBillableKm, $expectedTotalFee, $expectedRate]) {
@@ -41,13 +41,19 @@ class DeliveryPricingServiceTest extends TestCase
         }
     }
 
-    public function test_it_rejects_distance_above_fifty_kilometers(): void
+    public function test_it_does_not_enforce_service_area_radius(): void
     {
-        config(['bangdeliv.max_delivery_distance' => 50]);
+        config([
+            'bangdeliv.base_delivery_fee' => 5000,
+            'bangdeliv.delivery_rate_25_50_per_km' => 3000,
+        ]);
 
         $service = app(DeliveryPricingService::class);
+        $quote = $service->calculateFromDistanceMeters(120_000);
 
-        $this->assertTrue($service->isWithinMaxDistance(50_000));
-        $this->assertFalse($service->isWithinMaxDistance(50_100));
+        $this->assertSame(120.0, $quote['distance_km']);
+        $this->assertSame(120, $quote['billed_km']);
+        $this->assertSame(365000.0, $quote['total_fee']);
+        $this->assertArrayNotHasKey('max_distance_km', $quote);
     }
 }

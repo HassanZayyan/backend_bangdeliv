@@ -58,6 +58,10 @@ class ChatbotShoppingFlowTest extends TestCase
             ->assertJsonPath('data.shopping.ready_to_confirm', false)
             ->assertJsonPath('data.validation.missing_fields.0', 'delivery_address')
             ->assertJsonPath('data.validation.next_actions.0', 'OPEN_ADDRESSES');
+
+        $assistantText = (string) $response->json('data.assistant_text');
+        $this->assertStringContainsString('titik antar', $assistantText);
+        $this->assertStringNotContainsString('delivery_address', $assistantText);
     }
 
     public function test_chatbot_shopping_treats_zero_coordinate_address_as_missing(): void
@@ -155,6 +159,47 @@ class ChatbotShoppingFlowTest extends TestCase
             ->assertJsonPath('data.validation.missing_fields.0', 'merchant')
             ->assertJsonPath('data.validation.next_actions.0', 'OPEN_MERCHANT_PICKER')
             ->assertJsonPath('data.action_payloads.OPEN_MERCHANT_PICKER.label', 'Pilih Tempat di Map');
+
+        $assistantText = (string) $response->json('data.assistant_text');
+        $this->assertStringContainsString('tempat', $assistantText);
+        $this->assertStringNotContainsString('merchant', $assistantText);
+    }
+
+    public function test_chatbot_shopping_rejects_delivery_point_outside_service_radius_before_merchant_selection(): void
+    {
+        $customer = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        Sanctum::actingAs($customer);
+
+        $response = $this->postJson('/api/chatbot/sessions/shopping-delivery-outside-radius/location', [
+            'service_type' => 'nitip',
+            'target' => 'delivery',
+            'latitude' => -6.175392,
+            'longitude' => 106.827153,
+            'address' => 'Monas Jakarta',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.shopping.ready_to_confirm', false)
+            ->assertJsonPath('data.validation.is_valid_order', false)
+            ->assertJsonPath('data.action_payloads.OPEN_MAP_PICKER_DELIVERY.label', 'Pilih Titik Antar');
+
+        $this->assertContains('delivery_address', $response->json('data.validation.missing_fields'));
+        $this->assertSame(['OPEN_MAP_PICKER_DELIVERY'], $response->json('data.validation.next_actions'));
+        $this->assertNotContains('OPEN_ADDRESSES', $response->json('data.validation.next_actions'));
+        $this->assertStringContainsString(
+            'melebihi batas layanan',
+            implode(' ', $response->json('data.validation.rejection_reasons'))
+        );
+        $assistantText = (string) $response->json('data.assistant_text');
+        $this->assertStringContainsString('melebihi batas layanan', $assistantText);
+        $this->assertStringNotContainsString('Tempat belum dipilih', $assistantText);
+        $this->assertStringNotContainsString('Item belanja', $assistantText);
+        $this->assertStringNotContainsString('Tulis item', $assistantText);
     }
 
     public function test_chatbot_shopping_merchant_picker_guides_item_completion(): void
@@ -292,7 +337,7 @@ class ChatbotShoppingFlowTest extends TestCase
         $this->assertStringNotContainsString('Tulis item dan jumlah', $assistantText);
     }
 
-    public function test_chatbot_shopping_route_limit_keeps_merchant_picker_action(): void
+    public function test_chatbot_shopping_allows_long_route_when_points_are_inside_service_radius(): void
     {
         Config::set('bangdeliv.google_maps_api_key', 'test-key');
 
@@ -335,21 +380,16 @@ class ChatbotShoppingFlowTest extends TestCase
         Sanctum::actingAs($customer);
 
         $response = $this->postJson('/api/chatbot/process', [
-            'session_id' => 'shopping-route-limit-session',
+            'session_id' => 'shopping-long-route-inside-radius-session',
             'service_type' => 'nitip',
             'message' => 'beli sembako di Kedai Tinari',
         ]);
 
         $response->assertOk()
-            ->assertJsonPath('data.shopping.ready_to_confirm', false)
-            ->assertJsonPath('data.validation.is_valid_order', false)
-            ->assertJsonPath('data.validation.next_actions.0', 'OPEN_MERCHANT_PICKER')
-            ->assertJsonPath('data.action_payloads.OPEN_MERCHANT_PICKER.mode', 'select');
-
-        $this->assertStringContainsString(
-            'melebihi batas layanan',
-            (string) $response->json('data.validation.rejection_reasons.0')
-        );
+            ->assertJsonPath('data.shopping.ready_to_confirm', true)
+            ->assertJsonPath('data.validation.is_valid_order', true)
+            ->assertJsonPath('data.shopping.route.distance_meters', 185150)
+            ->assertJsonPath('data.validation.next_actions.0', 'OPEN_ADD_MERCHANT_PICKER');
     }
 
     public function test_chatbot_shopping_patch_google_place_merchant_completes_external_merchant_draft(): void

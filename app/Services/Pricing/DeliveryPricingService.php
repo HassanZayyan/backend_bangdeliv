@@ -35,7 +35,6 @@ class DeliveryPricingService
             'rate_per_km' => round($ratePerKm, 2),
             'distance_fee' => round($distanceFee, 2),
             'total_fee' => round($totalFee, 2),
-            'max_distance_km' => $this->getMaxDistanceKm(),
             'fee_breakdown' => [
                 [
                     'code' => 'base_fee',
@@ -51,21 +50,6 @@ class DeliveryPricingService
                 ],
             ],
         ];
-    }
-
-    public function getMaxDistanceKm(): float
-    {
-        return (float) config('bangdeliv.max_delivery_distance', 50);
-    }
-
-    public function getMaxDistanceMeters(): float
-    {
-        return $this->getMaxDistanceKm() * 1000;
-    }
-
-    public function isWithinMaxDistance(float $distanceMeters): bool
-    {
-        return $distanceMeters <= $this->getMaxDistanceMeters();
     }
 
     private function billableKilometers(float $distanceKm): int

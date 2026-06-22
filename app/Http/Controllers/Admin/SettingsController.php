@@ -3,13 +3,20 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Services\Geo\BangDelivServiceAreaService;
+use App\Services\Payment\QrisAssetService;
 use Illuminate\View\View;
 
 class SettingsController extends Controller
 {
+    public function __construct(
+        private readonly BangDelivServiceAreaService $serviceAreaService,
+        private readonly QrisAssetService $qrisAssetService
+    ) {}
+
     public function __invoke(): View
     {
-        $maxDeliveryDistanceKm = (float) config('bangdeliv.max_delivery_distance', 50);
+        $serviceAreaRadiusKm = $this->serviceAreaService->radiusKm();
 
         return view('admin.settings.index', [
             'deliveryPricingRows' => [
@@ -29,16 +36,22 @@ class SettingsController extends Controller
                     'note' => 'Dipakai untuk jarak menengah.',
                 ],
                 [
-                    'label' => 'Rate 25-50 km',
+                    'label' => 'Rate 25 km ke atas',
                     'value' => 'Rp '.number_format((int) config('bangdeliv.delivery_rate_25_50_per_km', 3000), 0, ',', '.').'/km',
                     'note' => 'Dipakai untuk jarak jauh.',
                 ],
                 [
-                    'label' => 'Jarak maksimum',
-                    'value' => $this->formatDistanceKm($maxDeliveryDistanceKm).' km',
-                    'note' => 'Order di luar batas ini ditolak oleh pricing service.',
+                    'label' => 'Radius area layanan',
+                    'value' => $this->formatDistanceKm($serviceAreaRadiusKm).' km',
+                    'note' => 'Dihitung sebagai jari-jari dari pusat Pelanggan 15.',
+                ],
+                [
+                    'label' => 'Pusat layanan',
+                    'value' => $this->serviceAreaService->centerName(),
+                    'note' => $this->serviceAreaService->centerAddress(),
                 ],
             ],
+            'qrisAsset' => $this->qrisAssetService->summary(),
         ]);
     }
 

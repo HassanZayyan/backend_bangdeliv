@@ -11,6 +11,7 @@ use App\Models\ServiceType;
 use App\Models\User;
 use App\Services\Address\ChatbotAddressReadinessService;
 use App\Services\Driver\DriverOrderRealtimeService;
+use App\Services\Geo\BangDelivServiceAreaService;
 use App\Services\Maps\GoogleMapsGeocodingService;
 use App\Services\Order\OrderPaymentService;
 use App\Services\Pricing\ShoppingPricingService;
@@ -682,6 +683,8 @@ class ChatbotShoppingOrderService
         $items = [];
         $missingFields = [];
         $rejectionReasons = [];
+        $routeFailureNeedsDeliveryPicker = false;
+        $deliveryRouteFailureReason = null;
 
         foreach ($stopSeeds as $index => $stopSeed) {
             if (! is_array($stopSeed)) {
@@ -753,6 +756,27 @@ class ChatbotShoppingOrderService
         if ($delivery['latitude'] === null || $delivery['longitude'] === null || trim((string) $delivery['address']) === '') {
             $missingFields[] = 'delivery_address';
             $rejectionReasons[] = 'Titik antar belum lengkap.';
+        } else {
+            try {
+                $this->shoppingRouteService->assertDeliveryPointWithinServiceArea([
+                    'label' => $delivery['address'] ?? 'Titik Antar',
+                    'latitude' => $delivery['latitude'],
+                    'longitude' => $delivery['longitude'],
+                ]);
+            } catch (ApiException $exception) {
+                $isServiceAreaDistanceLimit = data_get($exception->errors(), 'code')
+                    === BangDelivServiceAreaService::ERROR_DISTANCE_LIMIT;
+                if (! $isServiceAreaDistanceLimit) {
+                    throw $exception;
+                }
+
+                $routeFailureNeedsDeliveryPicker = true;
+                $missingFields[] = 'delivery_address';
+                $deliveryRouteFailureReason = trim($exception->getMessage()) === ''
+                    ? 'Titik antar berada di luar area layanan Pelanggan 15.'
+                    : trim($exception->getMessage());
+                $rejectionReasons[] = $deliveryRouteFailureReason;
+            }
         }
 
         $missingFields = array_values(array_unique($missingFields));
@@ -783,9 +807,9 @@ class ChatbotShoppingOrderService
                 }
             } catch (ApiException $exception) {
                 $message = trim($exception->getMessage());
-                $routeFailureNeedsMerchantPicker = data_get($exception->errors(), 'code')
-                    === ShoppingRouteService::ERROR_ROUTE_DISTANCE_LIMIT;
-                if (! $routeFailureNeedsMerchantPicker) {
+                $isServiceAreaDistanceLimit = data_get($exception->errors(), 'code')
+                    === BangDelivServiceAreaService::ERROR_DISTANCE_LIMIT;
+                if (! $isServiceAreaDistanceLimit) {
                     throw $exception;
                 }
 
@@ -794,7 +818,16 @@ class ChatbotShoppingOrderService
                     $rejectionReasons,
                     static fn (string $reason): bool => ! str_contains($reason, 'Item belanja')
                 ));
-                $missingFields[] = 'merchant_distance';
+                if (data_get($exception->errors(), 'point_role') === 'merchant') {
+                    $routeFailureNeedsMerchantPicker = true;
+                    $missingFields[] = 'merchant_distance';
+                } else {
+                    $routeFailureNeedsDeliveryPicker = true;
+                    $missingFields[] = 'delivery_address';
+                }
+                $deliveryRouteFailureReason = data_get($exception->errors(), 'point_role') === 'merchant'
+                    ? $deliveryRouteFailureReason
+                    : ($message === '' ? 'Rute Nitip belum valid.' : $message);
                 $rejectionReasons[] = $message === ''
                     ? 'Rute Nitip belum valid.'
                     : $message;
@@ -802,10 +835,18 @@ class ChatbotShoppingOrderService
         }
         $missingFields = array_values(array_unique($missingFields));
         $rejectionReasons = array_values(array_unique($rejectionReasons));
+        if ($routeFailureNeedsDeliveryPicker) {
+            $missingFields = ['delivery_address'];
+            $rejectionReasons = [
+                $deliveryRouteFailureReason ?: 'Titik antar berada di luar area layanan Pelanggan 15.',
+            ];
+        }
+        $missingDeliveryAddress = in_array('delivery_address', $missingFields, true);
 
         $ready = $missingFields === [] && $route !== null;
         $nextActions = [];
         $needsAddressBook = $missingDeliveryAddress
+            && ! $routeFailureNeedsDeliveryPicker
             && ! $this->addressReadinessService->hasUsableSavedAddress($user);
         if ($needsAddressBook) {
             $nextActions[] = 'OPEN_ADDRESSES';
@@ -832,7 +873,7 @@ class ChatbotShoppingOrderService
         } elseif ($ready && $merchantCount < self::MAX_MERCHANT_STOPS) {
             $nextActions[] = 'OPEN_ADD_MERCHANT_PICKER';
         }
-        if (($missingDeliveryAddress && ! $needsAddressBook) || $ready || $routeFailureNeedsMerchantPicker) {
+        if (($missingDeliveryAddress && ! $needsAddressBook) || $ready || $routeFailureNeedsMerchantPicker || $routeFailureNeedsDeliveryPicker) {
             $nextActions[] = 'OPEN_MAP_PICKER_DELIVERY';
         }
         $paymentMethod = $this->normalizePaymentMethodOrNull($draftSeed['payment_method'] ?? null);
@@ -842,7 +883,7 @@ class ChatbotShoppingOrderService
         } elseif ($ready) {
             $nextActions[] = 'CONFIRM_DRAFT';
         }
-        $deliveryActionLabel = $ready ? 'Ganti Titik Antar' : 'Pilih Titik Antar';
+        $deliveryActionLabel = $ready ? 'Ganti Lokasi Antar' : 'Pilih Lokasi Antar';
 
         $legacyStop = is_array($resolvedStops[0] ?? null) ? $resolvedStops[0] : [];
         $merchantPayload = is_array($legacyStop['merchant'] ?? null)
@@ -887,7 +928,7 @@ class ChatbotShoppingOrderService
                 'initial_longitude' => $delivery['longitude'],
             ],
             'CONFIRM_DRAFT' => [
-                'label' => 'Konfirmasi Nitip',
+                'label' => 'Buat Pesanan',
                 'message' => 'Konfirmasi',
             ],
             'SET_PAYMENT_COD' => [
@@ -1662,8 +1703,17 @@ class ChatbotShoppingOrderService
         if (in_array('merchant_distance', $missingFields, true) && $rejectionReasons !== []) {
             return implode("\n", $rejectionReasons);
         }
+        if (
+            in_array('delivery_address', $missingFields, true) &&
+            $this->containsServiceAreaRejection($rejectionReasons)
+        ) {
+            return implode("\n", $rejectionReasons);
+        }
 
-        $missing = implode(', ', $missingFields);
+        $missing = implode(', ', array_map(
+            fn (string $field): string => $this->missingFieldDisplayLabel($field),
+            $missingFields
+        ));
         $baseText = 'Draft Nitip belum lengkap. Lengkapi: '.($missing === '' ? 'draft' : $missing).'.';
         if ((bool) ($shopping['merchant_limit_reached'] ?? false)) {
             return 'Maksimal 3 tempat dalam satu pesanan Nitip. Draft yang sudah ada tetap aman, kamu bisa pilih pembayaran atau konfirmasi.';
@@ -1714,6 +1764,32 @@ class ChatbotShoppingOrderService
             '- roti tawar 2',
             '- air mineral 1',
         ]);
+    }
+
+    /**
+     * @param  array<int, string>  $rejectionReasons
+     */
+    private function containsServiceAreaRejection(array $rejectionReasons): bool
+    {
+        foreach ($rejectionReasons as $reason) {
+            if (str_contains($reason, 'melebihi batas layanan') ||
+                str_contains($reason, 'luar area layanan Pelanggan 15')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function missingFieldDisplayLabel(string $field): string
+    {
+        return match ($field) {
+            'merchant' => 'tempat',
+            'merchant_location' => 'lokasi tempat',
+            'merchant_distance' => 'tempat',
+            'delivery_address' => 'titik antar',
+            default => $field,
+        };
     }
 
     private function resolveCommand(string $message, ?array $nluPayload): string
