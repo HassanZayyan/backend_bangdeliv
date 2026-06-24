@@ -1,2 +1,4 @@
 *
 !.gitignore
+!restaurants/
+!restaurants/**
