@@ -246,4 +246,145 @@ class DriverVerificationTest extends TestCase
         $response->assertStatus(403)
             ->assertJsonPath('success', false);
     }
+
+    public function test_pending_driver_can_still_access_customer_order_flow(): void
+    {
+        $driverUser = User::query()->create([
+            'name' => 'Driver Pending Customer Flow',
+            'email' => 'driver.pending.customer.flow@example.com',
+            'phone' => '081277771222',
+            'password' => Hash::make('password123'),
+            'role' => 'driver',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        Driver::query()->create($this->driverAttributes([
+            'user_id' => $driverUser->id,
+            'vehicle_plate' => 'B 3131 PNG',
+            'registration_status' => 'pending',
+            'status' => 'offline',
+        ]));
+
+        Sanctum::actingAs($driverUser);
+
+        $response = $this->getJson('/api/v1/orders');
+
+        $response->assertOk()
+            ->assertJsonPath('success', true);
+    }
+
+    public function test_active_driver_cannot_access_customer_order_flow(): void
+    {
+        $driverUser = User::query()->create([
+            'name' => 'Driver Active Customer Flow',
+            'email' => 'driver.active.customer.flow@example.com',
+            'phone' => '081277771333',
+            'password' => Hash::make('password123'),
+            'role' => 'driver',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        Driver::query()->create($this->driverAttributes([
+            'user_id' => $driverUser->id,
+            'vehicle_plate' => 'B 3232 ACT',
+            'registration_status' => 'active',
+            'status' => 'available',
+        ]));
+
+        Sanctum::actingAs($driverUser);
+
+        $response = $this->getJson('/api/v1/orders');
+
+        $response->assertStatus(403)
+            ->assertJsonPath('success', false);
+    }
+
+    public function test_pending_driver_can_cancel_application_and_return_to_customer_role(): void
+    {
+        Storage::fake('public');
+
+        $driverUser = User::query()->create([
+            'name' => 'Driver Cancel',
+            'email' => 'driver.cancel@example.com',
+            'phone' => '081277772222',
+            'password' => Hash::make('password123'),
+            'role' => 'driver',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        $driver = Driver::query()->create($this->driverAttributes([
+            'user_id' => $driverUser->id,
+            'vehicle_plate' => 'B 4040 CNL',
+            'registration_status' => 'pending',
+            'status' => 'offline',
+        ]));
+
+        $filePath = UploadedFile::fake()
+            ->image('ktp-cancel.jpg', 800, 800)
+            ->storeAs('driver-documents/'.$driver->id.'/ktp', 'ktp-cancel.jpg', 'public');
+
+        DriverDocument::query()->create([
+            'driver_id' => $driver->id,
+            'document_type' => 'ktp',
+            'file_path' => $filePath,
+            'verification_status' => 'pending',
+        ]);
+
+        Storage::disk('public')->assertExists($filePath);
+        Sanctum::actingAs($driverUser);
+
+        $response = $this->deleteJson('/api/v1/driver/verification');
+
+        $response->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.user.role', 'customer')
+            ->assertJsonPath('data.driver_profile', null);
+
+        $this->assertDatabaseHas('users', [
+            'id' => $driverUser->id,
+            'role' => 'customer',
+        ]);
+        $this->assertDatabaseMissing('drivers', [
+            'id' => $driver->id,
+        ]);
+        $this->assertDatabaseMissing('driver_documents', [
+            'driver_id' => $driver->id,
+        ]);
+        Storage::disk('public')->assertMissing($filePath);
+    }
+
+    public function test_active_driver_cannot_cancel_application(): void
+    {
+        $driverUser = User::query()->create([
+            'name' => 'Driver Active Cancel',
+            'email' => 'driver.active.cancel@example.com',
+            'phone' => '081277773333',
+            'password' => Hash::make('password123'),
+            'role' => 'driver',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        Driver::query()->create($this->driverAttributes([
+            'user_id' => $driverUser->id,
+            'vehicle_plate' => 'B 5050 ACT',
+            'registration_status' => 'active',
+            'status' => 'available',
+        ]));
+
+        Sanctum::actingAs($driverUser);
+
+        $response = $this->deleteJson('/api/v1/driver/verification');
+
+        $response->assertStatus(409)
+            ->assertJsonPath('success', false);
+
+        $this->assertDatabaseHas('users', [
+            'id' => $driverUser->id,
+            'role' => 'driver',
+        ]);
+    }
 }

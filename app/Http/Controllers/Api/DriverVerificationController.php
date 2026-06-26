@@ -39,6 +39,17 @@ class DriverVerificationController extends Controller
         }
     }
 
+    public function cancel(Request $request): JsonResponse
+    {
+        try {
+            $payload = $this->service->cancelApplication($request->user());
+
+            return $this->success($payload, 'Pengajuan driver berhasil dibatalkan.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
     public function adminIndex(Request $request): JsonResponse
     {
         $validated = $request->validate([

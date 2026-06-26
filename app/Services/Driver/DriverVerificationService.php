@@ -127,6 +127,65 @@ class DriverVerificationService
     }
 
     /**
+     * @return array<string, mixed>
+     */
+    public function cancelApplication(User $actor): array
+    {
+        if ($actor->role !== 'driver') {
+            throw new ApiException('Hanya akun driver yang dapat membatalkan pengajuan.', 403);
+        }
+
+        $pathsToDelete = [];
+
+        DB::transaction(function () use ($actor, &$pathsToDelete): void {
+            $driver = Driver::query()
+                ->with('driverDocuments')
+                ->where('user_id', $actor->id)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $driver) {
+                throw new ApiException('Profil driver tidak ditemukan.', 404);
+            }
+
+            if ($driver->registration_status === 'active') {
+                throw new ApiException('Akun driver aktif tidak dapat dibatalkan dari halaman verifikasi.', 409);
+            }
+
+            $pathsToDelete = $driver->driverDocuments
+                ->pluck('file_path')
+                ->filter()
+                ->map(fn ($path): string => (string) $path)
+                ->values()
+                ->all();
+
+            $driver->driverDocuments()->delete();
+            $driver->forceDelete();
+
+            $actor->update([
+                'role' => 'customer',
+            ]);
+        });
+
+        if (! empty($pathsToDelete)) {
+            Storage::disk('public')->delete(array_unique($pathsToDelete));
+        }
+
+        $actor->refresh();
+
+        return [
+            'user' => [
+                'id' => $actor->id,
+                'name' => $actor->name,
+                'email' => $actor->email,
+                'phone' => $actor->phone,
+                'role' => $actor->role,
+            ],
+            'driver_profile' => null,
+        ];
+    }
+
+    /**
      * @param  array<string, mixed>  $filters
      */
     public function adminQueue(array $filters): LengthAwarePaginator

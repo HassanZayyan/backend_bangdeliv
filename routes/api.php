@@ -47,7 +47,7 @@ Route::prefix('v1')->group(function () {
         Route::post('/orders/{orderId}/chat/messages', [OrderChatController::class, 'store'])->name('api.v1.orders.chat.messages.store');
     });
 
-    Route::middleware(['auth:sanctum', 'role:customer'])->group(function () {
+    Route::middleware(['auth:sanctum', 'customer.ordering'])->group(function () {
         Route::post('/orders/ride/validate-destination', [OrderController::class, 'validateRideDestination'])->name('api.v1.orders.ride.validate-destination');
         Route::post('/orders/ride', [OrderController::class, 'createRideOrder'])->name('api.v1.orders.ride.store');
         Route::get('/orders', [OrderController::class, 'index'])->name('api.v1.orders.index');
@@ -68,6 +68,7 @@ Route::prefix('v1')->group(function () {
     Route::middleware(['auth:sanctum', 'role:driver'])->group(function () {
         Route::get('/driver/verification', [DriverVerificationController::class, 'myStatus'])->name('api.v1.driver.verification.show');
         Route::post('/driver/verification/documents', [DriverVerificationController::class, 'submitDocuments'])->name('api.v1.driver.verification.documents.store');
+        Route::delete('/driver/verification', [DriverVerificationController::class, 'cancel'])->name('api.v1.driver.verification.cancel');
 
         Route::middleware('driver.active')->group(function () {
             Route::get('/driver/availability', [OrderController::class, 'driverAvailability'])->name('api.v1.driver.availability.show');

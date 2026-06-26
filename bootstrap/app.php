@@ -17,6 +17,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
             'role' => \App\Http\Middleware\EnsureUserRole::class,
+            'customer.ordering' => \App\Http\Middleware\EnsureCustomerOrderingAccess::class,
             'driver.active' => \App\Http\Middleware\EnsureDriverIsActive::class,
         ]);
     })
