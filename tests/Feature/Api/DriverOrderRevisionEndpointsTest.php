@@ -304,6 +304,68 @@ class DriverOrderRevisionEndpointsTest extends TestCase
             ->assertJsonPath('data.delivery_fee_negotiation.quoted_amount', 22500);
     }
 
+    public function test_driver_can_bypass_pending_delivery_fee_for_all_service_types(): void
+    {
+        [$driverUser, $driver] = $this->createDriver();
+
+        foreach (['RIDE', 'COURIER', 'SHOPPING'] as $serviceCode) {
+            $order = $this->createAssignedOrder($driver, $serviceCode, 'DRIVER_ASSIGNED', 15000);
+
+            Sanctum::actingAs($driverUser);
+
+            $this->postJson('/api/v1/driver/orders/'.$order->id.'/delivery-fee-override', [
+                'amount' => 21000,
+                'reason' => 'Customer tidak respons saat uji coba.',
+            ])->assertOk()
+                ->assertJsonPath('data.delivery_fee_negotiation.status', 'PENDING_CUSTOMER');
+
+            $response = $this->postJson('/api/v1/driver/orders/'.$order->id.'/delivery-fee-override/bypass');
+
+            $response->assertOk()
+                ->assertJsonPath('success', true)
+                ->assertJsonPath('data.delivery_fee_negotiation.status', 'APPROVED')
+                ->assertJsonPath('data.delivery_fee_negotiation.approved_amount', 21000);
+
+            $this->assertDatabaseHas('orders', [
+                'id' => $order->id,
+                'delivery_fee' => 21000,
+                'total_price' => 21000,
+                'delivery_fee_source' => 'driver_manual',
+            ]);
+            $this->assertDatabaseHas('order_payments', [
+                'order_id' => $order->id,
+                'payment_status' => 'PENDING',
+                'amount' => 21000,
+            ]);
+
+            $event = OrderLog::query()
+                ->where('order_id', $order->id)
+                ->where('event_type', 'DELIVERY_FEE_NEGOTIATION')
+                ->where('trigger_type', 'DRIVER_FEE_APPROVED_BY_DRIVER_BYPASS')
+                ->firstOrFail();
+            $this->assertTrue((bool) ($event->metadata['bypassed_by_driver'] ?? false));
+            $this->assertSame($driverUser->id, (int) $event->changed_by_user_id);
+
+            Sanctum::actingAs(User::query()->findOrFail($order->user_id));
+            $this->getJson('/api/v1/orders/'.$order->id)
+                ->assertOk()
+                ->assertJsonPath('data.delivery_fee_change_note', 'Customer tidak respons saat uji coba.');
+        }
+    }
+
+    public function test_driver_delivery_fee_bypass_requires_pending_customer_quote(): void
+    {
+        [$driverUser, $driver] = $this->createDriver();
+        $order = $this->createAssignedOrder($driver, 'RIDE', 'DRIVER_ASSIGNED', 15000);
+
+        Sanctum::actingAs($driverUser);
+
+        $this->postJson('/api/v1/driver/orders/'.$order->id.'/delivery-fee-override/bypass')
+            ->assertConflict()
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('message', 'Belum ada revisi ongkir yang menunggu persetujuan customer.');
+    }
+
     public function test_shopping_cancel_with_fee_uses_current_delivery_fee_as_penalty_base(): void
     {
         [$driverUser, $driver] = $this->createDriver();
@@ -866,6 +928,134 @@ class DriverOrderRevisionEndpointsTest extends TestCase
             'changed_by_user_id' => $driverUser->id,
             'note' => 'Driver mencatat pembayaran QRIS secara manual.',
         ]);
+    }
+
+    public function test_driver_can_reject_transfer_payment_proof_like_admin(): void
+    {
+        Storage::fake('public');
+        [$driverUser, $driver] = $this->createDriver();
+        $order = $this->createAssignedOrder($driver, 'RIDE', 'DELIVERED', 18000, 'TRANSFER');
+        $proofPath = 'orders/'.$order->id.'/payments/proof.jpg';
+        Storage::disk('public')->put($proofPath, 'proof image');
+        $proof = OrderEvidence::query()->create([
+            'order_id' => $order->id,
+            'user_id' => $order->user_id,
+            'evidence_type' => 'PAYMENT_TRANSFER_PHOTO',
+            'file_url' => '/storage/'.$proofPath,
+            'uploaded_at' => now(),
+            'notes' => 'Bukti QRIS customer.',
+        ]);
+
+        Sanctum::actingAs($driverUser);
+
+        $this->postJson('/api/v1/orders/'.$order->id.'/payment/transfer/reject', [
+            'rejection_reason' => 'Nominal tidak sesuai.',
+        ])->assertOk()
+            ->assertJsonPath('data.payment_status', 'unpaid')
+            ->assertJsonPath('data.payment_proof_feedback.status', 'rejected')
+            ->assertJsonPath('data.payment_proof_feedback.reason', 'Nominal tidak sesuai.');
+
+        Storage::disk('public')->assertMissing($proofPath);
+        $this->assertDatabaseMissing('order_evidence', [
+            'id' => $proof->id,
+        ]);
+        $this->assertDatabaseHas('order_payments', [
+            'order_id' => $order->id,
+            'payment_method' => 'TRANSFER',
+            'payment_status' => 'PENDING',
+        ]);
+
+        $event = OrderLog::query()
+            ->where('order_id', $order->id)
+            ->where('trigger_type', 'PAYMENT_PROOF_REJECTED')
+            ->firstOrFail();
+        $this->assertSame('Nominal tidak sesuai.', $event->note);
+        $this->assertSame($proof->id, (int) data_get($event->metadata, 'deleted_evidence_id'));
+        $this->assertSame('rejected', data_get($event->metadata, 'payment_proof_status'));
+        $this->assertNull(data_get($event->metadata, 'file_url'));
+    }
+
+    public function test_driver_reject_transfer_payment_requires_reason_and_assigned_driver(): void
+    {
+        Storage::fake('public');
+        [$driverUser, $driver] = $this->createDriver();
+        [$otherDriverUser] = $this->createDriver();
+        $order = $this->createAssignedOrder($driver, 'RIDE', 'DELIVERED', 18000, 'TRANSFER');
+        $proofPath = 'orders/'.$order->id.'/payments/proof.jpg';
+        Storage::disk('public')->put($proofPath, 'proof image');
+        OrderEvidence::query()->create([
+            'order_id' => $order->id,
+            'user_id' => $order->user_id,
+            'evidence_type' => 'PAYMENT_TRANSFER_PHOTO',
+            'file_url' => '/storage/'.$proofPath,
+            'uploaded_at' => now(),
+            'notes' => 'Bukti QRIS customer.',
+        ]);
+
+        Sanctum::actingAs($driverUser);
+        $this->postJson('/api/v1/orders/'.$order->id.'/payment/transfer/reject', [])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('rejection_reason');
+
+        Sanctum::actingAs($otherDriverUser);
+        $this->postJson('/api/v1/orders/'.$order->id.'/payment/transfer/reject', [
+            'rejection_reason' => 'Bukan bukti order ini.',
+        ])->assertStatus(403)
+            ->assertJsonPath('message', 'Order ini tidak ditugaskan kepada driver saat ini.');
+    }
+
+    public function test_driver_cannot_record_transfer_payment_after_reject_until_customer_uploads_new_proof(): void
+    {
+        [$driverUser, $driver] = $this->createDriver();
+        $order = $this->createAssignedOrder($driver, 'RIDE', 'DELIVERED', 18000, 'TRANSFER');
+
+        OrderLog::query()->create([
+            'order_id' => $order->id,
+            'event_type' => 'PAYMENT_UPDATE',
+            'trigger_type' => 'PAYMENT_PROOF_REJECTED',
+            'changed_by_user_id' => $driverUser->id,
+            'note' => 'Nominal tidak sesuai.',
+            'metadata' => [
+                'deleted_evidence_id' => 99,
+                'payment_proof_status' => 'rejected',
+            ],
+        ]);
+
+        Sanctum::actingAs($driverUser);
+
+        $this->postJson('/api/v1/orders/'.$order->id.'/payment/transfer/confirm', [
+            'amount' => 18000,
+        ])->assertStatus(409)
+            ->assertJsonPath('message', 'Bukti QRIS ditolak. Tunggu customer mengirim bukti baru.');
+
+        $newProof = OrderEvidence::query()->create([
+            'order_id' => $order->id,
+            'user_id' => $order->user_id,
+            'evidence_type' => 'PAYMENT_TRANSFER_PHOTO',
+            'file_url' => '/storage/orders/'.$order->id.'/payments/proof-new.jpg',
+            'uploaded_at' => now(),
+            'notes' => 'Bukti QRIS customer terbaru.',
+        ]);
+        $this->assertSame('pending', $order->fresh(['evidences', 'payment'])->payment_proof_feedback['status']);
+
+        $this->postJson('/api/v1/orders/'.$order->id.'/payment/transfer/confirm', [
+            'amount' => 18000,
+        ])->assertOk()
+            ->assertJsonPath('data.payment_status', 'paid')
+            ->assertJsonPath('data.payment_proof_feedback.status', 'approved');
+
+        $this->assertDatabaseHas('order_events', [
+            'order_id' => $order->id,
+            'trigger_type' => 'PAYMENT_PROOF_APPROVED',
+            'changed_by_user_id' => $driverUser->id,
+            'note' => 'Bukti QRIS disetujui driver.',
+        ]);
+        $approvalEvent = OrderLog::query()
+            ->where('order_id', $order->id)
+            ->where('trigger_type', 'PAYMENT_PROOF_APPROVED')
+            ->firstOrFail();
+        $this->assertSame($newProof->id, (int) data_get($approvalEvent->metadata, 'order_evidence_id'));
+        $this->assertSame('approved', data_get($approvalEvent->metadata, 'payment_proof_status'));
     }
 
     /**

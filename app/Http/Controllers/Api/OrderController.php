@@ -417,6 +417,25 @@ class OrderController extends Controller
         }
     }
 
+    public function bypassDeliveryFeeOverride(Request $request, int $orderId): JsonResponse
+    {
+        $validated = $request->validate([
+            'note' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        try {
+            $payload = $this->orderService->bypassDeliveryFeeOverrideByDriver(
+                $request->user(),
+                $orderId,
+                $validated
+            );
+
+            return $this->success($payload, 'Revisi ongkir dilanjutkan oleh driver.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
     public function uploadDriverProof(Request $request, int $orderId): JsonResponse
     {
         $validated = $request->validate([
@@ -677,6 +696,25 @@ class OrderController extends Controller
             );
 
             return $this->success($payload, 'Pembayaran QRIS berhasil dicatat.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
+    public function rejectTransferPaymentByDriver(Request $request, int $orderId): JsonResponse
+    {
+        $validated = $request->validate([
+            'rejection_reason' => ['required', 'string', 'max:1000'],
+        ]);
+
+        try {
+            $payload = $this->orderService->rejectTransferPaymentByDriver(
+                $request->user(),
+                $orderId,
+                $validated
+            );
+
+            return $this->success($payload, 'Bukti QRIS ditolak. Customer dapat mengirim bukti baru.');
         } catch (ApiException $exception) {
             return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
         }

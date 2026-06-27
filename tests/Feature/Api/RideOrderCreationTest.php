@@ -170,6 +170,123 @@ class RideOrderCreationTest extends TestCase
         Http::assertSentCount(2);
     }
 
+    public function test_customer_can_create_ride_order_with_default_pickup_address_when_address_id_is_omitted(): void
+    {
+        $user = User::factory()->create([
+            'role' => 'customer',
+            'phone' => '081211110013',
+        ]);
+
+        Address::query()->create([
+            'user_id' => $user->id,
+            'label' => 'Alamat Lama',
+            'recipient_name' => 'Customer Ride',
+            'phone' => '081211110013',
+            'full_address' => 'Alamat tanpa koordinat',
+            'detail' => null,
+            'latitude' => 0,
+            'longitude' => 0,
+            'is_default' => false,
+        ]);
+
+        Address::query()->create([
+            'user_id' => $user->id,
+            'label' => 'Rumah Default',
+            'recipient_name' => 'Customer Ride',
+            'phone' => '081211110013',
+            'full_address' => 'Jl. Default Pickup No. 9',
+            'detail' => 'Pagar hijau',
+            'latitude' => -7.31991677,
+            'longitude' => 110.46393595,
+            'is_default' => true,
+        ]);
+
+        Sanctum::actingAs($user);
+
+        Http::fake([
+            'https://routes.googleapis.com/*' => Http::response([
+                'routes' => [[
+                    'distanceMeters' => 5000,
+                    'duration' => '600s',
+                    'polyline' => ['encodedPolyline' => '_p~iF~ps|U_ulLnnqC_mqNvxq`@'],
+                    'legs' => [[
+                        'distanceMeters' => 5000,
+                        'duration' => '600s',
+                    ]],
+                ]],
+            ], 200),
+            'https://maps.googleapis.com/maps/api/distancematrix/json*' => Http::response([
+                'status' => 'OK',
+                'rows' => [
+                    [
+                        'elements' => [
+                            [
+                                'status' => 'OK',
+                                'distance' => ['value' => 5000, 'text' => '5.0 km'],
+                                'duration' => ['value' => 600, 'text' => '10 mins'],
+                            ],
+                        ],
+                    ],
+                ],
+            ], 200),
+            'https://maps.googleapis.com/maps/api/place/textsearch/json*' => Http::response([
+                'status' => 'OK',
+                'results' => [
+                    [
+                        'formatted_address' => 'Lapangan Pancasila Salatiga, Jawa Tengah',
+                        'geometry' => [
+                            'location' => [
+                                'lat' => -7.33120000,
+                                'lng' => 110.50770000,
+                            ],
+                        ],
+                    ],
+                ],
+            ], 200),
+            'https://maps.googleapis.com/maps/api/geocode/json*' => Http::response([
+                'status' => 'OK',
+                'results' => [
+                    [
+                        'formatted_address' => 'Lapangan Pancasila Salatiga, Jawa Tengah',
+                        'geometry' => [
+                            'location' => [
+                                'lat' => -7.33120000,
+                                'lng' => 110.50770000,
+                            ],
+                        ],
+                    ],
+                ],
+            ], 200),
+        ]);
+
+        $response = $this->postJson('/api/v1/orders/ride', [
+            'destination_address' => 'Lapangan Pancasila Salatiga',
+        ]);
+
+        $response->assertCreated()
+            ->assertJsonPath('success', true);
+
+        $orderId = (int) $response->json('data.id');
+
+        $this->assertDatabaseHas('order_locations', [
+            'order_id' => $orderId,
+            'location_role' => 'PICKUP',
+            'full_address' => 'Jl. Default Pickup No. 9',
+            'latitude' => -7.31991677,
+            'longitude' => 110.46393595,
+        ]);
+
+        $this->assertDatabaseHas('order_locations', [
+            'order_id' => $orderId,
+            'location_role' => 'DROPOFF',
+            'full_address' => 'Lapangan Pancasila Salatiga, Jawa Tengah',
+            'latitude' => -7.33120000,
+            'longitude' => 110.50770000,
+        ]);
+
+        Http::assertSentCount(2);
+    }
+
     public function test_customer_can_create_ride_order_with_payload_destination_coordinates_without_regeocoding(): void
     {
         $user = User::factory()->create([

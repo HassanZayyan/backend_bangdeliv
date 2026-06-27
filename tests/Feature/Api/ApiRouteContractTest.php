@@ -65,10 +65,12 @@ class ApiRouteContractTest extends TestCase
             'driver shopping price quote bypass' => ['api.v1.driver.orders.shopping.price-quote.bypass', 'POST', 'api/v1/driver/orders/{orderId}/shopping/price-quote/bypass'],
             'driver shopping accept counter' => ['api.v1.driver.orders.shopping.price-quote.accept-counter', 'POST', 'api/v1/driver/orders/{orderId}/shopping/price-quote/accept-counter'],
             'driver shopping item change respond' => ['api.v1.driver.orders.shopping.item-change-request.respond', 'POST', 'api/v1/driver/orders/{orderId}/shopping/item-change-request/respond'],
+            'driver delivery fee bypass' => ['api.v1.driver.orders.delivery-fee-override.bypass', 'POST', 'api/v1/driver/orders/{orderId}/delivery-fee-override/bypass'],
             'driver delivery fee accept counter' => ['api.v1.driver.orders.delivery-fee-override.accept-counter', 'POST', 'api/v1/driver/orders/{orderId}/delivery-fee-override/accept-counter'],
             'driver failed attempt' => ['api.v1.driver.orders.attempt-failed', 'POST', 'api/v1/orders/{orderId}/attempt-failed'],
             'driver cod payment' => ['api.v1.driver.orders.payment.collect-cod', 'POST', 'api/v1/orders/{orderId}/payment/collect-cod'],
             'driver transfer payment' => ['api.v1.driver.orders.payment.transfer.confirm', 'POST', 'api/v1/orders/{orderId}/payment/transfer/confirm'],
+            'driver transfer payment reject' => ['api.v1.driver.orders.payment.transfer.reject', 'POST', 'api/v1/orders/{orderId}/payment/transfer/reject'],
         ];
     }
 }

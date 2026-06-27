@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\Admin\AdminPaymentProofStatusService;
 use App\Services\Order\DeliveryFeeNegotiationService;
 use App\Services\Pricing\ShoppingPricingService;
 use App\Services\Shopping\ShoppingItemChangeRequestService;
@@ -104,6 +105,7 @@ class Order extends Model
         'pricing_snapshot',
         'fee_breakdown',
         'delivery_fee_change_note',
+        'payment_proof_feedback',
         'proofs',
     ];
 
@@ -331,6 +333,21 @@ class Order extends Model
             return null;
         }
 
+        $driverQuote = $this->logs()
+            ->where('event_type', DeliveryFeeNegotiationService::EVENT_TYPE)
+            ->whereIn('trigger_type', [
+                DeliveryFeeNegotiationService::DRIVER_FEE_QUOTED,
+                DeliveryFeeNegotiationService::DRIVER_FEE_REQUOTED,
+            ])
+            ->latest('created_at')
+            ->latest('id')
+            ->first();
+
+        $driverQuoteNote = trim((string) ($driverQuote?->note ?? ''));
+        if ($driverQuoteNote !== '') {
+            return $driverQuoteNote;
+        }
+
         $event = $this->logs()
             ->whereIn('event_type', ['PRICE_RECALCULATION', 'PRICE_UPDATE'])
             ->whereIn('trigger_type', [
@@ -338,6 +355,7 @@ class Order extends Model
                 'DRIVER_SHOPPING_CHECKOUT_DELIVERY_FEE',
                 'CUSTOMER_DELIVERY_FEE_APPROVED',
                 'DRIVER_DELIVERY_FEE_COUNTER_APPROVED',
+                DeliveryFeeNegotiationService::DRIVER_FEE_APPROVED_BY_DRIVER_BYPASS,
             ])
             ->latest('created_at')
             ->latest('id')
@@ -689,9 +707,17 @@ class Order extends Model
             $this->setRelation('evidences', $this->evidences()->get());
         }
 
+        $proofStatuses = app(AdminPaymentProofStatusService::class);
+        $logs = $proofStatuses->decisionLogsForOrder($this);
+        $payment = $this->resolvedLatestPayment();
+
         return $this->evidences
             ->sortByDesc(fn (OrderEvidence $evidence): int => $evidence->uploaded_at?->getTimestamp() ?? $evidence->created_at?->getTimestamp() ?? 0)
-            ->map(function (OrderEvidence $evidence): array {
+            ->map(function (OrderEvidence $evidence) use ($proofStatuses, $logs, $payment): array {
+                $decision = strtoupper((string) $evidence->evidence_type) === AdminPaymentProofStatusService::PAYMENT_TRANSFER_EVIDENCE_TYPE
+                    ? $proofStatuses->decisionFor($evidence, $payment, $logs)
+                    : null;
+
                 return [
                     'id' => (int) $evidence->id,
                     'user_id' => (int) $evidence->user_id,
@@ -700,13 +726,26 @@ class Order extends Model
                     'evidence_type' => strtoupper((string) $evidence->evidence_type),
                     'photo_url' => $evidence->file_url,
                     'file_url' => $evidence->file_url,
-                    'status' => 'pending',
+                    'status' => $decision['status'] ?? 'pending',
+                    'verification_status' => $decision['status'] ?? 'pending',
+                    'rejection_reason' => $decision['reason'] ?? null,
+                    'decision_note' => $decision['note'] ?? null,
+                    'decided_by' => $decision['decided_by'] ?? null,
+                    'decided_at' => $decision['decided_at'] ?? null,
                     'uploaded_at' => $evidence->uploaded_at?->toIso8601String() ?? $evidence->created_at?->toIso8601String(),
                     'note' => $evidence->notes,
                 ];
             })
             ->values()
             ->all();
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function getPaymentProofFeedbackAttribute(): array
+    {
+        return app(AdminPaymentProofStatusService::class)->feedbackForOrder($this);
     }
 
     /**

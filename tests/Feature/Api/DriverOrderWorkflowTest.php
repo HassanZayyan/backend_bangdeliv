@@ -19,6 +19,7 @@ use App\Models\OrderStatus;
 use App\Models\OrderStatusHistory;
 use App\Models\ServiceType;
 use App\Models\User;
+use App\Services\Driver\Dispatch\DriverDispatchMetadataFactory;
 use App\Services\Driver\DriverOrderRealtimeService;
 use Database\Seeders\AccessAccountSeeder;
 use Illuminate\Broadcasting\BroadcastException;
@@ -315,7 +316,7 @@ class DriverOrderWorkflowTest extends TestCase
         ])->assertConflict();
     }
 
-    public function test_driver_orders_include_dispatch_metadata_and_prioritize_nearest_pickup(): void
+    public function test_driver_orders_include_dispatch_metadata_and_prioritize_nearest_customer_target(): void
     {
         Config::set('bangdeliv.dispatch.fresh_location_minutes', 10);
 
@@ -328,10 +329,12 @@ class DriverOrderWorkflowTest extends TestCase
         ]);
 
         $nearOrder = $this->createShoppingOrder(null, 'PENDING');
-        $this->createPickupLocation($nearOrder, -7.3310, 110.5090, 'Dekat Salatiga');
+        $this->createPickupLocation($nearOrder, -7.4500, 110.6500, 'Merchant Jauh');
+        $this->createDropoffLocation($nearOrder, -7.3310, 110.5090, 'Customer Dekat Salatiga');
 
         $farOrder = $this->createShoppingOrder(null, 'PENDING');
-        $this->createPickupLocation($farOrder, -7.4500, 110.6500, 'Jauh Kabupaten Semarang');
+        $this->createPickupLocation($farOrder, -7.3310, 110.5090, 'Merchant Dekat');
+        $this->createDropoffLocation($farOrder, -7.4500, 110.6500, 'Customer Jauh Kabupaten Semarang');
 
         Sanctum::actingAs($driverUser);
 
@@ -342,14 +345,53 @@ class DriverOrderWorkflowTest extends TestCase
             ->assertJsonPath('data.incoming_orders.0.id', (string) $nearOrder->id)
             ->assertJsonPath('data.incoming_orders.0.dispatch.distance_bucket', 'NEAR')
             ->assertJsonPath('data.incoming_orders.0.dispatch.priority_rank', 1)
+            ->assertJsonPath('data.incoming_orders.0.dispatch.distance_target_role', 'customer_pickup')
+            ->assertJsonPath('data.incoming_orders.0.dispatch.distance_target_label', 'titik jemput')
             ->assertJsonPath('data.incoming_orders.0.dispatch.location_fresh', true);
 
         $this->assertSame((string) $farOrder->id, (string) $response->json('data.incoming_orders.1.id'));
         $this->assertIsNumeric($response->json('data.incoming_orders.0.dispatch.distance_to_pickup_km'));
+        $this->assertIsNumeric($response->json('data.incoming_orders.0.dispatch.distance_to_customer_km'));
+        $this->assertStringContainsString('dari titik jemput', (string) $response->json('data.incoming_orders.0.dispatch.distance_label'));
         $this->assertLessThan(
             $response->json('data.incoming_orders.1.dispatch.distance_to_pickup_km'),
             $response->json('data.incoming_orders.0.dispatch.distance_to_pickup_km')
         );
+    }
+
+    public function test_dispatch_distance_targets_customer_order_point_for_all_service_types(): void
+    {
+        [, $driver] = $this->createActiveDriver('dispatch-target');
+        $driver->update([
+            'latitude' => -7.3305,
+            'longitude' => 110.5084,
+            'location_updated_at' => now(),
+        ]);
+
+        $factory = app(DriverDispatchMetadataFactory::class);
+
+        $rideOrder = $this->createRideOrderForDriver($driver, 'DRIVER_ASSIGNED');
+        $this->createPickupLocation($rideOrder, -7.3310, 110.5090, 'Ride Pickup Dekat');
+        $this->createDropoffLocation($rideOrder, -7.4500, 110.6500, 'Ride Dropoff Jauh');
+
+        $courierOrder = $this->createCourierOrderForDriver($driver, 'DRIVER_ASSIGNED', 20000);
+        $this->createPickupLocation($courierOrder, -7.3310, 110.5090, 'Courier Pickup Dekat');
+        $this->createDropoffLocation($courierOrder, -7.4500, 110.6500, 'Courier Dropoff Jauh');
+
+        $shoppingOrder = $this->createShoppingOrder($driver, 'PENDING');
+        $this->createShoppingPickupWithItem($shoppingOrder, 1, 'Merchant 1 Jauh', -7.4500, 110.6500, 'Item Merchant 1');
+        $this->createShoppingPickupWithItem($shoppingOrder, 2, 'Merchant 2 Jauh', -7.4600, 110.6600, 'Item Merchant 2');
+        $this->createShoppingPickupWithItem($shoppingOrder, 3, 'Merchant 3 Jauh', -7.4700, 110.6700, 'Item Merchant 3');
+        $this->createDropoffLocation($shoppingOrder, -7.3310, 110.5090, 'Customer Dropoff Dekat');
+
+        foreach ([$rideOrder, $courierOrder, $shoppingOrder] as $order) {
+            $metadata = $factory->forDriver($order->fresh(['serviceType', 'orderLocations']), $driver);
+
+            $this->assertSame('customer_pickup', $metadata['distance_target_role']);
+            $this->assertSame('titik jemput', $metadata['distance_target_label']);
+            $this->assertStringContainsString('dari titik jemput', (string) $metadata['distance_label']);
+            $this->assertLessThan(1, (float) $metadata['distance_to_pickup_km']);
+        }
     }
 
     public function test_customer_order_detail_includes_driver_eta_for_ride_assigned_order(): void
@@ -576,6 +618,7 @@ class DriverOrderWorkflowTest extends TestCase
 
         $order = $this->createShoppingOrder(null, 'PENDING');
         $this->createPickupLocation($order, -7.3310, 110.5090, 'Pickup Dekat');
+        $this->createDropoffLocation($order, -7.3310, 110.5090, 'Customer Dekat');
 
         Event::fake([DriverOrderAvailable::class]);
 

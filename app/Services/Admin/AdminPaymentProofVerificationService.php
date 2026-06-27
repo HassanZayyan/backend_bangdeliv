@@ -9,6 +9,7 @@ use App\Models\OrderEvidence;
 use App\Models\OrderLog;
 use App\Models\OrderPayment;
 use App\Models\User;
+use App\Services\Order\OrderEvidenceService;
 use App\Services\Order\OrderPaymentService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -19,6 +20,7 @@ class AdminPaymentProofVerificationService
         private readonly OrderPaymentService $orderPaymentService,
         private readonly AdminNotificationService $notificationService,
         private readonly AdminPaymentProofStatusService $proofStatuses,
+        private readonly OrderEvidenceService $orderEvidenceService,
     ) {}
 
     public function approve(User $admin, Order $order, OrderEvidence $evidence): Order
@@ -61,8 +63,17 @@ class AdminPaymentProofVerificationService
 
         $order = DB::transaction(function () use ($admin, $order, $evidence, $reason): Order {
             [$lockedOrder, $evidence] = $this->lockedPendingProofContext($order, $evidence);
+            $deletedEvidenceId = (int) $evidence->id;
 
-            $this->logVerification($lockedOrder, $admin, $evidence, AdminPaymentProofStatusService::REJECTED_TRIGGER, $reason);
+            $this->logRejectedProofDeletion($lockedOrder, $admin, $deletedEvidenceId, $reason);
+
+            if (! $this->orderEvidenceService->deletePublicEvidenceFile($lockedOrder, $evidence)) {
+                throw ValidationException::withMessages([
+                    'proof' => 'Bukti QRIS gagal dihapus dari storage.',
+                ]);
+            }
+
+            $evidence->delete();
 
             return $lockedOrder->refresh();
         });
@@ -139,6 +150,25 @@ class AdminPaymentProofVerificationService
             'metadata' => [
                 'order_evidence_id' => (int) $evidence->id,
                 'payment_proof_status' => $trigger === AdminPaymentProofStatusService::APPROVED_TRIGGER ? 'approved' : 'rejected',
+            ],
+        ]);
+    }
+
+    private function logRejectedProofDeletion(
+        Order $order,
+        User $admin,
+        int $deletedEvidenceId,
+        string $note,
+    ): void {
+        OrderLog::query()->create([
+            'order_id' => $order->id,
+            'event_type' => 'PAYMENT_UPDATE',
+            'trigger_type' => AdminPaymentProofStatusService::REJECTED_TRIGGER,
+            'changed_by_user_id' => $admin->id,
+            'note' => $note,
+            'metadata' => [
+                'deleted_evidence_id' => $deletedEvidenceId,
+                'payment_proof_status' => 'rejected',
             ],
         ]);
     }

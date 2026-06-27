@@ -883,7 +883,12 @@ class ChatbotShoppingOrderService
         } elseif ($ready) {
             $nextActions[] = 'CONFIRM_DRAFT';
         }
-        $deliveryActionLabel = $ready ? 'Ganti Lokasi Antar' : 'Pilih Lokasi Antar';
+        $hasDeliveryPoint = $delivery['latitude'] !== null
+            && $delivery['longitude'] !== null
+            && trim((string) ($delivery['address'] ?? '')) !== '';
+        $deliveryActionLabel = $hasDeliveryPoint && ! $missingDeliveryAddress
+            ? 'Ganti Alamat Antar'
+            : 'Pilih Alamat Antar';
 
         $legacyStop = is_array($resolvedStops[0] ?? null) ? $resolvedStops[0] : [];
         $merchantPayload = is_array($legacyStop['merchant'] ?? null)
@@ -1167,10 +1172,11 @@ class ChatbotShoppingOrderService
             if ($menu !== null) {
                 $unitPrice = round((float) $menu->price, 2);
                 $menuName = (string) $menu->name;
+                $hasReferencePrice = $unitPrice > 0;
 
                 $items[] = [
-                    'menu_id' => (int) $menu->id,
-                    'item_source' => 'MENU_DB',
+                    'menu_id' => $hasReferencePrice ? (int) $menu->id : null,
+                    'item_source' => $hasReferencePrice ? 'MENU_DB' : 'MANUAL',
                     'name' => $menuName,
                     'menu_name' => $menuName,
                     'quantity' => $quantity,
@@ -1179,8 +1185,9 @@ class ChatbotShoppingOrderService
                     'notes' => $notes,
                     'is_available' => true,
                     'metadata' => [
-                        'price_status' => 'CONFIRMED',
-                        'source' => 'CHATBOT_MENU_MATCH',
+                        'price_status' => $hasReferencePrice ? 'CONFIRMED' : 'PENDING_DRIVER_INPUT',
+                        'source' => $hasReferencePrice ? 'CHATBOT_MENU_MATCH' : 'CHATBOT_MENU_MATCH_PENDING_PRICE',
+                        ...(! $hasReferencePrice ? ['catalog_menu_id' => (int) $menu->id] : []),
                     ],
                 ];
 
@@ -1378,11 +1385,14 @@ class ChatbotShoppingOrderService
                     $itemSource = strtoupper((string) ($item['item_source'] ?? 'MANUAL')) === 'MENU_DB'
                         ? 'MENU_DB'
                         : 'MANUAL';
+                    if ($itemSource === 'MENU_DB' && $unitPrice <= 0) {
+                        $itemSource = 'MANUAL';
+                    }
                     $metadata = is_array($item['metadata'] ?? null)
                         ? $item['metadata']
                         : [
-                            'price_status' => $itemSource === 'MENU_DB' ? 'CONFIRMED' : 'PENDING_DRIVER_INPUT',
-                            'source' => $itemSource === 'MENU_DB' ? 'CHATBOT_MENU_MATCH' : 'CHATBOT_MANUAL_CONTEXT',
+                            'price_status' => $itemSource === 'MENU_DB' && $unitPrice > 0 ? 'CONFIRMED' : 'PENDING_DRIVER_INPUT',
+                            'source' => $itemSource === 'MENU_DB' && $unitPrice > 0 ? 'CHATBOT_MENU_MATCH' : 'CHATBOT_MANUAL_CONTEXT',
                         ];
                     $metadata = [
                         ...$candidate->metadata(),
@@ -1650,9 +1660,7 @@ class ChatbotShoppingOrderService
                 if (! is_array($item)) {
                     continue;
                 }
-                $priceText = ((string) ($item['item_source'] ?? '')) === 'MANUAL'
-                    ? 'harga menyusul dari nota'
-                    : 'Rp'.number_format((float) ($item['unit_price'] ?? 0), 0, ',', '.');
+                $priceText = $this->shoppingItemPriceText($item);
                 $lines[] = $itemNumber.'. '.max(1, (int) ($item['quantity'] ?? 1)).'x '.(string) ($item['name'] ?? $item['menu_name'] ?? 'Item').' ('.$priceText.')';
                 $itemNumber++;
             }
@@ -1662,7 +1670,12 @@ class ChatbotShoppingOrderService
         $lines[] = (string) ($delivery['address'] ?? '-');
         $lines[] = '';
         $lines[] = 'Estimasi ongkir sementara: Rp '.number_format((float) data_get($payload, 'pricing.delivery_fee', 0), 0, ',', '.');
-        $lines[] = 'Estimasi total sementara: Rp '.number_format((float) data_get($payload, 'pricing.total_price', 0), 0, ',', '.');
+        if ($this->hasPendingShoppingItemPrices($stops)) {
+            $lines[] = 'Harga barang: Sesuai nota';
+            $lines[] = 'Estimasi total sementara: Menunggu harga barang';
+        } else {
+            $lines[] = 'Estimasi total sementara: Rp '.number_format((float) data_get($payload, 'pricing.total_price', 0), 0, ',', '.');
+        }
         $paymentMethod = $this->normalizePaymentMethodOrNull(data_get($payload, 'shopping.payment_method'));
         $lines[] = $paymentMethod === null
             ? 'Metode pembayaran: pilih COD atau QRIS.'
@@ -1681,6 +1694,58 @@ class ChatbotShoppingOrderService
         $lines[] = 'Ketik "konfirmasi" kalau sudah oke.';
 
         return implode("\n", $lines);
+    }
+
+    /**
+     * @param  array<string, mixed>  $item
+     */
+    private function shoppingItemPriceText(array $item): string
+    {
+        if ($this->shoppingItemNeedsPriceFromNota($item)) {
+            return 'harga sesuai nota';
+        }
+
+        return 'Rp'.number_format((float) ($item['unit_price'] ?? 0), 0, ',', '.');
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $stops
+     */
+    private function hasPendingShoppingItemPrices(array $stops): bool
+    {
+        foreach ($stops as $stop) {
+            if (! is_array($stop)) {
+                continue;
+            }
+
+            $items = is_array($stop['items'] ?? null) ? $stop['items'] : [];
+            foreach ($items as $item) {
+                if (is_array($item) && $this->shoppingItemNeedsPriceFromNota($item)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param  array<string, mixed>  $item
+     */
+    private function shoppingItemNeedsPriceFromNota(array $item): bool
+    {
+        if ((bool) ($item['is_available'] ?? true) !== true) {
+            return false;
+        }
+
+        $unitPrice = round((float) ($item['unit_price'] ?? 0), 2);
+        if ($unitPrice <= 0) {
+            return true;
+        }
+
+        $priceStatus = strtoupper((string) data_get($item, 'metadata.price_status', $item['price_status'] ?? ''));
+
+        return str_contains($priceStatus, 'PENDING');
     }
 
     /**

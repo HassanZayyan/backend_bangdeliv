@@ -9,6 +9,7 @@ use App\Exceptions\ApiException;
 use App\Models\Driver;
 use App\Models\Menu;
 use App\Models\Order;
+use App\Models\OrderEvidence;
 use App\Models\OrderItem;
 use App\Models\OrderLocation;
 use App\Models\OrderLog;
@@ -18,6 +19,7 @@ use App\Models\OrderStatusHistory;
 use App\Models\Restaurant;
 use App\Models\User;
 use App\Services\Admin\AdminNotificationService;
+use App\Services\Admin\AdminPaymentProofStatusService;
 use App\Services\Driver\Dispatch\DriverCandidateSelector;
 use App\Services\Driver\DriverIncomeFeeCalculator;
 use App\Services\Driver\DriverOrderPayloadFactory;
@@ -668,6 +670,7 @@ class OrderService
         $historyStatusIds = $this->resolveStatusIds([
             'COMPLETED',
             'CANCELLED',
+            'CANCELLED_WITH_FEE',
         ]);
 
         $orders = Order::query()
@@ -1684,12 +1687,13 @@ class OrderService
                 $actor->id,
                 'MERCHANT_PRICE_APPROVED_BY_DRIVER_BYPASS',
                 true,
-                'Harga merchant dilanjutkan oleh driver tanpa respons customer.'
+                'Harga merchant dilanjutkan oleh driver tanpa respons customer.',
+                false
             );
         });
 
         $this->broadcastShoppingNegotiationUpdated((int) $order->id);
-        $this->notifyShoppingPriceChanged($order, $actor, 'customer', false);
+        $this->notifyShoppingBypassTotalChanged($order, $actor);
 
         return $this->driverOrderPayloadFactory->serialize(
             $order->fresh($this->driverOrderPayloadFactory->relations()),
@@ -2707,6 +2711,74 @@ class OrderService
      * @param  array<string, mixed>  $payload
      * @return array<string, mixed>
      */
+    public function bypassDeliveryFeeOverrideByDriver(User $actor, int $orderId, array $payload): array
+    {
+        $driver = $this->resolveActiveDriverProfile($actor);
+
+        $order = DB::transaction(function () use ($actor, $driver, $orderId, $payload): Order {
+            $order = $this->lockedAssignedDriverOrder(
+                $orderId,
+                $driver->id,
+                ['statusRef', 'serviceType', 'payments', 'payment', 'evidences', 'courierOrder', 'items', 'shoppingReceipt']
+            );
+
+            $snapshot = $this->deliveryFeeNegotiationService->snapshot($order);
+            if (($snapshot['status'] ?? null) !== 'PENDING_CUSTOMER') {
+                throw new ApiException('Belum ada revisi ongkir yang menunggu persetujuan customer.', 409);
+            }
+
+            if (! $this->deliveryFeeNegotiationService->canCustomerRespond($order)) {
+                throw new ApiException('Revisi ongkir tidak tersedia untuk status atau pembayaran order ini.', 409);
+            }
+
+            $quotedAmount = round((float) ($snapshot['quoted_amount'] ?? $snapshot['final_amount'] ?? 0), 2);
+            if ($quotedAmount <= 0) {
+                throw new ApiException('Nominal revisi ongkir tidak valid.', 409);
+            }
+
+            $note = trim((string) ($payload['note'] ?? ''));
+            $this->deliveryFeeNegotiationService->record(
+                $order,
+                DeliveryFeeNegotiationService::DRIVER_FEE_APPROVED_BY_DRIVER_BYPASS,
+                $actor->id,
+                $note !== '' ? $note : 'Driver melanjutkan revisi ongkir tanpa respons customer.',
+                [
+                    'quote_log_id' => $snapshot['quote_log_id'] ?? null,
+                    'old_delivery_fee' => $snapshot['old_delivery_fee'] ?? round((float) $order->delivery_fee, 2),
+                    'base_amount' => $snapshot['base_amount'] ?? $quotedAmount,
+                    'quoted_amount' => $quotedAmount,
+                    'approved_amount' => $quotedAmount,
+                    'final_amount' => $quotedAmount,
+                    'delivery_fee_source' => 'driver_manual',
+                    'status' => 'APPROVED',
+                    'bypassed_by_driver' => true,
+                ]
+            );
+
+            return $this->applyApprovedDeliveryFeeOverride(
+                $order,
+                $actor->id,
+                $quotedAmount,
+                DeliveryFeeNegotiationService::DRIVER_FEE_APPROVED_BY_DRIVER_BYPASS,
+                'Driver melanjutkan revisi ongkir tanpa respons customer.',
+                $note !== '' ? $note : ($snapshot['note'] ?? null),
+                'driver'
+            );
+        });
+
+        $this->broadcastDeliveryFeeNegotiationUpdated((int) $order->id);
+        $this->notifyDeliveryFeeChanged($order, $actor, 'customer', false);
+
+        return $this->driverOrderPayloadFactory->serialize(
+            $order->fresh($this->driverOrderPayloadFactory->relations()),
+            includeTimeline: true,
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
     public function acceptDeliveryFeeCounterByDriver(User $actor, int $orderId, array $payload): array
     {
         $driver = $this->resolveActiveDriverProfile($actor);
@@ -3133,7 +3205,24 @@ class OrderService
         $driver = $this->resolveActiveDriverProfile($actor);
 
         $order = DB::transaction(function () use ($actor, $driver, $orderId, $payload): Order {
-            $order = $this->lockedAssignedDriverOrder($orderId, $driver->id, ['statusRef', 'serviceType']);
+            $order = $this->lockedAssignedDriverOrder($orderId, $driver->id, [
+                'statusRef',
+                'serviceType',
+                'payment',
+                'payments',
+                'evidences',
+            ]);
+            $paymentProofFeedback = app(AdminPaymentProofStatusService::class)->feedbackForOrder($order);
+            if (($paymentProofFeedback['status'] ?? null) === 'rejected') {
+                throw new ApiException('Bukti QRIS ditolak. Tunggu customer mengirim bukti baru.', 409);
+            }
+            $proofStatuses = app(AdminPaymentProofStatusService::class);
+            $paymentProofLogs = $proofStatuses->decisionLogsForOrder($order);
+            $pendingProof = $proofStatuses->latestPaymentTransferProofForOrder($order);
+            $pendingProofDecision = $pendingProof instanceof OrderEvidence
+                ? $proofStatuses->decisionFor($pendingProof, $order->payment, $paymentProofLogs)
+                : null;
+
             $amount = round((float) ($payload['amount'] ?? $order->total_price), 2);
             $expectedAmount = round((float) $order->total_price, 2);
 
@@ -3158,6 +3247,10 @@ class OrderService
                     'expected_amount' => $expectedAmount,
                 ],
             );
+
+            if ($pendingProof instanceof OrderEvidence && ($pendingProofDecision['status'] ?? null) === 'pending') {
+                $this->logDriverPaymentProofApproval($order, $actor, $pendingProof);
+            }
 
             OrderLog::query()->create([
                 'order_id' => $order->id,
@@ -3191,6 +3284,104 @@ class OrderService
             $order->fresh($this->driverOrderPayloadFactory->relations()),
             includeTimeline: true,
         );
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    public function rejectTransferPaymentByDriver(User $actor, int $orderId, array $payload): array
+    {
+        $driver = $this->resolveActiveDriverProfile($actor);
+        $reason = trim((string) ($payload['rejection_reason'] ?? ''));
+        if ($reason === '') {
+            throw new ApiException('Alasan penolakan wajib diisi.', 422, [
+                'rejection_reason' => ['Alasan penolakan wajib diisi.'],
+            ]);
+        }
+
+        $order = DB::transaction(function () use ($actor, $driver, $orderId, $reason): Order {
+            $order = $this->lockedAssignedDriverOrder($orderId, $driver->id, [
+                'statusRef',
+                'serviceType',
+                'payment',
+                'payments',
+                'evidences',
+            ]);
+
+            $proofStatuses = app(AdminPaymentProofStatusService::class);
+            $payment = $order->payment;
+            if ($proofStatuses->isPaidPayment($payment)) {
+                throw new ApiException('Pembayaran pesanan ini sudah tercatat lunas.', 409);
+            }
+
+            $logs = $proofStatuses->decisionLogsForOrder($order);
+            $proof = $proofStatuses->latestPaymentTransferProofForOrder($order);
+            if (! $proof instanceof OrderEvidence) {
+                throw new ApiException('Bukti QRIS tidak ditemukan. Tunggu customer mengirim bukti baru.', 409);
+            }
+
+            $decision = $proofStatuses->decisionFor($proof, $payment, $logs);
+            if (($decision['status'] ?? null) !== 'pending') {
+                throw new ApiException('Bukti QRIS ini sudah tidak menunggu verifikasi.', 409);
+            }
+
+            if (! $this->orderEvidenceService->publicEvidenceFileExists($order, $proof)) {
+                throw new ApiException('File bukti QRIS tidak ditemukan. Minta customer mengirim bukti baru.', 409);
+            }
+
+            $deletedEvidenceId = (int) $proof->id;
+            $this->logDriverPaymentProofRejection($order, $actor, $deletedEvidenceId, $reason);
+
+            if (! $this->orderEvidenceService->deletePublicEvidenceFile($order, $proof)) {
+                throw new ApiException('Bukti QRIS gagal dihapus dari storage.', 500);
+            }
+
+            $proof->delete();
+
+            return $order->refresh();
+        });
+
+        $this->broadcastContentUpdatedAfterCommit((int) $order->id, AdminPaymentProofStatusService::REJECTED_TRIGGER, [
+            'payment_status' => 'unpaid',
+            'payment_method' => OrderPaymentService::METHOD_TRANSFER,
+        ]);
+        broadcast(new AdminNotificationUpdated(app(AdminNotificationService::class)->summary()));
+
+        return $this->driverOrderPayloadFactory->serialize(
+            $order->fresh($this->driverOrderPayloadFactory->relations()),
+            includeTimeline: true,
+        );
+    }
+
+    private function logDriverPaymentProofApproval(Order $order, User $actor, OrderEvidence $proof): void
+    {
+        OrderLog::query()->create([
+            'order_id' => $order->id,
+            'event_type' => 'PAYMENT_UPDATE',
+            'trigger_type' => AdminPaymentProofStatusService::APPROVED_TRIGGER,
+            'changed_by_user_id' => $actor->id,
+            'note' => 'Bukti QRIS disetujui driver.',
+            'metadata' => [
+                'order_evidence_id' => (int) $proof->id,
+                'payment_proof_status' => 'approved',
+            ],
+        ]);
+    }
+
+    private function logDriverPaymentProofRejection(Order $order, User $actor, int $deletedEvidenceId, string $reason): void
+    {
+        OrderLog::query()->create([
+            'order_id' => $order->id,
+            'event_type' => 'PAYMENT_UPDATE',
+            'trigger_type' => AdminPaymentProofStatusService::REJECTED_TRIGGER,
+            'changed_by_user_id' => $actor->id,
+            'note' => $reason,
+            'metadata' => [
+                'deleted_evidence_id' => $deletedEvidenceId,
+                'payment_proof_status' => 'rejected',
+            ],
+        ]);
     }
 
     /**
@@ -3914,6 +4105,26 @@ class OrderService
             actor: $actor,
             priceEventId: $this->negotiationEventId($snapshot),
             pickupLocationId: $this->negotiationPickupLocationId($snapshot),
+        );
+    }
+
+    private function notifyShoppingBypassTotalChanged(Order $order, User $actor): void
+    {
+        $freshOrder = $order->fresh(['user', 'driver.user', 'serviceType', 'statusRef']);
+        if (! $freshOrder instanceof Order) {
+            return;
+        }
+
+        $snapshot = $this->shoppingPriceNegotiationService->latest($freshOrder);
+
+        $this->orderPricingPushNotificationService->sendPriceChanged(
+            order: $freshOrder,
+            recipientRole: 'customer',
+            changeType: 'SHOPPING_TOTAL_UPDATED_BY_DRIVER_BYPASS',
+            amount: round((float) $freshOrder->total_price, 2),
+            requiresResponse: false,
+            actor: $actor,
+            priceEventId: $snapshot?->id,
         );
     }
 

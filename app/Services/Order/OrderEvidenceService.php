@@ -28,6 +28,58 @@ class OrderEvidenceService
         return Storage::disk('public')->url($path);
     }
 
+    public function publicDiskPathForEvidence(Order $order, OrderEvidence $evidence): ?string
+    {
+        $rawUrl = trim((string) $evidence->file_url);
+        if ($rawUrl === '') {
+            return null;
+        }
+
+        $parsedPath = parse_url($rawUrl, PHP_URL_PATH);
+        $path = is_string($parsedPath) && trim($parsedPath) !== ''
+            ? $parsedPath
+            : $rawUrl;
+
+        $path = ltrim(rawurldecode(str_replace('\\', '/', $path)), '/');
+        if (str_starts_with($path, 'storage/')) {
+            $path = substr($path, strlen('storage/'));
+        }
+
+        $path = preg_replace('#/+#', '/', $path);
+        if (! is_string($path) || $path === '' || str_contains($path, '..')) {
+            return null;
+        }
+
+        $allowedPrefix = 'orders/'.(int) $order->id.'/payments/';
+
+        return str_starts_with($path, $allowedPrefix) ? $path : null;
+    }
+
+    public function deletePublicEvidenceFile(Order $order, OrderEvidence $evidence): bool
+    {
+        $path = $this->publicDiskPathForEvidence($order, $evidence);
+        if ($path === null) {
+            return false;
+        }
+
+        $disk = Storage::disk('public');
+        if (! $disk->exists($path)) {
+            return true;
+        }
+
+        return $disk->delete($path);
+    }
+
+    public function publicEvidenceFileExists(Order $order, OrderEvidence $evidence): bool
+    {
+        $path = $this->publicDiskPathForEvidence($order, $evidence);
+        if ($path === null) {
+            return false;
+        }
+
+        return Storage::disk('public')->exists($path);
+    }
+
     public function recordDriverEvidence(
         Order $order,
         int $userId,

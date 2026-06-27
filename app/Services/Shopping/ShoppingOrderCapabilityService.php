@@ -29,9 +29,13 @@ class ShoppingOrderCapabilityService
             && app(ShoppingPriceNegotiationService::class)->isApproved($order);
         $hasCheckoutSaved = $isShopping
             && app(ShoppingPricingService::class)->hasShoppingReceipt($order);
+        $canCustomerDirectEditItems = $isShopping && $status === 'PENDING';
+        $canCustomerAddShoppingMerchant = $canCustomerDirectEditItems
+            && app(ShoppingPickupLocationService::class)->activePickupCount($order) < 3;
 
         return [
-            'can_customer_direct_edit_items' => $isShopping && $status === 'PENDING',
+            'can_customer_direct_edit_items' => $canCustomerDirectEditItems,
+            'can_customer_add_shopping_merchant' => $canCustomerAddShoppingMerchant,
             'can_customer_request_item_change' => $canEditUnavailableItems,
             'can_customer_request_add_stop' => false,
             'can_customer_edit_unavailable_items' => $canEditUnavailableItems,

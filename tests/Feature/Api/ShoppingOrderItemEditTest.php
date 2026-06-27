@@ -194,6 +194,47 @@ class ShoppingOrderItemEditTest extends TestCase
             ->assertJsonPath('message', 'Menu database hanya tersedia untuk merchant resmi BangDeliv.');
     }
 
+    public function test_customer_cannot_add_fourth_active_shopping_merchant(): void
+    {
+        Config::set('bangdeliv.google_maps_api_key', 'test-key');
+        $this->fakeDistance(2500);
+
+        $customer = User::factory()->create(['role' => 'customer']);
+        $order = $this->createShoppingOrder($customer, 'PENDING');
+        $second = $this->createMerchant('Warung Kedua Limit', 'warung-kedua-limit', -7.006, 110.406, 'warung');
+        $third = $this->createMerchant('Warung Ketiga Limit', 'warung-ketiga-limit', -7.007, 110.407, 'warung');
+        $fourth = $this->createMerchant('Warung Keempat Limit', 'warung-keempat-limit', -7.008, 110.408, 'warung');
+
+        Sanctum::actingAs($customer);
+
+        $this->postJson('/api/v1/orders/'.$order->id.'/items/bulk', [
+            'items' => [
+                [
+                    'merchant_id' => $second->id,
+                    'item_source' => 'MANUAL',
+                    'menu_name' => 'Item kedua',
+                    'quantity' => 1,
+                ],
+                [
+                    'merchant_id' => $third->id,
+                    'item_source' => 'MANUAL',
+                    'menu_name' => 'Item ketiga',
+                    'quantity' => 1,
+                ],
+            ],
+        ])->assertOk()
+            ->assertJsonPath('data.shopping_capabilities.can_customer_add_shopping_merchant', false);
+
+        $this->postJson('/api/v1/orders/'.$order->id.'/items', [
+            'merchant_id' => $fourth->id,
+            'item_source' => 'MANUAL',
+            'menu_name' => 'Item keempat',
+            'quantity' => 1,
+        ])->assertUnprocessable()
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('message', 'Maksimal merchant Nitip adalah 3.');
+    }
+
     public function test_google_place_item_still_respects_bang_deliv_service_radius(): void
     {
         Config::set('bangdeliv.google_maps_api_key', 'test-key');

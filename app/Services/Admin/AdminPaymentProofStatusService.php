@@ -123,6 +123,68 @@ class AdminPaymentProofStatusService
     }
 
     /**
+     * @return array<string, mixed>
+     */
+    public function feedbackForOrder(Order $order): array
+    {
+        $payment = $this->latestPaymentForOrder($order);
+        $logs = $this->decisionLogsForOrder($order);
+
+        if ($this->isPaidPayment($payment)
+            && strtoupper((string) $payment?->payment_method) === OrderPaymentService::METHOD_TRANSFER
+        ) {
+            return [
+                'status' => 'approved',
+                'label' => 'Disetujui',
+                'reason' => null,
+                'note' => 'Pembayaran sudah tercatat lunas.',
+                'proof_id' => null,
+                'decided_by' => $payment->recordedBy?->name,
+                'decided_at' => $payment->paid_at,
+            ];
+        }
+
+        $latestProof = $this->latestPaymentTransferProofForOrder($order);
+        if ($latestProof instanceof OrderEvidence) {
+            $decision = $this->decisionFor($latestProof, $payment, $logs);
+
+            return [
+                'status' => $decision['status'],
+                'label' => $decision['label'],
+                'reason' => $decision['reason'],
+                'note' => $decision['note'],
+                'proof_id' => (int) $latestProof->id,
+                'decided_by' => $decision['decided_by'],
+                'decided_at' => $decision['decided_at'],
+            ];
+        }
+
+        $latestReject = $this->latestRejectedLogForOrder($order, $logs);
+        if ($latestReject instanceof OrderLog) {
+            return [
+                'status' => 'rejected',
+                'label' => 'Ditolak',
+                'reason' => $latestReject->note,
+                'note' => $latestReject->note,
+                'proof_id' => data_get($latestReject->metadata, 'deleted_evidence_id')
+                    ?? data_get($latestReject->metadata, 'order_evidence_id'),
+                'decided_by' => $latestReject->changedBy?->name,
+                'decided_at' => $latestReject->created_at,
+            ];
+        }
+
+        return [
+            'status' => 'none',
+            'label' => null,
+            'reason' => null,
+            'note' => null,
+            'proof_id' => null,
+            'decided_by' => null,
+            'decided_at' => null,
+        ];
+    }
+
+    /**
      * @return Collection<int, OrderEvidence>
      */
     public function paymentTransferProofsForOrder(Order $order): Collection
@@ -134,6 +196,13 @@ class AdminPaymentProofStatusService
         return $order->evidences
             ->filter(fn (OrderEvidence $proof): bool => strtoupper((string) $proof->evidence_type) === self::PAYMENT_TRANSFER_EVIDENCE_TYPE)
             ->values();
+    }
+
+    public function latestPaymentTransferProofForOrder(Order $order): ?OrderEvidence
+    {
+        return $this->paymentTransferProofsForOrder($order)
+            ->sortByDesc(fn (OrderEvidence $proof): int => (($proof->uploaded_at?->getTimestamp() ?? $proof->created_at?->getTimestamp() ?? 0) * 1000000) + (int) $proof->id)
+            ->first();
     }
 
     /**
@@ -240,7 +309,19 @@ class AdminPaymentProofStatusService
         return $logs
             ->filter(fn (OrderLog $log): bool => $log->trigger_type === $trigger
                 && (int) data_get($log->metadata, 'order_evidence_id') === (int) $proof->id)
-            ->sortByDesc(fn (OrderLog $log): int => $log->created_at?->getTimestamp() ?? 0)
+            ->sortByDesc(fn (OrderLog $log): int => (($log->created_at?->getTimestamp() ?? 0) * 1000000) + (int) $log->id)
+            ->first();
+    }
+
+    /**
+     * @param  Collection<int, OrderLog>  $logs
+     */
+    private function latestRejectedLogForOrder(Order $order, Collection $logs): ?OrderLog
+    {
+        return $logs
+            ->filter(fn (OrderLog $log): bool => (int) $log->order_id === (int) $order->id
+                && $log->trigger_type === self::REJECTED_TRIGGER)
+            ->sortByDesc(fn (OrderLog $log): int => (($log->created_at?->getTimestamp() ?? 0) * 1000000) + (int) $log->id)
             ->first();
     }
 }

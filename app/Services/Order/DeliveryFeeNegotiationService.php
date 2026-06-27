@@ -20,6 +20,8 @@ class DeliveryFeeNegotiationService
 
     public const DRIVER_COUNTER_APPROVED = 'DRIVER_COUNTER_APPROVED';
 
+    public const DRIVER_FEE_APPROVED_BY_DRIVER_BYPASS = 'DRIVER_FEE_APPROVED_BY_DRIVER_BYPASS';
+
     public const DRIVER_FEE_REQUOTED = 'DRIVER_FEE_REQUOTED';
 
     public const CUSTOMER_CANCEL_ORDER = 'CUSTOMER_CANCEL_ORDER';
@@ -216,7 +218,7 @@ class DeliveryFeeNegotiationService
         return match ($trigger) {
             self::DRIVER_FEE_QUOTED, self::DRIVER_FEE_REQUOTED => 'PENDING_CUSTOMER',
             self::CUSTOMER_FEE_COUNTERED => 'PENDING_DRIVER',
-            self::CUSTOMER_FEE_APPROVED, self::DRIVER_COUNTER_APPROVED => 'APPROVED',
+            self::CUSTOMER_FEE_APPROVED, self::DRIVER_COUNTER_APPROVED, self::DRIVER_FEE_APPROVED_BY_DRIVER_BYPASS => 'APPROVED',
             self::CUSTOMER_CANCEL_ORDER => 'CANCELLED_ORDER',
             default => 'NONE',
         };

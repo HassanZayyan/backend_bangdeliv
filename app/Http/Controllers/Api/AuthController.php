@@ -11,6 +11,7 @@ use App\Http\Requests\Api\ValidateAddressRequest;
 use App\Models\OrderPayment;
 use App\Models\User;
 use App\Services\Address\AddressService;
+use App\Services\Driver\DriverIncomeFeeCalculator;
 use App\Services\Driver\DriverOnboardingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -447,10 +448,24 @@ class AuthController extends Controller
                     ->whereHas('statusRef', function ($query): void {
                         $query->where('code', 'COMPLETED');
                     });
+                $incomeDriverOrders = $driver->orders()
+                    ->whereHas('statusRef', function ($query): void {
+                        $query->whereIn('code', ['COMPLETED', 'CANCELLED_WITH_FEE']);
+                    });
 
-                $completed = (clone $completedDriverOrders)->get();
+                $completed = (clone $completedDriverOrders)
+                    ->with(['serviceType', 'statusRef', 'orderLocations'])
+                    ->get();
+                $incomeOrders = (clone $incomeDriverOrders)
+                    ->with(['serviceType', 'statusRef', 'orderLocations'])
+                    ->get();
+                $incomeCalculator = app(DriverIncomeFeeCalculator::class);
                 $totalOrders = $completed->count();
-                $totalPaid = (float) $completed->sum(fn ($order): float => (float) $order->delivery_fee);
+                $totalPaid = (float) $incomeOrders->sum(function ($order) use ($incomeCalculator): float {
+                    $grossIncome = $incomeCalculator->grossIncomeForOrder($order);
+
+                    return (float) $incomeCalculator->breakdown($grossIncome)['net_income'];
+                });
             }
         }
 

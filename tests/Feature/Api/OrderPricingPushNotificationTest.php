@@ -106,6 +106,43 @@ class OrderPricingPushNotificationTest extends TestCase
             ->assertJsonPath('data.shopping_negotiation.status', 'APPROVED');
     }
 
+    public function test_driver_shopping_price_bypass_push_uses_fresh_order_total(): void
+    {
+        [$driverUser, , $customer, $order] = $this->createAssignedOrder('SHOPPING', 'ARRIVED_MERCHANT', 17000);
+        $this->createToken($customer, 'customer-bypass-total-token');
+        $pickup = $order->orderLocations()->where('location_role', 'PICKUP')->firstOrFail();
+        $pickup->update(['fulfillment_status' => 'PRICE_PENDING_CUSTOMER']);
+        $this->seedShoppingQuote($order, $driverUser, 53000);
+
+        $messaging = Mockery::mock(Messaging::class);
+        $messaging
+            ->shouldReceive('sendMulticast')
+            ->once()
+            ->withArgs(function ($message, $tokens) use ($order): bool {
+                $payload = json_decode(json_encode($message), true);
+
+                return $tokens === ['customer-bypass-total-token']
+                    && $payload['notification']['title'] === 'Total order diperbarui'
+                    && $payload['notification']['body'] === 'Total pembayaran sekarang Rp 70.000.'
+                    && $payload['data']['type'] === 'order_price_changed'
+                    && $payload['data']['order_id'] === (string) $order->id
+                    && $payload['data']['change_type'] === 'SHOPPING_TOTAL_UPDATED_BY_DRIVER_BYPASS'
+                    && $payload['data']['recipient_role'] === 'customer'
+                    && $payload['data']['requires_response'] === '0'
+                    && $payload['data']['amount'] === '70000.00';
+            })
+            ->andReturn($this->successfulReport(['customer-bypass-total-token']));
+        $this->app->instance(Messaging::class, $messaging);
+
+        Sanctum::actingAs($driverUser);
+
+        $this->postJson('/api/v1/driver/orders/'.$order->id.'/shopping/price-quote/bypass', [
+            'pickup_location_id' => $pickup->id,
+        ])->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.shopping_negotiation.status', 'APPROVED');
+    }
+
     public function test_driver_delivery_fee_quote_sends_customer_push(): void
     {
         [$driverUser, , $customer, $order] = $this->createAssignedOrder('RIDE', 'DRIVER_ASSIGNED', 12000);

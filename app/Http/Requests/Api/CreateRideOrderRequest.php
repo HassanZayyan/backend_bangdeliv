@@ -17,7 +17,7 @@ class CreateRideOrderRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'address_id' => ['required', 'integer', 'exists:addresses,id'],
+            'address_id' => ['nullable', 'integer', 'exists:addresses,id'],
             'destination_address' => ['required', 'string', 'max:1000'],
             'destination_latitude' => [
                 'nullable',

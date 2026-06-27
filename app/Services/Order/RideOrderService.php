@@ -49,6 +49,15 @@ class RideOrderService
             }
         }
 
+        if ($pickupAddress === null && ! $this->hasExplicitPickupCoordinatePair($payload)) {
+            $pickupAddress = Address::query()
+                ->where('user_id', $user->id)
+                ->orderByDesc('is_default')
+                ->orderByDesc('id')
+                ->get()
+                ->first(fn (Address $address): bool => $this->isUsablePickupAddress($address));
+        }
+
         $rideServiceTypeId = ServiceType::query()->where('code', 'RIDE')->value('id');
         $pendingStatusId = OrderStatus::query()->where('code', 'PENDING')->value('id');
 
@@ -154,7 +163,6 @@ class RideOrderService
 
         $order = DB::transaction(function () use (
             $user,
-            $pickupAddress,
             $rideServiceTypeId,
             $pendingStatusId,
             $normalizedDestinationAddress,
@@ -328,4 +336,38 @@ class RideOrderService
         }
     }
 
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function hasExplicitPickupCoordinatePair(array $payload): bool
+    {
+        return $this->hasPayloadValue($payload, 'pickup_latitude')
+            || $this->hasPayloadValue($payload, 'pickup_longitude');
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function hasPayloadValue(array $payload, string $key): bool
+    {
+        return array_key_exists($key, $payload)
+            && $payload[$key] !== null
+            && $payload[$key] !== '';
+    }
+
+    private function isUsablePickupAddress(Address $address): bool
+    {
+        $fullAddress = trim((string) $address->full_address);
+        $latitude = is_numeric($address->latitude) ? (float) $address->latitude : null;
+        $longitude = is_numeric($address->longitude) ? (float) $address->longitude : null;
+
+        return $fullAddress !== ''
+            && $latitude !== null
+            && $longitude !== null
+            && $latitude >= -90
+            && $latitude <= 90
+            && $longitude >= -180
+            && $longitude <= 180
+            && ! ($latitude == 0.0 && $longitude == 0.0);
+    }
 }

@@ -174,6 +174,15 @@ class AuthProfileTest extends TestCase
             ]
         );
 
+        $cancelledWithFeeStatus = OrderStatus::query()->firstOrCreate(
+            ['code' => 'CANCELLED_WITH_FEE'],
+            [
+                'display_name' => 'Cancelled With Fee',
+                'is_terminal' => false,
+                'sort_order' => 90,
+            ]
+        );
+
         $pendingStatus = OrderStatus::query()->firstOrCreate(
             ['code' => 'PENDING'],
             [
@@ -217,6 +226,25 @@ class AuthProfileTest extends TestCase
             'delivery_fee' => 8000,
             'total_amount' => 23000,
             'total_price' => 23000,
+            'status_id' => $cancelledWithFeeStatus->id,
+            'payment_status' => 'paid',
+            'payment_method' => 'COD',
+        ]);
+
+        Order::query()->create([
+            'order_number' => 'ORD-DRV-0002-FEE',
+            'user_id' => $customer->id,
+            'restaurant_id' => $restaurant->id,
+            'service_type_id' => $serviceType->id,
+            'driver_id' => $driver->id,
+            'address_id' => null,
+            'delivery_address' => 'Jl. Fee Nitip',
+            'delivery_latitude' => -6.21500000,
+            'delivery_longitude' => 106.83166600,
+            'subtotal' => 0,
+            'delivery_fee' => 0,
+            'total_amount' => 7500,
+            'total_price' => 7500,
             'status_id' => $completedStatus->id,
             'payment_status' => 'paid',
             'payment_method' => 'COD',
@@ -268,7 +296,7 @@ class AuthProfileTest extends TestCase
 
         $response->assertOk()
             ->assertJsonPath('data.stats.total_orders', 2)
-            ->assertJsonPath('data.stats.total_paid', 20000)
+            ->assertJsonPath('data.stats.total_paid', 24750)
             ->assertJsonPath('data.driver_profile.vehicle_type', 'Motor Matic')
             ->assertJsonPath('data.driver_profile.vehicle_brand', 'Honda')
             ->assertJsonPath('data.driver_profile.vehicle_model', 'Beat')

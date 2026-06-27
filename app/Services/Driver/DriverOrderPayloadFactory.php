@@ -9,6 +9,7 @@ use App\Enums\ServiceTypeCode;
 use App\Models\Order;
 use App\Models\OrderLog;
 use App\Models\OrderStatusHistory;
+use App\Services\Admin\AdminPaymentProofStatusService;
 use App\Services\Driver\Dispatch\OrderPickupPointResolver;
 use App\Services\Order\DeliveryFeeNegotiationService;
 use App\Services\Order\OrderProofPolicyService;
@@ -70,6 +71,7 @@ class DriverOrderPayloadFactory
         $pickup = $this->pickupPointResolver->resolve($order);
         $dropoff = $this->resolveDropoffPoint($order);
         $proofs = $this->serializeProofs($order);
+        $paymentProofFeedback = app(AdminPaymentProofStatusService::class)->feedbackForOrder($order);
         $proofStatus = $this->proofStatus($proofs);
         $hasDriverShoppingTotal = $serviceCode === 'SHOPPING' && $this->shoppingPricingService->hasShoppingReceipt($order);
         $hasPendingShoppingPrices = $serviceCode === 'SHOPPING' && $this->hasPendingManualShoppingPrices($order);
@@ -140,6 +142,7 @@ class DriverOrderPayloadFactory
             'pricing_snapshot' => $pricingSnapshot,
             'fee_breakdown' => $this->feeBreakdown($order, $pricingSnapshot),
             'proofs' => $proofs,
+            'payment_proof_feedback' => $paymentProofFeedback,
             'total_price' => round((float) $order->total_price, 2),
             'item_count' => $itemCount,
             'eta_minutes' => 0,
@@ -218,12 +221,18 @@ class DriverOrderPayloadFactory
      */
     private function serializeProofs(Order $order): array
     {
-        $order->loadMissing('evidences');
+        $order->loadMissing('evidences', 'payment');
+        $proofStatuses = app(AdminPaymentProofStatusService::class);
+        $logs = $proofStatuses->decisionLogsForOrder($order);
+        $payment = $order->payment;
 
         return $order->evidences
             ->sortByDesc(fn ($evidence): int => $evidence->uploaded_at?->getTimestamp() ?? $evidence->created_at?->getTimestamp() ?? 0)
-            ->map(function ($evidence): array {
+            ->map(function ($evidence) use ($proofStatuses, $logs, $payment): array {
                 $type = $this->canonicalProofType((string) $evidence->evidence_type);
+                $decision = strtoupper((string) $evidence->evidence_type) === AdminPaymentProofStatusService::PAYMENT_TRANSFER_EVIDENCE_TYPE
+                    ? $proofStatuses->decisionFor($evidence, $payment, $logs)
+                    : null;
 
                 return [
                     'id' => (int) $evidence->id,
@@ -231,7 +240,12 @@ class DriverOrderPayloadFactory
                     'evidence_type' => strtoupper((string) $evidence->evidence_type),
                     'photo_url' => $evidence->file_url,
                     'file_url' => $evidence->file_url,
-                    'status' => 'pending',
+                    'status' => $decision['status'] ?? 'pending',
+                    'verification_status' => $decision['status'] ?? 'pending',
+                    'rejection_reason' => $decision['reason'] ?? null,
+                    'decision_note' => $decision['note'] ?? null,
+                    'decided_by' => $decision['decided_by'] ?? null,
+                    'decided_at' => $decision['decided_at'] ?? null,
                     'uploaded_at' => $evidence->uploaded_at?->toIso8601String() ?? $evidence->created_at?->toIso8601String(),
                     'note' => $evidence->notes,
                 ];

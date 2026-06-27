@@ -19,22 +19,22 @@ class DriverDispatchMetadataFactory
      */
     public function forDriver(Order $order, Driver $driver, ?int $priorityRank = null): array
     {
-        $pickup = $this->pickupPointResolver->resolve($order);
+        $target = $this->pickupPointResolver->resolve($order);
         $locationFresh = $this->isDriverLocationFresh($driver->location_updated_at);
 
         if (
             ! $locationFresh
             || ! $this->distanceCalculator->isValidCoordinatePair($driver->latitude, $driver->longitude)
-            || ! $this->distanceCalculator->isValidCoordinatePair($pickup['latitude'], $pickup['longitude'])
+            || ! $this->distanceCalculator->isValidCoordinatePair($target['latitude'], $target['longitude'])
         ) {
-            return $this->unknownMetadata($priorityRank, $locationFresh);
+            return $this->unknownMetadata($priorityRank, $locationFresh, $target);
         }
 
         $meters = $this->distanceCalculator->distanceMeters(
             (float) $driver->latitude,
             (float) $driver->longitude,
-            (float) $pickup['latitude'],
-            (float) $pickup['longitude'],
+            (float) $target['latitude'],
+            (float) $target['longitude'],
         );
         $kilometers = round($meters / 1000, 2);
 
@@ -42,8 +42,13 @@ class DriverDispatchMetadataFactory
             'priority_rank' => $priorityRank,
             'distance_to_pickup_meters' => $meters,
             'distance_to_pickup_km' => $kilometers,
+            'distance_to_customer_meters' => $meters,
+            'distance_to_customer_km' => $kilometers,
             'distance_label' => $this->distanceLabel($kilometers),
             'distance_bucket' => $this->bucketForKilometers($kilometers)->value,
+            'distance_target_role' => $target['target_role'] ?? 'customer_pickup',
+            'distance_target_label' => $target['target_label'] ?? 'titik jemput',
+            'distance_target_address' => $target['address'] ?? null,
             'location_fresh' => true,
         ];
     }
@@ -51,14 +56,19 @@ class DriverDispatchMetadataFactory
     /**
      * @return array<string, mixed>
      */
-    private function unknownMetadata(?int $priorityRank, bool $locationFresh): array
+    private function unknownMetadata(?int $priorityRank, bool $locationFresh, array $target = []): array
     {
         return [
             'priority_rank' => $priorityRank,
             'distance_to_pickup_meters' => null,
             'distance_to_pickup_km' => null,
+            'distance_to_customer_meters' => null,
+            'distance_to_customer_km' => null,
             'distance_label' => 'Jarak belum tersedia',
             'distance_bucket' => DriverDistanceBucket::Unknown->value,
+            'distance_target_role' => $target['target_role'] ?? 'customer_pickup',
+            'distance_target_label' => $target['target_label'] ?? 'titik jemput',
+            'distance_target_address' => $target['address'] ?? null,
             'location_fresh' => $locationFresh,
         ];
     }

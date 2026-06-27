@@ -186,7 +186,7 @@ class ChatbotShoppingFlowTest extends TestCase
         $response->assertOk()
             ->assertJsonPath('data.shopping.ready_to_confirm', false)
             ->assertJsonPath('data.validation.is_valid_order', false)
-            ->assertJsonPath('data.action_payloads.OPEN_MAP_PICKER_DELIVERY.label', 'Pilih Titik Antar');
+            ->assertJsonPath('data.action_payloads.OPEN_MAP_PICKER_DELIVERY.label', 'Pilih Alamat Antar');
 
         $this->assertContains('delivery_address', $response->json('data.validation.missing_fields'));
         $this->assertSame(['OPEN_MAP_PICKER_DELIVERY'], $response->json('data.validation.next_actions'));
@@ -453,7 +453,7 @@ class ChatbotShoppingFlowTest extends TestCase
             ->assertJsonPath('data.shopping.merchant.merchant_type', 'convenience_store')
             ->assertJsonPath('data.shopping.merchant.merchant_place.place_id', 'google-place-alfamart-undip')
             ->assertJsonPath('data.shopping.items.0.item_source', 'MANUAL')
-            ->assertJsonPath('data.action_payloads.OPEN_MAP_PICKER_DELIVERY.label', 'Ganti Titik Antar');
+            ->assertJsonPath('data.action_payloads.OPEN_MAP_PICKER_DELIVERY.label', 'Ganti Alamat Antar');
 
         $codResponse = $this->postJson('/api/chatbot/process', [
             'session_id' => $sessionId,
@@ -551,7 +551,7 @@ class ChatbotShoppingFlowTest extends TestCase
             ->assertJsonPath('data.shopping.items.0.unit_price', 22000)
             ->assertJsonPath('data.shopping.items.0.subtotal', 44000)
             ->assertJsonPath('data.shopping.items.0.metadata.price_status', 'CONFIRMED')
-            ->assertJsonPath('data.action_payloads.OPEN_MAP_PICKER_DELIVERY.label', 'Ganti Titik Antar');
+            ->assertJsonPath('data.action_payloads.OPEN_MAP_PICKER_DELIVERY.label', 'Ganti Alamat Antar');
         $this->assertStringContainsString(
             'Estimasi ongkir sementara:',
             (string) $draftResponse->json('data.assistant_text')
@@ -629,6 +629,200 @@ class ChatbotShoppingFlowTest extends TestCase
 
         $routeSnapshot = Order::query()->findOrFail($orderId)->route_snapshot;
         $this->assertSame('_p~iF~ps|U_ulLnnqC_mqNvxq`@', $routeSnapshot['encoded_polyline'] ?? null);
+    }
+
+    public function test_chatbot_shopping_menu_database_zero_price_stays_pending_from_receipt(): void
+    {
+        Config::set('bangdeliv.google_maps_api_key', 'test-key');
+
+        $customer = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        Address::query()->create([
+            'user_id' => $customer->id,
+            'label' => 'Rumah',
+            'recipient_name' => 'Customer Test',
+            'phone' => '081200000041',
+            'full_address' => 'Jl. Customer No. 41',
+            'latitude' => -7.003,
+            'longitude' => 110.403,
+            'is_default' => true,
+        ]);
+
+        $restaurant = Restaurant::query()->create([
+            'name' => 'Kedai Mbak Vita',
+            'slug' => 'kedai-mbak-vita-zero-price-test',
+            'merchant_type' => 'restaurant',
+            'address' => 'Jl. Merchant No. 41',
+            'latitude' => -7.001,
+            'longitude' => 110.401,
+            'phone' => '081200000042',
+        ]);
+
+        $menu = Menu::query()->create([
+            'restaurant_id' => $restaurant->id,
+            'name' => 'Tahu Campur',
+            'price' => 0,
+            'is_available' => true,
+            'sort_order' => 1,
+        ]);
+
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'merchant' => 'Kedai Mbak Vita',
+            'items' => [
+                ['name' => 'Tahu Campur', 'menu' => 'Tahu Campur', 'quantity' => 1, 'qty' => 1],
+            ],
+        ]);
+
+        Sanctum::actingAs($customer);
+
+        $sessionId = 'shopping-zero-price-menu-session';
+        $draftResponse = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'titip tahu campur di Kedai Mbak Vita',
+        ]);
+
+        $draftResponse->assertOk()
+            ->assertJsonPath('data.shopping.ready_to_confirm', true)
+            ->assertJsonPath('data.shopping.items.0.item_source', 'MANUAL')
+            ->assertJsonPath('data.shopping.items.0.menu_id', null)
+            ->assertJsonPath('data.shopping.items.0.unit_price', 0)
+            ->assertJsonPath('data.shopping.items.0.metadata.price_status', 'PENDING_DRIVER_INPUT')
+            ->assertJsonPath('data.shopping.items.0.metadata.catalog_menu_id', $menu->id);
+
+        $assistantText = (string) $draftResponse->json('data.assistant_text');
+        $this->assertStringContainsString('1x Tahu Campur (harga sesuai nota)', $assistantText);
+        $this->assertStringContainsString('Harga barang: Sesuai nota', $assistantText);
+        $this->assertStringContainsString('Estimasi total sementara: Menunggu harga barang', $assistantText);
+        $this->assertStringNotContainsString('Rp0', $assistantText);
+
+        $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'COD',
+        ])->assertOk();
+
+        $confirmResponse = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'konfirmasi',
+        ]);
+
+        $confirmResponse->assertOk()
+            ->assertJsonPath('data.order.created', true);
+
+        $orderId = (int) $confirmResponse->json('data.order.id');
+        $item = OrderItem::query()->where('order_id', $orderId)->firstOrFail();
+
+        $this->assertNull($item->menu_id);
+        $this->assertSame('MANUAL', $item->item_source);
+        $this->assertSame('PENDING_DRIVER_INPUT', $item->metadata['price_status'] ?? null);
+        $this->assertSame($menu->id, $item->metadata['catalog_menu_id'] ?? null);
+    }
+
+    public function test_chatbot_shopping_delivery_location_patch_preserves_ready_draft(): void
+    {
+        Config::set('bangdeliv.google_maps_api_key', 'test-key');
+
+        $customer = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        Address::query()->create([
+            'user_id' => $customer->id,
+            'label' => 'Rumah',
+            'recipient_name' => 'Customer Test',
+            'phone' => '081200000031',
+            'full_address' => 'Jl. Customer Lama No. 31',
+            'latitude' => -7.003,
+            'longitude' => 110.403,
+            'is_default' => true,
+        ]);
+
+        $restaurant = Restaurant::query()->create([
+            'name' => 'Gecok Jogo Roso Tlogo',
+            'slug' => 'gecok-jogo-roso-tlogo-location-patch-test',
+            'merchant_type' => 'restaurant',
+            'address' => 'Jl. Merchant No. 31',
+            'latitude' => -7.001,
+            'longitude' => 110.401,
+            'phone' => '081200000032',
+        ]);
+
+        $menu = Menu::query()->create([
+            'restaurant_id' => $restaurant->id,
+            'name' => 'Tongseng Kambing',
+            'price' => 35000,
+            'is_available' => true,
+            'sort_order' => 1,
+        ]);
+
+        Sanctum::actingAs($customer);
+        $sessionId = 'shopping-delivery-location-preserves-draft-session';
+
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'merchant' => 'Gecok Jogo Roso Tlogo',
+            'resto' => 'Gecok Jogo Roso Tlogo',
+            'items' => [
+                ['name' => 'Tongseng Kambing', 'quantity' => 1],
+            ],
+        ], 2500);
+
+        $draftResponse = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'beli tongseng kambing di Gecok Jogo Roso Tlogo',
+        ]);
+
+        $draftResponse->assertOk()
+            ->assertJsonPath('data.shopping.ready_to_confirm', true)
+            ->assertJsonPath('data.shopping.stops.0.merchant.name', 'Gecok Jogo Roso Tlogo')
+            ->assertJsonPath('data.shopping.stops.0.items.0.menu_id', $menu->id)
+            ->assertJsonPath('data.shopping.delivery.address', 'Jl. Customer Lama No. 31');
+
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'none',
+        ], 4200);
+
+        $locationResponse = $this->postJson("/api/chatbot/sessions/{$sessionId}/location", [
+            'service_type' => 'nitip',
+            'target' => 'delivery',
+            'latitude' => -7.011,
+            'longitude' => 110.411,
+            'address' => 'Jl. Customer Baru No. 31',
+        ]);
+
+        $locationResponse->assertOk()
+            ->assertJsonPath('model_used', 'map-pin-action')
+            ->assertJsonPath('data.shopping.ready_to_confirm', true)
+            ->assertJsonPath('data.shopping.delivery.address', 'Jl. Customer Baru No. 31')
+            ->assertJsonPath('data.shopping.stops.0.merchant.name', 'Gecok Jogo Roso Tlogo')
+            ->assertJsonPath('data.shopping.stops.0.items.0.name', 'Tongseng Kambing')
+            ->assertJsonPath('data.shopping.stops.0.items.0.menu_id', $menu->id)
+            ->assertJsonPath('data.action_payloads.OPEN_MAP_PICKER_DELIVERY.label', 'Ganti Alamat Antar');
+        $this->assertIsNumeric($locationResponse->json('data.shopping.route.distance_meters'));
+
+        $this->assertSame(
+            ['OPEN_ADD_MERCHANT_PICKER', 'OPEN_MAP_PICKER_DELIVERY', 'SET_PAYMENT_COD', 'SET_PAYMENT_TRANSFER'],
+            $locationResponse->json('data.validation.next_actions')
+        );
+        $assistantText = (string) $locationResponse->json('data.assistant_text');
+        $this->assertStringContainsString('Draft Nitip tempat pertama sudah aman.', $assistantText);
+        $this->assertStringContainsString('Gecok Jogo Roso Tlogo', $assistantText);
+        $this->assertStringContainsString('Tongseng Kambing', $assistantText);
+        $this->assertStringContainsString('Jl. Customer Baru No. 31', $assistantText);
+        $this->assertStringNotContainsString('Sekarang pilih toko/resto', $assistantText);
     }
 
     public function test_chatbot_shopping_can_add_second_merchant_after_first_is_ready(): void

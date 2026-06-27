@@ -6,11 +6,13 @@ use App\Models\Driver;
 use App\Models\Order;
 use App\Models\OrderEvidence;
 use App\Models\OrderLocation;
+use App\Models\OrderLog;
 use App\Models\OrderPayment;
 use App\Models\OrderStatus;
 use App\Models\ServiceType;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -108,15 +110,23 @@ class AdminOrderWebTest extends TestCase
 
     public function test_admin_can_reject_qris_proof_without_marking_payment_paid(): void
     {
+        Storage::fake('public');
         $admin = $this->admin();
         $order = $this->orderWithTransferProof();
         $proof = $order->evidences()->where('evidence_type', 'PAYMENT_TRANSFER_PHOTO')->firstOrFail();
+        $proofPath = 'orders/'.$order->id.'/payments/proof.jpg';
+        Storage::disk('public')->put($proofPath, 'proof image');
 
         $this->actingAs($admin)
             ->post(route('admin.orders.payment-proofs.reject', ['order' => $order->id, 'evidence' => $proof->id]), [
                 'rejection_reason' => 'Nominal tidak sesuai.',
             ])
             ->assertRedirect(route('admin.orders.show', ['order' => $order->id, 'focus' => 'payment-proof']));
+
+        Storage::disk('public')->assertMissing($proofPath);
+        $this->assertDatabaseMissing('order_evidence', [
+            'id' => $proof->id,
+        ]);
 
         $this->assertDatabaseHas('order_payments', [
             'order_id' => $order->id,
@@ -131,6 +141,14 @@ class AdminOrderWebTest extends TestCase
             'changed_by_user_id' => $admin->id,
             'note' => 'Nominal tidak sesuai.',
         ]);
+        $event = OrderLog::query()
+            ->where('order_id', $order->id)
+            ->where('trigger_type', 'PAYMENT_PROOF_REJECTED')
+            ->firstOrFail();
+        $this->assertSame($proof->id, (int) data_get($event->metadata, 'deleted_evidence_id'));
+        $this->assertSame('rejected', data_get($event->metadata, 'payment_proof_status'));
+        $this->assertNull(data_get($event->metadata, 'file_url'));
+        $this->assertSame('rejected', $order->fresh(['evidences', 'payment'])->payment_proof_feedback['status']);
 
         $this->actingAs($admin)
             ->getJson(route('admin.notifications.pending'))

@@ -87,6 +87,7 @@ Route::prefix('v1')->group(function () {
             Route::post('/driver/orders/{orderId}/shopping/price-quote/accept-counter', [OrderController::class, 'acceptShoppingCounter'])->name('api.v1.driver.orders.shopping.price-quote.accept-counter');
             Route::post('/driver/orders/{orderId}/shopping/item-change-request/respond', [OrderController::class, 'respondShoppingItemChange'])->name('api.v1.driver.orders.shopping.item-change-request.respond');
             Route::post('/driver/orders/{orderId}/delivery-fee-override', [OrderController::class, 'updateDeliveryFeeOverride'])->name('api.v1.driver.orders.delivery-fee-override');
+            Route::post('/driver/orders/{orderId}/delivery-fee-override/bypass', [OrderController::class, 'bypassDeliveryFeeOverride'])->name('api.v1.driver.orders.delivery-fee-override.bypass');
             Route::post('/driver/orders/{orderId}/delivery-fee-override/accept-counter', [OrderController::class, 'acceptDeliveryFeeCounter'])->name('api.v1.driver.orders.delivery-fee-override.accept-counter');
             Route::patch('/driver/orders/{orderId}/location', [OrderController::class, 'updateDriverLocation'])->name('api.v1.driver.orders.location.update');
             Route::post('/driver/orders/{orderId}/proofs', [OrderController::class, 'uploadDriverProof'])->name('api.v1.driver.orders.proofs.store');
@@ -94,6 +95,7 @@ Route::prefix('v1')->group(function () {
             Route::post('/orders/{orderId}/attempt-failed', [OrderController::class, 'recordFailedAttemptByDriver'])->name('api.v1.driver.orders.attempt-failed');
             Route::post('/orders/{orderId}/payment/collect-cod', [OrderController::class, 'recordCodCollectionByDriver'])->name('api.v1.driver.orders.payment.collect-cod');
             Route::post('/orders/{orderId}/payment/transfer/confirm', [OrderController::class, 'recordTransferPaymentByDriver'])->name('api.v1.driver.orders.payment.transfer.confirm');
+            Route::post('/orders/{orderId}/payment/transfer/reject', [OrderController::class, 'rejectTransferPaymentByDriver'])->name('api.v1.driver.orders.payment.transfer.reject');
         });
     });
 
