@@ -7,12 +7,12 @@ use App\Models\Order;
 use App\Models\OrderStatus;
 use App\Services\Driver\DriverIncomeFeeCalculator;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage;
 
 class AdminDriverQueryService
 {
     public function __construct(
         private readonly DriverIncomeFeeCalculator $driverIncomeFeeCalculator,
+        private readonly AdminMediaUrlResolver $media,
     ) {}
 
     /**
@@ -57,7 +57,7 @@ class AdminDriverQueryService
 
             $driver->setAttribute('admin_status', $this->statusConfig($driver));
             $driver->setAttribute('admin_initial', strtoupper(substr($driver->user?->name ?? 'D', 0, 2)));
-            $driver->setAttribute('admin_avatar_url', $this->avatarUrl((string) ($driver->user?->avatar ?? '')));
+            $driver->setAttribute('admin_avatar_url', $this->media->publicUrl($driver->user?->avatar));
             $driver->setAttribute('admin_income_summary', [
                 ...$breakdown,
                 'order_count' => $driver->orders->count(),
@@ -85,7 +85,7 @@ class AdminDriverQueryService
         $driver->load('user');
         $driver->setAttribute('admin_status', $this->statusConfig($driver));
         $driver->setAttribute('admin_initial', strtoupper(substr($driver->user?->name ?? 'D', 0, 2)));
-        $driver->setAttribute('admin_avatar_url', $this->avatarUrl((string) ($driver->user?->avatar ?? '')));
+        $driver->setAttribute('admin_avatar_url', $this->media->publicUrl($driver->user?->avatar));
 
         $incomeOrders = $driver->orders()
             ->with([
@@ -224,15 +224,6 @@ class AdminDriverQueryService
         }
 
         return ['label' => 'Offline', 'class' => 'badge-info'];
-    }
-
-    private function avatarUrl(string $avatarPath): ?string
-    {
-        $avatarPath = trim($avatarPath);
-
-        return $avatarPath !== '' && Storage::disk('public')->exists($avatarPath)
-            ? asset('storage/'.$avatarPath)
-            : null;
     }
 
     /**

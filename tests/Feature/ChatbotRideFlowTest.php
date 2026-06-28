@@ -132,10 +132,15 @@ class ChatbotRideFlowTest extends TestCase
             ->assertJsonPath('model_used', 'deterministic-payment')
             ->assertJsonPath('data.order.created', false)
             ->assertJsonPath('data.ride.payment_method', 'TRANSFER')
-            ->assertJsonPath('data.validation.next_actions.0', 'CONFIRM_DRAFT');
+            ->assertJsonPath('data.validation.next_actions.0', 'CONFIRM_DRAFT')
+            ->assertJsonPath('data.action_payloads.CHANGE_PICKUP.target', 'pickup')
+            ->assertJsonPath('data.action_payloads.CHANGE_PICKUP.label', 'Ubah Lokasi Jemput');
 
-        $this->assertNotContains('SET_PAYMENT_COD', $paymentResponse->json('data.validation.next_actions'));
-        $this->assertNotContains('SET_PAYMENT_TRANSFER', $paymentResponse->json('data.validation.next_actions'));
+        $nextActions = $paymentResponse->json('data.validation.next_actions');
+        $this->assertContains('RESET_DESTINATION', $nextActions);
+        $this->assertContains('CHANGE_PICKUP', $nextActions);
+        $this->assertNotContains('SET_PAYMENT_COD', $nextActions);
+        $this->assertNotContains('SET_PAYMENT_TRANSFER', $nextActions);
         $this->assertDatabaseCount('orders', 0);
     }
 
@@ -166,7 +171,7 @@ class ChatbotRideFlowTest extends TestCase
             ->assertJsonPath('data.intent', 'ride_order')
             ->assertJsonPath('data.validation.is_valid_order', false)
             ->assertJsonPath('data.validation.next_actions.0', 'OPEN_ROUTE_PICKER')
-            ->assertJsonPath('data.action_payloads.OPEN_ROUTE_PICKER.label', 'Atur Titik Jemput & Tujuan');
+            ->assertJsonPath('data.action_payloads.OPEN_ROUTE_PICKER.label', 'Atur Lokasi Jemput/Tujuan');
     }
 
     public function test_chatbot_ride_confirmation_preserves_draft_coordinates_without_regeocoding_destination(): void

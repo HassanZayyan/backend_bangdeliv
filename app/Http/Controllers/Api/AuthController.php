@@ -10,12 +10,14 @@ use App\Http\Requests\Api\UpgradeToDriverRequest;
 use App\Http\Requests\Api\ValidateAddressRequest;
 use App\Models\OrderPayment;
 use App\Models\User;
+use App\Services\Auth\GoogleIdTokenVerifier;
 use App\Services\Address\AddressService;
 use App\Services\Driver\DriverIncomeFeeCalculator;
 use App\Services\Driver\DriverOnboardingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
@@ -29,7 +31,7 @@ class AuthController extends Controller
     public function registerCustomer(Request $request)
     {
         $payload = [
-            'name' => $request->input('name'),
+            'name' => trim((string) $request->input('name', '')),
             'email' => strtolower((string) $request->input('email', '')),
             'phone' => $this->normalizePhone((string) $request->input('phone', '')),
             'password' => $request->input('password'),
@@ -38,8 +40,16 @@ class AuthController extends Controller
         $validator = Validator::make($payload, [
             'name' => 'required|string|max:255',
             'email' => 'required|string|email|max:255|unique:users,email',
-            'phone' => 'required|string|max:20|unique:users',
+            'phone' => [
+                'required',
+                'string',
+                'max:20',
+                'regex:/^\+?[0-9]{10,15}$/',
+                'unique:users,phone',
+            ],
             'password' => 'required|string|min:8',
+        ], [
+            'phone.regex' => 'Format nomor telepon tidak valid.',
         ]);
 
         if ($validator->fails()) {
@@ -47,22 +57,18 @@ class AuthController extends Controller
         }
 
         $validated = $validator->validated();
-        $user = User::create([
+        $user = User::query()->create([
             'name' => $validated['name'],
             'email' => $validated['email'],
             'phone' => $validated['phone'],
-            'password' => Hash::make($validated['password']),
+            'password' => Hash::make((string) $validated['password']),
             'role' => 'customer',
+            'google_sub' => null,
+            'email_verified_at' => null,
+            'phone_verified_at' => null,
         ]);
 
-        $token = $user->createToken('auth_token')->plainTextToken;
-
-        return response()->json([
-            'message' => 'Customer registered successfully',
-            'data' => $user,
-            'access_token' => $token,
-            'token_type' => 'Bearer',
-        ], 201);
+        return $this->issueAuthTokenResponse($user->fresh(), 'Customer registered successfully', 201);
     }
 
     private function normalizePhone(string $phone): string
@@ -119,35 +125,108 @@ class AuthController extends Controller
 
         $user = User::where('email', $payload['email'])->first();
 
-        if (! $user || ! Hash::check($payload['password'], $user->password)) {
+        if (
+            ! $user ||
+            trim((string) ($user->password ?? '')) === '' ||
+            ! Hash::check($payload['password'], (string) $user->password)
+        ) {
             return response()->json(['message' => 'Kredensial tidak valid.'], 401);
         }
 
-        // Anti-Fraud Checks
-        if (! $user->is_active) {
-            return response()->json(['message' => 'Akun Anda dinonaktifkan. Silakan hubungi Admin.'], 403);
+        $user = $user->fresh();
+        $deniedResponse = $this->denyInactiveOrBlacklisted($user);
+        if ($deniedResponse !== null) {
+            return $deniedResponse;
         }
 
-        if ($user->is_blacklisted) {
-            return response()->json(['message' => 'Akun Anda diblokir karena indikasi fraud.'], 403);
+        return $this->issueAuthTokenResponse($user, 'Login successful');
+    }
+
+    /**
+     * Login or register customer using a verified Google ID token.
+     */
+    public function loginWithGoogle(Request $request, GoogleIdTokenVerifier $verifier)
+    {
+        $payload = [
+            'id_token' => trim((string) $request->input('id_token', '')),
+        ];
+
+        $validator = Validator::make($payload, [
+            'id_token' => ['required', 'string'],
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        // Revoke older tokens to ensure clean session (optional)
-        $user->tokens()->delete();
+        try {
+            $googleUser = $verifier->verify($payload['id_token']);
+        } catch (\Throwable $exception) {
+            Log::warning('Google Sign-In token verification failed.', [
+                'exception' => $exception::class,
+                'message' => $exception->getMessage(),
+            ]);
 
-        $token = $user->createToken('auth_token')->plainTextToken;
-
-        $responseUserData = $user->toArray();
-        if ($user->role === 'driver') {
-            $responseUserData['driver_profile'] = $user->driver;
+            return response()->json([
+                'message' => 'Token Google tidak valid. Silakan coba masuk ulang.',
+            ], 401);
         }
 
-        return response()->json([
-            'message' => 'Login successful',
-            'data' => $responseUserData,
-            'access_token' => $token,
-            'token_type' => 'Bearer',
-        ], 200);
+        if (! $googleUser['email_verified']) {
+            return response()->json([
+                'message' => 'Email Google belum terverifikasi.',
+            ], 422);
+        }
+
+        $user = DB::transaction(function () use ($googleUser): User {
+            $user = User::query()->where('google_sub', $googleUser['sub'])->first();
+
+            if (! $user) {
+                $user = User::query()->where('email', $googleUser['email'])->first();
+            }
+
+            $name = trim($googleUser['name']);
+            if ($name === '') {
+                $name = strstr($googleUser['email'], '@', true) ?: 'Pengguna BangDeliv';
+            }
+
+            if (! $user) {
+                $user = User::query()->create([
+                    'name' => $name,
+                    'email' => $googleUser['email'],
+                    'google_sub' => $googleUser['sub'],
+                    'avatar' => $googleUser['picture'],
+                    'email_verified_at' => now(),
+                    'phone' => null,
+                    'password' => null,
+                    'role' => 'customer',
+                ]);
+
+                return $user->fresh();
+            }
+
+            $updates = [
+                'google_sub' => $googleUser['sub'],
+            ];
+            if (trim((string) ($user->avatar ?? '')) === '' && $googleUser['picture'] !== null) {
+                $updates['avatar'] = $googleUser['picture'];
+            }
+            if ($user->email_verified_at === null) {
+                $updates['email_verified_at'] = now();
+            }
+
+            $user->update($updates);
+
+            return $user->fresh();
+        });
+
+        $user = $user->fresh();
+        $deniedResponse = $this->denyInactiveOrBlacklisted($user);
+        if ($deniedResponse !== null) {
+            return $deniedResponse;
+        }
+
+        return $this->issueAuthTokenResponse($user, 'Login Google berhasil');
     }
 
     /**
@@ -232,7 +311,12 @@ class AuthController extends Controller
             $avatarPath = $validated['avatar']->store('avatars/'.$user->id, 'public');
         }
 
-        if ($oldAvatarPath && $oldAvatarPath !== $avatarPath && Storage::disk('public')->exists($oldAvatarPath)) {
+        if (
+            $oldAvatarPath &&
+            $oldAvatarPath !== $avatarPath &&
+            ! $this->isRemoteAvatarUrl($oldAvatarPath) &&
+            Storage::disk('public')->exists($oldAvatarPath)
+        ) {
             Storage::disk('public')->delete($oldAvatarPath);
         }
 
@@ -265,11 +349,55 @@ class AuthController extends Controller
     }
 
     /**
+     * Complete phone number for Google-created accounts.
+     */
+    public function completePhone(Request $request)
+    {
+        $user = $request->user();
+        $payload = [
+            'phone' => $this->normalizePhone((string) $request->input('phone', '')),
+        ];
+
+        $validator = Validator::make($payload, [
+            'phone' => [
+                'required',
+                'string',
+                'max:20',
+                'regex:/^\+?[0-9]{10,15}$/',
+                Rule::unique('users', 'phone')->ignore($user->id),
+            ],
+        ], [
+            'phone.regex' => 'Format nomor telepon tidak valid.',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $user->update([
+            'phone' => $validator->validated()['phone'],
+        ]);
+
+        return response()->json([
+            'message' => 'Nomor telepon berhasil disimpan.',
+            'data' => $this->buildProfilePayload($user->fresh(), $request),
+        ]);
+    }
+
+    /**
      * Update current user password
      */
     public function changePassword(Request $request)
     {
         $user = $request->user();
+
+        if (trim((string) ($user->password ?? '')) === '') {
+            return response()->json([
+                'errors' => [
+                    'current_password' => ['Akun Google belum memiliki password BangDeliv.'],
+                ],
+            ], 422);
+        }
 
         $payload = [
             'current_password' => $request->input('current_password'),
@@ -304,6 +432,48 @@ class AuthController extends Controller
 
         return response()->json([
             'message' => 'Password berhasil diperbarui.',
+            'access_token' => $token,
+            'token_type' => 'Bearer',
+        ]);
+    }
+
+    /**
+     * Create the first password for Google-only accounts.
+     */
+    public function createPassword(Request $request)
+    {
+        $user = $request->user();
+
+        if (trim((string) ($user->password ?? '')) !== '') {
+            return response()->json([
+                'errors' => [
+                    'new_password' => ['Akun sudah memiliki password. Gunakan menu ganti password.'],
+                ],
+            ], 422);
+        }
+
+        $payload = [
+            'new_password' => $request->input('new_password'),
+            'new_password_confirmation' => $request->input('new_password_confirmation'),
+        ];
+
+        $validator = Validator::make($payload, [
+            'new_password' => 'required|string|min:8|confirmed',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $user->update([
+            'password' => Hash::make((string) $payload['new_password']),
+        ]);
+
+        $user->tokens()->delete();
+        $token = $user->createToken('auth_token')->plainTextToken;
+
+        return response()->json([
+            'message' => 'Password BangDeliv berhasil dibuat.',
             'access_token' => $token,
             'token_type' => 'Bearer',
         ]);
@@ -474,6 +644,11 @@ class AuthController extends Controller
         $responseUserData['addresses'] = $addresses->toArray();
         $responseUserData['driver_profile'] = $driver?->toArray();
         $responseUserData['avatar_url'] = $this->resolveAvatarUrl($user, $request);
+        $responseUserData['auth_provider'] = trim((string) ($user->google_sub ?? '')) !== ''
+            ? 'google'
+            : 'password';
+        $responseUserData['has_password'] = trim((string) ($user->password ?? '')) !== '';
+        $responseUserData['requires_phone_completion'] = trim((string) ($user->phone ?? '')) === '';
         $responseUserData['stats'] = [
             'total_orders' => $totalOrders,
             'total_paid' => $totalPaid,
@@ -487,6 +662,10 @@ class AuthController extends Controller
         $avatarPath = trim((string) ($user->avatar ?? ''));
         if ($avatarPath === '') {
             return null;
+        }
+
+        if ($this->isRemoteAvatarUrl($avatarPath)) {
+            return $avatarPath;
         }
 
         if (! Storage::disk('public')->exists($avatarPath)) {
@@ -507,5 +686,37 @@ class AuthController extends Controller
         }
 
         return $baseUrl.'/'.ltrim($relativeUrl, '/');
+    }
+
+    private function isRemoteAvatarUrl(string $avatar): bool
+    {
+        return str_starts_with($avatar, 'http://') || str_starts_with($avatar, 'https://');
+    }
+
+    private function denyInactiveOrBlacklisted(User $user): ?\Illuminate\Http\JsonResponse
+    {
+        if (! $user->is_active) {
+            return response()->json(['message' => 'Akun Anda dinonaktifkan. Silakan hubungi Admin.'], 403);
+        }
+
+        if ($user->is_blacklisted) {
+            return response()->json(['message' => 'Akun Anda diblokir karena indikasi fraud.'], 403);
+        }
+
+        return null;
+    }
+
+    private function issueAuthTokenResponse(User $user, string $message, int $status = 200): \Illuminate\Http\JsonResponse
+    {
+        $user->tokens()->delete();
+        $token = $user->createToken('auth_token')->plainTextToken;
+        $responseUserData = $this->buildProfilePayload($user->fresh());
+
+        return response()->json([
+            'message' => $message,
+            'data' => $responseUserData,
+            'access_token' => $token,
+            'token_type' => 'Bearer',
+        ], $status);
     }
 }

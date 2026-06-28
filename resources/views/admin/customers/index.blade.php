@@ -52,11 +52,23 @@
                     @php
                         $isBlacklisted = (bool) $customer->is_blacklisted;
                         $status = $customer->admin_status ?? ['label' => 'Aktif', 'class' => 'badge-success'];
+                        $avatarUrl = $customer->admin_avatar_url;
                     @endphp
                     <tr @if($isBlacklisted) style="background-color: rgba(239, 68, 68, 0.02);" @endif>
                         <td>
                             <div style="display: flex; align-items: center; gap: 12px;">
-                                <div class="driver-avatar" style="width: 45px; height: 45px; flex-shrink: 0; {{ $isBlacklisted ? 'background-color: var(--color-danger);' : '' }}">{{ $customer->admin_initial }}</div>
+                                <div class="driver-avatar {{ $avatarUrl ? 'has-image' : 'is-fallback' }}" style="width: 45px; height: 45px; flex-shrink: 0; {{ $isBlacklisted ? 'background-color: var(--color-danger);' : '' }}">
+                                    @if($avatarUrl)
+                                        <img
+                                            src="{{ $avatarUrl }}"
+                                            alt="Avatar {{ $customer->name }}"
+                                            class="driver-avatar-image"
+                                            loading="lazy"
+                                            onerror="this.parentElement.classList.remove('has-image'); this.parentElement.classList.add('is-fallback'); this.remove();"
+                                        >
+                                    @endif
+                                    <span class="driver-avatar-fallback">{{ $customer->admin_initial }}</span>
+                                </div>
                                 <div class="td-user">
                                     <span class="td-strong">{{ $customer->name }}</span>
                                     <span class="td-sub">Bergabung: {{ $customer->created_at?->format('d M Y') }}</span>
@@ -119,6 +131,24 @@
                     <tr id="customer-detail-{{ $customer->id }}" class="customer-detail-row" hidden>
                         <td colspan="5">
                             <div class="customer-detail-panel">
+                                <div class="customer-detail-profile">
+                                    <div class="driver-avatar {{ $avatarUrl ? 'has-image' : 'is-fallback' }}" style="width: 54px; height: 54px; flex-shrink: 0;">
+                                        @if($avatarUrl)
+                                            <img
+                                                src="{{ $avatarUrl }}"
+                                                alt="Avatar {{ $customer->name }}"
+                                                class="driver-avatar-image"
+                                                loading="lazy"
+                                                onerror="this.parentElement.classList.remove('has-image'); this.parentElement.classList.add('is-fallback'); this.remove();"
+                                            >
+                                        @endif
+                                        <span class="driver-avatar-fallback">{{ $customer->admin_initial }}</span>
+                                    </div>
+                                    <div>
+                                        <span class="td-sub">Foto Profil</span>
+                                        <strong>{{ $customer->name }}</strong>
+                                    </div>
+                                </div>
                                 <div class="customer-detail-grid">
                                     <div>
                                         <span class="td-sub">Nama</span>

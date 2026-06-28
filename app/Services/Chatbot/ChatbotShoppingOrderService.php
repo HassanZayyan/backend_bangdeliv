@@ -60,8 +60,8 @@ class ChatbotShoppingOrderService
             return $this->confirmPendingDraft($user, $sessionId);
         }
 
-        $incomingSeed = $this->buildIncomingDraftSeed($normalizedMessage, $nluPayload);
         $latestSeed = $this->resolveLatestDraftSeed($user, $sessionId);
+        $incomingSeed = $this->buildIncomingDraftSeed($message, $nluPayload, $latestSeed);
         $draftSeed = $this->mergeDraftSeed($latestSeed, $incomingSeed);
 
         return $this->buildDraftPayload($user, $draftSeed);
@@ -136,7 +136,7 @@ class ChatbotShoppingOrderService
      * @param  array<string, mixed>|null  $nluPayload
      * @return array<string, mixed>
      */
-    private function buildIncomingDraftSeed(string $message, ?array $nluPayload): array
+    private function buildIncomingDraftSeed(string $message, ?array $nluPayload, array $currentDraftSeed = []): array
     {
         $nluPayload ??= [];
         if ($this->isAddMerchantCommand($message, $nluPayload)) {
@@ -149,7 +149,16 @@ class ChatbotShoppingOrderService
             return ['payment_method' => $paymentMethod];
         }
 
-        $parsedItemIntents = $this->itemIntentParser->parse($message);
+        $allowBareTrailingQuantity = $this->hasActiveMerchant($currentDraftSeed);
+        if ($this->itemIntentParser->requiresItemClarification($message, $allowBareTrailingQuantity)) {
+            return ['item_edit_error' => $this->itemEditClarificationMessage()];
+        }
+
+        $parsedItemIntents = $this->itemIntentParser->parse(
+            $message,
+            $this->shouldParseImplicitItem($currentDraftSeed),
+            $allowBareTrailingQuantity
+        );
         $incomingStops = $parsedItemIntents === []
             ? $this->normalizeIncomingStops($nluPayload['stops'] ?? [])
             : [];
@@ -180,6 +189,50 @@ class ChatbotShoppingOrderService
             $seed,
             fn (mixed $value): bool => $value !== null && $value !== []
         );
+    }
+
+    private function itemEditClarificationMessage(): string
+    {
+        return 'Tulis item yang mau diubah, contoh: kurangi mie gacoan level 4 1x.';
+    }
+
+    /**
+     * @param  array<string, mixed>  $draftSeed
+     */
+    private function shouldParseImplicitItem(array $draftSeed): bool
+    {
+        $draftSeed = $this->normalizeDraftSeed($draftSeed);
+        $stops = is_array($draftSeed['stops'] ?? null) ? $draftSeed['stops'] : [];
+        if ($stops === []) {
+            return false;
+        }
+
+        $activeIndex = isset($draftSeed['active_stop_index']) && is_numeric($draftSeed['active_stop_index'])
+            ? min(max(0, (int) $draftSeed['active_stop_index']), max(0, count($stops) - 1))
+            : max(0, count($stops) - 1);
+        $activeStop = is_array($stops[$activeIndex] ?? null) ? $stops[$activeIndex] : [];
+
+        return $this->merchantSeedKey($activeStop) !== null
+            && (! is_array($activeStop['items'] ?? null) || $activeStop['items'] === []);
+    }
+
+    /**
+     * @param  array<string, mixed>  $draftSeed
+     */
+    private function hasActiveMerchant(array $draftSeed): bool
+    {
+        $draftSeed = $this->normalizeDraftSeed($draftSeed);
+        $stops = is_array($draftSeed['stops'] ?? null) ? $draftSeed['stops'] : [];
+        if ($stops === []) {
+            return false;
+        }
+
+        $activeIndex = isset($draftSeed['active_stop_index']) && is_numeric($draftSeed['active_stop_index'])
+            ? min(max(0, (int) $draftSeed['active_stop_index']), max(0, count($stops) - 1))
+            : max(0, count($stops) - 1);
+        $activeStop = is_array($stops[$activeIndex] ?? null) ? $stops[$activeIndex] : [];
+
+        return $this->merchantSeedKey($activeStop) !== null;
     }
 
     /**
@@ -267,6 +320,11 @@ class ChatbotShoppingOrderService
     private function mergeDraftSeed(array $base, array $incoming): array
     {
         $merged = $this->normalizeDraftSeed($base);
+
+        $itemEditError = $this->normalizeOptionalString($incoming['item_edit_error'] ?? null);
+        if ($itemEditError !== null) {
+            $merged['item_edit_error'] = $itemEditError;
+        }
 
         if (is_array($incoming['delivery'] ?? null)) {
             $merged['delivery'] = array_merge(
@@ -360,6 +418,7 @@ class ChatbotShoppingOrderService
             'payment_method' => $this->normalizePaymentMethodOrNull($seed['payment_method'] ?? null),
             'draft_action' => $seed['draft_action'] ?? null,
             'merchant_limit_reached' => $seed['merchant_limit_reached'] ?? null,
+            'item_edit_error' => $this->normalizeOptionalString($seed['item_edit_error'] ?? null),
         ], fn (mixed $value): bool => $value !== null && $value !== []);
     }
 
@@ -523,10 +582,15 @@ class ChatbotShoppingOrderService
         }
 
         if ($incomingItems !== []) {
-            $targetStop['items'] = $this->mergeItems(
+            $mergeResult = $this->mergeItems(
                 is_array($targetStop['items'] ?? null) ? $targetStop['items'] : [],
                 $incomingItems,
             );
+            $targetStop['items'] = $mergeResult['items'];
+            $itemEditError = $this->normalizeOptionalString($mergeResult['item_edit_error'] ?? null);
+            if ($itemEditError !== null) {
+                $draft['item_edit_error'] = $itemEditError;
+            }
         }
 
         $stops[$targetIndex] = $targetStop;
@@ -614,11 +678,12 @@ class ChatbotShoppingOrderService
     /**
      * @param  array<int, array<string, mixed>>  $baseItems
      * @param  array<int, array<string, mixed>>  $incomingItems
-     * @return array<int, array<string, mixed>>
+     * @return array{items: array<int, array<string, mixed>>, item_edit_error?: string}
      */
     private function mergeItems(array $baseItems, array $incomingItems): array
     {
         $itemsByName = [];
+        $itemEditError = null;
 
         foreach ($baseItems as $item) {
             $normalizedItem = ChatbotShoppingItemNormalizer::draftItem($item);
@@ -645,16 +710,35 @@ class ChatbotShoppingOrderService
             $key = ChatbotShoppingItemNormalizer::itemKey($name);
             $operation = $normalizedItem['operation'] ?? ChatbotShoppingItemIntentParser::OP_ADD;
             if ($operation === ChatbotShoppingItemIntentParser::OP_REMOVE) {
-                unset($itemsByName[$key]);
+                if (array_key_exists($key, $itemsByName)) {
+                    unset($itemsByName[$key]);
+                } else {
+                    $itemEditError ??= $this->itemEditClarificationMessage();
+                }
 
                 continue;
             }
 
             $incomingQty = $normalizedItem['quantity'];
             $currentQty = (int) ($itemsByName[$key]['quantity'] ?? 0);
-            $quantity = $operation === ChatbotShoppingItemIntentParser::OP_SET
-                ? $incomingQty
-                : $currentQty + $incomingQty;
+            if ($operation === ChatbotShoppingItemIntentParser::OP_DECREMENT) {
+                if (! array_key_exists($key, $itemsByName)) {
+                    $itemEditError ??= $this->itemEditClarificationMessage();
+
+                    continue;
+                }
+
+                $quantity = $currentQty - $incomingQty;
+                if ($quantity <= 0) {
+                    unset($itemsByName[$key]);
+
+                    continue;
+                }
+            } else {
+                $quantity = $operation === ChatbotShoppingItemIntentParser::OP_SET
+                    ? $incomingQty
+                    : $currentQty + $incomingQty;
+            }
 
             $itemsByName[$key] = [
                 'name' => $name,
@@ -664,7 +748,10 @@ class ChatbotShoppingOrderService
             ];
         }
 
-        return array_values($itemsByName);
+        return array_filter([
+            'items' => array_values($itemsByName),
+            'item_edit_error' => $itemEditError,
+        ], fn (mixed $value): bool => $value !== null);
     }
 
     /**
@@ -980,6 +1067,10 @@ class ChatbotShoppingOrderService
         ];
 
         $payload['assistant_text'] = $this->buildAssistantText($payload, (string) $user->name);
+        $itemEditError = $this->normalizeOptionalString($draftSeed['item_edit_error'] ?? null);
+        if ($itemEditError !== null) {
+            $payload['assistant_text'] = $itemEditError."\n\n".$payload['assistant_text'];
+        }
 
         return $payload;
     }

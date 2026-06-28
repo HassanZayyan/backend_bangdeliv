@@ -25,6 +25,7 @@ final class ChatbotShoppingItemNormalizer
             ChatbotShoppingItemIntentParser::OP_ADD, 'increment', 'append' => ChatbotShoppingItemIntentParser::OP_ADD,
             ChatbotShoppingItemIntentParser::OP_SET, 'replace', 'update' => ChatbotShoppingItemIntentParser::OP_SET,
             ChatbotShoppingItemIntentParser::OP_REMOVE, 'delete' => ChatbotShoppingItemIntentParser::OP_REMOVE,
+            ChatbotShoppingItemIntentParser::OP_DECREMENT, 'decrease', 'subtract', 'reduce', 'kurangi', 'kurang' => ChatbotShoppingItemIntentParser::OP_DECREMENT,
             default => null,
         };
     }

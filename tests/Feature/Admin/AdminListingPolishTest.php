@@ -9,6 +9,7 @@ use App\Models\Restaurant;
 use App\Models\ServiceType;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 class AdminListingPolishTest extends TestCase
@@ -237,6 +238,132 @@ class AdminListingPolishTest extends TestCase
             ->assertSee('Menampilkan 1-5 dari 8 mitra restoran')
             ->assertSee('aria-label="Halaman berikutnya"', false)
             ->assertDontSee('Menampilkan 1-8 dari 8 mitra restoran');
+    }
+
+    public function test_restaurant_list_shows_banner_thumbnail_and_icon_fallback(): void
+    {
+        Storage::fake('public');
+
+        $admin = User::factory()->create([
+            'role' => 'admin',
+            'phone' => '081300000011',
+        ]);
+
+        Storage::disk('public')->put('restaurants/thumb.jpg', 'restaurant-thumb');
+        Restaurant::query()->create([
+            'name' => 'Resto Thumbnail',
+            'slug' => 'resto-thumbnail',
+            'address' => 'Jl. Thumbnail',
+            'latitude' => -6.2,
+            'longitude' => 106.8,
+            'phone' => '081244440101',
+            'banner_image' => 'restaurants/thumb.jpg',
+        ]);
+        Restaurant::query()->create([
+            'name' => 'Resto Fallback',
+            'slug' => 'resto-fallback',
+            'address' => 'Jl. Fallback',
+            'latitude' => -6.21,
+            'longitude' => 106.81,
+            'phone' => '081244440102',
+            'banner_image' => null,
+        ]);
+
+        $this->actingAs($admin)
+            ->get(route('admin.restaurants.index', ['q' => 'Resto']))
+            ->assertOk()
+            ->assertSee('Foto Resto Thumbnail', false)
+            ->assertSee('storage/restaurants/thumb.jpg', false)
+            ->assertSee('restaurant-thumbnail has-image', false)
+            ->assertSee('restaurant-thumbnail is-fallback', false);
+    }
+
+    public function test_customer_list_and_detail_show_remote_avatar_with_fallback_initials(): void
+    {
+        $admin = User::factory()->create([
+            'role' => 'admin',
+            'phone' => '081300000012',
+            'avatar' => 'https://lh3.googleusercontent.com/admin-avatar',
+        ]);
+
+        $customerWithAvatar = User::factory()->create([
+            'role' => 'customer',
+            'name' => 'Customer Avatar',
+            'phone' => '081300000112',
+            'avatar' => 'https://lh3.googleusercontent.com/customer-avatar',
+        ]);
+        $customerWithoutAvatar = User::factory()->create([
+            'role' => 'customer',
+            'name' => 'Customer Fallback',
+            'phone' => '081300000113',
+            'avatar' => null,
+        ]);
+
+        $this->actingAs($admin)
+            ->get(route('admin.customers.index'))
+            ->assertOk()
+            ->assertSee('https://lh3.googleusercontent.com/admin-avatar', false)
+            ->assertSee($customerWithAvatar->name)
+            ->assertSee('https://lh3.googleusercontent.com/customer-avatar', false)
+            ->assertSee('Foto Profil')
+            ->assertSee($customerWithoutAvatar->name)
+            ->assertSee('driver-avatar is-fallback', false);
+    }
+
+    public function test_driver_list_and_detail_show_remote_and_local_avatars(): void
+    {
+        Storage::fake('public');
+
+        $admin = User::factory()->create([
+            'role' => 'admin',
+            'phone' => '081300000013',
+        ]);
+
+        Storage::disk('public')->put('avatars/driver-local.jpg', 'driver-local-avatar');
+
+        $remoteDriverUser = User::factory()->create([
+            'role' => 'driver',
+            'name' => 'Driver Remote Avatar',
+            'phone' => '081300000213',
+            'avatar' => 'https://lh3.googleusercontent.com/driver-avatar',
+        ]);
+        $localDriverUser = User::factory()->create([
+            'role' => 'driver',
+            'name' => 'Driver Local Avatar',
+            'phone' => '081300000214',
+            'avatar' => 'avatars/driver-local.jpg',
+        ]);
+
+        $remoteDriver = Driver::query()->create($this->driverAttributes([
+            'user_id' => $remoteDriverUser->id,
+            'vehicle_plate' => 'H 1010 REM',
+            'registration_status' => 'active',
+            'status' => 'available',
+        ]));
+        $localDriver = Driver::query()->create($this->driverAttributes([
+            'user_id' => $localDriverUser->id,
+            'vehicle_plate' => 'H 1010 LOC',
+            'registration_status' => 'active',
+            'status' => 'available',
+        ]));
+
+        $this->actingAs($admin)
+            ->get(route('admin.drivers.index'))
+            ->assertOk()
+            ->assertSee($remoteDriverUser->name)
+            ->assertSee('https://lh3.googleusercontent.com/driver-avatar', false)
+            ->assertSee($localDriverUser->name)
+            ->assertSee('storage/avatars/driver-local.jpg', false);
+
+        $this->actingAs($admin)
+            ->get(route('admin.drivers.show', ['driver' => $remoteDriver->id]))
+            ->assertOk()
+            ->assertSee('https://lh3.googleusercontent.com/driver-avatar', false);
+
+        $this->actingAs($admin)
+            ->get(route('admin.drivers.show', ['driver' => $localDriver->id]))
+            ->assertOk()
+            ->assertSee('storage/avatars/driver-local.jpg', false);
     }
 
     public function test_admin_can_blacklist_and_unblacklist_customer(): void

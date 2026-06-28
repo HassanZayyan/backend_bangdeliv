@@ -485,6 +485,198 @@ class ChatbotShoppingFlowTest extends TestCase
         $this->assertSame('google-place-alfamart-undip', $item->metadata['place_id'] ?? null);
     }
 
+    public function test_chatbot_shopping_external_merchant_item_list_overrides_merged_gemini_item(): void
+    {
+        Config::set('bangdeliv.google_maps_api_key', 'test-key');
+
+        $customer = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        Address::query()->create([
+            'user_id' => $customer->id,
+            'label' => 'Rumah',
+            'recipient_name' => 'Customer Test',
+            'phone' => '081200000032',
+            'full_address' => 'happ, Sraten, Kec. Tuntang, Kabupaten Semarang, Jawa Tengah, 50773',
+            'latitude' => -7.003,
+            'longitude' => 110.403,
+            'is_default' => true,
+        ]);
+
+        Sanctum::actingAs($customer);
+        $sessionId = 'shopping-external-gacoan-item-list-session';
+
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'items' => [],
+        ]);
+
+        $merchantResponse = $this->postJson("/api/chatbot/sessions/{$sessionId}/merchant", [
+            'service_type' => 'nitip',
+            'merchant_place' => [
+                'place_id' => 'google-place-mie-gacoan-salatiga-patimura',
+                'name' => 'Mie Gacoan Salatiga 2 - Patimura',
+                'address' => 'Jl. Patimura, Salatiga',
+                'latitude' => -7.004,
+                'longitude' => 110.404,
+                'types' => ['restaurant', 'food', 'establishment'],
+            ],
+        ]);
+
+        $merchantResponse->assertOk()
+            ->assertJsonPath('data.shopping.ready_to_confirm', false)
+            ->assertJsonPath('data.shopping.stops.0.merchant.name', 'Mie Gacoan Salatiga 2 - Patimura')
+            ->assertJsonPath('data.validation.missing_fields.0', 'items');
+
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'merchant' => null,
+            'items' => [
+                ['name' => 'gacoan level 6 - udang keju', 'quantity' => 1],
+            ],
+        ]);
+
+        $itemsResponse = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => "- gacoan level 6 1x\n- udang keju 1x",
+        ]);
+
+        $itemsResponse->assertOk()
+            ->assertJsonPath('data.shopping.ready_to_confirm', true)
+            ->assertJsonCount(2, 'data.shopping.stops.0.items')
+            ->assertJsonPath('data.shopping.stops.0.items.0.name', 'gacoan level 6')
+            ->assertJsonPath('data.shopping.stops.0.items.1.name', 'udang keju');
+        $this->assertSame(
+            ['gacoan level 6' => 1, 'udang keju' => 1],
+            $this->shoppingItemQuantities($itemsResponse)
+        );
+    }
+
+    public function test_chatbot_shopping_external_merchant_supports_bare_quantity_decrement_and_ambiguous_edit_guard(): void
+    {
+        Config::set('bangdeliv.google_maps_api_key', 'test-key');
+
+        $customer = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        Address::query()->create([
+            'user_id' => $customer->id,
+            'label' => 'Rumah',
+            'recipient_name' => 'Customer Test',
+            'phone' => '081200000033',
+            'full_address' => 'baskoro raaya, Bejalen, Kec. Ambarawa, Kabupaten Semarang, Jawa Tengah, 50611',
+            'latitude' => -7.003,
+            'longitude' => 110.403,
+            'is_default' => true,
+        ]);
+
+        Sanctum::actingAs($customer);
+        $sessionId = 'shopping-external-gacoan-natural-edit-session';
+
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'items' => [],
+        ]);
+
+        $merchantResponse = $this->postJson("/api/chatbot/sessions/{$sessionId}/merchant", [
+            'service_type' => 'nitip',
+            'merchant_place' => [
+                'place_id' => 'google-place-mie-gacoan-salatiga',
+                'name' => 'Mie Gacoan Salatiga',
+                'address' => 'Jl. Patimura, Salatiga',
+                'latitude' => -7.004,
+                'longitude' => 110.404,
+                'types' => ['restaurant', 'food', 'establishment'],
+            ],
+        ]);
+        $merchantResponse->assertOk()
+            ->assertJsonPath('data.shopping.stops.0.merchant.name', 'Mie Gacoan Salatiga');
+
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'merchant' => null,
+            'items' => [
+                ['name' => 'mie gacoan level 7 2', 'quantity' => 1],
+            ],
+        ]);
+
+        $bareQuantityResponse = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'mie gacoan level 7 2',
+        ]);
+        $bareQuantityResponse->assertOk()
+            ->assertJsonPath('data.shopping.ready_to_confirm', true)
+            ->assertJsonPath('data.shopping.stops.0.items.0.name', 'mie gacoan level 7')
+            ->assertJsonPath('data.shopping.stops.0.items.0.quantity', 2);
+
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'merchant' => null,
+            'items' => [
+                ['name' => 'mie gacoan level 7', 'quantity' => 2, 'operation' => 'add'],
+            ],
+        ]);
+
+        $addResponse = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'tambah mie gacoan level 7 2x',
+        ]);
+        $addResponse->assertOk()
+            ->assertJsonPath('data.shopping.stops.0.items.0.quantity', 4);
+
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'merchant' => null,
+            'items' => [
+                ['name' => 'mie gacoan level 7', 'quantity' => 2, 'operation' => 'decrement'],
+            ],
+        ]);
+
+        $decrementResponse = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'kurangi mie gacoan level 7 2x',
+        ]);
+        $decrementResponse->assertOk()
+            ->assertJsonPath('data.shopping.stops.0.items.0.quantity', 2);
+
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'merchant' => null,
+            'items' => [
+                ['name' => 'mie gacoan level 7', 'quantity' => 2, 'operation' => 'add'],
+            ],
+        ]);
+
+        $ambiguousResponse = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'eh tambah lagi 2',
+        ]);
+        $ambiguousResponse->assertOk()
+            ->assertJsonPath('data.shopping.stops.0.items.0.quantity', 2);
+        $this->assertStringContainsString(
+            'Tulis item yang mau diubah',
+            (string) $ambiguousResponse->json('data.assistant_text')
+        );
+    }
+
     public function test_chatbot_shopping_creates_menu_database_restaurant_order_after_confirmation(): void
     {
         Config::set('bangdeliv.google_maps_api_key', 'test-key');
@@ -823,6 +1015,160 @@ class ChatbotShoppingFlowTest extends TestCase
         $this->assertStringContainsString('Tongseng Kambing', $assistantText);
         $this->assertStringContainsString('Jl. Customer Baru No. 31', $assistantText);
         $this->assertStringNotContainsString('Sekarang pilih toko/resto', $assistantText);
+    }
+
+    public function test_chatbot_shopping_delivery_location_patch_without_address_uses_plain_street_reverse_geocode(): void
+    {
+        Config::set('bangdeliv.google_maps_api_key', 'test-key');
+
+        $customer = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        Address::query()->create([
+            'user_id' => $customer->id,
+            'label' => 'Rumah',
+            'recipient_name' => 'Customer Test',
+            'phone' => '081200000034',
+            'full_address' => 'Jl. Customer Lama No. 34',
+            'latitude' => -7.003,
+            'longitude' => 110.403,
+            'is_default' => true,
+        ]);
+
+        $restaurant = Restaurant::query()->create([
+            'name' => 'Warung Tongseng Test',
+            'slug' => 'warung-tongseng-location-reverse-geocode-test',
+            'merchant_type' => 'restaurant',
+            'address' => 'Jl. Merchant No. 34',
+            'latitude' => -7.001,
+            'longitude' => 110.401,
+            'phone' => '081200000035',
+        ]);
+
+        Menu::query()->create([
+            'restaurant_id' => $restaurant->id,
+            'name' => 'Tongseng Kambing',
+            'price' => 35000,
+            'is_available' => true,
+            'sort_order' => 1,
+        ]);
+
+        Sanctum::actingAs($customer);
+        $sessionId = 'shopping-delivery-location-plain-reverse-geocode-session';
+
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'merchant' => 'Warung Tongseng Test',
+            'resto' => 'Warung Tongseng Test',
+            'items' => [
+                ['name' => 'Tongseng Kambing', 'quantity' => 1],
+            ],
+        ], 2500);
+
+        $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'beli tongseng kambing di Warung Tongseng Test',
+        ])->assertOk()
+            ->assertJsonPath('data.shopping.ready_to_confirm', true);
+
+        $requestedUrls = [];
+        $streetAddress = 'Jl. Sraten Raya No. 10, Sraten, Kabupaten Semarang, Jawa Tengah';
+        Http::fake(function ($request) use (&$requestedUrls, $streetAddress) {
+            $requestedUrls[] = $request->url();
+
+            if (str_contains($request->url(), 'routes.googleapis.com')) {
+                return Http::response([
+                    'routes' => [[
+                        'distanceMeters' => 4200,
+                        'duration' => '600s',
+                        'polyline' => [
+                            'encodedPolyline' => '_p~iF~ps|U_ulLnnqC_mqNvxq`@',
+                        ],
+                        'legs' => [[
+                            'distanceMeters' => 4200,
+                            'duration' => '600s',
+                        ]],
+                    ]],
+                ], 200);
+            }
+
+            if (str_contains($request->url(), 'maps.googleapis.com/maps/api/distancematrix')) {
+                return Http::response([
+                    'status' => 'OK',
+                    'rows' => [
+                        [
+                            'elements' => [
+                                [
+                                    'status' => 'OK',
+                                    'distance' => ['value' => 4200, 'text' => '4,2 km'],
+                                    'duration' => ['value' => 600, 'text' => '10 menit'],
+                                ],
+                            ],
+                        ],
+                    ],
+                ], 200);
+            }
+
+            if (str_contains($request->url(), 'maps.googleapis.com/maps/api/geocode/json')) {
+                return Http::response([
+                    'status' => 'OK',
+                    'results' => [[
+                        'formatted_address' => $streetAddress,
+                        'types' => ['street_address'],
+                        'geometry' => [
+                            'location_type' => 'ROOFTOP',
+                            'location' => [
+                                'lat' => -7.011,
+                                'lng' => 110.411,
+                            ],
+                        ],
+                    ]],
+                ], 200);
+            }
+
+            if (str_contains($request->url(), 'maps.googleapis.com/maps/api/place/nearbysearch/json')) {
+                return Http::response([
+                    'status' => 'OK',
+                    'results' => [[
+                        'name' => 'Permakaman Lama',
+                        'vicinity' => 'Sraten',
+                        'types' => ['cemetery', 'establishment'],
+                    ]],
+                ], 200);
+            }
+
+            return Http::response([], 404);
+        });
+
+        $locationResponse = $this->postJson("/api/chatbot/sessions/{$sessionId}/location", [
+            'service_type' => 'nitip',
+            'target' => 'delivery',
+            'latitude' => -7.011,
+            'longitude' => 110.411,
+        ]);
+
+        $locationResponse->assertOk()
+            ->assertJsonPath('model_used', 'map-pin-action')
+            ->assertJsonPath('data.shopping.ready_to_confirm', true)
+            ->assertJsonPath('data.shopping.delivery.address', $streetAddress)
+            ->assertJsonPath('data.shopping.stops.0.merchant.name', 'Warung Tongseng Test')
+            ->assertJsonPath('data.action_payloads.OPEN_MAP_PICKER_DELIVERY.label', 'Ganti Alamat Antar');
+
+        $assistantText = (string) $locationResponse->json('data.assistant_text');
+        $this->assertStringContainsString($streetAddress, $assistantText);
+        $this->assertStringNotContainsString('Permakaman Lama', $assistantText);
+        $this->assertStringNotContainsString('Pin -7.011000, 110.411000', $assistantText);
+        $this->assertFalse(
+            collect($requestedUrls)->contains(
+                fn (string $url): bool => str_contains($url, 'maps.googleapis.com/maps/api/place/nearbysearch/json')
+            ),
+            'Nitip delivery location patch should not enrich the address with nearest establishment.'
+        );
     }
 
     public function test_chatbot_shopping_can_add_second_merchant_after_first_is_ready(): void

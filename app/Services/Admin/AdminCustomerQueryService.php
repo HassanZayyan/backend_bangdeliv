@@ -8,7 +8,10 @@ use Illuminate\Http\Request;
 
 class AdminCustomerQueryService
 {
-    public function __construct(private readonly AdminOrderStatusPresenter $statuses) {}
+    public function __construct(
+        private readonly AdminOrderStatusPresenter $statuses,
+        private readonly AdminMediaUrlResolver $media,
+    ) {}
 
     /**
      * @return array<string, mixed>
@@ -40,6 +43,7 @@ class AdminCustomerQueryService
         $customers->getCollection()->each(function (User $customer): void {
             $customer->setAttribute('admin_initial', strtoupper(substr($customer->name, 0, 2)));
             $customer->setAttribute('admin_status', $this->statusConfig($customer));
+            $customer->setAttribute('admin_avatar_url', $this->media->publicUrl($customer->avatar));
         });
 
         return [

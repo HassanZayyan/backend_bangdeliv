@@ -42,11 +42,25 @@
             </thead>
             <tbody>
                 @forelse($restaurants as $restaurant)
+                    @php
+                        $bannerUrl = $restaurant->admin_banner_url;
+                    @endphp
                     <tr>
                         <td>
                             <div style="display: flex; align-items: center; gap: 12px;">
-                                <div style="width: 44px; height: 44px; border-radius: 9px; background-color: var(--color-primary); display: flex; align-items:center; justify-content:center; color:white; font-size:22px; flex-shrink:0;">
-                                    <i class="bx bx-restaurant" aria-hidden="true"></i>
+                                <div class="admin-thumbnail restaurant-thumbnail {{ $bannerUrl ? 'has-image' : 'is-fallback' }}">
+                                    @if($bannerUrl)
+                                        <img
+                                            src="{{ $bannerUrl }}"
+                                            alt="Foto {{ $restaurant->name }}"
+                                            class="admin-thumbnail-image"
+                                            loading="lazy"
+                                            onerror="this.parentElement.classList.remove('has-image'); this.parentElement.classList.add('is-fallback'); this.remove();"
+                                        >
+                                    @endif
+                                    <span class="admin-thumbnail-fallback">
+                                        <i class="bx bx-restaurant" aria-hidden="true"></i>
+                                    </span>
                                 </div>
                                 <div class="td-user">
                                     <span class="td-strong">{{ $restaurant->name }}</span>

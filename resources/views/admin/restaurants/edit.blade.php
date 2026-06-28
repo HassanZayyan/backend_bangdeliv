@@ -35,7 +35,7 @@
         </a>
     </div>
 
-    <form action="{{ route('admin.restaurants.update', $restaurant) }}" method="POST" style="padding: 24px;">
+    <form action="{{ route('admin.restaurants.update', $restaurant) }}" method="POST" enctype="multipart/form-data" style="padding: 24px;">
         @csrf
         @method('PUT')
 
@@ -72,6 +72,47 @@
                     <label>Nomor Telepon <span style="color:var(--color-danger);">*</span></label>
                     <input type="text" name="phone" value="{{ old('phone', $restaurant->phone) }}" class="form-control" placeholder="Contoh: 081234567890" required>
                     @error('phone') <div style="color:var(--color-danger); font-size:12px; margin-top:4px;"><i class='bx bx-error-circle'></i> {{ $message }}</div> @enderror
+                </div>
+            </div>
+        </div>
+
+        {{-- SECTION: Gambar Utama --}}
+        <div style="margin-bottom: 24px;">
+            <div style="font-size:11px; text-transform:uppercase; letter-spacing:1px; font-weight:600; color:var(--text-muted); margin-bottom:16px; padding-bottom:8px; border-bottom:1px solid var(--border-color);">
+                <i class='bx bx-image'></i> Gambar Utama
+            </div>
+            <div style="display:grid; grid-template-columns:minmax(0, 180px) minmax(0, 1fr); gap:16px; align-items:start;">
+                <div class="restaurant-banner-preview {{ $restaurant->admin_banner_url ? 'has-image' : 'is-empty' }}" data-banner-preview>
+                    @if($restaurant->admin_banner_url)
+                        <img
+                            data-banner-image
+                            src="{{ $restaurant->admin_banner_url }}"
+                            alt="Banner {{ $restaurant->name }}"
+                            loading="lazy"
+                            onerror="this.parentElement.classList.remove('has-image'); this.parentElement.classList.add('is-empty'); this.remove();"
+                        >
+                    @endif
+                    <div class="restaurant-banner-placeholder">
+                        <i class='bx bx-image'></i>
+                        <span data-banner-placeholder-text>Belum ada gambar</span>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="form-group" style="margin-bottom:12px;">
+                        <label>Ganti Banner Restoran</label>
+                        <input type="file" name="banner_image" class="form-control" accept="image/jpeg,image/png,image/webp" data-banner-input>
+                        <small class="form-help">Format JPG, PNG, atau WEBP. Maksimal 2 MB.</small>
+                        @error('banner_image') <div style="color:var(--color-danger); font-size:12px; margin-top:4px;"><i class='bx bx-error-circle'></i> {{ $message }}</div> @enderror
+                    </div>
+
+                    @if($restaurant->banner_image)
+                        <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:var(--text-muted);">
+                            <input type="checkbox" name="remove_banner_image" value="1" data-banner-remove @checked(old('remove_banner_image'))>
+                            Hapus banner saat ini
+                        </label>
+                        @error('remove_banner_image') <div style="color:var(--color-danger); font-size:12px; margin-top:4px;"><i class='bx bx-error-circle'></i> {{ $message }}</div> @enderror
+                    @endif
                 </div>
             </div>
         </div>
@@ -122,6 +163,7 @@
 @endsection
 
 @push('scripts')
+@include('admin.restaurants.partials.banner-preview-script')
 <script>
 document.addEventListener('DOMContentLoaded', function () {
     const latInput = document.getElementById('latitude');

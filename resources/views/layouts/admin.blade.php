@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>@yield('title', 'Admin Dashboard - BangDeliv')</title>
+    <link rel="icon" type="image/jpeg" href="{{ asset('images/logo.jpg') }}?v=bangdeliv">
+    <link rel="shortcut icon" type="image/jpeg" href="{{ asset('images/logo.jpg') }}?v=bangdeliv">
+    <link rel="apple-touch-icon" href="{{ asset('images/logo.jpg') }}?v=bangdeliv">
     <link rel="stylesheet" href="{{ asset('css/admin.css') }}">
     <link href="https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css" rel="stylesheet">
     @vite('resources/js/app.js')
@@ -41,6 +44,8 @@
     if (! array_key_exists($orderServiceFilter, $adminOrderServiceFilters)) {
         $orderServiceFilter = 'all';
     }
+    $adminUser = Auth::user();
+    $adminAvatarUrl = app(\App\Services\Admin\AdminMediaUrlResolver::class)->publicUrl($adminUser?->avatar);
 @endphp
 <div class="admin-layout">
     <aside class="sidebar">
@@ -113,11 +118,19 @@
         </nav>
 
         <div class="sidebar-footer">
-            <div class="user-avatar">
+            <div class="user-avatar {{ $adminAvatarUrl ? 'has-image' : '' }}">
+                @if($adminAvatarUrl)
+                    <img
+                        src="{{ $adminAvatarUrl }}"
+                        alt="Avatar {{ $adminUser->name ?? 'Admin BangDeliv' }}"
+                        loading="lazy"
+                        onerror="this.parentElement.classList.remove('has-image'); this.remove();"
+                    >
+                @endif
                 <i class="bx bxs-user" aria-hidden="true"></i>
             </div>
             <div class="user-text">
-                <span class="user-name">{{ Auth::user()->name ?? 'Admin BangDeliv' }}</span>
+                <span class="user-name">{{ $adminUser->name ?? 'Admin BangDeliv' }}</span>
                 <span class="user-role">Super Admin</span>
             </div>
 

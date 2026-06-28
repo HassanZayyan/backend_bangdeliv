@@ -658,7 +658,7 @@ class ChatbotCourierFlowTest extends TestCase
             ->assertJsonPath('data.courier.ready_to_confirm', false)
             ->assertJsonPath('data.validation.missing_fields.0', 'dropoff_address')
             ->assertJsonPath('data.validation.next_actions.0', 'OPEN_ROUTE_PICKER')
-            ->assertJsonPath('data.action_payloads.OPEN_ROUTE_PICKER.label', 'Atur Titik Ambil & Tujuan');
+            ->assertJsonPath('data.action_payloads.OPEN_ROUTE_PICKER.label', 'Atur Lokasi Ambil/Tujuan');
 
         $this->assertStringContainsString('melebihi batas layanan', (string) $response->json('data.assistant_text'));
         $this->assertStringNotContainsString('Format cepat', (string) $response->json('data.assistant_text'));
@@ -898,7 +898,7 @@ class ChatbotCourierFlowTest extends TestCase
             ->assertJsonPath('data.validation.is_valid_order', false)
             ->assertJsonPath('data.courier.ready_to_confirm', false)
             ->assertJsonPath('data.validation.next_actions.0', 'OPEN_ROUTE_PICKER')
-            ->assertJsonPath('data.action_payloads.OPEN_ROUTE_PICKER.label', 'Atur Titik Ambil & Tujuan');
+            ->assertJsonPath('data.action_payloads.OPEN_ROUTE_PICKER.label', 'Atur Lokasi Ambil/Tujuan');
 
         $assistantText = (string) $response->json('data.assistant_text');
         $this->assertStringContainsString('melebihi batas layanan', $assistantText);

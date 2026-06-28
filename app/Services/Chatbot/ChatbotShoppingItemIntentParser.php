@@ -12,28 +12,32 @@ class ChatbotShoppingItemIntentParser
 
     public const OP_REMOVE = 'remove';
 
+    public const OP_DECREMENT = 'decrement';
+
     /**
      * @return array<int, array{name: string, quantity: int, operation: string, notes: null}>
      */
-    public function parse(string $message): array
-    {
+    public function parse(
+        string $message,
+        bool $allowImplicitSingleItem = false,
+        bool $allowBareTrailingQuantity = false
+    ): array {
         $normalized = $this->normalize($message);
         if ($normalized === '') {
             return [];
         }
 
         $operation = $this->detectOperation($normalized);
-        $hasExplicitQuantity = preg_match('/\b\d+\s*x\b/u', $normalized) === 1;
-        if ($operation === null && ! $hasExplicitQuantity) {
+        $hasExplicitQuantity = $this->hasExplicitQuantity($normalized, $allowBareTrailingQuantity);
+        if ($operation === null && ! $hasExplicitQuantity && ! $allowImplicitSingleItem) {
             return [];
         }
 
-        $messageWithoutMerchant = $this->stripMerchantTail($normalized);
-        $parts = preg_split('/(?:,|\+|\bdan\b)/iu', $messageWithoutMerchant) ?: [$messageWithoutMerchant];
+        $parts = $this->splitParts($message);
         $items = [];
 
         foreach ($parts as $part) {
-            $item = $this->parsePart((string) $part, $operation ?? self::OP_ADD);
+            $item = $this->parsePart((string) $part, $operation ?? self::OP_ADD, $allowBareTrailingQuantity);
             if ($item === null) {
                 continue;
             }
@@ -44,6 +48,23 @@ class ChatbotShoppingItemIntentParser
         return $items;
     }
 
+    public function requiresItemClarification(string $message, bool $allowBareTrailingQuantity = false): bool
+    {
+        $normalized = $this->normalize($message);
+        $operation = $this->detectOperation($normalized);
+        if ($operation === null) {
+            return false;
+        }
+
+        foreach ($this->splitParts($message) as $part) {
+            if ($this->parsePart($part, $operation, $allowBareTrailingQuantity) !== null) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     public function normalizeOperation(mixed $operation): ?string
     {
         return ChatbotShoppingItemNormalizer::operation($operation);
@@ -51,6 +72,10 @@ class ChatbotShoppingItemIntentParser
 
     private function detectOperation(string $message): ?string
     {
+        if (preg_match('/\b(?:kurangi|kurangin|kurang(?:kan)?)\b/iu', $message) === 1) {
+            return self::OP_DECREMENT;
+        }
+
         if (preg_match('/\b(?:hapus|hilangkan|batalkan(?:\s+item)?|nggak\s+jadi|gak\s+jadi|tidak\s+jadi)\b/iu', $message) === 1) {
             return self::OP_REMOVE;
         }
@@ -66,17 +91,50 @@ class ChatbotShoppingItemIntentParser
         return null;
     }
 
+    private function hasExplicitQuantity(string $message, bool $allowBareTrailingQuantity): bool
+    {
+        return preg_match($this->quantityPattern(), $message) === 1
+            || ($allowBareTrailingQuantity && preg_match($this->bareTrailingQuantityPattern(), $message) === 1);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function splitParts(string $message): array
+    {
+        $message = str_replace(["\r\n", "\r"], "\n", $message);
+        $lines = preg_split('/\n+/u', $message) ?: [$message];
+        $parts = [];
+
+        foreach ($lines as $line) {
+            $line = $this->stripListMarker((string) $line);
+            if (trim($line) === '') {
+                continue;
+            }
+
+            $segments = preg_split('/(?:,|\+|\bdan\b)/iu', $line) ?: [$line];
+            foreach ($segments as $segment) {
+                $segment = trim((string) $segment);
+                if ($segment !== '') {
+                    $parts[] = $segment;
+                }
+            }
+        }
+
+        return $parts === [] ? [$message] : $parts;
+    }
+
     /**
      * @return array{name: string, quantity: int, operation: string, notes: null}|null
      */
-    private function parsePart(string $part, string $operation): ?array
+    private function parsePart(string $part, string $operation, bool $allowBareTrailingQuantity): ?array
     {
         $part = $this->stripMerchantTail($this->normalize($part));
         if ($part === '') {
             return null;
         }
 
-        [$quantity, $withoutQuantity] = $this->extractQuantity($part, $operation);
+        [$quantity, $withoutQuantity] = $this->extractQuantity($part, $operation, $allowBareTrailingQuantity);
         $name = $this->cleanItemName($withoutQuantity);
         if ($name === '' || in_array($name, ['halo', 'hai', 'test', 'tes'], true)) {
             return null;
@@ -93,11 +151,29 @@ class ChatbotShoppingItemIntentParser
     /**
      * @return array{0: int, 1: string}
      */
-    private function extractQuantity(string $value, string $operation): array
+    private function extractQuantity(string $value, string $operation, bool $allowBareTrailingQuantity): array
     {
-        if (preg_match('/\b(\d+)\s*x\b/u', $value, $match) === 1) {
-            $quantity = max(1, (int) $match[1]);
-            $withoutQuantity = $this->regexReplace('/\b\d+\s*x\b/u', ' ', $value);
+        if (preg_match($this->quantityPattern(), $value, $match, PREG_OFFSET_CAPTURE) === 1) {
+            $quantity = max(1, (int) $match[1][0]);
+            $unit = strtolower((string) $match[2][0]);
+            $matchedText = (string) $match[0][0];
+            $matchedOffset = (int) $match[0][1];
+            $afterMatch = trim(substr($value, $matchedOffset + strlen($matchedText)));
+            $replacement = $unit === 'paket' && $afterMatch !== '' ? ' paket ' : ' ';
+            $withoutQuantity = preg_replace($this->quantityPattern(), $replacement, $value, 1);
+            if (! is_string($withoutQuantity)) {
+                $withoutQuantity = $value;
+            }
+
+            return [$quantity, $withoutQuantity];
+        }
+
+        if ($allowBareTrailingQuantity && preg_match($this->bareTrailingQuantityPattern(), $value, $match, PREG_OFFSET_CAPTURE) === 1) {
+            $quantity = max(1, (int) $match[1][0]);
+            $withoutQuantity = preg_replace($this->bareTrailingQuantityPattern(), ' ', $value, 1);
+            if (! is_string($withoutQuantity)) {
+                $withoutQuantity = $value;
+            }
 
             return [$quantity, $withoutQuantity];
         }
@@ -114,14 +190,30 @@ class ChatbotShoppingItemIntentParser
 
     private function cleanItemName(string $value): string
     {
+        $value = $this->stripListMarker($value);
         $value = $this->regexReplace('/\b(?:nggak|gak|tidak)\s+jadi\b/iu', ' ', $value);
         $value = $this->regexReplace('/\b(?:batalkan\s+item|ganti\s+jumlah)\b/iu', ' ', $value);
-        $value = $this->regexReplace('/\b(?:tambah(?:kan)?|plus|sekalian|hapus|hilangkan|batalkan|cukup|jadi|ubah|ganti)\b/iu', ' ', $value);
+        $value = $this->regexReplace('/\b(?:tambah(?:kan)?|plus|sekalian|kurangi|kurangin|kurang(?:kan)?|hapus|hilangkan|batalkan|cukup|jadi|ubah|ganti)\b/iu', ' ', $value);
         $value = $this->regexReplace('/^(?:titip|belikan|beli|pesan|mau|tolong)\s+/iu', ' ', $value);
         $value = $this->regexReplace('/\b([\pL\pN]+)nya\b/u', '$1', $value);
-        $value = $this->regexReplace('/\b(?:saja|aja|item|menu|jumlah)\b/iu', ' ', $value);
+        $value = $this->regexReplace('/\b(?:eh|dong|lagi|saja|aja|item|menu|jumlah)\b/iu', ' ', $value);
 
         return $this->normalize($value);
+    }
+
+    private function stripListMarker(string $value): string
+    {
+        return trim($this->regexReplace('/^\s*(?:[-*]|\x{2022}|\d+[\.)])\s*/u', ' ', $value));
+    }
+
+    private function quantityPattern(): string
+    {
+        return '/\b(\d+)\s*(x|porsi|pcs?|buah|paket|bungkus|bks|botol|gelas|cup|kotak|pack|biji)\b/iu';
+    }
+
+    private function bareTrailingQuantityPattern(): string
+    {
+        return '/(?<!\blevel\s)\b(\d+)\s*(?:dong)?\s*$/iu';
     }
 
     private function stripMerchantTail(string $value): string

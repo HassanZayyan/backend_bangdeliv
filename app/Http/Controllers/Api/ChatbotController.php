@@ -110,7 +110,12 @@ class ChatbotController extends Controller
         $latitude = (float) $validated['latitude'];
         $longitude = (float) $validated['longitude'];
         $rawAddress = isset($validated['address']) ? trim((string) $validated['address']) : '';
-        $address = $this->resolveMapPinAddress($latitude, $longitude, $rawAddress);
+        $address = $this->resolveMapPinAddress(
+            $latitude,
+            $longitude,
+            $rawAddress,
+            includeNearbyPlace: ! ($serviceType === 'nitip' && $target === 'delivery')
+        );
 
         try {
             $patchedPayload = match ($serviceType) {
@@ -325,7 +330,12 @@ class ChatbotController extends Controller
         ], 200);
     }
 
-    private function resolveMapPinAddress(float $latitude, float $longitude, string $providedAddress): string
+    private function resolveMapPinAddress(
+        float $latitude,
+        float $longitude,
+        string $providedAddress,
+        bool $includeNearbyPlace = true
+    ): string
     {
         $normalizedAddress = trim($providedAddress);
 
@@ -334,7 +344,9 @@ class ChatbotController extends Controller
         }
 
         try {
-            $resolved = $this->geocodingService->reverseGeocodeWithPlaceName($latitude, $longitude);
+            $resolved = $includeNearbyPlace
+                ? $this->geocodingService->reverseGeocodeWithPlaceName($latitude, $longitude)
+                : $this->geocodingService->reverseGeocode($latitude, $longitude);
             $formattedAddress = trim((string) ($resolved['formatted_address'] ?? ''));
             if ($formattedAddress !== '' && ! $this->isPinPlaceholderAddress($formattedAddress)) {
                 return $formattedAddress;

@@ -64,6 +64,8 @@ class OrderStatusPushNotificationService
                 'priority' => 'high',
                 'notification' => [
                     'channel_id' => 'bangdeliv_order_status_high',
+                    'icon' => 'ic_stat_bangdeliv',
+                    'color' => '#F05B24',
                     'sound' => 'default',
                     'click_action' => 'FLUTTER_NOTIFICATION_CLICK',
                 ],

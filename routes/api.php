@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Route;
 // Public Auth Routes
 Route::post('/auth/register/customer', [AuthController::class, 'registerCustomer'])->name('api.auth.register-customer');
 Route::post('/auth/login', [AuthController::class, 'login'])->name('api.auth.login');
+Route::post('/auth/google', [AuthController::class, 'loginWithGoogle'])->name('api.auth.google');
 
 // Protected Auth Routes
 Route::middleware('auth:sanctum')->group(function () {
@@ -25,6 +26,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user', [AuthController::class, 'me'])->name('api.user.show');
     Route::post('/user/upgrade-to-driver', [AuthController::class, 'upgradeToDriver'])->middleware('role:customer')->name('api.user.upgrade-to-driver');
     Route::put('/user', [AuthController::class, 'updateProfile'])->name('api.user.update');
+    Route::patch('/user/phone', [AuthController::class, 'completePhone'])->name('api.user.phone.complete');
+    Route::post('/user/password', [AuthController::class, 'createPassword'])->name('api.user.password.create');
     Route::put('/user/password', [AuthController::class, 'changePassword'])->name('api.user.password.update');
     Route::post('/user/addresses/validate', [AuthController::class, 'validateAddress'])->name('api.user.addresses.validate');
     Route::post('/user/addresses', [AuthController::class, 'storeAddress'])->name('api.user.addresses.store');

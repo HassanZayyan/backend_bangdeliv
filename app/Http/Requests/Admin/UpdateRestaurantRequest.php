@@ -55,6 +55,8 @@ class UpdateRestaurantRequest extends FormRequest
             'latitude' => ['required', 'numeric', 'between:-90,90'],
             'longitude' => ['required', 'numeric', 'between:-180,180'],
             'phone' => ['required', 'string', 'max:20'],
+            'banner_image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
+            'remove_banner_image' => ['nullable', 'boolean'],
         ];
     }
 

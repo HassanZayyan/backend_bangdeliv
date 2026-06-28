@@ -349,8 +349,8 @@ class ChatbotRideOrderService
     {
         $paymentMethod = ChatbotTransportSupport::normalizePaymentMethodOrNull($draft['payment_method'] ?? null);
         $nextActions = $paymentMethod === null
-            ? ['SET_PAYMENT_COD', 'SET_PAYMENT_TRANSFER', 'RESET_DESTINATION']
-            : ['CONFIRM_DRAFT', 'RESET_DESTINATION'];
+            ? ['SET_PAYMENT_COD', 'SET_PAYMENT_TRANSFER', 'RESET_DESTINATION', 'CHANGE_PICKUP']
+            : ['CONFIRM_DRAFT', 'RESET_DESTINATION', 'CHANGE_PICKUP'];
         $actionPayloads = ChatbotTransportSupport::paymentDraftActionPayloads($paymentMethod !== null);
 
         return [

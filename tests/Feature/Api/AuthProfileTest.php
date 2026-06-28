@@ -119,7 +119,10 @@ class AuthProfileTest extends TestCase
             ->assertJsonPath('data.address_count', 1)
             ->assertJsonPath('data.addresses.0.label', 'Rumah')
             ->assertJsonPath('data.stats.total_orders', 1)
-            ->assertJsonPath('data.stats.total_paid', 35000);
+            ->assertJsonPath('data.stats.total_paid', 35000)
+            ->assertJsonPath('data.auth_provider', 'password')
+            ->assertJsonPath('data.has_password', true)
+            ->assertJsonPath('data.requires_phone_completion', false);
 
         $this->assertArrayNotHasKey('rating', $response->json('data.stats'));
     }
@@ -463,6 +466,39 @@ class AuthProfileTest extends TestCase
             'email' => 'avatar.hapus@example.com',
             'avatar' => null,
         ]);
+    }
+
+    public function test_authenticated_user_can_remove_remote_google_avatar(): void
+    {
+        Storage::fake('public');
+
+        $user = User::query()->create([
+            'name' => 'Avatar Google',
+            'email' => 'avatar.google@example.com',
+            'phone' => '081255550201',
+            'google_sub' => 'avatar-google-sub',
+            'password' => null,
+            'role' => 'customer',
+            'avatar' => 'https://lh3.googleusercontent.com/google-avatar',
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $profileResponse = $this->getJson('/api/user');
+        $profileResponse->assertOk()
+            ->assertJsonPath('data.avatar_url', 'https://lh3.googleusercontent.com/google-avatar');
+
+        $response = $this->putJson('/api/user', [
+            'name' => 'Avatar Google Dihapus',
+            'phone' => '081255550202',
+            'email' => 'avatar.google@example.com',
+            'remove_avatar' => true,
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.avatar_url', null);
+
+        $this->assertNull($user->fresh()?->avatar);
     }
 
     public function test_authenticated_user_can_change_password(): void
@@ -975,5 +1011,137 @@ class AuthProfileTest extends TestCase
             'id' => $otherAddress->id,
             'is_default' => true,
         ]);
+    }
+
+    public function test_authenticated_user_can_complete_phone_number(): void
+    {
+        $user = User::query()->create([
+            'name' => 'Google Phone',
+            'email' => 'google.phone@example.com',
+            'google_sub' => 'google-phone-sub',
+            'password' => null,
+            'phone' => null,
+            'role' => 'customer',
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $response = $this->patchJson('/api/user/phone', [
+            'phone' => '0812-3456-7001',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('message', 'Nomor telepon berhasil disimpan.')
+            ->assertJsonPath('data.phone', '081234567001')
+            ->assertJsonPath('data.requires_phone_completion', false)
+            ->assertJsonPath('data.has_password', false);
+
+        $this->assertDatabaseHas('users', [
+            'id' => $user->id,
+            'phone' => '081234567001',
+            'phone_verified_at' => null,
+        ]);
+    }
+
+    public function test_phone_completion_requires_unique_valid_phone(): void
+    {
+        User::query()->create([
+            'name' => 'Existing Phone',
+            'email' => 'existing.phone@example.com',
+            'phone' => '081234567002',
+            'password' => Hash::make('rahasia123'),
+            'role' => 'customer',
+        ]);
+
+        $user = User::query()->create([
+            'name' => 'Need Phone',
+            'email' => 'need.phone@example.com',
+            'google_sub' => 'need-phone-sub',
+            'password' => null,
+            'phone' => null,
+            'role' => 'customer',
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $this->patchJson('/api/user/phone', ['phone' => 'abc'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['phone']);
+
+        $this->patchJson('/api/user/phone', ['phone' => '0812-3456-7002'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['phone']);
+    }
+
+    public function test_google_only_user_cannot_change_password_without_existing_password(): void
+    {
+        $user = User::query()->create([
+            'name' => 'Google Only',
+            'email' => 'google.only@example.com',
+            'google_sub' => 'google-only-sub',
+            'phone' => '081234567003',
+            'password' => null,
+            'role' => 'customer',
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $response = $this->putJson('/api/user/password', [
+            'current_password' => 'rahasia123',
+            'new_password' => 'passwordBaru123',
+            'new_password_confirmation' => 'passwordBaru123',
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJsonPath('errors.current_password.0', 'Akun Google belum memiliki password BangDeliv.');
+    }
+
+    public function test_google_only_user_can_create_first_password(): void
+    {
+        $user = User::query()->create([
+            'name' => 'Google First Password',
+            'email' => 'google.first.password@example.com',
+            'google_sub' => 'google-first-password-sub',
+            'phone' => '081234567004',
+            'password' => null,
+            'role' => 'customer',
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $response = $this->postJson('/api/user/password', [
+            'new_password' => 'passwordBaru123',
+            'new_password_confirmation' => 'passwordBaru123',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('message', 'Password BangDeliv berhasil dibuat.')
+            ->assertJsonPath('token_type', 'Bearer')
+            ->assertJsonStructure(['access_token']);
+
+        $this->assertTrue(Hash::check('passwordBaru123', (string) $user->fresh()->password));
+    }
+
+    public function test_create_first_password_fails_when_user_already_has_password(): void
+    {
+        $user = User::query()->create([
+            'name' => 'Already Password',
+            'email' => 'already.password@example.com',
+            'phone' => '081234567005',
+            'password' => Hash::make('rahasia123'),
+            'role' => 'customer',
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $response = $this->postJson('/api/user/password', [
+            'new_password' => 'passwordBaru123',
+            'new_password_confirmation' => 'passwordBaru123',
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJsonPath('errors.new_password.0', 'Akun sudah memiliki password. Gunakan menu ganti password.');
+
+        $this->assertTrue(Hash::check('rahasia123', (string) $user->fresh()->password));
     }
 }
