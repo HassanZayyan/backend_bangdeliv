@@ -21,7 +21,7 @@ return new class extends Migration
             $table->text('address')->nullable();
             $table->decimal('latitude', 10, 8)->nullable();
             $table->decimal('longitude', 11, 8)->nullable();
-            $table->string('phone', 20); // NOT NULL — driver wajib telepon untuk konfirmasi ketersediaan
+            $table->string('phone', 20)->nullable();
             $table->string('banner_image')->nullable();
             $table->json('gallery_images')->nullable();
             $table->timestamps();

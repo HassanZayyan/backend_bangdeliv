@@ -78,6 +78,44 @@ class RestaurantCrudTest extends TestCase
         ]);
     }
 
+    public function test_admin_can_create_and_update_restaurant_without_phone(): void
+    {
+        $admin = User::factory()->create([
+            'role' => 'admin',
+            'phone' => '081300000109',
+        ]);
+
+        $this->actingAs($admin)
+            ->post(route('admin.restaurants.store'), [
+                'name' => 'Resto Tanpa Telepon',
+                'address' => 'Jl. Tanpa Telepon',
+                'latitude' => -6.2,
+                'longitude' => 106.8,
+            ])
+            ->assertRedirect(route('admin.restaurants.index'));
+
+        $restaurant = Restaurant::query()
+            ->where('slug', 'resto-tanpa-telepon')
+            ->firstOrFail();
+
+        $this->assertNull($restaurant->phone);
+
+        $this->actingAs($admin)
+            ->put(route('admin.restaurants.update', $restaurant), [
+                'name' => 'Resto Tanpa Telepon Updated',
+                'address' => 'Jl. Tanpa Telepon Updated',
+                'latitude' => -6.21,
+                'longitude' => 106.81,
+                'phone' => '',
+            ])
+            ->assertRedirect(route('admin.restaurants.index'));
+
+        $restaurant->refresh();
+
+        $this->assertSame('resto-tanpa-telepon-updated', $restaurant->slug);
+        $this->assertNull($restaurant->phone);
+    }
+
     public function test_restaurant_slug_auto_generation_uses_suffix_when_name_collides(): void
     {
         $admin = User::factory()->create([

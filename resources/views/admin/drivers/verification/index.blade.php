@@ -55,7 +55,7 @@
                         $initial = strtoupper(substr($driver['name'] ?? 'D', 0, 2));
                     @endphp
                     <tr>
-                        <td>
+                        <td data-label="Calon Mitra" class="mobile-card-primary">
                             <div style="display: flex; align-items: center; gap: 12px;">
                                 <div class="driver-avatar" style="width: 45px; height: 45px; flex-shrink: 0;">{{ $initial }}</div>
                                 <div class="td-user">
@@ -64,11 +64,11 @@
                                 </div>
                             </div>
                         </td>
-                        <td>
+                        <td data-label="Kendaraan">
                             <span class="td-strong">{{ $driver['vehicle_plate'] ?? '-' }}</span>
                             <span class="td-sub" style="display:block;">Status Registrasi: {{ ucfirst($driver['registration_status'] ?? 'pending') }}</span>
                         </td>
-                        <td>
+                        <td data-label="Status Dokumen">
                             <div style="display: flex; flex-direction: column; gap: 4px;">
                                 @foreach($documents as $doc)
                                     @php
@@ -81,14 +81,14 @@
                                 @endforeach
                             </div>
                         </td>
-                        <td>
+                        <td data-label="Waktu Pengajuan">
                             @php
                                 $submittedAt = !empty($driver['submitted_at']) ? \Illuminate\Support\Carbon::parse($driver['submitted_at']) : null;
                             @endphp
                             <span class="td-strong">{{ $submittedAt?->diffForHumans() ?? '-' }}</span>
                             <span class="td-sub" style="display:block;">{{ $submittedAt?->format('d M Y, H:i') ?? '-' }}</span>
                         </td>
-                        <td class="td-action">
+                        <td class="td-action" data-label="Keputusan">
                             <div style="display:flex; gap: 8px;">
                                 <a href="{{ route('admin.verification.show', ['driverId' => $driver['id']]) }}" class="btn-action detail" style="width:auto; padding:0 12px; font-size:13px; font-weight:600; color:white; background:var(--color-primary); text-decoration:none; display:inline-flex; align-items:center;" title="Periksa Dokumen"><i class='bx bx-search-alt' style="margin-right:5px;"></i> Periksa</a>
                             </div>

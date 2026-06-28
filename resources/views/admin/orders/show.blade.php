@@ -142,13 +142,13 @@
                     <tbody>
                         @forelse($order->items as $item)
                             <tr>
-                                <td>
+                                <td data-label="Item" class="mobile-card-primary">
                                     <span class="td-strong">{{ $item->menu_name ?? '-' }}</span>
                                     <span class="td-sub">{{ $item->notes ?? '-' }}</span>
                                 </td>
-                                <td>{{ $item->quantity }}</td>
-                                <td>Rp {{ number_format((float) $item->unit_price, 0, ',', '.') }}</td>
-                                <td>Rp {{ number_format((float) $item->subtotal, 0, ',', '.') }}</td>
+                                <td data-label="Qty">{{ $item->quantity }}</td>
+                                <td data-label="Harga">Rp {{ number_format((float) $item->unit_price, 0, ',', '.') }}</td>
+                                <td data-label="Subtotal">Rp {{ number_format((float) $item->subtotal, 0, ',', '.') }}</td>
                             </tr>
                         @empty
                             <tr>

@@ -55,7 +55,7 @@
                         $avatarUrl = $customer->admin_avatar_url;
                     @endphp
                     <tr @if($isBlacklisted) style="background-color: rgba(239, 68, 68, 0.02);" @endif>
-                        <td>
+                        <td data-label="Profil Pelanggan" class="mobile-card-primary">
                             <div style="display: flex; align-items: center; gap: 12px;">
                                 <div class="driver-avatar {{ $avatarUrl ? 'has-image' : 'is-fallback' }}" style="width: 45px; height: 45px; flex-shrink: 0; {{ $isBlacklisted ? 'background-color: var(--color-danger);' : '' }}">
                                     @if($avatarUrl)
@@ -75,18 +75,18 @@
                                 </div>
                             </div>
                         </td>
-                        <td>
+                        <td data-label="Kontak">
                             <span class="td-strong"><i class='bx bx-envelope'></i> {{ $customer->email }}</span>
                             <span class="td-sub" style="display:block;"><i class='bx bx-phone'></i> {{ $customer->phone ?? '-' }}</span>
                         </td>
-                        <td>
+                        <td data-label="Riwayat Pesanan">
                             <span class="td-strong" style="color:var(--color-success);">{{ $customer->success_orders_count }} Sukses</span>
                             <span class="td-sub" style="display:block; {{ $customer->cancelled_orders_count > 0 ? 'color:var(--color-danger); font-weight:600;' : '' }}">{{ $customer->cancelled_orders_count }} Dibatalkan</span>
                         </td>
-                        <td>
+                        <td data-label="Status Akun">
                             <span class="badge {{ $status['class'] }}">{{ $status['label'] }}</span>
                         </td>
-                        <td class="td-action">
+                        <td class="td-action" data-label="Aksi">
                             <div class="customer-actions">
                                 <button
                                     type="button"

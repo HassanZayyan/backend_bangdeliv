@@ -84,19 +84,19 @@
                 <tbody>
                     @forelse($menus as $menu)
                         <tr>
-                            <td>
+                            <td data-label="Menu" class="mobile-card-primary">
                                 <div class="td-user">
                                     <span class="td-strong">{{ $menu->name }}</span>
                                     <span class="td-sub">Urutan {{ (int) $menu->sort_order }}</span>
                                 </div>
                             </td>
-                            <td>
+                            <td data-label="Harga">
                                 <span class="td-strong" style="color:var(--color-primary);">Rp {{ number_format((float) $menu->price, 0, ',', '.') }}</span>
                             </td>
-                            <td>
+                            <td data-label="Status">
                                 <span class="badge {{ $menu->is_available ? 'badge-success' : 'badge-danger' }}">{{ $menu->is_available ? 'Tersedia' : 'Tidak Tersedia' }}</span>
                             </td>
-                            <td>
+                            <td class="td-action" data-label="Aksi">
                                 <div style="display:flex; align-items:flex-start; gap:8px; flex-wrap:wrap;">
                                     <button
                                         type="button"

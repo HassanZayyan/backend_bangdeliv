@@ -47,8 +47,8 @@
     $adminUser = Auth::user();
     $adminAvatarUrl = app(\App\Services\Admin\AdminMediaUrlResolver::class)->publicUrl($adminUser?->avatar);
 @endphp
-<div class="admin-layout">
-    <aside class="sidebar">
+<div class="admin-layout" id="adminLayout">
+    <aside class="sidebar" id="adminSidebar">
         <div class="sidebar-header">
             <div class="sidebar-logo">
                 <img src="{{ asset('images/logo.jpg') }}" alt="BangDeliv">
@@ -147,8 +147,21 @@
         </div>
     </aside>
 
-    <main class="main-content">
+    <button id="sidebarOverlay" class="sidebar-overlay" type="button" aria-label="Tutup menu admin" hidden></button>
+
+    <main class="main-content" id="adminMainContent">
         <header class="top-navbar">
+            <button
+                id="mobileSidebarToggle"
+                class="icon-btn mobile-sidebar-toggle"
+                type="button"
+                aria-label="Buka menu admin"
+                aria-controls="adminSidebar"
+                aria-expanded="false"
+            >
+                <i class="bx bx-menu" aria-hidden="true"></i>
+            </button>
+
             <div class="breadcrumb">
                 <span>BangDeliv</span> / @yield('page-title', 'Dashboard')
             </div>
@@ -293,6 +306,109 @@
                 button?.setAttribute('aria-expanded', 'false');
             }
         });
+
+        const layout = document.getElementById('adminLayout');
+        const sidebar = document.getElementById('adminSidebar');
+        const sidebarToggle = document.getElementById('mobileSidebarToggle');
+        const sidebarOverlay = document.getElementById('sidebarOverlay');
+        const mobileSidebarQuery = window.matchMedia('(max-width: 900px)');
+        let sidebarReturnFocus = null;
+
+        const sidebarFocusableSelector = [
+            'a[href]',
+            'button:not([disabled])',
+            'input:not([disabled])',
+            'select:not([disabled])',
+            'textarea:not([disabled])',
+            '[tabindex]:not([tabindex="-1"])',
+        ].join(',');
+
+        const isSidebarOpen = () => layout?.classList.contains('sidebar-open');
+
+        const syncSidebarAccessibility = (isOpen = isSidebarOpen()) => {
+            if (! sidebar) return;
+
+            const shouldDisableSidebar = mobileSidebarQuery.matches && ! isOpen;
+            sidebar.toggleAttribute('inert', shouldDisableSidebar);
+            sidebar.setAttribute('aria-hidden', shouldDisableSidebar ? 'true' : 'false');
+        };
+
+        const setSidebarOpen = (isOpen) => {
+            if (! layout || ! sidebarToggle || ! sidebarOverlay) return;
+
+            layout.classList.toggle('sidebar-open', isOpen);
+            document.body.classList.toggle('admin-nav-open', isOpen);
+            sidebarOverlay.hidden = ! isOpen;
+            sidebarToggle.setAttribute('aria-expanded', String(isOpen));
+            syncSidebarAccessibility(isOpen);
+
+            if (isOpen) {
+                sidebarReturnFocus = document.activeElement;
+                const firstFocusable = sidebar?.querySelector(sidebarFocusableSelector);
+                firstFocusable?.focus({ preventScroll: true });
+            } else if (sidebarReturnFocus && typeof sidebarReturnFocus.focus === 'function') {
+                sidebarReturnFocus.focus({ preventScroll: true });
+                sidebarReturnFocus = null;
+            }
+        };
+
+        sidebarToggle?.addEventListener('click', () => {
+            setSidebarOpen(! isSidebarOpen());
+        });
+
+        sidebarOverlay?.addEventListener('click', () => setSidebarOpen(false));
+
+        sidebar?.querySelectorAll('a[href]').forEach((link) => {
+            link.addEventListener('click', () => {
+                if (mobileSidebarQuery.matches) {
+                    setSidebarOpen(false);
+                }
+            });
+        });
+
+        document.addEventListener('keydown', (event) => {
+            if (! isSidebarOpen()) return;
+
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                setSidebarOpen(false);
+                return;
+            }
+
+            if (event.key !== 'Tab' || ! sidebar) return;
+
+            const focusable = Array.from(sidebar.querySelectorAll(sidebarFocusableSelector))
+                .filter((element) => element.offsetParent !== null);
+
+            if (focusable.length === 0) return;
+
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+
+            if (event.shiftKey && document.activeElement === first) {
+                event.preventDefault();
+                last.focus();
+            } else if (! event.shiftKey && document.activeElement === last) {
+                event.preventDefault();
+                first.focus();
+            }
+        });
+
+        const closeSidebarWhenDesktop = () => {
+            if (! mobileSidebarQuery.matches) {
+                setSidebarOpen(false);
+            } else {
+                syncSidebarAccessibility();
+            }
+        };
+
+        if (typeof mobileSidebarQuery.addEventListener === 'function') {
+            mobileSidebarQuery.addEventListener('change', closeSidebarWhenDesktop);
+        } else if (typeof mobileSidebarQuery.addListener === 'function') {
+            mobileSidebarQuery.addListener(closeSidebarWhenDesktop);
+        }
+
+        syncSidebarAccessibility();
 
         const searchInputs = document.querySelectorAll('.search-bar input[name="q"], .search-bar input[name="search"]');
         searchInputs.forEach(input => {

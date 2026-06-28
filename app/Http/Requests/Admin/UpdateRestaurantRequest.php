@@ -28,6 +28,7 @@ class UpdateRestaurantRequest extends FormRequest
         $this->merge([
             'latitude' => $latitude,
             'longitude' => $longitude,
+            'phone' => $this->normalizeNullableStringInput($this->input('phone')),
             'merchant_type' => $this->normalizeMerchantTypeInput(
                 $this->input('merchant_type'),
                 (string) ($this->route('restaurant')?->merchant_type ?? 'restaurant')
@@ -54,7 +55,7 @@ class UpdateRestaurantRequest extends FormRequest
             'address' => ['required', 'string'],
             'latitude' => ['required', 'numeric', 'between:-90,90'],
             'longitude' => ['required', 'numeric', 'between:-180,180'],
-            'phone' => ['required', 'string', 'max:20'],
+            'phone' => ['nullable', 'string', 'max:20'],
             'banner_image' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
             'remove_banner_image' => ['nullable', 'boolean'],
         ];
@@ -85,5 +86,12 @@ class UpdateRestaurantRequest extends FormRequest
         $normalized = trim((string) ($value ?? ''));
 
         return $normalized === '' ? $default : $normalized;
+    }
+
+    private function normalizeNullableStringInput(mixed $value): ?string
+    {
+        $normalized = trim((string) ($value ?? ''));
+
+        return $normalized === '' ? null : $normalized;
     }
 }

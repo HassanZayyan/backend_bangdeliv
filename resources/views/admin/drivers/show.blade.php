@@ -147,21 +147,21 @@
             <tbody>
                 @forelse($incomeRows as $row)
                     <tr>
-                        <td>
+                        <td data-label="Pesanan" class="mobile-card-primary">
                             <span class="td-strong">#{{ $row['order_number'] }}</span>
                             <span class="td-sub">{{ $row['date']?->format('d M Y, H:i') ?? '-' }}</span>
                         </td>
-                        <td>
+                        <td data-label="Customer">
                             <span class="td-strong">{{ $row['customer_name'] }}</span>
                             <span class="td-sub">{{ $row['status_label'] }}</span>
                         </td>
-                        <td>{{ $row['service_label'] }}</td>
-                        <td>{{ $formatCurrency($row['gross_income']) }}</td>
-                        <td>
+                        <td data-label="Layanan">{{ $row['service_label'] }}</td>
+                        <td data-label="Bruto">{{ $formatCurrency($row['gross_income']) }}</td>
+                        <td data-label="Potongan">
                             <span class="td-strong">{{ $formatCurrency($row['admin_fee']) }}</span>
                             <span class="td-sub">{{ $formatPercent($row['admin_fee_percent']) }}</span>
                         </td>
-                        <td><span class="td-price">{{ $formatCurrency($row['net_income']) }}</span></td>
+                        <td data-label="Bersih"><span class="td-price">{{ $formatCurrency($row['net_income']) }}</span></td>
                     </tr>
                 @empty
                     <tr>

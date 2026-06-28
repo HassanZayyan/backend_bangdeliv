@@ -88,33 +88,33 @@
                         }
                     @endphp
                     <tr>
-                        <td>
+                        <td data-label="Pesanan" class="mobile-card-primary">
                             <span class="td-strong">#{{ $order->order_number }}</span>
                             <span class="td-sub">{{ $order->created_at?->format('d M Y, H:i') ?? '-' }}</span>
                         </td>
-                        <td>
+                        <td data-label="Customer">
                             <span class="td-strong">{{ $order->user?->name ?? '-' }}</span>
                             <span class="td-sub">{{ $order->user?->phone ?? '-' }}</span>
                         </td>
-                        <td>
+                        <td data-label="Layanan">
                             <span class="badge {{ $serviceConfig['class'] }}">{{ $serviceConfig['label'] }}</span>
                             <span class="td-sub row-note">{{ $serviceSummary }}</span>
                         </td>
-                        <td>
+                        <td data-label="Total & Pembayaran">
                             <span class="td-price">Rp {{ number_format((float) $order->total_price, 0, ',', '.') }}</span>
                             <span class="td-sub">{{ $paymentMethod }} - {{ $paymentStatus }}</span>
                             @if($pendingProofCount > 0)
                                 <span class="badge badge-warning row-note">{{ $pendingProofCount }} bukti pending</span>
                             @endif
                         </td>
-                        <td>
+                        <td data-label="Status">
                             <span class="badge {{ $statusConfig['class'] }}">{{ $statusConfig['label'] }}</span>
                         </td>
-                        <td>
+                        <td data-label="Driver">
                             <span class="td-strong">{{ $order->driver?->user?->name ?? '-' }}</span>
                             <span class="td-sub">{{ $order->driver?->user?->phone ?? '' }}</span>
                         </td>
-                        <td class="td-action">
+                        <td class="td-action" data-label="Detail">
                             <a href="{{ route('admin.orders.show', ['order' => $order->id, 'back' => url()->full()]) }}" class="btn-action detail" title="Lihat detail" aria-label="Lihat detail pesanan {{ $order->order_number }}">
                                 <i class="bx bx-show" aria-hidden="true"></i>
                             </a>

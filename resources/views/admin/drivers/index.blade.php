@@ -72,7 +72,7 @@
                         ];
                     @endphp
                     <tr>
-                        <td>
+                        <td data-label="Profil Driver" class="mobile-card-primary">
                             <div style="display: flex; align-items: center; gap: 12px;">
                                 <div class="driver-avatar {{ $avatarUrl ? 'has-image' : 'is-fallback' }}" style="width: 45px; height: 45px; flex-shrink: 0;">
                                     @if($avatarUrl)
@@ -92,20 +92,20 @@
                                 </div>
                             </div>
                         </td>
-                        <td>
+                        <td data-label="Kendaraan">
                             <span class="td-strong">{{ $driver->vehicle_plate }}</span>
                         </td>
-                        <td>
+                        <td data-label="Performa">
                             <span class="td-strong">{{ $driver->orders_count ?? 0 }} order terkait</span>
                             <span class="td-sub" style="display:block;">Rating driver tidak digunakan</span>
                         </td>
-                        <td>
+                        <td data-label="Pendapatan">
                             <span class="td-price">{{ $formatCurrency($income['net_income'] ?? 0) }}</span>
                             <span class="td-sub" style="display:block;">Bruto {{ $formatCurrency($income['gross_income'] ?? 0) }}</span>
                             <span class="td-sub" style="display:block;">Potongan {{ $formatPercent($income['admin_fee_percent'] ?? 0) }}: {{ $formatCurrency($income['admin_fee'] ?? 0) }}</span>
                         </td>
-                        <td><span class="badge {{ $status['class'] }}">{{ $status['label'] }}</span></td>
-                        <td class="td-action">
+                        <td data-label="Status Akun"><span class="badge {{ $status['class'] }}">{{ $status['label'] }}</span></td>
+                        <td class="td-action" data-label="Aksi">
                             <div style="display:flex; gap: 8px;">
                                 <a href="{{ route('admin.drivers.show', ['driver' => $driver->id]) }}" class="btn-action detail" title="Lihat Profil Lengkap" aria-label="Lihat profil lengkap {{ $driver->user->name ?? 'driver' }}"><i class='bx bx-id-card'></i></a>
                             </div>

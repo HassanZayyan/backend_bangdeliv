@@ -46,7 +46,7 @@
                         $bannerUrl = $restaurant->admin_banner_url;
                     @endphp
                     <tr>
-                        <td>
+                        <td data-label="Info Restoran" class="mobile-card-primary">
                             <div style="display: flex; align-items: center; gap: 12px;">
                                 <div class="admin-thumbnail restaurant-thumbnail {{ $bannerUrl ? 'has-image' : 'is-fallback' }}">
                                     @if($bannerUrl)
@@ -64,20 +64,20 @@
                                 </div>
                                 <div class="td-user">
                                     <span class="td-strong">{{ $restaurant->name }}</span>
-                                    <span class="td-sub"><i class="bx bx-phone" aria-hidden="true"></i> {{ $restaurant->phone }}</span>
+                                    <span class="td-sub"><i class="bx bx-phone" aria-hidden="true"></i> {{ $restaurant->phone ?: '-' }}</span>
                                     <span class="td-sub"><i class="bx bx-map-pin" aria-hidden="true"></i> {{ $restaurant->address }}</span>
                                 </div>
                             </div>
                         </td>
-                        <td>
+                        <td data-label="Detail Menu">
                             <span class="td-strong">{{ $restaurant->menus_count }} Item Menu</span>
                             <span class="td-sub" style="display:block;"><i class="bx bx-category" aria-hidden="true"></i> {{ ucfirst(str_replace('_', ' ', $restaurant->merchant_type)) }}</span>
                         </td>
-                        <td>
+                        <td data-label="Rating & Omset">
                             <span class="td-strong">{{ $restaurant->orders_count }} pesanan</span>
                             <span class="td-sub" style="display:block;">Total order terkait merchant</span>
                         </td>
-                        <td class="td-action">
+                        <td class="td-action" data-label="Aksi">
                             <div style="display:flex; gap: 8px; justify-content:flex-end;">
                                 <a href="{{ route('admin.restaurants.menus.index', $restaurant) }}" class="btn-action detail" title="Kelola menu" aria-label="Kelola menu {{ $restaurant->name }}">
                                     <i class="bx bx-food-menu" aria-hidden="true"></i>
