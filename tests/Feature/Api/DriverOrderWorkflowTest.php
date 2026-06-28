@@ -32,6 +32,7 @@ use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -281,6 +282,64 @@ class DriverOrderWorkflowTest extends TestCase
 
         $this->assertCount(1, $response->json('data.incoming_orders'));
         $this->assertSame((string) $pendingOrder->id, (string) $response->json('data.incoming_orders.0.id'));
+    }
+
+    public function test_driver_order_payloads_include_customer_avatar_url(): void
+    {
+        Storage::fake('public');
+        Storage::disk('public')->put('avatars/customer.jpg', 'customer-avatar');
+
+        [$driverUser, $driver] = $this->createActiveDriver('customer-avatar');
+        $driver->update(['status' => 'available']);
+        $order = $this->createShoppingOrder(null, 'PENDING');
+        $order->user()->update(['avatar' => 'avatars/customer.jpg']);
+
+        Sanctum::actingAs($driverUser);
+
+        $listResponse = $this->getJson('/api/v1/driver/orders');
+        $listResponse->assertOk();
+        $this->assertStringContainsString(
+            '/storage/avatars/customer.jpg',
+            (string) $listResponse->json('data.incoming_orders.0.customer_avatar_url')
+        );
+
+        $detailResponse = $this->getJson('/api/v1/driver/orders/'.$order->id);
+        $detailResponse->assertOk();
+        $this->assertStringContainsString(
+            '/storage/avatars/customer.jpg',
+            (string) $detailResponse->json('data.customer_avatar_url')
+        );
+
+        $acceptResponse = $this->postJson('/api/v1/driver/orders/'.$order->id.'/accept');
+        $acceptResponse->assertOk();
+        $this->assertStringContainsString(
+            '/storage/avatars/customer.jpg',
+            (string) $acceptResponse->json('data.customer_avatar_url')
+        );
+    }
+
+    public function test_customer_order_detail_includes_driver_avatar_url(): void
+    {
+        Storage::fake('public');
+        Storage::disk('public')->put('avatars/driver.jpg', 'driver-avatar');
+
+        [$driverUser, $driver] = $this->createActiveDriver('driver-avatar');
+        $driverUser->update(['avatar' => 'avatars/driver.jpg']);
+        $order = $this->createShoppingOrder($driver, 'DRIVER_ASSIGNED');
+        $customer = $order->user()->firstOrFail();
+
+        Sanctum::actingAs($customer);
+
+        $response = $this->getJson('/api/v1/orders/'.$order->id);
+        $response->assertOk();
+        $this->assertStringContainsString(
+            '/storage/avatars/driver.jpg',
+            (string) $response->json('data.driver_avatar_url')
+        );
+        $this->assertStringContainsString(
+            '/storage/avatars/driver.jpg',
+            (string) $response->json('data.driver.user.avatar_url')
+        );
     }
 
     public function test_available_driver_can_update_standby_location_without_order(): void
@@ -765,6 +824,37 @@ class DriverOrderWorkflowTest extends TestCase
                 (int) $event->orderId === (int) $order->id &&
                 $event->reason === 'accepted';
         });
+    }
+
+    public function test_second_driver_cannot_accept_order_already_assigned_to_first_driver(): void
+    {
+        [$firstDriverUser, $firstDriver] = $this->createActiveDriver('race-first');
+        $firstDriver->update(['status' => 'available']);
+
+        [$secondDriverUser, $secondDriver] = $this->createActiveDriver('race-second');
+        $secondDriver->update(['status' => 'available']);
+
+        $order = $this->createShoppingOrder(null, 'PENDING');
+
+        Sanctum::actingAs($firstDriverUser);
+        $this->postJson('/api/v1/driver/orders/'.$order->id.'/accept')
+            ->assertOk()
+            ->assertJsonPath('data.status_code', 'DRIVER_ASSIGNED');
+
+        Sanctum::actingAs($secondDriverUser);
+        $this->postJson('/api/v1/driver/orders/'.$order->id.'/accept')
+            ->assertStatus(409)
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('message', 'Order tidak dapat diterima pada status saat ini.');
+
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
+            'driver_id' => $firstDriver->id,
+        ]);
+        $this->assertDatabaseMissing('orders', [
+            'id' => $order->id,
+            'driver_id' => $secondDriver->id,
+        ]);
     }
 
     public function test_offline_driver_cannot_accept_pending_order(): void

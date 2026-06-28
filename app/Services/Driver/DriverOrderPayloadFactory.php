@@ -18,6 +18,7 @@ use App\Services\Shopping\ShoppingItemChangeRequestService;
 use App\Services\Shopping\ShoppingOrderCapabilityService;
 use App\Services\Shopping\ShoppingUnavailableItemDecisionService;
 use Illuminate\Database\Eloquent\Relations\Relation;
+use Illuminate\Support\Facades\Storage;
 
 class DriverOrderPayloadFactory
 {
@@ -38,7 +39,7 @@ class DriverOrderPayloadFactory
     public function relations(): array
     {
         return [
-            'user:id,name,phone',
+            'user:id,name,phone,avatar',
             'serviceType:id,code,display_name',
             'statusRef:id,code,display_name',
             'shoppingReceipt',
@@ -124,6 +125,7 @@ class DriverOrderPayloadFactory
             'service_type_name' => $order->serviceType?->display_name,
             'customer_name' => $order->user->name ?? '-',
             'customer_phone' => $order->user?->phone,
+            'customer_avatar_url' => $this->resolveAvatarUrl($order->user?->avatar),
             'pickup_address' => $pickup['address'],
             'pickup_latitude' => $pickup['latitude'],
             'pickup_longitude' => $pickup['longitude'],
@@ -202,6 +204,25 @@ class DriverOrderPayloadFactory
         }
 
         return $payload;
+    }
+
+    private function resolveAvatarUrl(?string $avatar): ?string
+    {
+        $avatar = trim((string) ($avatar ?? ''));
+        if ($avatar === '') {
+            return null;
+        }
+
+        if (str_starts_with($avatar, 'http://') || str_starts_with($avatar, 'https://')) {
+            return $avatar;
+        }
+
+        $path = ltrim($avatar, '/');
+        if (! Storage::disk('public')->exists($path)) {
+            return null;
+        }
+
+        return Storage::disk('public')->url($path);
     }
 
     /**

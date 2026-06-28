@@ -43,6 +43,7 @@ use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 
 class OrderService
 {
@@ -114,8 +115,30 @@ class OrderService
         }
 
         $freshOrder->setAttribute('driver_eta', $this->driverArrivalEtaService->forCustomerTracking($freshOrder));
+        $driverAvatarUrl = $this->resolveAvatarUrl($freshOrder->driver?->user?->avatar);
+        $freshOrder->setAttribute('driver_avatar_url', $driverAvatarUrl);
+        $freshOrder->driver?->user?->setAttribute('avatar_url', $driverAvatarUrl);
 
         return $freshOrder;
+    }
+
+    private function resolveAvatarUrl(?string $avatar): ?string
+    {
+        $avatar = trim((string) ($avatar ?? ''));
+        if ($avatar === '') {
+            return null;
+        }
+
+        if (str_starts_with($avatar, 'http://') || str_starts_with($avatar, 'https://')) {
+            return $avatar;
+        }
+
+        $path = ltrim($avatar, '/');
+        if (! Storage::disk('public')->exists($path)) {
+            return null;
+        }
+
+        return Storage::disk('public')->url($path);
     }
 
     public function cancelByCustomer(User $user, int $orderId, string $reason): Order
