@@ -1,0 +1,64 @@
+x-app-service: &app-service
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: bangdeliv-app:latest
+  env_file:
+    - .env
+  depends_on:
+    mysql:
+      condition: service_healthy
+  restart: unless-stopped
+  volumes:
+    - public_data:/shared/public
+    - storage_data:/var/www/html/storage
+    - bootstrap_cache:/var/www/html/bootstrap/cache
+
+services:
+  app:
+    <<: *app-service
+
+  nginx:
+    image: nginx:1.27-alpine
+    depends_on:
+      - app
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - public_data:/var/www/html/public:ro
+      - storage_data:/var/www/html/storage:ro
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${DB_DATABASE:-bangdeliv}
+      MYSQL_USER: ${DB_USERNAME:-bangdeliv}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-bangdeliv}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-bangdeliv_root}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$${MYSQL_ROOT_PASSWORD}\" mysqladmin ping -h 127.0.0.1 -u root --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  queue:
+    <<: *app-service
+    command: php artisan queue:work --sleep=3 --tries=3 --timeout=90
+
+  reverb:
+    <<: *app-service
+    command: php artisan reverb:start --host=0.0.0.0 --port=8080
+    ports:
+      - "8080:8080"
+
+volumes:
+  mysql_data:
+  public_data:
+  storage_data:
+  bootstrap_cache:

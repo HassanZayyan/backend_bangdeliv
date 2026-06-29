@@ -1,0 +1,13 @@
+[Unit]
+Description=BangDeliv auto deploy from origin/main
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/opt/bangdeliv
+Environment=APP_DIR=/opt/bangdeliv
+Environment=DEPLOY_BRANCH=main
+ExecStart=/opt/bangdeliv/scripts/auto-deploy.sh
+
