@@ -2,14 +2,17 @@
 
 namespace Tests\Feature\Api;
 
+use App\Events\DriverOrderAvailable;
 use App\Models\DeviceToken;
 use App\Models\Driver;
 use App\Models\Order;
 use App\Models\OrderStatus;
 use App\Models\ServiceType;
 use App\Models\User;
+use App\Services\Driver\DriverOrderRealtimeService;
 use App\Services\Notification\DriverIncomingOrderPushNotificationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Event;
 use Kreait\Firebase\Contract\Messaging;
 use Kreait\Firebase\Messaging\MessageTarget;
 use Kreait\Firebase\Messaging\MulticastSendReport;
@@ -55,6 +58,41 @@ class DriverIncomingOrderPushNotificationTest extends TestCase
             ->sendIncomingOrderNotification($order, $driver);
 
         $this->assertTrue($sent);
+    }
+
+    public function test_driver_order_realtime_broadcast_sends_push_notification_to_driver_candidates(): void
+    {
+        [$driverUser, $driver, $customer, $order] = $this->createRideOrder();
+
+        $this->createToken($driverUser, 'driver-candidate-token');
+        $this->createToken($customer, 'customer-token');
+
+        Event::fake([DriverOrderAvailable::class]);
+
+        $messaging = Mockery::mock(Messaging::class);
+        $messaging
+            ->shouldReceive('sendMulticast')
+            ->once()
+            ->withArgs(function ($message, $tokens) use ($order): bool {
+                $payload = json_decode(json_encode($message), true);
+
+                return $tokens === ['driver-candidate-token']
+                    && $payload['data']['type'] === 'driver_order_available'
+                    && $payload['data']['order_id'] === (string) $order->id
+                    && $payload['data']['order_number'] === $order->order_number
+                    && $payload['data']['service_type_code'] === 'RIDE'
+                    && $payload['data']['route'] === '/driver/orders';
+            })
+            ->andReturn($this->successfulReport(['driver-candidate-token']));
+        $this->app->instance(Messaging::class, $messaging);
+
+        app(DriverOrderRealtimeService::class)->broadcastOrderAvailable($order);
+
+        Event::assertDispatched(
+            DriverOrderAvailable::class,
+            fn (DriverOrderAvailable $event): bool => (int) $event->driverUserId === (int) $driverUser->id
+                && (int) ($event->order['id'] ?? 0) === (int) $order->id,
+        );
     }
 
     /**

@@ -35,10 +35,17 @@ class UserPushNotificationSender
                 ->all();
 
             if ($tokens === []) {
+                Log::debug('Notifikasi FCM tidak dikirim karena token aktif tidak ditemukan.', [
+                    ...$context,
+                    'recipient_user_id' => $recipient->id,
+                    'device_type' => 'android',
+                ]);
+
                 return false;
             }
 
             $report = $this->messaging()->sendMulticast($message, $tokens);
+            $successCount = $report->successes()->count();
 
             $inactiveTokens = array_values(array_unique([
                 ...$report->invalidTokens(),
@@ -56,10 +63,21 @@ class UserPushNotificationSender
                     ...$context,
                     'recipient_user_id' => $recipient->id,
                     'failed_count' => $report->failures()->count(),
+                    'success_count' => $successCount,
+                    'token_count' => count($tokens),
                 ]);
             }
 
-            return $report->successes()->count() > 0;
+            if ($successCount > 0) {
+                Log::debug('Notifikasi FCM terkirim.', [
+                    ...$context,
+                    'recipient_user_id' => $recipient->id,
+                    'success_count' => $successCount,
+                    'token_count' => count($tokens),
+                ]);
+            }
+
+            return $successCount > 0;
         } catch (\Throwable $exception) {
             Log::warning($failureMessage, [
                 ...$context,
