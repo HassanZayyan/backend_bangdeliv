@@ -46,6 +46,7 @@ COPY docker/php/entrypoint.sh /usr/local/bin/bangdeliv-entrypoint
 COPY docker/php/php.ini /usr/local/etc/php/conf.d/bangdeliv.ini
 
 RUN mkdir -p \
+        /opt/bangdeliv-seed-public \
         bootstrap/cache \
         storage/app/public \
         storage/framework/cache/data \
@@ -64,6 +65,7 @@ RUN mkdir -p \
             --no-progress \
             --prefer-source \
             --optimize-autoloader) \
+    && if [ -d storage/app/public ]; then cp -a storage/app/public/. /opt/bangdeliv-seed-public/; fi \
     && chmod +x /usr/local/bin/bangdeliv-entrypoint \
     && chown -R www-data:www-data bootstrap/cache storage
 

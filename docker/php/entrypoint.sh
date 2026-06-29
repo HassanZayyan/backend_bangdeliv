@@ -10,6 +10,10 @@ mkdir -p \
     storage/framework/views \
     storage/logs
 
+if [ -d /opt/bangdeliv-seed-public ]; then
+    rsync -a --ignore-existing /opt/bangdeliv-seed-public/ storage/app/public/
+fi
+
 if [ -e public/storage ] && [ ! -L public/storage ]; then
     rm -rf public/storage
 fi
@@ -22,4 +26,3 @@ rsync -a --delete public/ /shared/public/
 chown -R www-data:www-data /shared/public bootstrap/cache storage
 
 exec "$@"
-
