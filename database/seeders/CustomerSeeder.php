@@ -10,6 +10,10 @@ class CustomerSeeder extends Seeder
 {
     public function run(): void
     {
+        if (app()->isProduction()) {
+            return;
+        }
+
         $customers = [
             [
                 'name' => 'Hassan Nur',

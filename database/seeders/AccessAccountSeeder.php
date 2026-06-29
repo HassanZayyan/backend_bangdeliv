@@ -12,6 +12,10 @@ class AccessAccountSeeder extends Seeder
 {
     public function run(): void
     {
+        if (app()->isProduction()) {
+            return;
+        }
+
         User::updateOrCreate(
             ['email' => 'mhnzayyan@gmail.com'],
             [

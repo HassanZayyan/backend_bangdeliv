@@ -13,6 +13,10 @@ class UserSeeder extends Seeder
      */
     public function run(): void
     {
+        if (app()->isProduction()) {
+            return;
+        }
+
         // Buat akun admin
         User::updateOrCreate(
             ['email' => 'admin@bangdeliv.com'], // Cek berdasarkan email

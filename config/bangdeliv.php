@@ -15,6 +15,22 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Production Admin Seed
+    |--------------------------------------------------------------------------
+    |
+    | Akun admin awal untuk deployment production. Seeder production akan gagal
+    | jika email atau password tidak diisi agar tidak ada akun default lemah.
+    |
+    */
+    'production_admin' => [
+        'email' => env('BANGDELIV_ADMIN_EMAIL'),
+        'password' => env('BANGDELIV_ADMIN_PASSWORD'),
+        'name' => env('BANGDELIV_ADMIN_NAME', 'Super Admin'),
+        'phone' => env('BANGDELIV_ADMIN_PHONE'),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Google Maps Geocoding API
     |--------------------------------------------------------------------------
     |
