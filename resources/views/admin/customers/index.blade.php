@@ -1,6 +1,6 @@
 @extends('layouts.admin')
 
-@section('title', 'Pelanggan - Admin BangDeliv')
+@section('title', 'Pelanggan - Admin Pelanggan 15')
 @section('page-title', 'Manajemen Pelanggan')
 
 @section('content')

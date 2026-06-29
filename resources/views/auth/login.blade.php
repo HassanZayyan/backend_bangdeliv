@@ -1,15 +1,15 @@
 @extends('layouts.auth')
 
-@section('title', 'Login - Admin BangDeliv')
+@section('title', 'Login - Admin Pelanggan 15')
 
 @section('content')
 <div class="auth-shell">
     <section class="auth-brand-panel" aria-labelledby="auth-brand-title">
-        <img src="{{ asset('images/logo.jpg') }}" alt="Logo BangDeliv" class="auth-brand-logo">
+        <img src="{{ asset('images/logo.jpg') }}" alt="Logo Pelanggan 15" class="auth-brand-logo">
         <div class="auth-brand-copy">
-            <span>BangDeliv</span>
+            <span>Pelanggan 15</span>
             <h1 id="auth-brand-title">Admin Panel</h1>
-            <p>Masuk untuk mengelola operasional BangDeliv.</p>
+            <p>Masuk untuk mengelola operasional Pelanggan 15.</p>
         </div>
     </section>
 
@@ -43,7 +43,7 @@
         </form>
 
         <div class="auth-footnote">
-            <p>Sistem ini terbatas hanya untuk staf internal BangDeliv.</p>
+            <p>Sistem ini terbatas hanya untuk staf internal Pelanggan 15.</p>
             <button type="button" onclick="toggleTheme()" class="btn auth-theme-btn">
                 <i class='bx bx-moon' id="theme-icon" aria-hidden="true"></i>
                 Ganti Tema

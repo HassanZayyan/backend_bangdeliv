@@ -1,6 +1,6 @@
 @extends('layouts.admin')
 
-@section('title', 'Detail Verifikasi Driver - Admin BangDeliv')
+@section('title', 'Detail Verifikasi Driver - Admin Pelanggan 15')
 @section('page-title', 'Detail Verifikasi Driver')
 
 @section('content')

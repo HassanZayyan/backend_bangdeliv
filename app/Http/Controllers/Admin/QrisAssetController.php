@@ -28,6 +28,6 @@ class QrisAssetController extends Controller
 
         return redirect()
             ->route('admin.settings')
-            ->with('success', 'QRIS BangDeliv berhasil diperbarui.');
+            ->with('success', 'QRIS Pelanggan 15 berhasil diperbarui.');
     }
 }

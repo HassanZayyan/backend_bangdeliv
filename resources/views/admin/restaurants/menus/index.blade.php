@@ -1,6 +1,6 @@
 @extends('layouts.admin')
 
-@section('title', 'Kelola Menu - Admin BangDeliv')
+@section('title', 'Kelola Menu - Admin Pelanggan 15')
 @section('page-title', 'Kelola Menu '.$restaurant->name)
 
 @section('content')

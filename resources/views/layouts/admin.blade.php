@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>@yield('title', 'Admin Dashboard - BangDeliv')</title>
+    <title>@yield('title', 'Admin Dashboard - Pelanggan 15')</title>
     <link rel="icon" type="image/jpeg" href="{{ asset('images/logo.jpg') }}?v=bangdeliv">
     <link rel="shortcut icon" type="image/jpeg" href="{{ asset('images/logo.jpg') }}?v=bangdeliv">
     <link rel="apple-touch-icon" href="{{ asset('images/logo.jpg') }}?v=bangdeliv">
@@ -51,10 +51,10 @@
     <aside class="sidebar" id="adminSidebar">
         <div class="sidebar-header">
             <div class="sidebar-logo">
-                <img src="{{ asset('images/logo.jpg') }}" alt="BangDeliv">
+                <img src="{{ asset('images/logo.jpg') }}" alt="Pelanggan 15">
             </div>
             <div class="sidebar-brand">
-                <span>BangDeliv</span>
+                <span>Pelanggan 15</span>
                 <small>Admin Panel</small>
             </div>
         </div>
@@ -122,7 +122,7 @@
                 @if($adminAvatarUrl)
                     <img
                         src="{{ $adminAvatarUrl }}"
-                        alt="Avatar {{ $adminUser->name ?? 'Admin BangDeliv' }}"
+                        alt="Avatar {{ $adminUser->name ?? 'Admin Pelanggan 15' }}"
                         loading="lazy"
                         onerror="this.parentElement.classList.remove('has-image'); this.remove();"
                     >
@@ -130,7 +130,7 @@
                 <i class="bx bxs-user" aria-hidden="true"></i>
             </div>
             <div class="user-text">
-                <span class="user-name">{{ $adminUser->name ?? 'Admin BangDeliv' }}</span>
+                <span class="user-name">{{ $adminUser->name ?? 'Admin Pelanggan 15' }}</span>
                 <span class="user-role">Super Admin</span>
             </div>
 
@@ -163,7 +163,7 @@
             </button>
 
             <div class="breadcrumb">
-                <span>BangDeliv</span> / @yield('page-title', 'Dashboard')
+                <span>Pelanggan 15</span> / @yield('page-title', 'Dashboard')
             </div>
 
             <div class="nav-actions">

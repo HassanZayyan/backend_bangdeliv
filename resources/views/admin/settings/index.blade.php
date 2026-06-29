@@ -1,6 +1,6 @@
 @extends('layouts.admin')
 
-@section('title', 'Pengaturan - Admin BangDeliv')
+@section('title', 'Pengaturan - Admin Pelanggan 15')
 @section('page-title', 'Pengaturan Sistem')
 
 @section('content')
@@ -39,8 +39,8 @@
             </div>
 
             <div class="qris-settings-grid">
-                <a href="{{ route('payments.qris.show') }}" target="_blank" rel="noopener noreferrer" class="qris-preview-frame" aria-label="Buka QRIS BangDeliv">
-                    <img src="{{ $qrisAsset['url'] ?? route('payments.qris.show') }}" alt="QRIS pembayaran BangDeliv">
+                <a href="{{ route('payments.qris.show') }}" target="_blank" rel="noopener noreferrer" class="qris-preview-frame" aria-label="Buka QRIS Pelanggan 15">
+                    <img src="{{ $qrisAsset['url'] ?? route('payments.qris.show') }}" alt="QRIS pembayaran Pelanggan 15">
                 </a>
 
                 <div class="qris-settings-content">

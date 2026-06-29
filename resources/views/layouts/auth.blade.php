@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>@yield('title', 'Login - Admin BangDeliv')</title>
+    <title>@yield('title', 'Login - Admin Pelanggan 15')</title>
     <link rel="icon" type="image/jpeg" href="{{ asset('images/logo.jpg') }}?v=bangdeliv">
     <link rel="shortcut icon" type="image/jpeg" href="{{ asset('images/logo.jpg') }}?v=bangdeliv">
     <link rel="apple-touch-icon" href="{{ asset('images/logo.jpg') }}?v=bangdeliv">

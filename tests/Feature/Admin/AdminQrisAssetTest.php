@@ -46,7 +46,7 @@ class AdminQrisAssetTest extends TestCase
                 'qris_image' => UploadedFile::fake()->image('qris-baru.png', 600, 800),
             ])
             ->assertRedirect(route('admin.settings'))
-            ->assertSessionHas('success', 'QRIS BangDeliv berhasil diperbarui.');
+            ->assertSessionHas('success', 'QRIS Pelanggan 15 berhasil diperbarui.');
 
         Storage::disk('public')->assertMissing($oldPath);
         Storage::disk('public')->assertExists('settings/payments/qris/qris-bangdeliv.png');
