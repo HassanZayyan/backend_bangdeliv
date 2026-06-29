@@ -54,6 +54,7 @@ docker compose exec -T app php artisan view:cache
 
 echo "Restarting runtime workers..."
 docker compose restart app queue reverb
+docker compose restart nginx
 
 echo "Cleaning old Docker images..."
 docker image prune -f >/dev/null
