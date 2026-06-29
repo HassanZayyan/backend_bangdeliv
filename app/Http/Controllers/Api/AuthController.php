@@ -50,7 +50,7 @@ class AuthController extends Controller
             ],
             'password' => 'required|string|min:8',
         ], [
-            'phone.regex' => 'Format nomor telepon tidak valid.',
+            'phone.regex' => 'Format nomor WhatsApp tidak valid.',
         ]);
 
         if ($validator->fails()) {
@@ -69,7 +69,7 @@ class AuthController extends Controller
             'phone_verified_at' => null,
         ]);
 
-        return $this->issueAuthTokenResponse($user->fresh(), 'Customer registered successfully', 201);
+        return $this->issueAuthTokenResponse($user->fresh(), 'Pendaftaran customer berhasil.', 201);
     }
 
     private function normalizePhone(string $phone): string
@@ -140,7 +140,7 @@ class AuthController extends Controller
             return $deniedResponse;
         }
 
-        return $this->issueAuthTokenResponse($user, 'Login successful');
+        return $this->issueAuthTokenResponse($user, 'Login berhasil.');
     }
 
     /**
@@ -160,7 +160,7 @@ class AuthController extends Controller
             'phone' => ['required', 'string', 'max:20', 'regex:/^\+?[0-9]{10,15}$/'],
             'new_password' => ['required', 'string', 'min:8', 'confirmed'],
         ], [
-            'phone.regex' => 'Format nomor telepon tidak valid.',
+            'phone.regex' => 'Format nomor WhatsApp tidak valid.',
         ]);
 
         if ($validator->fails()) {
@@ -175,7 +175,7 @@ class AuthController extends Controller
 
         if (! $user || trim((string) ($user->password ?? '')) === '') {
             return response()->json([
-                'message' => 'Data akun tidak cocok. Periksa email dan nomor telepon.',
+                'message' => 'Data akun tidak cocok. Periksa email dan nomor WhatsApp.',
             ], 422);
         }
 
@@ -435,7 +435,7 @@ class AuthController extends Controller
                 Rule::unique('users', 'phone')->ignore($user->id),
             ],
         ], [
-            'phone.regex' => 'Format nomor telepon tidak valid.',
+            'phone.regex' => 'Format nomor WhatsApp tidak valid.',
         ]);
 
         if ($validator->fails()) {
@@ -453,7 +453,7 @@ class AuthController extends Controller
         $user->update($updates);
 
         return response()->json([
-            'message' => 'Nomor telepon berhasil disimpan.',
+            'message' => 'Nomor WhatsApp berhasil disimpan.',
             'data' => $this->buildProfilePayload($user->fresh(), $request),
         ]);
     }
@@ -658,7 +658,7 @@ class AuthController extends Controller
         // Revoke current token
         $request->user()->currentAccessToken()->delete();
 
-        return response()->json(['message' => 'Logged out successfully']);
+        return response()->json(['message' => 'Logout berhasil.']);
     }
 
     private function buildProfilePayload(User $user, ?Request $request = null): array

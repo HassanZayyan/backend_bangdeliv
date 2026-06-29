@@ -664,7 +664,7 @@ class OrderController extends Controller
                     : null
             );
 
-            return $this->success($order, 'Failed attempt berhasil dicatat.');
+            return $this->success($order, 'Percobaan gagal berhasil dicatat.');
         } catch (ApiException $exception) {
             return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
         }

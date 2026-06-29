@@ -348,7 +348,7 @@ class OrderService
             }
 
             if (($order->serviceType->code ?? null) !== 'SHOPPING') {
-                throw new ApiException('Failed attempt hanya berlaku untuk order SHOPPING.', 409);
+                throw new ApiException('Percobaan gagal hanya berlaku untuk order Nitip.', 409);
             }
 
             $pickup = null;
@@ -371,7 +371,7 @@ class OrderService
 
             $activeStatusCode = $order->statusRef?->code;
             if (! in_array($activeStatusCode, $this->failedAttemptRecordableStatuses, true)) {
-                throw new ApiException('Failed attempt tidak bisa dicatat pada status order saat ini.', 409);
+                throw new ApiException('Percobaan gagal tidak bisa dicatat pada status order saat ini.', 409);
             }
 
             if ($actor->role === 'driver') {

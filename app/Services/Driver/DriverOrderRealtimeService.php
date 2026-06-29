@@ -6,6 +6,7 @@ use App\Events\DriverOrderAvailable;
 use App\Events\DriverOrderRemoved;
 use App\Models\Order;
 use App\Services\Driver\Dispatch\DriverCandidateSelector;
+use App\Services\Notification\DriverIncomingOrderPushNotificationService;
 use Illuminate\Support\Facades\Log;
 
 class DriverOrderRealtimeService
@@ -13,6 +14,7 @@ class DriverOrderRealtimeService
     public function __construct(
         private readonly DriverOrderPayloadFactory $payloadFactory,
         private readonly DriverCandidateSelector $candidateSelector,
+        private readonly DriverIncomingOrderPushNotificationService $incomingOrderPushNotification,
     ) {}
 
     public function broadcastOrderAvailable(Order $order): void
@@ -41,6 +43,8 @@ class DriverOrderRealtimeService
                     'order_id' => $freshOrder->id,
                 ],
             );
+
+            $this->incomingOrderPushNotification->sendIncomingOrderNotification($freshOrder, $candidate['driver']);
         }
     }
 

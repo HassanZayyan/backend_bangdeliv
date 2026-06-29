@@ -1061,7 +1061,7 @@ class AuthProfileTest extends TestCase
         ]);
 
         $response->assertOk()
-            ->assertJsonPath('message', 'Nomor telepon berhasil disimpan.')
+            ->assertJsonPath('message', 'Nomor WhatsApp berhasil disimpan.')
             ->assertJsonPath('data.phone', '081234567001')
             ->assertJsonPath('data.requires_phone_completion', false)
             ->assertJsonPath('data.has_password', false);
@@ -1096,11 +1096,18 @@ class AuthProfileTest extends TestCase
 
         $this->patchJson('/api/user/phone', ['phone' => 'abc'])
             ->assertStatus(422)
-            ->assertJsonValidationErrors(['phone']);
+            ->assertJsonValidationErrors(['phone'])
+            ->assertJsonPath('errors.phone.0', 'Nomor WhatsApp wajib diisi.');
+
+        $this->patchJson('/api/user/phone', ['phone' => '0812345'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['phone'])
+            ->assertJsonPath('errors.phone.0', 'Format nomor WhatsApp tidak valid.');
 
         $this->patchJson('/api/user/phone', ['phone' => '0812-3456-7002'])
             ->assertStatus(422)
-            ->assertJsonValidationErrors(['phone']);
+            ->assertJsonValidationErrors(['phone'])
+            ->assertJsonPath('errors.phone.0', 'Nomor WhatsApp sudah digunakan.');
     }
 
     public function test_phone_completion_clears_existing_phone_verification_when_phone_changes(): void

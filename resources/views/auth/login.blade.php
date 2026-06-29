@@ -17,8 +17,8 @@
 
     <section class="auth-card" aria-labelledby="login-heading">
         <div class="auth-logo">
-            <span id="login-heading">Welcome</span>
-            <small>Please login to admin dashboard.</small>
+            <span id="login-heading">Selamat Datang</span>
+            <small>Silakan login ke dashboard admin.</small>
         </div>
 
         <form action="{{ route('login') }}" method="POST">

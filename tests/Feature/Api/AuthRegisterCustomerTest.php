@@ -22,7 +22,7 @@ class AuthRegisterCustomerTest extends TestCase
         ]);
 
         $response->assertCreated()
-            ->assertJsonPath('message', 'Customer registered successfully')
+            ->assertJsonPath('message', 'Pendaftaran customer berhasil.')
             ->assertJsonPath('data.name', 'Budi Santoso')
             ->assertJsonPath('data.email', 'budi@example.com')
             ->assertJsonPath('data.phone', '081234567890')
@@ -266,7 +266,7 @@ class AuthRegisterCustomerTest extends TestCase
         ]);
 
         $response->assertOk()
-            ->assertJsonPath('message', 'Login successful')
+            ->assertJsonPath('message', 'Login berhasil.')
             ->assertJsonPath('data.phone', '081234560001')
             ->assertJsonPath('token_type', 'Bearer')
             ->assertJsonStructure([
@@ -332,7 +332,7 @@ class AuthRegisterCustomerTest extends TestCase
         ]);
 
         $response->assertStatus(422)
-            ->assertJsonPath('message', 'Data akun tidak cocok. Periksa email dan nomor telepon.');
+            ->assertJsonPath('message', 'Data akun tidak cocok. Periksa email dan nomor WhatsApp.');
 
         $this->assertTrue(Hash::check('passwordLama123', (string) $user->fresh()->password));
     }
@@ -356,7 +356,7 @@ class AuthRegisterCustomerTest extends TestCase
         ]);
 
         $response->assertStatus(422)
-            ->assertJsonPath('message', 'Data akun tidak cocok. Periksa email dan nomor telepon.');
+            ->assertJsonPath('message', 'Data akun tidak cocok. Periksa email dan nomor WhatsApp.');
 
         $this->assertDatabaseHas('users', [
             'email' => 'google.only.reset@example.com',
