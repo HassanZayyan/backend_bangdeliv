@@ -15,6 +15,7 @@ use App\Services\Driver\DriverOrderRealtimeService;
 use App\Services\Geo\BangDelivServiceAreaService;
 use App\Services\Maps\GoogleMapsDistanceMatrixService;
 use App\Services\Maps\GoogleMapsGeocodingService;
+use App\Services\Order\OrderNumberGenerator;
 use App\Services\Order\OrderPaymentService;
 use App\Services\Pricing\DeliveryPricingService;
 use Illuminate\Support\Facades\DB;
@@ -88,6 +89,7 @@ class ChatbotCourierOrderService
         private readonly GoogleMapsDistanceMatrixService $distanceMatrixService,
         private readonly DeliveryPricingService $deliveryPricingService,
         private readonly OrderPaymentService $orderPaymentService,
+        private readonly OrderNumberGenerator $orderNumberGenerator,
         private readonly DriverOrderRealtimeService $driverOrderRealtimeService,
         private readonly ChatbotAddressReadinessService $addressReadinessService,
         private readonly ChatbotDraftStore $draftStore,
@@ -891,7 +893,7 @@ class ChatbotCourierOrderService
             $paymentMethod
         ): Order {
             $order = Order::query()->create([
-                'order_number' => $this->generateOrderNumber(),
+                'order_number' => $this->orderNumberGenerator->next(),
                 'user_id' => $user->id,
                 'restaurant_id' => null,
                 'service_type_id' => $serviceTypeId,
@@ -1341,15 +1343,6 @@ class ChatbotCourierOrderService
         }
 
         return (float) $value;
-    }
-
-    private function generateOrderNumber(): string
-    {
-        do {
-            $candidate = 'BD-'.now()->format('ymd').'-'.random_int(1000, 9999);
-        } while (Order::query()->where('order_number', $candidate)->exists());
-
-        return $candidate;
     }
 
     /**

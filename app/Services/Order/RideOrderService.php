@@ -27,6 +27,7 @@ class RideOrderService
         private readonly GoogleMapsDistanceMatrixService $distanceMatrixService,
         private readonly DeliveryPricingService $deliveryPricingService,
         private readonly OrderPaymentService $orderPaymentService,
+        private readonly OrderNumberGenerator $orderNumberGenerator,
         private readonly DriverOrderRealtimeService $driverOrderRealtimeService,
         private readonly BangDelivServiceAreaService $serviceAreaService
     ) {}
@@ -177,7 +178,7 @@ class RideOrderService
             $paymentMethod
         ): Order {
             $order = Order::query()->create([
-                'order_number' => $this->generateOrderNumber(),
+                'order_number' => $this->orderNumberGenerator->next(),
                 'user_id' => $user->id,
                 'restaurant_id' => null,
                 'service_type_id' => $rideServiceTypeId,
@@ -306,15 +307,6 @@ class RideOrderService
         }
 
         return $this->validateDestination($destinationAddress);
-    }
-
-    private function generateOrderNumber(): string
-    {
-        do {
-            $candidate = 'BDR-'.now()->format('ymd').'-'.random_int(1000, 9999);
-        } while (Order::query()->where('order_number', $candidate)->exists());
-
-        return $candidate;
     }
 
     private function assertRoutePointsSeparated(

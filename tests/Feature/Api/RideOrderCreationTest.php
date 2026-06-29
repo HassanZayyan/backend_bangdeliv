@@ -8,6 +8,7 @@ use App\Models\OrderStatus;
 use App\Models\ServiceType;
 use App\Models\User;
 use App\Services\Geo\BangDelivServiceAreaService;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Laravel\Sanctum\Sanctum;
@@ -28,6 +29,8 @@ class RideOrderCreationTest extends TestCase
 
     public function test_customer_can_create_ride_order_with_own_pickup_address(): void
     {
+        $this->travelTo(Carbon::create(2026, 6, 29, 10, 15, 0, 'Asia/Jakarta'));
+
         $user = User::factory()->create([
             'role' => 'customer',
             'phone' => '081211110001',
@@ -114,6 +117,7 @@ class RideOrderCreationTest extends TestCase
         $response->assertCreated()
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.user_id', $user->id)
+            ->assertJsonPath('data.order_number', 'BD-290626-001')
             ->assertJsonPath('data.service_type_id', $rideServiceTypeId)
             ->assertJsonPath('data.status_id', $pendingStatusId)
             ->assertJsonPath('data.delivery_address', 'Lapangan Pancasila Salatiga, Jawa Tengah')
@@ -126,6 +130,7 @@ class RideOrderCreationTest extends TestCase
 
         $this->assertDatabaseHas('orders', [
             'id' => $orderId,
+            'order_number' => 'BD-290626-001',
             'user_id' => $user->id,
             'service_type_id' => $rideServiceTypeId,
             'status_id' => $pendingStatusId,

@@ -8,6 +8,7 @@ use App\Models\Driver;
 use App\Models\Order;
 use App\Models\User;
 use App\Services\Chatbot\ChatbotDraftStore;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
@@ -426,6 +427,8 @@ class ChatbotCourierFlowTest extends TestCase
 
     public function test_chatbot_kurir_confirm_uses_fast_path_without_gemini_call(): void
     {
+        $this->travelTo(Carbon::create(2026, 6, 29, 10, 15, 0, 'Asia/Jakarta'));
+
         Http::preventStrayRequests();
         Http::fake([
             'https://maps.googleapis.com/maps/api/distancematrix/*' => Http::response([
@@ -476,6 +479,7 @@ class ChatbotCourierFlowTest extends TestCase
         $this->assertDatabaseCount('orders', 1);
         $this->assertDatabaseCount('courier_order_details', 1);
         $order = Order::query()->firstOrFail();
+        $this->assertSame('BD-290626-001', $order->order_number);
         $this->assertIsArray($order->route_snapshot);
         $this->assertSame('distance_matrix', $order->route_snapshot['route_provider'] ?? null);
         $this->assertSame(1600, $order->route_snapshot['distance_meters'] ?? null);

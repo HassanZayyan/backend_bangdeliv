@@ -8,6 +8,7 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Restaurant;
 use App\Models\User;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Http;
@@ -679,6 +680,8 @@ class ChatbotShoppingFlowTest extends TestCase
 
     public function test_chatbot_shopping_creates_menu_database_restaurant_order_after_confirmation(): void
     {
+        $this->travelTo(Carbon::create(2026, 6, 29, 10, 15, 0, 'Asia/Jakarta'));
+
         Config::set('bangdeliv.google_maps_api_key', 'test-key');
 
         $customer = User::factory()->create([
@@ -797,6 +800,7 @@ class ChatbotShoppingFlowTest extends TestCase
         $orderId = (int) $confirmResponse->json('data.order.id');
         $this->assertDatabaseHas('orders', [
             'id' => $orderId,
+            'order_number' => 'BD-290626-001',
             'user_id' => $customer->id,
         ]);
 

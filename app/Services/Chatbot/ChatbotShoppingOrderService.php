@@ -13,6 +13,7 @@ use App\Services\Address\ChatbotAddressReadinessService;
 use App\Services\Driver\DriverOrderRealtimeService;
 use App\Services\Geo\BangDelivServiceAreaService;
 use App\Services\Maps\GoogleMapsGeocodingService;
+use App\Services\Order\OrderNumberGenerator;
 use App\Services\Order\OrderPaymentService;
 use App\Services\Pricing\ShoppingPricingService;
 use App\Services\Shopping\ShoppingMerchantCandidate;
@@ -40,6 +41,7 @@ class ChatbotShoppingOrderService
         private readonly ShoppingRouteService $shoppingRouteService,
         private readonly ShoppingPricingService $shoppingPricingService,
         private readonly OrderPaymentService $orderPaymentService,
+        private readonly OrderNumberGenerator $orderNumberGenerator,
         private readonly DriverOrderRealtimeService $driverOrderRealtimeService,
         private readonly ChatbotAddressReadinessService $addressReadinessService,
         private readonly ChatbotShoppingItemIntentParser $itemIntentParser,
@@ -1414,7 +1416,7 @@ class ChatbotShoppingOrderService
             $paymentMethod,
         ): Order {
             $order = Order::query()->create([
-                'order_number' => $this->generateOrderNumber(),
+                'order_number' => $this->orderNumberGenerator->next(),
                 'user_id' => $user->id,
                 'service_type_id' => $serviceTypeId,
                 'delivery_fee' => round((float) ($pricing['delivery_fee'] ?? 0), 2),
@@ -2052,15 +2054,6 @@ class ChatbotShoppingOrderService
         }
 
         return (int) $id;
-    }
-
-    private function generateOrderNumber(): string
-    {
-        do {
-            $candidate = 'BD-'.now()->format('ymd').'-'.random_int(1000, 9999);
-        } while (Order::query()->where('order_number', $candidate)->exists());
-
-        return $candidate;
     }
 
     private function normalizeWhitespace(string $value): string
