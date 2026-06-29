@@ -66,6 +66,23 @@ if ! ss -ltn | grep -q '127.0.0.1:3306'; then
     exit 1
 fi
 
+echo "Menunggu MySQL siap menerima koneksi..."
+MYSQL_READY=0
+for _ in {1..60}; do
+    if docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysqladmin ping -h 127.0.0.1 -uroot --silent' >/dev/null 2>&1; then
+        MYSQL_READY=1
+        break
+    fi
+
+    sleep 2
+done
+
+if [[ "$MYSQL_READY" != "1" ]]; then
+    echo "MySQL belum siap setelah 120 detik. Log terakhir container mysql:"
+    docker compose logs --tail=80 mysql || true
+    exit 1
+fi
+
 DB_DATABASE="$(docker compose exec -T mysql sh -c 'printf "%s" "$MYSQL_DATABASE"')"
 if [[ -z "$DB_DATABASE" || ! "$DB_DATABASE" =~ ^[A-Za-z0-9_]+$ ]]; then
     echo "Nama database dari container tidak valid: $DB_DATABASE"
@@ -73,8 +90,12 @@ if [[ -z "$DB_DATABASE" || ! "$DB_DATABASE" =~ ^[A-Za-z0-9_]+$ ]]; then
 fi
 
 READONLY_PASSWORD="${DBEAVER_READONLY_PASSWORD:-$(openssl rand -base64 24)}"
+if [[ ! "$READONLY_PASSWORD" =~ ^[A-Za-z0-9_+=.@:/-]+$ ]]; then
+    echo "DBEAVER_READONLY_PASSWORD hanya boleh berisi huruf, angka, dan karakter _+=.@:/-"
+    exit 1
+fi
 
-docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot' <<SQL
+docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -h 127.0.0.1 -uroot' <<SQL
 CREATE USER IF NOT EXISTS '${READONLY_USER}'@'%' IDENTIFIED BY '${READONLY_PASSWORD}';
 ALTER USER '${READONLY_USER}'@'%' IDENTIFIED BY '${READONLY_PASSWORD}';
 REVOKE ALL PRIVILEGES, GRANT OPTION FROM '${READONLY_USER}'@'%';
@@ -82,7 +103,7 @@ GRANT SELECT, SHOW VIEW ON \`${DB_DATABASE}\`.* TO '${READONLY_USER}'@'%';
 FLUSH PRIVILEGES;
 SQL
 
-docker compose exec -T mysql mysql -u"$READONLY_USER" -p"$READONLY_PASSWORD" "$DB_DATABASE" -e "SHOW TABLES;" >/dev/null
+docker compose exec -T mysql sh -c 'MYSQL_PWD="$1" mysql -h 127.0.0.1 -u"$2" "$3" -e "SHOW TABLES;" >/dev/null' _ "$READONLY_PASSWORD" "$READONLY_USER" "$DB_DATABASE"
 
 cat <<EOF
 
