@@ -87,7 +87,16 @@ class DriverVerificationService
                 }
 
                 if (empty($uploadedTypes)) {
-                    throw new ApiException('Minimal satu dokumen harus diunggah.', 422);
+                    throw new ApiException('Pilih dokumen yang perlu diunggah.', 422);
+                }
+
+                $lockedDriver->load('driverDocuments');
+                $missingDocumentTypes = $this->missingRequiredDocumentTypes($lockedDriver->driverDocuments);
+                if (! empty($missingDocumentTypes)) {
+                    throw new ApiException(
+                        'Dokumen '.$this->formatDocumentTypeList($missingDocumentTypes).' wajib diunggah.',
+                        422
+                    );
                 }
 
                 // Every re-submission should return the account to pending review state.
@@ -500,6 +509,63 @@ class DriverVerificationService
         }
 
         return 'active';
+    }
+
+    /**
+     * @param  Collection<int, DriverDocument>  $documents
+     * @return array<int, string>
+     */
+    private function missingRequiredDocumentTypes(Collection $documents): array
+    {
+        $missingDocumentTypes = [];
+
+        foreach (self::REQUIRED_DOCUMENT_TYPES as $documentType) {
+            /** @var DriverDocument|null $document */
+            $document = $documents->firstWhere('document_type', $documentType);
+
+            if (
+                ! $document
+                || empty($document->file_path)
+                || $document->verification_status === 'rejected'
+            ) {
+                $missingDocumentTypes[] = $documentType;
+            }
+        }
+
+        return $missingDocumentTypes;
+    }
+
+    /**
+     * @param  array<int, string>  $documentTypes
+     */
+    private function formatDocumentTypeList(array $documentTypes): string
+    {
+        $labels = collect($documentTypes)
+            ->map(fn (string $type): string => $this->documentTypeLabel($type))
+            ->values()
+            ->all();
+
+        if (count($labels) <= 1) {
+            return $labels[0] ?? 'verifikasi';
+        }
+
+        if (count($labels) === 2) {
+            return $labels[0].' dan '.$labels[1];
+        }
+
+        $lastLabel = array_pop($labels);
+
+        return implode(', ', $labels).', dan '.$lastLabel;
+    }
+
+    private function documentTypeLabel(string $documentType): string
+    {
+        return match ($documentType) {
+            'ktp' => 'KTP',
+            'sim' => 'SIM',
+            'selfie' => 'Selfie',
+            default => strtoupper($documentType),
+        };
     }
 
     /**

@@ -16,7 +16,7 @@ class DriverVerificationTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_driver_can_upload_documents_and_status_becomes_pending(): void
+    public function test_driver_can_upload_all_required_documents_and_status_becomes_pending(): void
     {
         Storage::fake('public');
 
@@ -42,6 +42,7 @@ class DriverVerificationTest extends TestCase
         $response = $this->post('/api/v1/driver/verification/documents', [
             'ktp' => UploadedFile::fake()->image('ktp.jpg', 800, 800),
             'sim' => UploadedFile::fake()->image('sim.jpg', 800, 800),
+            'selfie' => UploadedFile::fake()->image('selfie.jpg', 800, 800),
         ], [
             'Accept' => 'application/json',
         ]);
@@ -62,9 +63,60 @@ class DriverVerificationTest extends TestCase
             'verification_status' => 'pending',
         ]);
 
+        $this->assertDatabaseHas('driver_documents', [
+            'driver_id' => $driver->id,
+            'document_type' => 'selfie',
+            'verification_status' => 'pending',
+        ]);
+
         $this->assertDatabaseHas('drivers', [
             'id' => $driver->id,
             'registration_status' => 'pending',
+        ]);
+    }
+
+    public function test_driver_cannot_submit_incomplete_initial_documents(): void
+    {
+        Storage::fake('public');
+
+        $driverUser = User::query()->create([
+            'name' => 'Driver Incomplete',
+            'email' => 'driver.incomplete@example.com',
+            'phone' => '081211112223',
+            'password' => Hash::make('password123'),
+            'role' => 'driver',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        $driver = Driver::query()->create($this->driverAttributes([
+            'user_id' => $driverUser->id,
+            'vehicle_plate' => 'B 1011 INC',
+            'registration_status' => 'pending',
+            'status' => 'offline',
+        ]));
+
+        Sanctum::actingAs($driverUser);
+
+        $this->post('/api/v1/driver/verification/documents', [
+            'ktp' => UploadedFile::fake()->image('ktp.jpg', 800, 800),
+        ], [
+            'Accept' => 'application/json',
+        ])->assertStatus(422)
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('message', 'Dokumen SIM dan Selfie wajib diunggah.');
+
+        $this->post('/api/v1/driver/verification/documents', [
+            'ktp' => UploadedFile::fake()->image('ktp.jpg', 800, 800),
+            'sim' => UploadedFile::fake()->image('sim.jpg', 800, 800),
+        ], [
+            'Accept' => 'application/json',
+        ])->assertStatus(422)
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('message', 'Dokumen Selfie wajib diunggah.');
+
+        $this->assertDatabaseMissing('driver_documents', [
+            'driver_id' => $driver->id,
         ]);
     }
 
@@ -124,6 +176,8 @@ class DriverVerificationTest extends TestCase
 
         $this->post('/api/v1/driver/verification/documents', [
             'ktp' => UploadedFile::fake()->image('ktp-old.jpg', 800, 800),
+            'sim' => UploadedFile::fake()->image('sim.jpg', 800, 800),
+            'selfie' => UploadedFile::fake()->image('selfie.jpg', 800, 800),
         ], [
             'Accept' => 'application/json',
         ])->assertCreated();
@@ -150,6 +204,114 @@ class DriverVerificationTest extends TestCase
         $this->assertNotSame($oldPath, $newPath);
         Storage::disk('public')->assertMissing($oldPath);
         Storage::disk('public')->assertExists($newPath);
+    }
+
+    public function test_driver_can_complete_missing_document_when_other_required_documents_exist(): void
+    {
+        Storage::fake('public');
+
+        $driverUser = User::query()->create([
+            'name' => 'Driver Complete Missing',
+            'email' => 'driver.complete.missing@example.com',
+            'phone' => '081211114445',
+            'password' => Hash::make('password123'),
+            'role' => 'driver',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        $driver = Driver::query()->create($this->driverAttributes([
+            'user_id' => $driverUser->id,
+            'vehicle_plate' => 'B 1213 CMP',
+            'registration_status' => 'pending',
+            'status' => 'offline',
+        ]));
+
+        foreach (['ktp', 'sim'] as $type) {
+            DriverDocument::query()->create([
+                'driver_id' => $driver->id,
+                'document_type' => $type,
+                'file_path' => 'driver-documents/'.$driver->id.'/'.$type.'/existing.jpg',
+                'verification_status' => 'pending',
+            ]);
+        }
+
+        Sanctum::actingAs($driverUser);
+
+        $response = $this->post('/api/v1/driver/verification/documents', [
+            'selfie' => UploadedFile::fake()->image('selfie.jpg', 800, 800),
+        ], [
+            'Accept' => 'application/json',
+        ]);
+
+        $response->assertCreated()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.driver.registration_status', 'pending');
+
+        $this->assertDatabaseHas('driver_documents', [
+            'driver_id' => $driver->id,
+            'document_type' => 'selfie',
+            'verification_status' => 'pending',
+        ]);
+    }
+
+    public function test_rejected_document_must_be_reuploaded_before_submission_is_complete(): void
+    {
+        Storage::fake('public');
+
+        $driverUser = User::query()->create([
+            'name' => 'Driver Rejected Revision',
+            'email' => 'driver.rejected.revision@example.com',
+            'phone' => '081211114446',
+            'password' => Hash::make('password123'),
+            'role' => 'driver',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        $driver = Driver::query()->create($this->driverAttributes([
+            'user_id' => $driverUser->id,
+            'vehicle_plate' => 'B 1214 REV',
+            'registration_status' => 'rejected',
+            'status' => 'offline',
+        ]));
+
+        foreach (['ktp' => 'approved', 'sim' => 'rejected', 'selfie' => 'approved'] as $type => $status) {
+            DriverDocument::query()->create([
+                'driver_id' => $driver->id,
+                'document_type' => $type,
+                'file_path' => 'driver-documents/'.$driver->id.'/'.$type.'/existing.jpg',
+                'verification_status' => $status,
+                'rejection_reason' => $status === 'rejected' ? 'SIM buram.' : null,
+            ]);
+        }
+
+        Sanctum::actingAs($driverUser);
+
+        $this->post('/api/v1/driver/verification/documents', [
+            'ktp' => UploadedFile::fake()->image('ktp-new.jpg', 800, 800),
+        ], [
+            'Accept' => 'application/json',
+        ])->assertStatus(422)
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('message', 'Dokumen SIM wajib diunggah.');
+
+        $response = $this->post('/api/v1/driver/verification/documents', [
+            'sim' => UploadedFile::fake()->image('sim-new.jpg', 800, 800),
+        ], [
+            'Accept' => 'application/json',
+        ]);
+
+        $response->assertCreated()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.driver.registration_status', 'pending');
+
+        $this->assertDatabaseHas('driver_documents', [
+            'driver_id' => $driver->id,
+            'document_type' => 'sim',
+            'verification_status' => 'pending',
+            'rejection_reason' => null,
+        ]);
     }
 
     public function test_admin_can_approve_all_documents_and_activate_driver(): void
