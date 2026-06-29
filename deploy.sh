@@ -11,6 +11,25 @@ if [ ! -f .env ]; then
     exit 1
 fi
 
+APP_KEY_VALUE="$(awk '/^APP_KEY=/{value=substr($0, 9); gsub(/"/, "", value); print value; exit}' .env)"
+if [ -z "$APP_KEY_VALUE" ]; then
+    echo "Generating APP_KEY in $APP_DIR/.env..."
+    if command -v openssl >/dev/null 2>&1; then
+        NEW_APP_KEY="base64:$(openssl rand -base64 32)"
+    elif command -v python3 >/dev/null 2>&1; then
+        NEW_APP_KEY="$(python3 -c 'import base64, secrets; print("base64:" + base64.b64encode(secrets.token_bytes(32)).decode())')"
+    else
+        echo "Cannot generate APP_KEY because neither openssl nor python3 is available." >&2
+        exit 1
+    fi
+
+    if grep -q '^APP_KEY=' .env; then
+        sed -i "s|^APP_KEY=.*|APP_KEY=$NEW_APP_KEY|" .env
+    else
+        printf '\nAPP_KEY=%s\n' "$NEW_APP_KEY" >> .env
+    fi
+fi
+
 echo "Fetching origin/$BRANCH..."
 git fetch origin "$BRANCH"
 git reset --hard "origin/$BRANCH"
@@ -25,12 +44,6 @@ echo "Waiting for MySQL..."
 until docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysqladmin ping -h 127.0.0.1 -u root --silent'; do
     sleep 2
 done
-
-APP_KEY_VALUE="$(grep -E '^APP_KEY=' .env | head -n 1 | cut -d '=' -f 2- | tr -d '\"')"
-if [ -z "$APP_KEY_VALUE" ]; then
-    echo "Generating APP_KEY..."
-    docker compose exec -T app php artisan key:generate --force
-fi
 
 echo "Running Laravel deployment commands..."
 docker compose exec -T app php artisan migrate --seed --force
