@@ -23,5 +23,4 @@ if [ "$CURRENT_COMMIT" = "$REMOTE_COMMIT" ]; then
 fi
 
 echo "New commit detected: $CURRENT_COMMIT -> $REMOTE_COMMIT"
-"$APP_DIR/deploy.sh"
-
+bash "$APP_DIR/deploy.sh"

@@ -9,5 +9,4 @@ User=ubuntu
 WorkingDirectory=/opt/bangdeliv
 Environment=APP_DIR=/opt/bangdeliv
 Environment=DEPLOY_BRANCH=main
-ExecStart=/opt/bangdeliv/scripts/auto-deploy.sh
-
+ExecStart=/usr/bin/env bash /opt/bangdeliv/scripts/auto-deploy.sh
