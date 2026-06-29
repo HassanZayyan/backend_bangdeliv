@@ -315,6 +315,7 @@ class AuthProfileTest extends TestCase
             'name' => 'Lama',
             'email' => 'lama@example.com',
             'phone' => '081200000001',
+            'phone_verified_at' => now(),
             'password' => Hash::make('rahasia123'),
             'role' => 'customer',
         ]);
@@ -338,6 +339,35 @@ class AuthProfileTest extends TestCase
             'name' => 'Baru',
             'phone' => '081200000002',
             'email' => 'baru@example.com',
+            'phone_verified_at' => null,
+        ]);
+    }
+
+    public function test_google_linked_user_cannot_change_profile_email(): void
+    {
+        $user = User::query()->create([
+            'name' => 'Google Locked',
+            'email' => 'google.locked@example.com',
+            'phone' => '081200000011',
+            'google_sub' => 'google-locked-sub',
+            'password' => null,
+            'role' => 'customer',
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $response = $this->putJson('/api/user', [
+            'name' => 'Google Locked',
+            'phone' => '081200000011',
+            'email' => 'new.google.locked@example.com',
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJsonPath('errors.email.0', 'Email Google tidak dapat diubah dari profil.');
+
+        $this->assertDatabaseHas('users', [
+            'id' => $user->id,
+            'email' => 'google.locked@example.com',
         ]);
     }
 
@@ -1071,6 +1101,33 @@ class AuthProfileTest extends TestCase
         $this->patchJson('/api/user/phone', ['phone' => '0812-3456-7002'])
             ->assertStatus(422)
             ->assertJsonValidationErrors(['phone']);
+    }
+
+    public function test_phone_completion_clears_existing_phone_verification_when_phone_changes(): void
+    {
+        $user = User::query()->create([
+            'name' => 'Verified Phone',
+            'email' => 'verified.phone@example.com',
+            'phone' => '081234567005',
+            'phone_verified_at' => now(),
+            'password' => Hash::make('rahasia123'),
+            'role' => 'customer',
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $response = $this->patchJson('/api/user/phone', [
+            'phone' => '0812-3456-7006',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.phone', '081234567006');
+
+        $this->assertDatabaseHas('users', [
+            'id' => $user->id,
+            'phone' => '081234567006',
+            'phone_verified_at' => null,
+        ]);
     }
 
     public function test_google_only_user_cannot_change_password_without_existing_password(): void

@@ -25,6 +25,7 @@ class ApiRouteContractTest extends TestCase
     {
         return [
             'auth login' => ['api.auth.login', 'POST', 'api/auth/login'],
+            'auth password reset' => ['api.auth.password-reset', 'POST', 'api/auth/password/reset'],
             'auth google' => ['api.auth.google', 'POST', 'api/auth/google'],
             'auth register customer' => ['api.auth.register-customer', 'POST', 'api/auth/register/customer'],
             'profile show' => ['api.user.show', 'GET', 'api/user'],

@@ -154,6 +154,38 @@ class AuthRegisterCustomerTest extends TestCase
         $this->assertTrue(Hash::check('rahasia123', (string) $user->fresh()->password));
     }
 
+    public function test_google_login_rejects_existing_email_account_linked_to_other_google_sub(): void
+    {
+        $user = User::query()->create([
+            'name' => 'Already Linked',
+            'email' => 'linked@example.com',
+            'phone' => '081234560011',
+            'google_sub' => 'existing-google-sub',
+            'password' => null,
+            'role' => 'customer',
+        ]);
+
+        $this->mockGoogleVerifier([
+            'sub' => 'different-google-sub',
+            'email' => 'linked@example.com',
+            'email_verified' => true,
+            'name' => 'Different Google',
+            'picture' => null,
+        ]);
+
+        $response = $this->postJson('/api/auth/google', [
+            'id_token' => 'valid-google-token',
+        ]);
+
+        $response->assertStatus(409)
+            ->assertJsonPath('message', 'Email Google ini sudah terhubung dengan akun Google lain.');
+
+        $this->assertDatabaseHas('users', [
+            'id' => $user->id,
+            'google_sub' => 'existing-google-sub',
+        ]);
+    }
+
     public function test_google_login_rejects_unverified_google_email(): void
     {
         $this->mockGoogleVerifier([
@@ -243,6 +275,104 @@ class AuthRegisterCustomerTest extends TestCase
                 'access_token',
                 'token_type',
             ]);
+    }
+
+    public function test_manual_user_can_reset_password_with_matching_email_and_phone(): void
+    {
+        User::query()->create([
+            'name' => 'Reset User',
+            'email' => 'reset.user@example.com',
+            'phone' => '081234560021',
+            'password' => Hash::make('passwordLama123'),
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        $response = $this->postJson('/api/auth/password/reset', [
+            'email' => 'RESET.USER@example.com',
+            'phone' => '0812-3456-0021',
+            'new_password' => 'passwordBaru123',
+            'new_password_confirmation' => 'passwordBaru123',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('message', 'Password berhasil diatur ulang.');
+
+        $user = User::query()->where('email', 'reset.user@example.com')->firstOrFail();
+        $this->assertFalse(Hash::check('passwordLama123', (string) $user->password));
+        $this->assertTrue(Hash::check('passwordBaru123', (string) $user->password));
+
+        $this->postJson('/api/auth/login', [
+            'email' => 'reset.user@example.com',
+            'password' => 'passwordLama123',
+        ])->assertUnauthorized();
+
+        $this->postJson('/api/auth/login', [
+            'email' => 'reset.user@example.com',
+            'password' => 'passwordBaru123',
+        ])->assertOk();
+    }
+
+    public function test_password_reset_requires_matching_email_and_phone(): void
+    {
+        $user = User::query()->create([
+            'name' => 'Mismatch Reset',
+            'email' => 'mismatch.reset@example.com',
+            'phone' => '081234560022',
+            'password' => Hash::make('passwordLama123'),
+            'role' => 'customer',
+        ]);
+
+        $response = $this->postJson('/api/auth/password/reset', [
+            'email' => 'mismatch.reset@example.com',
+            'phone' => '081234560099',
+            'new_password' => 'passwordBaru123',
+            'new_password_confirmation' => 'passwordBaru123',
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJsonPath('message', 'Data akun tidak cocok. Periksa email dan nomor telepon.');
+
+        $this->assertTrue(Hash::check('passwordLama123', (string) $user->fresh()->password));
+    }
+
+    public function test_google_only_user_cannot_reset_password_from_public_reset_endpoint(): void
+    {
+        User::query()->create([
+            'name' => 'Google Only Reset',
+            'email' => 'google.only.reset@example.com',
+            'phone' => '081234560023',
+            'google_sub' => 'google-only-reset-sub',
+            'password' => null,
+            'role' => 'customer',
+        ]);
+
+        $response = $this->postJson('/api/auth/password/reset', [
+            'email' => 'google.only.reset@example.com',
+            'phone' => '081234560023',
+            'new_password' => 'passwordBaru123',
+            'new_password_confirmation' => 'passwordBaru123',
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJsonPath('message', 'Data akun tidak cocok. Periksa email dan nomor telepon.');
+
+        $this->assertDatabaseHas('users', [
+            'email' => 'google.only.reset@example.com',
+            'password' => null,
+        ]);
+    }
+
+    public function test_password_reset_validates_payload(): void
+    {
+        $this->postJson('/api/auth/password/reset', [
+            'email' => 'not-an-email',
+            'phone' => 'abc',
+            'new_password' => 'short',
+            'new_password_confirmation' => 'different',
+        ])->assertStatus(422)
+            ->assertJsonValidationErrors(['email', 'phone', 'new_password']);
     }
 
     private function mockGoogleVerifier(array $identity): void

@@ -14,6 +14,7 @@ use App\Services\Auth\GoogleIdTokenVerifier;
 use App\Services\Address\AddressService;
 use App\Services\Driver\DriverIncomeFeeCalculator;
 use App\Services\Driver\DriverOnboardingService;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -143,6 +144,52 @@ class AuthController extends Controller
     }
 
     /**
+     * Reset password for accounts that already use BangDeliv password login.
+     */
+    public function resetPassword(Request $request)
+    {
+        $payload = [
+            'email' => strtolower((string) $request->input('email', '')),
+            'phone' => $this->normalizePhone((string) $request->input('phone', '')),
+            'new_password' => $request->input('new_password'),
+            'new_password_confirmation' => $request->input('new_password_confirmation'),
+        ];
+
+        $validator = Validator::make($payload, [
+            'email' => ['required', 'string', 'email', 'max:255'],
+            'phone' => ['required', 'string', 'max:20', 'regex:/^\+?[0-9]{10,15}$/'],
+            'new_password' => ['required', 'string', 'min:8', 'confirmed'],
+        ], [
+            'phone.regex' => 'Format nomor telepon tidak valid.',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $validated = $validator->validated();
+        $user = User::query()
+            ->where('email', $validated['email'])
+            ->where('phone', $validated['phone'])
+            ->first();
+
+        if (! $user || trim((string) ($user->password ?? '')) === '') {
+            return response()->json([
+                'message' => 'Data akun tidak cocok. Periksa email dan nomor telepon.',
+            ], 422);
+        }
+
+        $user->update([
+            'password' => Hash::make((string) $validated['new_password']),
+        ]);
+        $user->tokens()->delete();
+
+        return response()->json([
+            'message' => 'Password berhasil diatur ulang.',
+        ]);
+    }
+
+    /**
      * Login or register customer using a verified Google ID token.
      */
     public function loginWithGoogle(Request $request, GoogleIdTokenVerifier $verifier)
@@ -183,6 +230,11 @@ class AuthController extends Controller
 
             if (! $user) {
                 $user = User::query()->where('email', $googleUser['email'])->first();
+                if ($user && trim((string) ($user->google_sub ?? '')) !== '') {
+                    throw new HttpResponseException(response()->json([
+                        'message' => 'Email Google ini sudah terhubung dengan akun Google lain.',
+                    ], 409));
+                }
             }
 
             $name = trim($googleUser['name']);
@@ -298,6 +350,16 @@ class AuthController extends Controller
         }
 
         $validated = $validator->validated();
+        $currentEmail = strtolower(trim((string) $user->email));
+        $submittedEmail = strtolower(trim((string) ($validated['email'] ?? $user->email)));
+
+        if (trim((string) ($user->google_sub ?? '')) !== '' && $submittedEmail !== $currentEmail) {
+            return response()->json([
+                'errors' => [
+                    'email' => ['Email Google tidak dapat diubah dari profil.'],
+                ],
+            ], 422);
+        }
 
         $oldAvatarPath = is_string($user->avatar) ? $user->avatar : null;
         $avatarPath = $oldAvatarPath;
@@ -320,12 +382,18 @@ class AuthController extends Controller
             Storage::disk('public')->delete($oldAvatarPath);
         }
 
-        $user->update([
+        $userUpdates = [
             'name' => $validated['name'],
             'phone' => $validated['phone'],
-            'email' => $validated['email'] ?? $user->email,
+            'email' => $submittedEmail,
             'avatar' => $avatarPath,
-        ]);
+        ];
+
+        if ((string) $user->phone !== (string) $validated['phone']) {
+            $userUpdates['phone_verified_at'] = null;
+        }
+
+        $user->update($userUpdates);
 
         if ($isDriver) {
             $driver = $user->driver()->first();
@@ -374,9 +442,15 @@ class AuthController extends Controller
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        $user->update([
-            'phone' => $validator->validated()['phone'],
-        ]);
+        $validatedPhone = $validator->validated()['phone'];
+        $updates = [
+            'phone' => $validatedPhone,
+        ];
+        if ((string) $user->phone !== (string) $validatedPhone) {
+            $updates['phone_verified_at'] = null;
+        }
+
+        $user->update($updates);
 
         return response()->json([
             'message' => 'Nomor telepon berhasil disimpan.',

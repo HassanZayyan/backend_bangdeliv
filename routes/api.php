@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Route;
 // Public Auth Routes
 Route::post('/auth/register/customer', [AuthController::class, 'registerCustomer'])->name('api.auth.register-customer');
 Route::post('/auth/login', [AuthController::class, 'login'])->name('api.auth.login');
+Route::post('/auth/password/reset', [AuthController::class, 'resetPassword'])->middleware('throttle:password-reset')->name('api.auth.password-reset');
 Route::post('/auth/google', [AuthController::class, 'loginWithGoogle'])->name('api.auth.google');
 
 // Protected Auth Routes
