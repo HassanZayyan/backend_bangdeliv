@@ -37,18 +37,31 @@ if [[ ! "$READONLY_USER" =~ ^[A-Za-z0-9_]+$ ]]; then
     exit 1
 fi
 
-if [[ -f "$OVERRIDE_FILE" ]] && ! grep -q '127.0.0.1:3306:3306' "$OVERRIDE_FILE"; then
-    echo "$OVERRIDE_FILE sudah ada dan tidak berisi bind MySQL localhost-only."
-    echo "Periksa manual agar konfigurasi Docker lain tidak tertimpa."
-    exit 1
-fi
-
-cat > "$OVERRIDE_FILE" <<'YAML'
+if [[ ! -f "$OVERRIDE_FILE" ]]; then
+    cat > "$OVERRIDE_FILE" <<'YAML'
 services:
   mysql:
     ports:
       - "127.0.0.1:3306:3306"
 YAML
+elif grep -q '127.0.0.1:3306:3306' "$OVERRIDE_FILE"; then
+    :
+elif grep -Eq '^[[:space:]]+mysql:' "$OVERRIDE_FILE"; then
+    echo "$OVERRIDE_FILE sudah punya service mysql, tapi belum berisi bind 127.0.0.1:3306:3306."
+    echo "Periksa manual agar konfigurasi Docker lain tidak tertimpa."
+    exit 1
+elif grep -Eq '^services:[[:space:]]*$' "$OVERRIDE_FILE"; then
+    cat >> "$OVERRIDE_FILE" <<'YAML'
+
+  mysql:
+    ports:
+      - "127.0.0.1:3306:3306"
+YAML
+else
+    echo "$OVERRIDE_FILE sudah ada tapi formatnya tidak dikenali."
+    echo "Periksa manual agar konfigurasi Docker lain tidak tertimpa."
+    exit 1
+fi
 
 echo "Override Docker dibuat: $OVERRIDE_FILE"
 docker compose up -d mysql
