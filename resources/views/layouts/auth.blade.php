@@ -8,7 +8,7 @@
     <link rel="shortcut icon" type="image/jpeg" href="{{ asset('images/logo.jpg') }}?v=bangdeliv">
     <link rel="apple-touch-icon" href="{{ asset('images/logo.jpg') }}?v=bangdeliv">
     <!-- CSS Internal/Custom -->
-    <link rel="stylesheet" href="{{ asset('css/admin.css') }}">
+    <link rel="stylesheet" href="{{ asset('css/admin.css') }}?v={{ filemtime(public_path('css/admin.css')) }}">
     <!-- Boxicons for Icons -->
     <link href='https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css' rel='stylesheet'>
 </head>

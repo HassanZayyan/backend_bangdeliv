@@ -1011,7 +1011,9 @@ td.td-resto .td-sub {
 }
 
 .password-field {
+    display: block;
     position: relative;
+    width: 100%;
 }
 
 .password-field .form-control {
@@ -1022,22 +1024,24 @@ td.td-resto .td-sub {
     align-items: center;
     background: transparent;
     border: 0;
+    border-radius: 999px;
     color: var(--text-muted);
     cursor: pointer;
     display: inline-flex;
-    height: 40px;
+    height: 36px;
     justify-content: center;
     padding: 0;
     position: absolute;
-    right: 8px;
+    right: 10px;
     top: 50%;
     transform: translateY(-50%);
     transition: var(--transition);
-    width: 40px;
+    width: 36px;
 }
 
 .password-toggle:hover,
 .password-toggle:focus-visible {
+    background: rgba(255, 119, 0, 0.08);
     color: var(--color-primary);
 }
 
