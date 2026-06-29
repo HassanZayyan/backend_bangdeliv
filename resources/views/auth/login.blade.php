@@ -33,7 +33,12 @@
 
             <div class="form-group">
                 <label for="password">Kata Sandi</label>
-                <input type="password" id="password" name="password" class="form-control" placeholder="Kata sandi" autocomplete="current-password" required>
+                <div class="password-field">
+                    <input type="password" id="password" name="password" class="form-control" placeholder="Kata sandi" autocomplete="current-password" required>
+                    <button type="button" class="password-toggle" aria-label="Tampilkan kata sandi" aria-pressed="false" data-password-toggle>
+                        <i class="bx bx-show" aria-hidden="true"></i>
+                    </button>
+                </div>
                 @error('password')
                     <div class="form-error">{{ $message }}</div>
                 @enderror
@@ -69,6 +74,20 @@
         const savedTheme = localStorage.getItem('theme') || 'dark';
         const icon = document.getElementById('theme-icon');
         icon.className = savedTheme === 'dark' ? 'bx bx-moon' : 'bx bx-sun';
+
+        const passwordInput = document.getElementById('password');
+        const passwordToggle = document.querySelector('[data-password-toggle]');
+
+        if (passwordInput && passwordToggle) {
+            passwordToggle.addEventListener('click', () => {
+                const shouldShow = passwordInput.type === 'password';
+
+                passwordInput.type = shouldShow ? 'text' : 'password';
+                passwordToggle.setAttribute('aria-pressed', shouldShow ? 'true' : 'false');
+                passwordToggle.setAttribute('aria-label', shouldShow ? 'Sembunyikan kata sandi' : 'Tampilkan kata sandi');
+                passwordToggle.querySelector('i').className = shouldShow ? 'bx bx-hide' : 'bx bx-show';
+            });
+        }
     });
 </script>
 @endsection
