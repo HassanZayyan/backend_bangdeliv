@@ -3,6 +3,7 @@
 namespace Tests\Unit;
 
 use App\Services\Chatbot\ChatbotShoppingItemIntentParser;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 class ChatbotShoppingItemIntentParserTest extends TestCase
@@ -25,6 +26,45 @@ class ChatbotShoppingItemIntentParserTest extends TestCase
                 'notes' => null,
             ],
         ], $items);
+    }
+
+    #[DataProvider('merchantHeaderItemListProvider')]
+    public function test_skips_merchant_header_when_parsing_item_list(string $message): void
+    {
+        $items = (new ChatbotShoppingItemIntentParser)->parse(
+            $message,
+            allowBareTrailingQuantity: true
+        );
+
+        $this->assertSame([
+            [
+                'name' => 'sego tiwul',
+                'quantity' => 1,
+                'operation' => ChatbotShoppingItemIntentParser::OP_ADD,
+                'notes' => null,
+            ],
+        ], $items);
+    }
+
+    /**
+     * @return array<string, array{message: string}>
+     */
+    public static function merchantHeaderItemListProvider(): array
+    {
+        return [
+            'numbered explicit x quantity' => [
+                'message' => "Beli di nasgor gajah:\n1. sego tiwul 1x",
+            ],
+            'bullet explicit x quantity' => [
+                'message' => "Beli di nasgor gajah:\n- sego tiwul 1x",
+            ],
+            'bullet bare quantity' => [
+                'message' => "Beli di nasgor gajah:\n- sego tiwul 1",
+            ],
+            'numbered bare quantity' => [
+                'message' => "Beli di nasgor gajah:\n1. sego tiwul 1",
+            ],
+        ];
     }
 
     public function test_parses_quantity_units_and_natural_separator(): void

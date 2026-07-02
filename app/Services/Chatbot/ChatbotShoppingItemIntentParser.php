@@ -112,6 +112,10 @@ class ChatbotShoppingItemIntentParser
                 continue;
             }
 
+            if ($this->isMerchantHeaderLine($line)) {
+                continue;
+            }
+
             $segments = preg_split('/(?:,|\+|\bdan\b)/iu', $line) ?: [$line];
             foreach ($segments as $segment) {
                 $segment = trim((string) $segment);
@@ -204,6 +208,11 @@ class ChatbotShoppingItemIntentParser
     private function stripListMarker(string $value): string
     {
         return trim($this->regexReplace('/^\s*(?:[-*]|\x{2022}|\d+[\.)])\s*/u', ' ', $value));
+    }
+
+    private function isMerchantHeaderLine(string $value): bool
+    {
+        return preg_match('/^(?:beli|belikan|pesan|titip)\s+(?:di|dari)\s+[\pL\pN\s.&-]+:\s*$/iu', trim($value)) === 1;
     }
 
     private function quantityPattern(): string

@@ -559,6 +559,61 @@ class ChatbotShoppingFlowTest extends TestCase
         );
     }
 
+    public function test_chatbot_shopping_beli_di_header_is_merchant_not_item(): void
+    {
+        Config::set('bangdeliv.google_maps_api_key', 'test-key');
+
+        $customer = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        Address::query()->create([
+            'user_id' => $customer->id,
+            'label' => 'Rumah',
+            'recipient_name' => 'Customer Test',
+            'phone' => '081200000034',
+            'full_address' => 'baskoro raya, Bejalen, Kec. Ambarawa, Kabupaten Semarang, Jawa Tengah, 50611',
+            'latitude' => -7.003,
+            'longitude' => 110.403,
+            'is_default' => true,
+        ]);
+
+        Restaurant::query()->create([
+            'name' => 'Nasgor Gajah',
+            'slug' => 'nasgor-gajah',
+            'merchant_type' => 'restaurant',
+            'address' => 'Jl. Nasgor Gajah No. 1',
+            'latitude' => -7.004,
+            'longitude' => 110.404,
+            'phone' => '081200000035',
+        ]);
+
+        Sanctum::actingAs($customer);
+
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'merchant' => 'Nasgor Gajah',
+            'items' => [],
+        ]);
+
+        $response = $this->postJson('/api/chatbot/process', [
+            'session_id' => 'shopping-beli-di-header-merchant-session',
+            'service_type' => 'nitip',
+            'message' => "Beli di nasgor gajah:\n1. sego tiwul 1x",
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.shopping.ready_to_confirm', true)
+            ->assertJsonPath('data.shopping.merchant.name', 'Nasgor Gajah')
+            ->assertJsonCount(1, 'data.shopping.items')
+            ->assertJsonPath('data.shopping.items.0.name', 'sego tiwul')
+            ->assertJsonPath('data.shopping.items.0.quantity', 1);
+        $this->assertSame(['sego tiwul' => 1], $this->shoppingItemQuantities($response));
+    }
+
     public function test_chatbot_shopping_external_merchant_supports_bare_quantity_decrement_and_ambiguous_edit_guard(): void
     {
         Config::set('bangdeliv.google_maps_api_key', 'test-key');
