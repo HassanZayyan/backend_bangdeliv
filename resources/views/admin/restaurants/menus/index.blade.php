@@ -46,7 +46,7 @@
             </div>
             <div class="form-group" style="margin-bottom:14px;">
                 <label>Harga</label>
-                <input type="number" step="0.01" min="0" name="price" value="{{ old('price') }}" class="form-control" required>
+                <input type="number" step="0.01" min="0" name="price" value="{{ old('price') }}" class="form-control">
             </div>
             <div class="form-group" style="margin-bottom:14px;">
                 <label>Urutan</label>
@@ -91,7 +91,11 @@
                                 </div>
                             </td>
                             <td data-label="Harga">
-                                <span class="td-strong" style="color:var(--color-primary);">Rp {{ number_format((float) $menu->price, 0, ',', '.') }}</span>
+                                @if($menu->price === null)
+                                    <span class="td-sub">Harga belum diisi</span>
+                                @else
+                                    <span class="td-strong" style="color:var(--color-primary);">Rp {{ number_format((float) $menu->price, 0, ',', '.') }}</span>
+                                @endif
                             </td>
                             <td data-label="Status">
                                 <span class="badge {{ $menu->is_available ? 'badge-success' : 'badge-danger' }}">{{ $menu->is_available ? 'Tersedia' : 'Tidak Tersedia' }}</span>
@@ -104,7 +108,7 @@
                                         title="Edit Menu"
                                         data-update-url="{{ route('admin.restaurants.menus.update', [$restaurant, $menu]) }}"
                                         data-name="{{ $menu->name }}"
-                                        data-price="{{ $menu->price }}"
+                                        data-price="{{ $menu->price === null ? '' : $menu->price }}"
                                         data-sort-order="{{ $menu->sort_order }}"
                                         data-is-available="{{ (int) $menu->is_available }}"
                                     >

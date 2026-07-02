@@ -32,12 +32,23 @@ class HomeApiTest extends TestCase
             'sort_order' => 1,
         ]);
 
+        Menu::query()->create([
+            'restaurant_id' => $restaurant->id,
+            'name' => 'Harga Nota',
+            'price' => null,
+            'image' => null,
+            'is_available' => true,
+            'sort_order' => 2,
+        ]);
+
         $response = $this->getJson('/api/v1/home');
 
         $response->assertOk()
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.categories', [])
             ->assertJsonPath('data.popular_menus.0.name', 'Ayam Bakar Paket')
+            ->assertJsonPath('data.popular_menus.1.name', 'Harga Nota')
+            ->assertJsonPath('data.popular_menus.1.price', null)
             ->assertJsonMissingPath('data.popular_menus.0.description')
             ->assertJsonPath('data.nearby_merchants.0.name', 'Ayam Bakar Mantap');
     }

@@ -16,7 +16,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('restaurant_id')->constrained();
             $table->string('name');
-            $table->decimal('price', 12, 2);
+            $table->decimal('price', 12, 2)->nullable();
             $table->string('image')->nullable();
             $table->boolean('is_available')->default(true);
             $table->integer('sort_order')->default(0);
@@ -27,7 +27,7 @@ return new class extends Migration
         });
 
         DatabaseCheckConstraints::add('menus', [
-            'chk_menus_price_non_negative' => 'price >= 0',
+            'chk_menus_price_non_negative' => 'price IS NULL OR price >= 0',
         ]);
     }
 

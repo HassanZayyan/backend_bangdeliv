@@ -3686,9 +3686,21 @@ class OrderService
 
             if ($itemSource === 'MENU_DB' && $restaurant instanceof Restaurant) {
                 $menu = $this->resolveShoppingMenu($restaurant, $payload);
-                $enriched['menu_id'] = (int) $menu->id;
                 $enriched['menu_name'] = (string) $menu->name;
-                $enriched['unit_price'] = round((float) $menu->price, 2);
+                if ($menu->price === null) {
+                    $enriched['item_source'] = 'MANUAL';
+                    $enriched['menu_id'] = null;
+                    $enriched['unit_price'] = 0;
+                    $enriched['metadata'] = [
+                        ...$candidate->metadata(),
+                        'price_status' => 'PENDING_DRIVER_INPUT',
+                        'source' => 'CUSTOMER_MENU_DB_PENDING_PRICE',
+                        'catalog_menu_id' => (int) $menu->id,
+                    ];
+                } else {
+                    $enriched['menu_id'] = (int) $menu->id;
+                    $enriched['unit_price'] = round((float) $menu->price, 2);
+                }
             }
 
             if ($itemSource !== 'MENU_DB') {
@@ -3898,6 +3910,24 @@ class OrderService
             }
 
             $menu = $this->resolveShoppingMenu($merchant, $payload);
+            if ($menu->price === null) {
+                return [
+                    'menu_id' => null,
+                    'item_source' => 'MANUAL',
+                    'menu_name' => (string) $menu->name,
+                    'quantity' => $quantity,
+                    'unit_price' => 0,
+                    'subtotal' => 0,
+                    'notes' => $notes,
+                    'metadata' => [
+                        ...$candidate->metadata(),
+                        'price_status' => 'PENDING_DRIVER_INPUT',
+                        'source' => 'CUSTOMER_MENU_DB_PENDING_PRICE',
+                        'catalog_menu_id' => (int) $menu->id,
+                    ],
+                ];
+            }
+
             $unitPrice = round((float) $menu->price, 2);
 
             return [

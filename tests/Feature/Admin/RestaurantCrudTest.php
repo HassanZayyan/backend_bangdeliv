@@ -371,6 +371,48 @@ class RestaurantCrudTest extends TestCase
         $this->assertSoftDeleted('menus', ['id' => $menu->id]);
     }
 
+    public function test_admin_can_store_null_menu_price_and_keep_zero_price(): void
+    {
+        $admin = User::factory()->create([
+            'role' => 'admin',
+            'phone' => '081300000110',
+        ]);
+
+        $restaurant = Restaurant::query()->create([
+            'name' => 'Resto Menu Nullable',
+            'slug' => 'resto-menu-nullable',
+            'address' => 'Jl. Menu Nullable',
+            'latitude' => -6.2,
+            'longitude' => 106.8,
+            'phone' => '081244440110',
+        ]);
+
+        $this->actingAs($admin)
+            ->post(route('admin.restaurants.menus.store', $restaurant), [
+                'name' => 'Harga Nota',
+                'price' => '',
+                'is_available' => 1,
+                'sort_order' => 1,
+            ])
+            ->assertRedirect(route('admin.restaurants.menus.index', $restaurant));
+
+        $menu = $restaurant->menus()->where('name', 'Harga Nota')->firstOrFail();
+        $this->assertNull($menu->price);
+
+        $this->actingAs($admin)
+            ->put(route('admin.restaurants.menus.update', [$restaurant, $menu]), [
+                'name' => 'Harga Nol',
+                'price' => 0,
+                'is_available' => 1,
+                'sort_order' => 1,
+            ])
+            ->assertRedirect(route('admin.restaurants.menus.index', $restaurant));
+
+        $menu->refresh();
+        $this->assertSame('Harga Nol', $menu->name);
+        $this->assertSame('0.00', $menu->price);
+    }
+
     public function test_restaurant_toggle_status_route_is_removed(): void
     {
         $admin = User::factory()->create([

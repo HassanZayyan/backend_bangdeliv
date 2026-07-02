@@ -35,8 +35,8 @@ class RestaurantMenuSeederTest extends TestCase
         $this->assertDatabaseMissing('restaurants', [
             'slug' => 'resto-taman-kedai-satu',
         ]);
-        $this->assertSame(32, Restaurant::query()->count());
-        $this->assertSame(740, Menu::query()->count());
+        $this->assertSame(63, Restaurant::query()->count());
+        $this->assertSame(1307, Menu::query()->count());
 
         $restaurant = Restaurant::query()
             ->where('slug', 'mie-ayam-bakso-pak-kumaidi')
@@ -77,8 +77,29 @@ class RestaurantMenuSeederTest extends TestCase
         $this->assertDatabaseHas('menus', [
             'restaurant_id' => $kedaiMbakVita->id,
             'name' => 'Lotek',
-            'price' => 0,
+            'price' => null,
             'image' => null,
+        ]);
+
+        $dapurFamily = Restaurant::query()
+            ->where('slug', 'dapur-family')
+            ->firstOrFail();
+        $this->assertSame(1, Restaurant::query()->where('slug', 'dapur-family')->count());
+        $this->assertSame('restaurants/15.JPG', $dapurFamily->banner_image);
+        $this->assertSame(23, $dapurFamily->menus()->count());
+        $this->assertDatabaseHas('menus', [
+            'restaurant_id' => $dapurFamily->id,
+            'name' => 'Chicken Katsu (LH / Cabe / Tomat)',
+            'price' => 14000,
+        ]);
+
+        $mieCio = Restaurant::query()
+            ->where('slug', 'mie-cio-mii-dempel-candi')
+            ->firstOrFail();
+        $this->assertDatabaseHas('menus', [
+            'restaurant_id' => $mieCio->id,
+            'name' => 'Level 0',
+            'price' => 0,
         ]);
     }
 }

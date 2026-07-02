@@ -18,7 +18,7 @@ class StoreMenuRequest extends FormRequest
     {
         return [
             'name' => ['required', 'string', 'max:255'],
-            'price' => ['required', 'numeric', 'min:0'],
+            'price' => ['nullable', 'numeric', 'min:0'],
             'is_available' => ['required', 'boolean'],
             'sort_order' => ['nullable', 'integer', 'min:0'],
         ];

@@ -882,7 +882,7 @@ class ChatbotShoppingFlowTest extends TestCase
         $this->assertSame('_p~iF~ps|U_ulLnnqC_mqNvxq`@', $routeSnapshot['encoded_polyline'] ?? null);
     }
 
-    public function test_chatbot_shopping_menu_database_zero_price_stays_pending_from_receipt(): void
+    public function test_chatbot_shopping_menu_database_zero_price_stays_confirmed(): void
     {
         Config::set('bangdeliv.google_maps_api_key', 'test-key');
 
@@ -941,17 +941,15 @@ class ChatbotShoppingFlowTest extends TestCase
 
         $draftResponse->assertOk()
             ->assertJsonPath('data.shopping.ready_to_confirm', true)
-            ->assertJsonPath('data.shopping.items.0.item_source', 'MANUAL')
-            ->assertJsonPath('data.shopping.items.0.menu_id', null)
+            ->assertJsonPath('data.shopping.items.0.item_source', 'MENU_DB')
+            ->assertJsonPath('data.shopping.items.0.menu_id', $menu->id)
             ->assertJsonPath('data.shopping.items.0.unit_price', 0)
-            ->assertJsonPath('data.shopping.items.0.metadata.price_status', 'PENDING_DRIVER_INPUT')
-            ->assertJsonPath('data.shopping.items.0.metadata.catalog_menu_id', $menu->id);
+            ->assertJsonPath('data.shopping.items.0.metadata.price_status', 'CONFIRMED');
 
         $assistantText = (string) $draftResponse->json('data.assistant_text');
-        $this->assertStringContainsString('1x Tahu Campur (harga sesuai nota)', $assistantText);
-        $this->assertStringContainsString('Harga barang: Sesuai nota', $assistantText);
-        $this->assertStringContainsString('Estimasi total sementara: Menunggu harga barang', $assistantText);
-        $this->assertStringNotContainsString('Rp0', $assistantText);
+        $this->assertStringContainsString('1x Tahu Campur (Rp0)', $assistantText);
+        $this->assertStringNotContainsString('Harga barang: Sesuai nota', $assistantText);
+        $this->assertStringNotContainsString('Estimasi total sementara: Menunggu harga barang', $assistantText);
 
         $this->postJson('/api/chatbot/process', [
             'session_id' => $sessionId,
@@ -971,10 +969,9 @@ class ChatbotShoppingFlowTest extends TestCase
         $orderId = (int) $confirmResponse->json('data.order.id');
         $item = OrderItem::query()->where('order_id', $orderId)->firstOrFail();
 
-        $this->assertNull($item->menu_id);
-        $this->assertSame('MANUAL', $item->item_source);
-        $this->assertSame('PENDING_DRIVER_INPUT', $item->metadata['price_status'] ?? null);
-        $this->assertSame($menu->id, $item->metadata['catalog_menu_id'] ?? null);
+        $this->assertSame($menu->id, $item->menu_id);
+        $this->assertSame('MENU_DB', $item->item_source);
+        $this->assertSame('CONFIRMED', $item->metadata['price_status'] ?? null);
     }
 
     public function test_chatbot_shopping_delivery_location_patch_preserves_ready_draft(): void

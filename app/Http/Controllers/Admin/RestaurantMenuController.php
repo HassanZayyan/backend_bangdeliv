@@ -30,7 +30,7 @@ class RestaurantMenuController extends Controller
 
         $restaurant->menus()->create([
             'name' => $payload['name'],
-            'price' => $payload['price'],
+            'price' => $payload['price'] ?? null,
             'is_available' => (bool) $payload['is_available'],
             'sort_order' => (int) ($payload['sort_order'] ?? 0),
         ]);
@@ -48,7 +48,7 @@ class RestaurantMenuController extends Controller
 
         $menu->update([
             'name' => $payload['name'],
-            'price' => $payload['price'],
+            'price' => $payload['price'] ?? null,
             'is_available' => (bool) $payload['is_available'],
             'sort_order' => (int) ($payload['sort_order'] ?? 0),
         ]);

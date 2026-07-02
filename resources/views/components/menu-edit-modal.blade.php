@@ -21,7 +21,7 @@
             </div>
             <div class="form-group" style="margin-bottom:14px;">
                 <label>Harga</label>
-                <input type="number" step="0.01" min="0" id="edit-price" name="price" class="form-control" required>
+                <input type="number" step="0.01" min="0" id="edit-price" name="price" class="form-control">
             </div>
             <div class="form-group" style="margin-bottom:14px;">
                 <label>Urutan</label>

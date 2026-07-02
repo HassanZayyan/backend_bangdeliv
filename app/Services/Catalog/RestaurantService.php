@@ -143,7 +143,7 @@ class RestaurantService
                 'menu_category_id' => null,
                 'category_name' => null,
                 'name' => $menu->name,
-                'price' => (float) $menu->price,
+                'price' => $this->nullableFloat($menu->price),
                 'image' => $menu->image,
                 'is_available' => (bool) $menu->is_available,
                 'sort_order' => (int) $menu->sort_order,

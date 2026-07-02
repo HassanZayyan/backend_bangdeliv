@@ -1263,9 +1263,9 @@ class ChatbotShoppingOrderService
             $menu = $menusByName->get(Str::of($name)->lower()->squish()->toString());
 
             if ($menu !== null) {
-                $unitPrice = round((float) $menu->price, 2);
+                $hasReferencePrice = $menu->price !== null;
+                $unitPrice = $hasReferencePrice ? round((float) $menu->price, 2) : 0.0;
                 $menuName = (string) $menu->name;
-                $hasReferencePrice = $unitPrice > 0;
 
                 $items[] = [
                     'menu_id' => $hasReferencePrice ? (int) $menu->id : null,
@@ -1478,15 +1478,16 @@ class ChatbotShoppingOrderService
                     $itemSource = strtoupper((string) ($item['item_source'] ?? 'MANUAL')) === 'MENU_DB'
                         ? 'MENU_DB'
                         : 'MANUAL';
-                    if ($itemSource === 'MENU_DB' && $unitPrice <= 0) {
-                        $itemSource = 'MANUAL';
-                    }
                     $metadata = is_array($item['metadata'] ?? null)
                         ? $item['metadata']
                         : [
-                            'price_status' => $itemSource === 'MENU_DB' && $unitPrice > 0 ? 'CONFIRMED' : 'PENDING_DRIVER_INPUT',
-                            'source' => $itemSource === 'MENU_DB' && $unitPrice > 0 ? 'CHATBOT_MENU_MATCH' : 'CHATBOT_MANUAL_CONTEXT',
+                            'price_status' => $itemSource === 'MENU_DB' ? 'CONFIRMED' : 'PENDING_DRIVER_INPUT',
+                            'source' => $itemSource === 'MENU_DB' ? 'CHATBOT_MENU_MATCH' : 'CHATBOT_MANUAL_CONTEXT',
                         ];
+                    $priceStatus = strtoupper((string) ($metadata['price_status'] ?? ''));
+                    if ($itemSource === 'MENU_DB' && str_contains($priceStatus, 'PENDING')) {
+                        $itemSource = 'MANUAL';
+                    }
                     $metadata = [
                         ...$candidate->metadata(),
                         ...$metadata,
@@ -1832,13 +1833,17 @@ class ChatbotShoppingOrderService
         }
 
         $unitPrice = round((float) ($item['unit_price'] ?? 0), 2);
-        if ($unitPrice <= 0) {
+        $priceStatus = strtoupper((string) data_get($item, 'metadata.price_status', $item['price_status'] ?? ''));
+
+        if (str_contains($priceStatus, 'PENDING')) {
             return true;
         }
 
-        $priceStatus = strtoupper((string) data_get($item, 'metadata.price_status', $item['price_status'] ?? ''));
+        if (in_array($priceStatus, ['CONFIRMED', 'DRIVER_CONFIRMED', 'UNAVAILABLE'], true)) {
+            return false;
+        }
 
-        return str_contains($priceStatus, 'PENDING');
+        return $unitPrice <= 0;
     }
 
     /**

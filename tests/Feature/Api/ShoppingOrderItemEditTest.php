@@ -474,6 +474,51 @@ class ShoppingOrderItemEditTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_customer_menu_database_item_with_null_price_falls_back_to_manual_pending_price(): void
+    {
+        Config::set('bangdeliv.google_maps_api_key', 'test-key');
+        Http::fake();
+
+        $customer = User::factory()->create(['role' => 'customer']);
+        $order = $this->createShoppingOrder($customer, 'PENDING');
+        $menu = Menu::query()->create([
+            'restaurant_id' => $order->restaurant_id,
+            'name' => 'Harga Nota',
+            'price' => null,
+            'is_available' => true,
+        ]);
+
+        Sanctum::actingAs($customer);
+
+        $response = $this->postJson('/api/v1/orders/'.$order->id.'/items', [
+            'merchant_id' => $order->restaurant_id,
+            'item_source' => 'MENU_DB',
+            'menu_id' => $menu->id,
+            'quantity' => 1,
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.delivery_fee', '5000.00')
+            ->assertJsonPath('data.total_price', '25000.00')
+            ->assertJsonPath('data.shopping_stops.0.items.1.menu_id', null)
+            ->assertJsonPath('data.shopping_stops.0.items.1.item_source', 'MANUAL')
+            ->assertJsonPath('data.shopping_stops.0.items.1.price_status', 'PENDING_DRIVER_INPUT');
+
+        $item = OrderItem::query()
+            ->where('order_id', $order->id)
+            ->where('menu_name', 'Harga Nota')
+            ->firstOrFail();
+
+        $this->assertNull($item->menu_id);
+        $this->assertSame('MANUAL', $item->item_source);
+        $this->assertSame('0.00', (string) $item->unit_price);
+        $this->assertSame('PENDING_DRIVER_INPUT', $item->metadata['price_status'] ?? null);
+        $this->assertSame($menu->id, $item->metadata['catalog_menu_id'] ?? null);
+
+        Http::assertNothingSent();
+    }
+
     public function test_customer_menu_database_item_requires_menu_id(): void
     {
         $customer = User::factory()->create(['role' => 'customer']);

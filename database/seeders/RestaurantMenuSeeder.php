@@ -83,7 +83,7 @@ class RestaurantMenuSeeder extends Seeder
     }
 
     /**
-     * @param  array<int, array{name: string, price: int|float}>  $menus
+     * @param  array<int, array{name: string, price: int|float|null}>  $menus
      */
     private function replaceMenus(Restaurant $restaurant, array $menus): void
     {
@@ -92,10 +92,12 @@ class RestaurantMenuSeeder extends Seeder
             ->forceDelete();
 
         foreach (array_values($menus) as $index => $menu) {
+            $price = $menu['price'] ?? null;
+
             Menu::query()->create([
                 'restaurant_id' => $restaurant->id,
                 'name' => (string) $menu['name'],
-                'price' => max(0, (float) $menu['price']),
+                'price' => $price === null ? null : (float) $price,
                 'image' => null,
                 'is_available' => true,
                 'sort_order' => $index + 1,

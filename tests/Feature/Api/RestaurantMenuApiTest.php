@@ -35,11 +35,29 @@ class RestaurantMenuApiTest extends TestCase
 
         Menu::query()->create([
             'restaurant_id' => $restaurant->id,
+            'name' => 'Air Putih',
+            'price' => 0,
+            'image' => null,
+            'is_available' => true,
+            'sort_order' => 2,
+        ]);
+
+        Menu::query()->create([
+            'restaurant_id' => $restaurant->id,
+            'name' => 'Harga Nota',
+            'price' => null,
+            'image' => null,
+            'is_available' => true,
+            'sort_order' => 3,
+        ]);
+
+        Menu::query()->create([
+            'restaurant_id' => $restaurant->id,
             'name' => 'Mie Rebus',
             'price' => 15000,
             'image' => null,
             'is_available' => false,
-            'sort_order' => 2,
+            'sort_order' => 4,
         ]);
 
         $response = $this->getJson('/api/v1/restaurants/resto-menu-api/menus?category_id=999');
@@ -50,8 +68,12 @@ class RestaurantMenuApiTest extends TestCase
             ->assertJsonPath('data.menus.0.name', 'Nasi Goreng')
             ->assertJsonPath('data.menus.0.menu_category_id', null)
             ->assertJsonPath('data.menus.0.category_name', null)
+            ->assertJsonPath('data.menus.1.name', 'Air Putih')
+            ->assertJsonPath('data.menus.1.price', 0)
+            ->assertJsonPath('data.menus.2.name', 'Harga Nota')
+            ->assertJsonPath('data.menus.2.price', null)
             ->assertJsonMissingPath('data.menus.0.description');
 
-        $this->assertCount(1, $response->json('data.menus'));
+        $this->assertCount(3, $response->json('data.menus'));
     }
 }
