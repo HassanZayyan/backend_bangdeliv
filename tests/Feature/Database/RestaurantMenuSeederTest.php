@@ -14,6 +14,9 @@ class RestaurantMenuSeederTest extends TestCase
 
     public function test_it_seeds_official_bangdeliv_restaurants_and_removes_dummy_data(): void
     {
+        $officialRestaurants = require database_path('seeders/data/bangdeliv_official_restaurants.php');
+        $this->assertSame(range(1, 63), array_column($officialRestaurants, 'source_no'));
+
         $dummy = Restaurant::query()->create([
             'name' => 'Resto Taman Kedai Satu',
             'slug' => 'resto-taman-kedai-satu',
@@ -96,10 +99,30 @@ class RestaurantMenuSeederTest extends TestCase
         $mieCio = Restaurant::query()
             ->where('slug', 'mie-cio-mii-dempel-candi')
             ->firstOrFail();
+        $this->assertSame('restaurants/33.JPG', $mieCio->banner_image);
+        $this->assertSame([
+            'restaurants/33.JPG',
+        ], $mieCio->gallery_images);
         $this->assertDatabaseHas('menus', [
             'restaurant_id' => $mieCio->id,
             'name' => 'Level 0',
             'price' => 0,
         ]);
+
+        $bakmiRemaja6 = Restaurant::query()
+            ->where('slug', 'bakmi-remaja-6-perumahan-sraten')
+            ->firstOrFail();
+        $this->assertSame('restaurants/34.JPG', $bakmiRemaja6->banner_image);
+        $this->assertSame([
+            'restaurants/34.JPG',
+        ], $bakmiRemaja6->gallery_images);
+
+        $mamiYolla = Restaurant::query()
+            ->where('slug', 'warung-soto-campur-mami-yolla')
+            ->firstOrFail();
+        $this->assertSame('restaurants/63.JPG', $mamiYolla->banner_image);
+        $this->assertSame([
+            'restaurants/63.JPG',
+        ], $mamiYolla->gallery_images);
     }
 }

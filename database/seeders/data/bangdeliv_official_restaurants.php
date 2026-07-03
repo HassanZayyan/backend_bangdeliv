@@ -1278,8 +1278,10 @@ return [
         'phone' => '-',
         'latitude' => -7.30823185,
         'longitude' => 110.46977731,
-        'banner_image' => null,
-        'gallery_images' => [],
+        'banner_image' => 'restaurants/33.JPG',
+        'gallery_images' => [
+            'restaurants/33.JPG',
+        ],
         'menus' => [
             ['name' => 'Mie cio bakso', 'price' => 10000],
             ['name' => 'Mie Pang Cio', 'price' => 10000],
@@ -1324,7 +1326,7 @@ return [
         ],
     ],
     [
-        'source_no' => 35,
+        'source_no' => 34,
         'name' => 'Bakmi Remaja 6 Perumahan Sraten',
         'slug' => 'bakmi-remaja-6-perumahan-sraten',
         'merchant_type' => 'restaurant',
@@ -1332,8 +1334,10 @@ return [
         'phone' => '-',
         'latitude' => -7.31552713,
         'longitude' => 110.46670448,
-        'banner_image' => null,
-        'gallery_images' => [],
+        'banner_image' => 'restaurants/34.JPG',
+        'gallery_images' => [
+            'restaurants/34.JPG',
+        ],
         'menus' => [
             ['name' => 'Bakmie Goreng', 'price' => null],
             ['name' => 'Bakmie Godog', 'price' => null],
@@ -1347,7 +1351,7 @@ return [
         ],
     ],
     [
-        'source_no' => 36,
+        'source_no' => 35,
         'name' => 'D\'Celup Chicken Crispy Candirejo',
         'slug' => 'd-celup-chicken-crispy-candirejo',
         'merchant_type' => 'restaurant',
@@ -1355,8 +1359,11 @@ return [
         'phone' => '-',
         'latitude' => -7.30680984,
         'longitude' => 110.46612085,
-        'banner_image' => null,
-        'gallery_images' => [],
+        'banner_image' => 'restaurants/35-1.JPG',
+        'gallery_images' => [
+            'restaurants/35-1.JPG',
+            'restaurants/35-2.PNG',
+        ],
         'menus' => [
             ['name' => 'Sayap Ori', 'price' => 7000],
             ['name' => 'Paha Bawah Ori', 'price' => 8000],
@@ -1384,7 +1391,7 @@ return [
         ],
     ],
     [
-        'source_no' => 37,
+        'source_no' => 36,
         'name' => 'Martabak Sakinah 3',
         'slug' => 'martabak-sakinah-3',
         'merchant_type' => 'restaurant',
@@ -1392,8 +1399,11 @@ return [
         'phone' => '-',
         'latitude' => -7.31654403,
         'longitude' => 110.46652167,
-        'banner_image' => null,
-        'gallery_images' => [],
+        'banner_image' => 'restaurants/36-1.JPG',
+        'gallery_images' => [
+            'restaurants/36-1.JPG',
+            'restaurants/36-2.PNG',
+        ],
         'menus' => [
             ['name' => 'Martabak Telor Biasa (Telur Satu)', 'price' => 20000],
             ['name' => 'Martabak Telor Special (Telur Dua)', 'price' => 24000],
@@ -1423,7 +1433,7 @@ return [
         ],
     ],
     [
-        'source_no' => 38,
+        'source_no' => 37,
         'name' => 'Cumi Mbledoss Kesongo',
         'slug' => 'cumi-mbledoss-kesongo',
         'merchant_type' => 'restaurant',
@@ -1431,8 +1441,10 @@ return [
         'phone' => '-',
         'latitude' => -7.29069165,
         'longitude' => 110.46491854,
-        'banner_image' => null,
-        'gallery_images' => [],
+        'banner_image' => 'restaurants/37.JPG',
+        'gallery_images' => [
+            'restaurants/37.JPG',
+        ],
         'menus' => [
             ['name' => 'Cumi Saos', 'price' => 30000],
             ['name' => 'Cumi Tepung Crispy', 'price' => 30000],
@@ -1483,7 +1495,7 @@ return [
         ],
     ],
     [
-        'source_no' => 39,
+        'source_no' => 38,
         'name' => 'Sate Ayam Cak Sabari',
         'slug' => 'sate-ayam-cak-sabari',
         'merchant_type' => 'restaurant',
@@ -1491,15 +1503,17 @@ return [
         'phone' => '-',
         'latitude' => -7.32036584,
         'longitude' => 110.47075259,
-        'banner_image' => null,
-        'gallery_images' => [],
+        'banner_image' => 'restaurants/38.JPG',
+        'gallery_images' => [
+            'restaurants/38.JPG',
+        ],
         'menus' => [
             ['name' => 'Sate Ayam + Lontong 1 porsi', 'price' => null],
             ['name' => 'Sate Ayam tanpa lontong 1 porsi', 'price' => null],
         ],
     ],
     [
-        'source_no' => 40,
+        'source_no' => 39,
         'name' => 'Dapur Hanifah',
         'slug' => 'dapur-hanifah',
         'merchant_type' => 'restaurant',
@@ -1507,8 +1521,10 @@ return [
         'phone' => '-',
         'latitude' => -7.31025603,
         'longitude' => 110.46574241,
-        'banner_image' => null,
-        'gallery_images' => [],
+        'banner_image' => 'restaurants/39.JPG',
+        'gallery_images' => [
+            'restaurants/39.JPG',
+        ],
         'menus' => [
             ['name' => 'Cireng ayam chili oil 4 pcs', 'price' => 5000],
             ['name' => 'Cireng keju chili oil 4 pcs', 'price' => 5000],
@@ -1534,7 +1550,7 @@ return [
         ],
     ],
     [
-        'source_no' => 41,
+        'source_no' => 40,
         'name' => 'Dimsum Gen Zum',
         'slug' => 'dimsum-gen-zum',
         'merchant_type' => 'restaurant',
@@ -1542,8 +1558,10 @@ return [
         'phone' => '-',
         'latitude' => -7.32650776,
         'longitude' => 110.47685072,
-        'banner_image' => null,
-        'gallery_images' => [],
+        'banner_image' => 'restaurants/40.JPG',
+        'gallery_images' => [
+            'restaurants/40.JPG',
+        ],
         'menus' => [
             ['name' => 'Dimsum original isi 4 (tanpa saus mentai)', 'price' => 10000],
             ['name' => 'Dimsum original isi 6 (tanpa saus mentai)', 'price' => 15000],
@@ -1571,7 +1589,7 @@ return [
         ],
     ],
     [
-        'source_no' => 42,
+        'source_no' => 41,
         'name' => 'Martabak Elvano Sraten Gajah (Asli Tegal)',
         'slug' => 'martabak-elvano-sraten-gajah-asli-tegal',
         'merchant_type' => 'restaurant',
@@ -1579,8 +1597,10 @@ return [
         'phone' => '-',
         'latitude' => -7.32041396,
         'longitude' => 110.47148194,
-        'banner_image' => null,
-        'gallery_images' => [],
+        'banner_image' => 'restaurants/41.JPG',
+        'gallery_images' => [
+            'restaurants/41.JPG',
+        ],
         'menus' => [
             ['name' => 'Martabak Manis Keju', 'price' => 25000],
             ['name' => 'Martabak Manis Keju Coklat', 'price' => 28000],
@@ -1623,7 +1643,7 @@ return [
         ],
     ],
     [
-        'source_no' => 43,
+        'source_no' => 42,
         'name' => 'Bamboo\'s Pizza',
         'slug' => 'bamboo-s-pizza',
         'merchant_type' => 'restaurant',
@@ -1631,8 +1651,10 @@ return [
         'phone' => '-',
         'latitude' => -7.33092322,
         'longitude' => 110.46967064,
-        'banner_image' => null,
-        'gallery_images' => [],
+        'banner_image' => 'restaurants/42.JPG',
+        'gallery_images' => [
+            'restaurants/42.JPG',
+        ],
         'menus' => [
             ['name' => 'Pizza ayam sosis', 'price' => 22000],
             ['name' => 'Pizza ayam sosis chedar', 'price' => 23000],
@@ -1659,7 +1681,7 @@ return [
         ],
     ],
     [
-        'source_no' => 44,
+        'source_no' => 43,
         'name' => 'Soto Seger Mbak Rum Sraten',
         'slug' => 'soto-seger-mbak-rum-sraten',
         'merchant_type' => 'restaurant',
@@ -1667,14 +1689,16 @@ return [
         'phone' => '-',
         'latitude' => null,
         'longitude' => null,
-        'banner_image' => null,
-        'gallery_images' => [],
+        'banner_image' => 'restaurants/43.JPG',
+        'gallery_images' => [
+            'restaurants/43.JPG',
+        ],
         'menus' => [
             ['name' => 'Soto Seger', 'price' => 5000],
         ],
     ],
     [
-        'source_no' => 45,
+        'source_no' => 44,
         'name' => 'Boter Meals',
         'slug' => 'boter-meals',
         'merchant_type' => 'restaurant',
@@ -1682,8 +1706,10 @@ return [
         'phone' => '-',
         'latitude' => -7.31774223,
         'longitude' => 110.46470694,
-        'banner_image' => null,
-        'gallery_images' => [],
+        'banner_image' => 'restaurants/44.JPG',
+        'gallery_images' => [
+            'restaurants/44.JPG',
+        ],
         'menus' => [
             ['name' => 'Dimsum Kukus Ori', 'price' => 12000],
             ['name' => 'Dimsum Keju Lumer', 'price' => 15000],
@@ -1710,7 +1736,7 @@ return [
         ],
     ],
     [
-        'source_no' => 46,
+        'source_no' => 45,
         'name' => 'Bebek & Ayam Kampung Mas Budi',
         'slug' => 'bebek-ayam-kampung-mas-budi',
         'merchant_type' => 'restaurant',
@@ -1718,8 +1744,10 @@ return [
         'phone' => '-',
         'latitude' => -7.32235785,
         'longitude' => 110.48422111,
-        'banner_image' => null,
-        'gallery_images' => [],
+        'banner_image' => 'restaurants/45.JPG',
+        'gallery_images' => [
+            'restaurants/45.JPG',
+        ],
         'menus' => [
             ['name' => 'Bebek Goreng 1/2 Ekor Spesial', 'price' => 38000],
             ['name' => 'Bebek Goreng 1/2 Ekor Reguler', 'price' => 33000],
@@ -1769,7 +1797,7 @@ return [
         ],
     ],
     [
-        'source_no' => 47,
+        'source_no' => 46,
         'name' => 'Mie Ayam & Bakso Tetelan Prapatan',
         'slug' => 'mie-ayam-bakso-tetelan-prapatan',
         'merchant_type' => 'restaurant',
@@ -1777,8 +1805,10 @@ return [
         'phone' => '-',
         'latitude' => null,
         'longitude' => null,
-        'banner_image' => null,
-        'gallery_images' => [],
+        'banner_image' => 'restaurants/46.JPG',
+        'gallery_images' => [
+            'restaurants/46.JPG',
+        ],
         'menus' => [
             ['name' => 'Bakso Biasa', 'price' => 8000],
             ['name' => 'Bakso Jumbo', 'price' => 10000],
@@ -1793,7 +1823,7 @@ return [
         ],
     ],
     [
-        'source_no' => 48,
+        'source_no' => 47,
         'name' => 'Risoles Yummy Pasar Gedangan',
         'slug' => 'risoles-yummy-pasar-gedangan',
         'merchant_type' => 'restaurant',
@@ -1801,8 +1831,12 @@ return [
         'phone' => '-',
         'latitude' => -7.32938032,
         'longitude' => 110.46208172,
-        'banner_image' => null,
-        'gallery_images' => [],
+        'banner_image' => 'restaurants/47-1.JPG',
+        'gallery_images' => [
+            'restaurants/47-1.JPG',
+            'restaurants/47-2.PNG',
+            'restaurants/47-3.PNG',
+        ],
         'menus' => [
             ['name' => 'Beef Telur Mayo Ori', 'price' => 3000],
             ['name' => 'Ayam Suwir Pedas', 'price' => 3000],
@@ -1815,7 +1849,7 @@ return [
         ],
     ],
     [
-        'source_no' => 49,
+        'source_no' => 48,
         'name' => 'Oishi Kuliner',
         'slug' => 'oishi-kuliner',
         'merchant_type' => 'restaurant',
@@ -1823,8 +1857,12 @@ return [
         'phone' => '-',
         'latitude' => -7.32061018,
         'longitude' => 110.47283976,
-        'banner_image' => null,
-        'gallery_images' => [],
+        'banner_image' => 'restaurants/48-1.JPG',
+        'gallery_images' => [
+            'restaurants/48-1.JPG',
+            'restaurants/48-2.PNG',
+            'restaurants/48-3.PNG',
+        ],
         'menus' => [
             ['name' => 'Pisang Coklat Caramel', 'price' => 1000],
             ['name' => 'Ketan Hitam Caramel', 'price' => 1000],
@@ -1843,7 +1881,7 @@ return [
         ],
     ],
     [
-        'source_no' => 50,
+        'source_no' => 49,
         'name' => 'Es Tehku & Aneka Bakaran Sabrina',
         'slug' => 'es-tehku-aneka-bakaran-sabrina',
         'merchant_type' => 'restaurant',
@@ -1851,8 +1889,11 @@ return [
         'phone' => '-',
         'latitude' => null,
         'longitude' => null,
-        'banner_image' => null,
-        'gallery_images' => [],
+        'banner_image' => 'restaurants/49-1.JPG',
+        'gallery_images' => [
+            'restaurants/49-1.JPG',
+            'restaurants/49-2.PNG',
+        ],
         'menus' => [
             ['name' => 'Es Teh Racik', 'price' => 2500],
             ['name' => 'Lemon Tea', 'price' => 5000],
@@ -1881,7 +1922,7 @@ return [
         ],
     ],
     [
-        'source_no' => 51,
+        'source_no' => 50,
         'name' => 'Baloeng Gajah',
         'slug' => 'baloeng-gajah',
         'merchant_type' => 'restaurant',
@@ -1889,8 +1930,11 @@ return [
         'phone' => '-',
         'latitude' => -7.29728909,
         'longitude' => 110.4600859,
-        'banner_image' => null,
-        'gallery_images' => [],
+        'banner_image' => 'restaurants/50-1.PNG',
+        'gallery_images' => [
+            'restaurants/50-1.PNG',
+            'restaurants/50-2.PNG',
+        ],
         'menus' => [
             ['name' => 'Chicken Crispy Steak', 'price' => 15000],
             ['name' => 'Chicken Crispy Mushroom Steak', 'price' => 17000],
@@ -1942,7 +1986,7 @@ return [
         ],
     ],
     [
-        'source_no' => 52,
+        'source_no' => 51,
         'name' => 'Dj\'Cil Roti Bakar',
         'slug' => 'dj-cil-roti-bakar',
         'merchant_type' => 'restaurant',
@@ -1950,8 +1994,10 @@ return [
         'phone' => '-',
         'latitude' => null,
         'longitude' => null,
-        'banner_image' => null,
-        'gallery_images' => [],
+        'banner_image' => 'restaurants/51.JPG',
+        'gallery_images' => [
+            'restaurants/51.JPG',
+        ],
         'menus' => [
             ['name' => 'Roti Bakar Nanas + Strawberry', 'price' => 12000],
             ['name' => 'Roti Bakar Strawberry + Blueberry', 'price' => 12000],
@@ -1991,7 +2037,7 @@ return [
         ],
     ],
     [
-        'source_no' => 53,
+        'source_no' => 52,
         'name' => 'Waroeng AA',
         'slug' => 'waroeng-aa',
         'merchant_type' => 'restaurant',
@@ -1999,8 +2045,11 @@ return [
         'phone' => '-',
         'latitude' => -7.3205791,
         'longitude' => 110.46463185,
-        'banner_image' => null,
-        'gallery_images' => [],
+        'banner_image' => 'restaurants/52-1.JPG',
+        'gallery_images' => [
+            'restaurants/52-1.JPG',
+            'restaurants/52-2.PNG',
+        ],
         'menus' => [
             ['name' => 'Sosis Bakar', 'price' => 1000],
             ['name' => 'Bakso Bakar', 'price' => 1000],
@@ -2046,7 +2095,7 @@ return [
         ],
     ],
     [
-        'source_no' => 54,
+        'source_no' => 53,
         'name' => 'Sate Ayam & Kambing Madura Cak Ferdi',
         'slug' => 'sate-ayam-kambing-madura-cak-ferdi',
         'merchant_type' => 'restaurant',
@@ -2054,15 +2103,17 @@ return [
         'phone' => '-',
         'latitude' => null,
         'longitude' => null,
-        'banner_image' => null,
-        'gallery_images' => [],
+        'banner_image' => 'restaurants/53.JPG',
+        'gallery_images' => [
+            'restaurants/53.JPG',
+        ],
         'menus' => [
             ['name' => 'Sate Ayam', 'price' => null],
             ['name' => 'Sate Kambing', 'price' => null],
         ],
     ],
     [
-        'source_no' => 55,
+        'source_no' => 54,
         'name' => 'Bakmi Remaja 3',
         'slug' => 'bakmi-remaja-3',
         'merchant_type' => 'restaurant',
@@ -2070,8 +2121,11 @@ return [
         'phone' => '-',
         'latitude' => -7.32048564,
         'longitude' => 110.47404126,
-        'banner_image' => null,
-        'gallery_images' => [],
+        'banner_image' => 'restaurants/54-1.JPG',
+        'gallery_images' => [
+            'restaurants/54-1.JPG',
+            'restaurants/54-2.PNG',
+        ],
         'menus' => [
             ['name' => 'Bakmi goreng', 'price' => null],
             ['name' => 'Bakmi godog', 'price' => null],
@@ -2084,7 +2138,7 @@ return [
         ],
     ],
     [
-        'source_no' => 56,
+        'source_no' => 55,
         'name' => 'Mie Ayam Ceker Coba Rasa - Mas Mad Sraten',
         'slug' => 'mie-ayam-ceker-coba-rasa-mas-mad-sraten',
         'merchant_type' => 'restaurant',
@@ -2092,15 +2146,17 @@ return [
         'phone' => '-',
         'latitude' => -7.31978897,
         'longitude' => 110.46729576,
-        'banner_image' => null,
-        'gallery_images' => [],
+        'banner_image' => 'restaurants/55.JPG',
+        'gallery_images' => [
+            'restaurants/55.JPG',
+        ],
         'menus' => [
             ['name' => 'Mie Ayam', 'price' => null],
             ['name' => 'Mie Ayam Ceker', 'price' => null],
         ],
     ],
     [
-        'source_no' => 57,
+        'source_no' => 56,
         'name' => 'Sempol Ayam dan Ice Teh Vando',
         'slug' => 'sempol-ayam-dan-ice-teh-vando',
         'merchant_type' => 'restaurant',
@@ -2108,8 +2164,11 @@ return [
         'phone' => '-',
         'latitude' => null,
         'longitude' => null,
-        'banner_image' => null,
-        'gallery_images' => [],
+        'banner_image' => 'restaurants/56-1.JPG',
+        'gallery_images' => [
+            'restaurants/56-1.JPG',
+            'restaurants/56-2.PNG',
+        ],
         'menus' => [
             ['name' => 'Sempol Ayam', 'price' => null],
             ['name' => 'Cilor', 'price' => null],
@@ -2125,7 +2184,7 @@ return [
         ],
     ],
     [
-        'source_no' => 58,
+        'source_no' => 57,
         'name' => 'Warung Geprek Mbak Nur',
         'slug' => 'warung-geprek-mbak-nur',
         'merchant_type' => 'warung',
@@ -2133,8 +2192,10 @@ return [
         'phone' => '-',
         'latitude' => -7.31812195,
         'longitude' => 110.46682659,
-        'banner_image' => null,
-        'gallery_images' => [],
+        'banner_image' => 'restaurants/57.JPG',
+        'gallery_images' => [
+            'restaurants/57.JPG',
+        ],
         'menus' => [
             ['name' => 'Ikan Bakar', 'price' => null],
             ['name' => 'Ayam Geprek', 'price' => null],
@@ -2153,7 +2214,7 @@ return [
         ],
     ],
     [
-        'source_no' => 59,
+        'source_no' => 58,
         'name' => 'Tahu Crispy Sraten',
         'slug' => 'tahu-crispy-sraten',
         'merchant_type' => 'restaurant',
@@ -2161,15 +2222,17 @@ return [
         'phone' => '-',
         'latitude' => null,
         'longitude' => null,
-        'banner_image' => null,
-        'gallery_images' => [],
+        'banner_image' => 'restaurants/58.JPG',
+        'gallery_images' => [
+            'restaurants/58.JPG',
+        ],
         'menus' => [
             ['name' => 'Tahu Crispi', 'price' => null],
             ['name' => 'Ayam Crispi', 'price' => null],
         ],
     ],
     [
-        'source_no' => 60,
+        'source_no' => 59,
         'name' => 'KedaiQu',
         'slug' => 'kedaiqu',
         'merchant_type' => 'restaurant',
@@ -2177,8 +2240,10 @@ return [
         'phone' => '-',
         'latitude' => null,
         'longitude' => null,
-        'banner_image' => null,
-        'gallery_images' => [],
+        'banner_image' => 'restaurants/59.JPG',
+        'gallery_images' => [
+            'restaurants/59.JPG',
+        ],
         'menus' => [
             ['name' => 'Cilot Kuah', 'price' => null],
             ['name' => 'Cilot Rebus', 'price' => null],
@@ -2191,7 +2256,7 @@ return [
         ],
     ],
     [
-        'source_no' => 61,
+        'source_no' => 60,
         'name' => 'Soto Kwali Sapi "Mbak Iik"',
         'slug' => 'soto-kwali-sapi-mbak-iik',
         'merchant_type' => 'restaurant',
@@ -2199,15 +2264,17 @@ return [
         'phone' => '-',
         'latitude' => -7.31962416,
         'longitude' => 110.47954421,
-        'banner_image' => null,
-        'gallery_images' => [],
+        'banner_image' => 'restaurants/60.JPG',
+        'gallery_images' => [
+            'restaurants/60.JPG',
+        ],
         'menus' => [
             ['name' => 'Soto Kwali Sapi', 'price' => null],
             ['name' => 'Ramesan', 'price' => null],
         ],
     ],
     [
-        'source_no' => 62,
+        'source_no' => 61,
         'name' => 'Aneka Kripik Cap Gajah',
         'slug' => 'aneka-kripik-cap-gajah',
         'merchant_type' => 'restaurant',
@@ -2215,15 +2282,17 @@ return [
         'phone' => '-',
         'latitude' => null,
         'longitude' => null,
-        'banner_image' => null,
-        'gallery_images' => [],
+        'banner_image' => 'restaurants/61.JPG',
+        'gallery_images' => [
+            'restaurants/61.JPG',
+        ],
         'menus' => [
             ['name' => 'Aneka Kripik', 'price' => null],
             ['name' => 'Getuk Talas', 'price' => null],
         ],
     ],
     [
-        'source_no' => 63,
+        'source_no' => 62,
         'name' => 'Nasi Goreng Pak Gundul Prapatan Sraten',
         'slug' => 'nasi-goreng-pak-gundul-prapatan-sraten',
         'merchant_type' => 'restaurant',
@@ -2231,8 +2300,10 @@ return [
         'phone' => '-',
         'latitude' => -7.320,
         'longitude' => 110.466,
-        'banner_image' => null,
-        'gallery_images' => [],
+        'banner_image' => 'restaurants/62.JPG',
+        'gallery_images' => [
+            'restaurants/62.JPG',
+        ],
         'menus' => [
             ['name' => 'Nasi Goreng', 'price' => null],
             ['name' => 'Mie Goreng', 'price' => null],
@@ -2244,7 +2315,7 @@ return [
         ],
     ],
     [
-        'source_no' => 64,
+        'source_no' => 63,
         'name' => 'Warung Soto & Campur Mami Yolla',
         'slug' => 'warung-soto-campur-mami-yolla',
         'merchant_type' => 'warung',
@@ -2252,8 +2323,10 @@ return [
         'phone' => '-',
         'latitude' => -7.31873275,
         'longitude' => 110.46701431,
-        'banner_image' => null,
-        'gallery_images' => [],
+        'banner_image' => 'restaurants/63.JPG',
+        'gallery_images' => [
+            'restaurants/63.JPG',
+        ],
         'menus' => [
             ['name' => 'Soto', 'price' => null],
             ['name' => 'Tahu Campur', 'price' => null],
