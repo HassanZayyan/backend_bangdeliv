@@ -977,6 +977,189 @@ class ChatbotShoppingFlowTest extends TestCase
         $this->assertSame('CONFIRMED', $item->metadata['price_status'] ?? null);
     }
 
+    public function test_chatbot_shopping_preview_menu_selector_preserves_plus_menu_name_for_official_merchant(): void
+    {
+        Config::set('bangdeliv.google_maps_api_key', 'test-key');
+
+        $customer = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        Address::query()->create([
+            'user_id' => $customer->id,
+            'label' => 'Rumah',
+            'recipient_name' => 'Customer Test',
+            'phone' => '081200000049',
+            'full_address' => 'Jl. Customer No. 49',
+            'latitude' => -7.003,
+            'longitude' => 110.403,
+            'is_default' => true,
+        ]);
+
+        $restaurant = Restaurant::query()->create([
+            'name' => "Rendy's Chicken",
+            'slug' => 'rendys-chicken-plus-menu-selector-test',
+            'merchant_type' => 'restaurant',
+            'address' => 'Jl. Rendy No. 49',
+            'latitude' => -7.001,
+            'longitude' => 110.401,
+            'phone' => '081200000050',
+        ]);
+
+        $pahaAtas = Menu::query()->create([
+            'restaurant_id' => $restaurant->id,
+            'name' => 'Ayam Krispi Paha Atas',
+            'price' => 8000,
+            'is_available' => true,
+            'sort_order' => 1,
+        ]);
+        $paketSayap = Menu::query()->create([
+            'restaurant_id' => $restaurant->id,
+            'name' => 'Paket Ayam Geprek + Nasi Sayap',
+            'price' => 11000,
+            'is_available' => true,
+            'sort_order' => 2,
+        ]);
+
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'merchant' => null,
+            'items' => [],
+        ], 1000);
+
+        Sanctum::actingAs($customer);
+        $sessionId = 'shopping-preview-plus-menu-selector-session';
+
+        $merchantResponse = $this->postJson("/api/chatbot/sessions/{$sessionId}/merchant", [
+            'service_type' => 'nitip',
+            'merchant_id' => $restaurant->id,
+        ]);
+
+        $merchantResponse->assertOk()
+            ->assertJsonPath('data.shopping.ready_to_confirm', false)
+            ->assertJsonPath('data.shopping.stops.0.merchant.name', "Rendy's Chicken")
+            ->assertJsonPath('data.validation.missing_fields.0', 'items');
+
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'merchant' => null,
+            'items' => [
+                ['name' => 'paket ayam geprek', 'quantity' => 1],
+                ['name' => 'nasi sayap', 'quantity' => 1],
+            ],
+        ], 1000);
+
+        $itemsResponse = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => "Ayam Krispi Paha Atas 1\nPaket Ayam Geprek + Nasi Sayap 1",
+        ]);
+
+        $itemsResponse->assertOk()
+            ->assertJsonPath('data.shopping.ready_to_confirm', true)
+            ->assertJsonCount(2, 'data.shopping.stops.0.items')
+            ->assertJsonPath('data.shopping.stops.0.items.0.name', 'Ayam Krispi Paha Atas')
+            ->assertJsonPath('data.shopping.stops.0.items.0.quantity', 1)
+            ->assertJsonPath('data.shopping.stops.0.items.0.item_source', 'MENU_DB')
+            ->assertJsonPath('data.shopping.stops.0.items.0.menu_id', $pahaAtas->id)
+            ->assertJsonPath('data.shopping.stops.0.items.0.unit_price', 8000)
+            ->assertJsonPath('data.shopping.stops.0.items.1.name', 'Paket Ayam Geprek + Nasi Sayap')
+            ->assertJsonPath('data.shopping.stops.0.items.1.quantity', 1)
+            ->assertJsonPath('data.shopping.stops.0.items.1.item_source', 'MENU_DB')
+            ->assertJsonPath('data.shopping.stops.0.items.1.menu_id', $paketSayap->id)
+            ->assertJsonPath('data.shopping.stops.0.items.1.unit_price', 11000)
+            ->assertJsonPath('data.pricing.subtotal', 19000)
+            ->assertJsonPath('data.pricing.delivery_fee', 5000)
+            ->assertJsonPath('data.pricing.total_price', 24000);
+
+        $assistantText = (string) $itemsResponse->json('data.assistant_text');
+        $this->assertStringContainsString('1x Paket Ayam Geprek + Nasi Sayap (Rp11.000)', $assistantText);
+        $this->assertStringNotContainsString('Sesuai nota', $assistantText);
+        $this->assertStringNotContainsString('1x paket ayam geprek (harga sesuai nota)', strtolower($assistantText));
+        $this->assertStringNotContainsString('1x nasi sayap (harga sesuai nota)', strtolower($assistantText));
+    }
+
+    public function test_chatbot_shopping_preview_menu_selector_single_plus_menu_action_matches_official_menu(): void
+    {
+        Config::set('bangdeliv.google_maps_api_key', 'test-key');
+
+        $customer = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        Address::query()->create([
+            'user_id' => $customer->id,
+            'label' => 'Rumah',
+            'recipient_name' => 'Customer Test',
+            'phone' => '081200000051',
+            'full_address' => 'Jl. Customer No. 51',
+            'latitude' => -7.003,
+            'longitude' => 110.403,
+            'is_default' => true,
+        ]);
+
+        $restaurant = Restaurant::query()->create([
+            'name' => "Rendy's Chicken",
+            'slug' => 'rendys-chicken-single-plus-menu-test',
+            'merchant_type' => 'restaurant',
+            'address' => 'Jl. Rendy No. 51',
+            'latitude' => -7.001,
+            'longitude' => 110.401,
+            'phone' => '081200000052',
+        ]);
+
+        $menu = Menu::query()->create([
+            'restaurant_id' => $restaurant->id,
+            'name' => 'Paket Ayam Geprek + Nasi Sayap',
+            'price' => 11000,
+            'is_available' => true,
+            'sort_order' => 1,
+        ]);
+
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'merchant' => null,
+            'items' => [],
+        ], 1000);
+
+        Sanctum::actingAs($customer);
+        $sessionId = 'shopping-preview-single-plus-menu-session';
+
+        $this->postJson("/api/chatbot/sessions/{$sessionId}/merchant", [
+            'service_type' => 'nitip',
+            'merchant_id' => $restaurant->id,
+        ])->assertOk();
+
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'merchant' => null,
+            'items' => [],
+        ], 1000);
+
+        $itemsResponse = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'Paket Ayam Geprek + Nasi Sayap 1',
+        ]);
+
+        $itemsResponse->assertOk()
+            ->assertJsonPath('data.shopping.ready_to_confirm', true)
+            ->assertJsonCount(1, 'data.shopping.stops.0.items')
+            ->assertJsonPath('data.shopping.stops.0.items.0.name', 'Paket Ayam Geprek + Nasi Sayap')
+            ->assertJsonPath('data.shopping.stops.0.items.0.quantity', 1)
+            ->assertJsonPath('data.shopping.stops.0.items.0.item_source', 'MENU_DB')
+            ->assertJsonPath('data.shopping.stops.0.items.0.menu_id', $menu->id)
+            ->assertJsonPath('data.shopping.stops.0.items.0.unit_price', 11000);
+    }
+
     public function test_chatbot_shopping_preserves_comma_separated_menu_items_at_session_start(): void
     {
         Config::set('bangdeliv.google_maps_api_key', 'test-key');

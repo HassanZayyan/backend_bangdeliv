@@ -152,15 +152,18 @@ class ChatbotShoppingOrderService
         }
 
         $allowBareTrailingQuantity = $this->hasActiveMerchant($currentDraftSeed);
-        if ($this->itemIntentParser->requiresItemClarification($message, $allowBareTrailingQuantity)) {
-            return ['item_edit_error' => $this->itemEditClarificationMessage()];
-        }
+        $parsedItemIntents = $this->parseOfficialMenuSelectorItems($message, $currentDraftSeed);
+        if ($parsedItemIntents === []) {
+            if ($this->itemIntentParser->requiresItemClarification($message, $allowBareTrailingQuantity)) {
+                return ['item_edit_error' => $this->itemEditClarificationMessage()];
+            }
 
-        $parsedItemIntents = $this->itemIntentParser->parse(
-            $message,
-            $this->shouldParseImplicitItem($currentDraftSeed),
-            $allowBareTrailingQuantity
-        );
+            $parsedItemIntents = $this->itemIntentParser->parse(
+                $message,
+                $this->shouldParseImplicitItem($currentDraftSeed),
+                $allowBareTrailingQuantity
+            );
+        }
         $incomingStops = $parsedItemIntents === []
             ? $this->normalizeIncomingStops($nluPayload['stops'] ?? [])
             : [];
@@ -196,6 +199,85 @@ class ChatbotShoppingOrderService
     private function itemEditClarificationMessage(): string
     {
         return 'Tulis item yang mau diubah, contoh: kurangi mie gacoan level 4 1x.';
+    }
+
+    /**
+     * @return array<int, array{name: string, menu_name: string, quantity: int, operation: string, notes: null}>
+     */
+    private function parseOfficialMenuSelectorItems(string $message, array $currentDraftSeed): array
+    {
+        $merchant = $this->activeOfficialMerchant($currentDraftSeed);
+        if (! $merchant instanceof Restaurant) {
+            return [];
+        }
+
+        $menusByName = $merchant->menus()
+            ->where('is_available', true)
+            ->get(['id', 'name'])
+            ->keyBy(fn ($menu): string => $this->normalizedMenuNameKey((string) $menu->name));
+        if ($menusByName->isEmpty()) {
+            return [];
+        }
+
+        $lines = preg_split('/\n+/u', str_replace(["\r\n", "\r"], "\n", $message)) ?: [];
+        $items = [];
+
+        foreach ($lines as $line) {
+            $line = preg_replace('/^\s*(?:[-*]|\x{2022}|\d+[\.)])\s*/u', ' ', (string) $line);
+            $line = trim(is_string($line) ? $line : (string) $line);
+            if ($line === '') {
+                continue;
+            }
+
+            if (preg_match('/^(.+?)\s+(\d+)\s*x?\s*$/iu', $line, $match) !== 1) {
+                return [];
+            }
+
+            $name = $this->normalizeOptionalString($match[1] ?? null);
+            if ($name === null) {
+                return [];
+            }
+
+            $menu = $menusByName->get($this->normalizedMenuNameKey($name));
+            if ($menu === null) {
+                return [];
+            }
+
+            $menuName = (string) $menu->name;
+            $items[] = [
+                'name' => $menuName,
+                'menu_name' => $menuName,
+                'quantity' => max(1, (int) ($match[2] ?? 1)),
+                'operation' => ChatbotShoppingItemIntentParser::OP_ADD,
+                'notes' => null,
+            ];
+        }
+
+        return $items;
+    }
+
+    private function activeOfficialMerchant(array $draftSeed): ?Restaurant
+    {
+        $draftSeed = $this->normalizeDraftSeed($draftSeed);
+        $stops = is_array($draftSeed['stops'] ?? null) ? $draftSeed['stops'] : [];
+        if ($stops === []) {
+            return null;
+        }
+
+        $activeIndex = isset($draftSeed['active_stop_index']) && is_numeric($draftSeed['active_stop_index'])
+            ? min(max(0, (int) $draftSeed['active_stop_index']), max(0, count($stops) - 1))
+            : max(0, count($stops) - 1);
+        $activeStop = is_array($stops[$activeIndex] ?? null) ? $stops[$activeIndex] : [];
+        if (! isset($activeStop['merchant_id']) || ! is_numeric($activeStop['merchant_id']) || (int) $activeStop['merchant_id'] <= 0) {
+            return null;
+        }
+
+        return Restaurant::query()->find((int) $activeStop['merchant_id']);
+    }
+
+    private function normalizedMenuNameKey(string $name): string
+    {
+        return Str::of($name)->lower()->squish()->toString();
     }
 
     /**

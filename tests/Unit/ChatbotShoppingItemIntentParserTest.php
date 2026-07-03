@@ -130,6 +130,29 @@ class ChatbotShoppingItemIntentParserTest extends TestCase
         ], $items);
     }
 
+    public function test_parses_plus_separated_manual_items(): void
+    {
+        $items = (new ChatbotShoppingItemIntentParser)->parse(
+            'susu 1 + roti tawar 2',
+            allowBareTrailingQuantity: true
+        );
+
+        $this->assertSame([
+            [
+                'name' => 'susu',
+                'quantity' => 1,
+                'operation' => ChatbotShoppingItemIntentParser::OP_ADD,
+                'notes' => null,
+            ],
+            [
+                'name' => 'roti tawar',
+                'quantity' => 2,
+                'operation' => ChatbotShoppingItemIntentParser::OP_ADD,
+                'notes' => null,
+            ],
+        ], $items);
+    }
+
     public function test_parses_comma_quantity_without_stripping_level_or_size(): void
     {
         $parser = new ChatbotShoppingItemIntentParser;
