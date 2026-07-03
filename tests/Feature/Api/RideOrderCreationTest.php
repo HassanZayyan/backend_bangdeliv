@@ -3,6 +3,8 @@
 namespace Tests\Feature\Api;
 
 use App\Models\Address;
+use App\Models\DeviceToken;
+use App\Models\Driver;
 use App\Models\Order;
 use App\Models\OrderStatus;
 use App\Models\ServiceType;
@@ -11,7 +13,12 @@ use App\Services\Geo\BangDelivServiceAreaService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use Kreait\Firebase\Contract\Messaging;
+use Kreait\Firebase\Messaging\MessageTarget;
+use Kreait\Firebase\Messaging\MulticastSendReport;
+use Kreait\Firebase\Messaging\SendReport;
 use Laravel\Sanctum\Sanctum;
+use Mockery;
 use Tests\TestCase;
 
 class RideOrderCreationTest extends TestCase
@@ -47,6 +54,41 @@ class RideOrderCreationTest extends TestCase
             'longitude' => 110.46393595,
             'is_default' => true,
         ]);
+
+        $driverUser = User::factory()->create([
+            'role' => 'driver',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+        Driver::query()->create($this->driverAttributes([
+            'user_id' => $driverUser->id,
+            'vehicle_plate' => 'H 1234 RIDE',
+            'registration_status' => 'active',
+            'status' => 'available',
+        ]));
+        DeviceToken::query()->create([
+            'user_id' => $driverUser->id,
+            'token' => 'ride-create-driver-token',
+            'device_type' => 'android',
+            'is_active' => true,
+        ]);
+
+        $messaging = Mockery::mock(Messaging::class);
+        $messaging
+            ->shouldReceive('sendMulticast')
+            ->once()
+            ->withArgs(function ($message, $tokens): bool {
+                $payload = json_decode(json_encode($message), true);
+
+                return $tokens === ['ride-create-driver-token']
+                    && $payload['data']['type'] === 'driver_order_available'
+                    && $payload['data']['service_type_code'] === 'RIDE'
+                    && $payload['data']['route'] === '/driver/orders'
+                    && $payload['data']['title'] === 'Order masuk'
+                    && str_contains((string) $payload['data']['body'], 'baru tersedia');
+            })
+            ->andReturn($this->successfulReport(['ride-create-driver-token']));
+        $this->app->instance(Messaging::class, $messaging);
 
         Sanctum::actingAs($user);
 
@@ -706,5 +748,19 @@ class RideOrderCreationTest extends TestCase
             ->assertJsonPath('message', 'Alamat tujuan tidak valid atau tidak ditemukan di peta.');
 
         Http::assertSentCount(2);
+    }
+
+    /**
+     * @param  list<string>  $tokens
+     */
+    private function successfulReport(array $tokens): MulticastSendReport
+    {
+        return MulticastSendReport::withItems(array_map(
+            fn (string $token): SendReport => SendReport::success(
+                MessageTarget::with(MessageTarget::TOKEN, $token),
+                ['name' => 'projects/test/messages/'.md5($token)],
+            ),
+            $tokens,
+        ));
     }
 }

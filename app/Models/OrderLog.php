@@ -24,6 +24,12 @@ class OrderLog extends Model
 
     protected static function booted(): void
     {
+        static::creating(function (OrderLog $log): void {
+            if ($log->created_at === null || $log->created_at === '') {
+                $log->created_at = now((string) config('app.timezone', 'Asia/Jakarta'));
+            }
+        });
+
         static::saving(function (OrderLog $log): void {
             $eventType = trim((string) ($log->event_type ?? ''));
             if ($eventType === '') {

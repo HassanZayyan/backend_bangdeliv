@@ -36,6 +36,15 @@ class OrderStatusHistory extends Model
         'created_at',
     ];
 
+    protected static function booted(): void
+    {
+        static::creating(function (OrderStatusHistory $history): void {
+            if ($history->created_at === null || $history->created_at === '') {
+                $history->created_at = now((string) config('app.timezone', 'Asia/Jakarta'));
+            }
+        });
+    }
+
     protected function casts(): array
     {
         return [

@@ -5,10 +5,13 @@ namespace Tests\Feature;
 use App\Models\Order;
 use App\Models\OrderLog;
 use App\Models\OrderStatus;
+use App\Models\OrderStatusHistory;
 use App\Models\ServiceType;
 use App\Models\User;
 use App\Services\Order\OrderNegotiationLogService;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
@@ -81,6 +84,48 @@ class OrderNegotiationLogServiceTest extends TestCase
         $this->assertSame('SYSTEM_EVENT', $event->trigger_type);
         $this->assertSame('', $event->note);
         $this->assertSame([], $event->metadata);
+    }
+
+    public function test_order_audit_models_default_created_at_to_wib_without_overriding_explicit_values(): void
+    {
+        config(['app.timezone' => 'Asia/Jakarta']);
+        $this->travelTo(Carbon::create(2026, 7, 3, 20, 50, 0, 'Asia/Jakarta'));
+
+        $order = $this->createOrder();
+        $statusId = (int) OrderStatus::query()->where('code', 'PENDING')->value('id');
+
+        $event = OrderLog::query()->create([
+            'order_id' => $order->id,
+        ])->refresh();
+        $history = OrderStatusHistory::query()->create([
+            'order_id' => $order->id,
+            'status_id' => $statusId,
+        ])->refresh();
+
+        $this->assertSame(
+            '2026-07-03 20:50:00',
+            Carbon::parse(DB::table('order_events')->where('id', $event->id)->value('created_at'))->format('Y-m-d H:i:s')
+        );
+        $this->assertSame(
+            '2026-07-03 20:50:00',
+            Carbon::parse(DB::table('order_status_histories')->where('id', $history->id)->value('created_at'))->format('Y-m-d H:i:s')
+        );
+        $this->assertSame('2026-07-03 20:50:00', $event->created_at?->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-07-03 20:50:00', $history->created_at?->format('Y-m-d H:i:s'));
+
+        $explicit = Carbon::create(2026, 7, 3, 18, 5, 0, 'Asia/Jakarta');
+        $explicitEvent = OrderLog::query()->create([
+            'order_id' => $order->id,
+            'created_at' => $explicit,
+        ])->refresh();
+        $explicitHistory = OrderStatusHistory::query()->create([
+            'order_id' => $order->id,
+            'status_id' => $statusId,
+            'created_at' => $explicit,
+        ])->refresh();
+
+        $this->assertSame('2026-07-03 18:05:00', $explicitEvent->created_at?->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-07-03 18:05:00', $explicitHistory->created_at?->format('Y-m-d H:i:s'));
     }
 
     private function createOrder(): Order

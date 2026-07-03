@@ -44,6 +44,8 @@ class DriverIncomingOrderPushNotificationTest extends TestCase
                     && str_contains($body, 'baru tersedia')
                     && str_contains($body, 'Rp 13.000')
                     && $payload['data']['type'] === 'driver_order_available'
+                    && $payload['data']['title'] === 'Order masuk'
+                    && $payload['data']['body'] === $body
                     && $payload['data']['order_id'] === (string) $order->id
                     && $payload['data']['order_number'] === $order->order_number
                     && $payload['data']['service_type_code'] === 'RIDE'
@@ -78,6 +80,8 @@ class DriverIncomingOrderPushNotificationTest extends TestCase
 
                 return $tokens === ['driver-candidate-token']
                     && $payload['data']['type'] === 'driver_order_available'
+                    && $payload['data']['title'] === 'Order masuk'
+                    && str_contains((string) $payload['data']['body'], 'baru tersedia')
                     && $payload['data']['order_id'] === (string) $order->id
                     && $payload['data']['order_number'] === $order->order_number
                     && $payload['data']['service_type_code'] === 'RIDE'

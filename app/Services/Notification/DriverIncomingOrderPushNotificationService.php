@@ -5,6 +5,7 @@ namespace App\Services\Notification;
 use App\Models\Driver;
 use App\Models\Order;
 use App\Models\User;
+use Illuminate\Support\Facades\Log;
 use Kreait\Firebase\Messaging\CloudMessage;
 use Kreait\Firebase\Messaging\Notification;
 
@@ -17,12 +18,19 @@ class DriverIncomingOrderPushNotificationService
         $driver->loadMissing('user');
         $recipient = $driver->user;
         if (! $recipient instanceof User) {
+            Log::debug('Notifikasi order masuk driver tidak dikirim karena user driver tidak ditemukan.', [
+                'order_id' => $order->id,
+                'driver_id' => $driver->id,
+                'driver_user_id' => $driver->user_id,
+                'sent' => false,
+            ]);
+
             return false;
         }
 
         $order->loadMissing(['serviceType']);
 
-        return $this->sender->send(
+        $sent = $this->sender->send(
             $recipient,
             $this->buildMessage($order),
             'Notifikasi order masuk driver FCM gagal dikirim.',
@@ -33,6 +41,15 @@ class DriverIncomingOrderPushNotificationService
                 'driver_user_id' => $recipient->id,
             ],
         );
+
+        Log::debug('Percobaan notifikasi order masuk driver selesai.', [
+            'order_id' => $order->id,
+            'driver_id' => $driver->id,
+            'driver_user_id' => $recipient->id,
+            'sent' => $sent,
+        ]);
+
+        return $sent;
     }
 
     private function buildMessage(Order $order): CloudMessage
@@ -46,11 +63,14 @@ class DriverIncomingOrderPushNotificationService
         $body = $serviceName !== ''
             ? "{$serviceName} baru tersedia. Estimasi ongkir {$feeText}."
             : "Order baru tersedia. Estimasi ongkir {$feeText}.";
+        $title = 'Order masuk';
 
         return CloudMessage::new()
-            ->withNotification(Notification::create('Order masuk', $body))
+            ->withNotification(Notification::create($title, $body))
             ->withData([
                 'type' => 'driver_order_available',
+                'title' => $title,
+                'body' => $body,
                 'order_id' => (string) $order->id,
                 'order_number' => $orderNumber,
                 'service_type_code' => $serviceCode,
