@@ -531,7 +531,7 @@ class ChatbotCourierOrderService
                     : null;
                 $usedDefaultPickup = $pickupAddressId !== null && (bool) ($extracted['used_default_pickup'] ?? false);
             } else {
-                $resolvedPickup = $this->resolveAddressViaGeocoding((string) $pickupRawAddress);
+                $resolvedPickup = $this->resolveAddressViaMaps((string) $pickupRawAddress);
                 if ($resolvedPickup === null) {
                     $reasons[] = 'Lokasi ambil tidak ditemukan di peta. Gunakan alamat yang lebih spesifik.';
                     $missingFields[] = 'pickup_address';
@@ -552,7 +552,7 @@ class ChatbotCourierOrderService
                 $dropoffLatitude = (float) $extracted['dropoff_latitude'];
                 $dropoffLongitude = (float) $extracted['dropoff_longitude'];
             } else {
-                $resolvedDropoff = $this->resolveAddressViaGeocoding((string) $dropoffRawAddress);
+                $resolvedDropoff = $this->resolveAddressViaMaps((string) $dropoffRawAddress);
                 if ($resolvedDropoff === null) {
                     $reasons[] = 'Lokasi tujuan tidak ditemukan di peta. Gunakan alamat yang lebih spesifik.';
                     $missingFields[] = 'dropoff_address';
@@ -765,14 +765,14 @@ class ChatbotCourierOrderService
     /**
      * @return array<string, mixed>
      */
-    private function resolveAddressViaGeocoding(string $rawAddress): ?array
+    private function resolveAddressViaMaps(string $rawAddress): ?array
     {
         $normalized = $this->normalizeWhitespace($rawAddress);
         if ($normalized === '') {
             return null;
         }
 
-        $resolved = $this->geocodingService->resolveAddress($normalized);
+        $resolved = $this->geocodingService->resolvePlace($normalized);
         if ($resolved === null) {
             return null;
         }
@@ -876,11 +876,9 @@ class ChatbotCourierOrderService
 
         $order = DB::transaction(function () use (
             $user,
-            $profilePickupAddress,
             $serviceTypeId,
             $pendingStatusId,
             $deliveryFee,
-            $serviceFee,
             $totalAmount,
             $routeSnapshot,
             $pickupAddress,
@@ -1552,5 +1550,4 @@ class ChatbotCourierOrderService
             'nontunai',
         ], true);
     }
-
 }

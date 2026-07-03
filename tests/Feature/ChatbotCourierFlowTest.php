@@ -362,6 +362,99 @@ class ChatbotCourierFlowTest extends TestCase
         $this->assertDatabaseCount('courier_order_details', 0);
     }
 
+    public function test_chatbot_kurir_manual_dropoff_uses_google_place_name_when_available(): void
+    {
+        Http::fake([
+            'https://generativelanguage.googleapis.com/*' => Http::response([
+                'error' => [
+                    'code' => 503,
+                    'message' => 'Gemini disabled in courier flow tests',
+                    'status' => 'UNAVAILABLE',
+                ],
+            ], 503),
+            'https://maps.googleapis.com/maps/api/place/textsearch*' => function ($request) {
+                $queryString = parse_url($request->url(), PHP_URL_QUERY) ?? '';
+                parse_str($queryString, $query);
+                $placeQuery = strtolower(trim((string) ($query['query'] ?? '')));
+
+                if (str_contains($placeQuery, 'gacoan salatiga')) {
+                    return Http::response([
+                        'status' => 'OK',
+                        'results' => [[
+                            'name' => 'Mie Gacoan Salatiga 2 - Patimura',
+                            'formatted_address' => 'Jl. Patimura No.75, Salatiga, Kec. Sidorejo, Kota Salatiga, Jawa Tengah 50712',
+                            'geometry' => [
+                                'location' => [
+                                    'lat' => -7.319321,
+                                    'lng' => 110.505932,
+                                ],
+                            ],
+                            'types' => ['restaurant', 'food', 'point_of_interest', 'establishment'],
+                        ]],
+                    ], 200);
+                }
+
+                return Http::response([
+                    'status' => 'ZERO_RESULTS',
+                    'results' => [],
+                ], 200);
+            },
+            'https://maps.googleapis.com/maps/api/geocode/*' => Http::response([
+                'status' => 'ZERO_RESULTS',
+                'results' => [],
+            ], 200),
+            'https://maps.googleapis.com/maps/api/distancematrix/*' => Http::response([
+                'status' => 'OK',
+                'rows' => [[
+                    'elements' => [[
+                        'status' => 'OK',
+                        'distance' => [
+                            'text' => '13 km',
+                            'value' => 13000,
+                        ],
+                        'duration' => [
+                            'text' => '25 mins',
+                            'value' => 1500,
+                        ],
+                    ]],
+                ]],
+            ], 200),
+        ]);
+
+        $user = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+            'phone' => '083333333334',
+        ]);
+
+        $this->createDefaultAddress($user);
+
+        $token = $user->createToken('test-chatbot')->plainTextToken;
+
+        $response = $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/process', [
+                'message' => 'kirim laptop ke gacoan salatiga',
+                'service_type' => 'kurir',
+                'session_id' => 'sess-kurir-place-name',
+            ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('data.intent', 'courier_order')
+            ->assertJsonPath('data.validation.is_valid_order', true)
+            ->assertJsonPath('data.courier.ready_to_confirm', true)
+            ->assertJsonPath('data.courier.package_description', 'laptop');
+
+        $dropoff = (string) $response->json('data.courier.dropoff_address');
+        $assistantText = (string) $response->json('data.assistant_text');
+
+        $this->assertStringContainsString('Mie Gacoan Salatiga 2 - Patimura', $dropoff);
+        $this->assertStringContainsString('Mie Gacoan Salatiga 2 - Patimura', $assistantText);
+        $this->assertStringContainsString('Jl. Patimura No.75', $dropoff);
+    }
+
     public function test_chatbot_kurir_reset_destination_invalidates_previous_draft(): void
     {
         $this->fakeGeocoding();
@@ -1198,6 +1291,10 @@ class ChatbotCourierFlowTest extends TestCase
                     'status' => 'UNAVAILABLE',
                 ],
             ], 503),
+            'https://maps.googleapis.com/maps/api/place/textsearch*' => Http::response([
+                'status' => 'ZERO_RESULTS',
+                'results' => [],
+            ], 200),
             'https://maps.googleapis.com/maps/api/geocode/*' => function ($request) {
                 $queryString = parse_url($request->url(), PHP_URL_QUERY) ?? '';
                 parse_str($queryString, $query);
@@ -1298,6 +1395,10 @@ class ChatbotCourierFlowTest extends TestCase
                     'status' => 'UNAVAILABLE',
                 ],
             ], 503),
+            'https://maps.googleapis.com/maps/api/place/textsearch*' => Http::response([
+                'status' => 'ZERO_RESULTS',
+                'results' => [],
+            ], 200),
             'https://maps.googleapis.com/maps/api/geocode/*' => function ($request) {
                 $queryString = parse_url($request->url(), PHP_URL_QUERY) ?? '';
                 parse_str($queryString, $query);
