@@ -87,6 +87,20 @@ class ChatbotShoppingItemIntentParserTest extends TestCase
         ], $items);
     }
 
+    public function test_parses_conversational_quantity_with_apostrophe_merchant_tail(): void
+    {
+        $items = (new ChatbotShoppingItemIntentParser)->parse("aku mau beli ayam krispi sayap 3x di rendy's chicken");
+
+        $this->assertSame([
+            [
+                'name' => 'ayam krispi sayap',
+                'quantity' => 3,
+                'operation' => ChatbotShoppingItemIntentParser::OP_ADD,
+                'notes' => null,
+            ],
+        ], $items);
+    }
+
     public function test_can_parse_single_implicit_item_when_context_allows_it(): void
     {
         $items = (new ChatbotShoppingItemIntentParser)->parse('gacoan level 6', allowImplicitSingleItem: true);
@@ -174,11 +188,11 @@ class ChatbotShoppingItemIntentParserTest extends TestCase
 
     public function test_keeps_level_number_inside_single_item(): void
     {
-        $items = (new ChatbotShoppingItemIntentParser)->parse('ayam geprek level 6 1x');
+        $items = (new ChatbotShoppingItemIntentParser)->parse('ayam krispi level 6 1x di resto');
 
         $this->assertSame([
             [
-                'name' => 'ayam geprek level 6',
+                'name' => 'ayam krispi level 6',
                 'quantity' => 1,
                 'operation' => ChatbotShoppingItemIntentParser::OP_ADD,
                 'notes' => null,

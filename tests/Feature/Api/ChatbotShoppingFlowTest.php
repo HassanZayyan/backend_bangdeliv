@@ -974,6 +974,82 @@ class ChatbotShoppingFlowTest extends TestCase
         $this->assertSame('CONFIRMED', $item->metadata['price_status'] ?? null);
     }
 
+    public function test_chatbot_shopping_parses_quantity_x_with_apostrophe_merchant_and_matches_menu(): void
+    {
+        Config::set('bangdeliv.google_maps_api_key', 'test-key');
+
+        $customer = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        Address::query()->create([
+            'user_id' => $customer->id,
+            'label' => 'Rumah',
+            'recipient_name' => 'Customer Test',
+            'phone' => '081200000043',
+            'full_address' => 'Jl. Customer No. 43',
+            'latitude' => -7.003,
+            'longitude' => 110.403,
+            'is_default' => true,
+        ]);
+
+        $restaurant = Restaurant::query()->create([
+            'name' => "Rendy's Chicken",
+            'slug' => 'rendys-chicken-quantity-x-test',
+            'merchant_type' => 'restaurant',
+            'address' => 'Jl. Rendy No. 43',
+            'latitude' => -7.001,
+            'longitude' => 110.401,
+            'phone' => '081200000044',
+        ]);
+
+        $menu = Menu::query()->create([
+            'restaurant_id' => $restaurant->id,
+            'name' => 'Ayam Krispi Sayap',
+            'price' => 5000,
+            'is_available' => true,
+            'sort_order' => 1,
+        ]);
+
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'merchant' => "Rendy's Chicken",
+            'items' => [
+                ['name' => "3x aku mau beli ayam krispi sayap di rendy's chicken", 'quantity' => 1],
+            ],
+        ], 1000);
+
+        Sanctum::actingAs($customer);
+
+        $draftResponse = $this->postJson('/api/chatbot/process', [
+            'session_id' => 'shopping-quantity-x-apostrophe-merchant-session',
+            'service_type' => 'nitip',
+            'message' => "aku mau beli ayam krispi sayap 3x di rendy's chicken",
+        ]);
+
+        $draftResponse->assertOk()
+            ->assertJsonPath('data.shopping.ready_to_confirm', true)
+            ->assertJsonPath('data.shopping.merchant.name', "Rendy's Chicken")
+            ->assertJsonPath('data.shopping.items.0.name', 'Ayam Krispi Sayap')
+            ->assertJsonPath('data.shopping.items.0.quantity', 3)
+            ->assertJsonPath('data.shopping.items.0.item_source', 'MENU_DB')
+            ->assertJsonPath('data.shopping.items.0.menu_id', $menu->id)
+            ->assertJsonPath('data.shopping.items.0.unit_price', 5000)
+            ->assertJsonPath('data.shopping.items.0.subtotal', 15000)
+            ->assertJsonPath('data.pricing.subtotal', 15000)
+            ->assertJsonPath('data.pricing.delivery_fee', 5000)
+            ->assertJsonPath('data.pricing.total_price', 20000);
+
+        $assistantText = (string) $draftResponse->json('data.assistant_text');
+        $this->assertStringContainsString('3x Ayam Krispi Sayap (Rp5.000)', $assistantText);
+        $this->assertStringContainsString('Estimasi total sementara: Rp 20.000', $assistantText);
+        $this->assertStringNotContainsString('Sesuai nota', $assistantText);
+        $this->assertStringNotContainsString('3x aku mau beli', $assistantText);
+    }
+
     public function test_chatbot_shopping_delivery_location_patch_preserves_ready_draft(): void
     {
         Config::set('bangdeliv.google_maps_api_key', 'test-key');

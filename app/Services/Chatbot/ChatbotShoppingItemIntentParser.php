@@ -198,6 +198,9 @@ class ChatbotShoppingItemIntentParser
         $value = $this->regexReplace('/\b(?:nggak|gak|tidak)\s+jadi\b/iu', ' ', $value);
         $value = $this->regexReplace('/\b(?:batalkan\s+item|ganti\s+jumlah)\b/iu', ' ', $value);
         $value = $this->regexReplace('/\b(?:tambah(?:kan)?|plus|sekalian|kurangi|kurangin|kurang(?:kan)?|hapus|hilangkan|batalkan|cukup|jadi|ubah|ganti)\b/iu', ' ', $value);
+        $value = $this->regexReplace('/^(?:aku|saya|gue|gua)\s+(?:mau|ingin|pengen|pingin)\s+(?:beli|belikan|pesan|titip)\s+/iu', ' ', $value);
+        $value = $this->regexReplace('/^(?:mau|ingin|pengen|pingin)\s+(?:beli|belikan|pesan|titip)\s+/iu', ' ', $value);
+        $value = $this->regexReplace('/^(?:tolong|coba)\s+(?:beli|belikan|pesan|titip)\s+/iu', ' ', $value);
         $value = $this->regexReplace('/^(?:titip|belikan|beli|pesan|mau|tolong)\s+/iu', ' ', $value);
         $value = $this->regexReplace('/\b([\pL\pN]+)nya\b/u', '$1', $value);
         $value = $this->regexReplace('/\b(?:eh|dong|lagi|saja|aja|item|menu|jumlah)\b/iu', ' ', $value);
@@ -212,7 +215,7 @@ class ChatbotShoppingItemIntentParser
 
     private function isMerchantHeaderLine(string $value): bool
     {
-        return preg_match('/^(?:beli|belikan|pesan|titip)\s+(?:di|dari)\s+[\pL\pN\s.&-]+:\s*$/iu', trim($value)) === 1;
+        return preg_match('/^(?:beli|belikan|pesan|titip)\s+(?:di|dari)\s+[\pL\pN\s.&\'\x{2019}-]+:\s*$/iu', trim($value)) === 1;
     }
 
     private function quantityPattern(): string
@@ -228,7 +231,7 @@ class ChatbotShoppingItemIntentParser
     private function stripMerchantTail(string $value): string
     {
         return $this->normalize(
-            $this->regexReplace('/\b(?:di|dari)\s+[\pL\pN\s.&-]+$/iu', ' ', $value)
+            $this->regexReplace('/\b(?:di|dari)\s+[\pL\pN\s.&\'\x{2019}-]+$/iu', ' ', $value)
         );
     }
 
