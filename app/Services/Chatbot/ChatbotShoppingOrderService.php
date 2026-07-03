@@ -1781,13 +1781,27 @@ class ChatbotShoppingOrderService
         } elseif (count($stops) < self::MAX_MERCHANT_STOPS) {
             $lines[] = 'Mau tambah tempat lain? Pilih tempatnya dulu.';
             $lines[] = 'Contoh setelah tempat berikutnya dipilih:';
-            $lines[] = '- susu 1';
-            $lines[] = '- roti tawar 2';
+            foreach ($this->shoppingItemExampleLines() as $exampleLine) {
+                $lines[] = $exampleLine;
+            }
             $lines[] = '';
         }
         $lines[] = 'Ketik "konfirmasi" kalau sudah oke.';
 
         return implode("\n", $lines);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function shoppingItemExampleLines(): array
+    {
+        return [
+            '- nasi goreng 1',
+            '- mie pedas level 7, 1',
+            '- minyak 500ml, 1',
+            '- sabun 1',
+        ];
     }
 
     /**
@@ -1892,8 +1906,7 @@ class ChatbotShoppingOrderService
                 'Mau tambah tempat lain? Pilih tempatnya dulu.',
                 '',
                 'Contoh setelah tempat berikutnya dipilih:',
-                '- susu 1',
-                '- roti tawar 2',
+                ...$this->shoppingItemExampleLines(),
             ]);
         }
 
@@ -1923,9 +1936,7 @@ class ChatbotShoppingOrderService
             '',
             'Tulis item dan jumlah untuk tempat ini.',
             'Contoh:',
-            '- susu 1',
-            '- roti tawar 2',
-            '- air mineral 1',
+            ...$this->shoppingItemExampleLines(),
         ]);
     }
 

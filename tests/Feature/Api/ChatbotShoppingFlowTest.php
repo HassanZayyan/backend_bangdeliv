@@ -264,8 +264,11 @@ class ChatbotShoppingFlowTest extends TestCase
         $this->assertStringContainsString('Tempat', $assistantText);
         $this->assertStringContainsString('Kedai Tinari', $assistantText);
         $this->assertStringContainsString('Tulis item dan jumlah untuk tempat ini.', $assistantText);
-        $this->assertStringContainsString('- susu 1', $assistantText);
-        $this->assertStringContainsString('- roti tawar 2', $assistantText);
+        $this->assertStringContainsString('- nasi goreng 1', $assistantText);
+        $this->assertStringContainsString('- mie pedas level 7, 1', $assistantText);
+        $this->assertStringContainsString('- minyak 500ml, 1', $assistantText);
+        $this->assertStringContainsString('- sabun 1', $assistantText);
+        $this->assertStringNotContainsString('- susu 1', $assistantText);
     }
 
     public function test_chatbot_shopping_merchant_picker_rejects_far_merchant_before_items(): void
@@ -974,6 +977,103 @@ class ChatbotShoppingFlowTest extends TestCase
         $this->assertSame('CONFIRMED', $item->metadata['price_status'] ?? null);
     }
 
+    public function test_chatbot_shopping_preserves_comma_separated_menu_items_at_session_start(): void
+    {
+        Config::set('bangdeliv.google_maps_api_key', 'test-key');
+
+        $customer = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        Address::query()->create([
+            'user_id' => $customer->id,
+            'label' => 'Rumah',
+            'recipient_name' => 'Customer Test',
+            'phone' => '081200000045',
+            'full_address' => 'Jl. Customer No. 45',
+            'latitude' => -7.003,
+            'longitude' => 110.403,
+            'is_default' => true,
+        ]);
+
+        $restaurant = Restaurant::query()->create([
+            'name' => 'Nasgor Gajah',
+            'slug' => 'nasgor-gajah-comma-menu-test',
+            'merchant_type' => 'restaurant',
+            'address' => 'Jl. Nasgor Gajah No. 45',
+            'latitude' => -7.001,
+            'longitude' => 110.401,
+            'phone' => '081200000046',
+        ]);
+
+        $nasiGoreng = Menu::query()->create([
+            'restaurant_id' => $restaurant->id,
+            'name' => 'Nasi Goreng',
+            'price' => 12000,
+            'is_available' => true,
+            'sort_order' => 1,
+        ]);
+        $nasiRuwet = Menu::query()->create([
+            'restaurant_id' => $restaurant->id,
+            'name' => 'Nasi Ruwet',
+            'price' => 12000,
+            'is_available' => true,
+            'sort_order' => 2,
+        ]);
+        $kwetiauGoreng = Menu::query()->create([
+            'restaurant_id' => $restaurant->id,
+            'name' => 'Kwetiau Goreng',
+            'price' => 12000,
+            'is_available' => true,
+            'sort_order' => 3,
+        ]);
+
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'merchant' => 'Nasgor Gajah',
+            'items' => [
+                ['name' => 'Nasi Goreng', 'quantity' => 1],
+                ['name' => 'Nasi Ruwet', 'quantity' => 2],
+                ['name' => 'Kwetiau Goreng', 'quantity' => 1],
+            ],
+        ], 1000);
+
+        Sanctum::actingAs($customer);
+
+        $draftResponse = $this->postJson('/api/chatbot/process', [
+            'session_id' => 'shopping-comma-menu-items-session',
+            'service_type' => 'nitip',
+            'message' => 'gue mau beli nasi goreng 1, nasi ruwet 2, kwetiau goreng 1 di nasgor gajah',
+        ]);
+
+        $draftResponse->assertOk()
+            ->assertJsonPath('data.shopping.ready_to_confirm', true)
+            ->assertJsonPath('data.shopping.merchant.name', 'Nasgor Gajah')
+            ->assertJsonPath('data.shopping.items.0.name', 'Nasi Goreng')
+            ->assertJsonPath('data.shopping.items.0.quantity', 1)
+            ->assertJsonPath('data.shopping.items.0.item_source', 'MENU_DB')
+            ->assertJsonPath('data.shopping.items.0.menu_id', $nasiGoreng->id)
+            ->assertJsonPath('data.shopping.items.1.name', 'Nasi Ruwet')
+            ->assertJsonPath('data.shopping.items.1.quantity', 2)
+            ->assertJsonPath('data.shopping.items.1.item_source', 'MENU_DB')
+            ->assertJsonPath('data.shopping.items.1.menu_id', $nasiRuwet->id)
+            ->assertJsonPath('data.shopping.items.2.name', 'Kwetiau Goreng')
+            ->assertJsonPath('data.shopping.items.2.quantity', 1)
+            ->assertJsonPath('data.shopping.items.2.item_source', 'MENU_DB')
+            ->assertJsonPath('data.shopping.items.2.menu_id', $kwetiauGoreng->id)
+            ->assertJsonPath('data.pricing.subtotal', 48000)
+            ->assertJsonPath('data.pricing.delivery_fee', 5000)
+            ->assertJsonPath('data.pricing.total_price', 53000);
+
+        $assistantText = (string) $draftResponse->json('data.assistant_text');
+        $this->assertStringContainsString('1x Nasi Goreng (Rp12.000)', $assistantText);
+        $this->assertStringContainsString('2x Nasi Ruwet (Rp12.000)', $assistantText);
+        $this->assertStringContainsString('1x Kwetiau Goreng (Rp12.000)', $assistantText);
+    }
+
     public function test_chatbot_shopping_parses_quantity_x_with_apostrophe_merchant_and_matches_menu(): void
     {
         Config::set('bangdeliv.google_maps_api_key', 'test-key');
@@ -1048,6 +1148,85 @@ class ChatbotShoppingFlowTest extends TestCase
         $this->assertStringContainsString('Estimasi total sementara: Rp 20.000', $assistantText);
         $this->assertStringNotContainsString('Sesuai nota', $assistantText);
         $this->assertStringNotContainsString('3x aku mau beli', $assistantText);
+    }
+
+    public function test_chatbot_shopping_active_merchant_parses_size_items_with_comma_quantity_when_gemini_empty(): void
+    {
+        Config::set('bangdeliv.google_maps_api_key', 'test-key');
+
+        $customer = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        Address::query()->create([
+            'user_id' => $customer->id,
+            'label' => 'Rumah',
+            'recipient_name' => 'Customer Test',
+            'phone' => '081200000047',
+            'full_address' => 'Jl. Customer No. 47',
+            'latitude' => -7.003,
+            'longitude' => 110.403,
+            'is_default' => true,
+        ]);
+
+        $warung = Restaurant::query()->create([
+            'name' => 'Warung Serba Ada',
+            'slug' => 'warung-serba-ada-size-item-test',
+            'merchant_type' => 'warung',
+            'address' => 'Jl. Warung No. 47',
+            'latitude' => -7.001,
+            'longitude' => 110.401,
+            'phone' => '081200000048',
+        ]);
+
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'merchant' => null,
+            'items' => [],
+        ], 1000);
+
+        Sanctum::actingAs($customer);
+        $sessionId = 'shopping-size-item-comma-quantity-session';
+
+        $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'halo',
+        ])->assertOk();
+
+        $merchantResponse = $this->postJson("/api/chatbot/sessions/{$sessionId}/merchant", [
+            'service_type' => 'nitip',
+            'merchant_id' => $warung->id,
+        ]);
+
+        $merchantResponse->assertOk()
+            ->assertJsonPath('data.shopping.ready_to_confirm', false)
+            ->assertJsonPath('data.validation.missing_fields.0', 'items');
+
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'merchant' => null,
+            'items' => [],
+        ], 1000);
+
+        $itemsResponse = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'minyak 500ml, 1 dan beras 1kg, 1',
+        ]);
+
+        $itemsResponse->assertOk()
+            ->assertJsonPath('data.shopping.ready_to_confirm', true)
+            ->assertJsonPath('data.shopping.stops.0.items.0.name', 'minyak 500ml')
+            ->assertJsonPath('data.shopping.stops.0.items.0.quantity', 1)
+            ->assertJsonPath('data.shopping.stops.0.items.0.item_source', 'MANUAL')
+            ->assertJsonPath('data.shopping.stops.0.items.1.name', 'beras 1kg')
+            ->assertJsonPath('data.shopping.stops.0.items.1.quantity', 1)
+            ->assertJsonPath('data.shopping.stops.0.items.1.item_source', 'MANUAL');
     }
 
     public function test_chatbot_shopping_delivery_location_patch_preserves_ready_draft(): void
@@ -1370,6 +1549,14 @@ class ChatbotShoppingFlowTest extends TestCase
             'Mau tambah tempat lain? Pilih tempatnya dulu.',
             (string) $firstDraftResponse->json('data.assistant_text')
         );
+        $this->assertStringContainsString(
+            '- mie pedas level 7, 1',
+            (string) $firstDraftResponse->json('data.assistant_text')
+        );
+        $this->assertStringNotContainsString(
+            '- susu 1',
+            (string) $firstDraftResponse->json('data.assistant_text')
+        );
 
         $addCommandResponse = $this->postJson('/api/chatbot/process', [
             'session_id' => $sessionId,
@@ -1395,6 +1582,10 @@ class ChatbotShoppingFlowTest extends TestCase
             ->assertJsonPath('data.validation.missing_fields.0', 'items');
         $this->assertStringContainsString(
             'Tulis item dan jumlah untuk tempat ini.',
+            (string) $secondMerchantResponse->json('data.assistant_text')
+        );
+        $this->assertStringContainsString(
+            '- minyak 500ml, 1',
             (string) $secondMerchantResponse->json('data.assistant_text')
         );
 

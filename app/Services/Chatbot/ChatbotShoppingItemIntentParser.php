@@ -93,8 +93,14 @@ class ChatbotShoppingItemIntentParser
 
     private function hasExplicitQuantity(string $message, bool $allowBareTrailingQuantity): bool
     {
+        $withoutMerchantTail = $this->stripMerchantTail($message);
+
         return preg_match($this->quantityPattern(), $message) === 1
-            || ($allowBareTrailingQuantity && preg_match($this->bareTrailingQuantityPattern(), $message) === 1);
+            || preg_match($this->quantityPattern(), $withoutMerchantTail) === 1
+            || ($allowBareTrailingQuantity && (
+                preg_match($this->bareTrailingQuantityPattern(), $message) === 1
+                || preg_match($this->bareTrailingQuantityPattern(), $withoutMerchantTail) === 1
+            ));
     }
 
     /**
@@ -116,6 +122,7 @@ class ChatbotShoppingItemIntentParser
                 continue;
             }
 
+            $line = $this->mergeQuantityOnlyCommaSegments($line);
             $segments = preg_split('/(?:,|\+|\bdan\b)/iu', $line) ?: [$line];
             foreach ($segments as $segment) {
                 $segment = trim((string) $segment);
@@ -216,6 +223,15 @@ class ChatbotShoppingItemIntentParser
     private function isMerchantHeaderLine(string $value): bool
     {
         return preg_match('/^(?:beli|belikan|pesan|titip)\s+(?:di|dari)\s+[\pL\pN\s.&\'\x{2019}-]+:\s*$/iu', trim($value)) === 1;
+    }
+
+    private function mergeQuantityOnlyCommaSegments(string $value): string
+    {
+        return $this->regexReplace(
+            '/,\s*(\d+\s*(?:x|porsi|pcs?|buah|paket|bungkus|bks|botol|gelas|cup|kotak|pack|biji)?)(?=\s*(?:,|\+|\bdan\b|$))/iu',
+            ' $1',
+            $value
+        );
     }
 
     private function quantityPattern(): string

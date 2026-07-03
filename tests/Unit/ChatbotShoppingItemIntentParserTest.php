@@ -101,6 +101,111 @@ class ChatbotShoppingItemIntentParserTest extends TestCase
         ], $items);
     }
 
+    public function test_preserves_comma_separated_multi_item_quantities(): void
+    {
+        $items = (new ChatbotShoppingItemIntentParser)->parse(
+            'gue mau beli nasi goreng 1, nasi ruwet 2, kwetiau goreng 1 di nasgor gajah',
+            allowBareTrailingQuantity: true
+        );
+
+        $this->assertSame([
+            [
+                'name' => 'nasi goreng',
+                'quantity' => 1,
+                'operation' => ChatbotShoppingItemIntentParser::OP_ADD,
+                'notes' => null,
+            ],
+            [
+                'name' => 'nasi ruwet',
+                'quantity' => 2,
+                'operation' => ChatbotShoppingItemIntentParser::OP_ADD,
+                'notes' => null,
+            ],
+            [
+                'name' => 'kwetiau goreng',
+                'quantity' => 1,
+                'operation' => ChatbotShoppingItemIntentParser::OP_ADD,
+                'notes' => null,
+            ],
+        ], $items);
+    }
+
+    public function test_parses_comma_quantity_without_stripping_level_or_size(): void
+    {
+        $parser = new ChatbotShoppingItemIntentParser;
+
+        $this->assertSame([
+            [
+                'name' => 'mie pedas level 7',
+                'quantity' => 2,
+                'operation' => ChatbotShoppingItemIntentParser::OP_ADD,
+                'notes' => null,
+            ],
+        ], $parser->parse('mie pedas level 7, 2x', allowBareTrailingQuantity: true));
+
+        $this->assertSame([
+            [
+                'name' => 'minyak 500ml',
+                'quantity' => 2,
+                'operation' => ChatbotShoppingItemIntentParser::OP_ADD,
+                'notes' => null,
+            ],
+        ], $parser->parse('minyak 500ml, 2x', allowBareTrailingQuantity: true));
+
+        $this->assertSame([
+            [
+                'name' => 'beras 1kg',
+                'quantity' => 1,
+                'operation' => ChatbotShoppingItemIntentParser::OP_ADD,
+                'notes' => null,
+            ],
+        ], $parser->parse('beras 1kg, 1', allowBareTrailingQuantity: true));
+
+        $this->assertSame([
+            [
+                'name' => 'beras 1 kg',
+                'quantity' => 1,
+                'operation' => ChatbotShoppingItemIntentParser::OP_ADD,
+                'notes' => null,
+            ],
+        ], $parser->parse('beras 1 kg, 1', allowBareTrailingQuantity: true));
+    }
+
+    public function test_parses_mixed_comma_list_with_quantity_only_segments(): void
+    {
+        $items = (new ChatbotShoppingItemIntentParser)->parse(
+            'nasi goreng 1, mie pedas level 7, 1, minyak 500ml, 1, sabun 1',
+            allowBareTrailingQuantity: true
+        );
+
+        $this->assertSame([
+            [
+                'name' => 'nasi goreng',
+                'quantity' => 1,
+                'operation' => ChatbotShoppingItemIntentParser::OP_ADD,
+                'notes' => null,
+            ],
+            [
+                'name' => 'mie pedas level 7',
+                'quantity' => 1,
+                'operation' => ChatbotShoppingItemIntentParser::OP_ADD,
+                'notes' => null,
+            ],
+            [
+                'name' => 'minyak 500ml',
+                'quantity' => 1,
+                'operation' => ChatbotShoppingItemIntentParser::OP_ADD,
+                'notes' => null,
+            ],
+            [
+                'name' => 'sabun',
+                'quantity' => 1,
+                'operation' => ChatbotShoppingItemIntentParser::OP_ADD,
+                'notes' => null,
+            ],
+        ], $items);
+    }
+
     public function test_can_parse_single_implicit_item_when_context_allows_it(): void
     {
         $items = (new ChatbotShoppingItemIntentParser)->parse('gacoan level 6', allowImplicitSingleItem: true);
