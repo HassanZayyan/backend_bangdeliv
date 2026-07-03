@@ -96,6 +96,22 @@ class RestaurantMenuSeederTest extends TestCase
             'price' => 14000,
         ]);
 
+        $sbSweger = Restaurant::query()
+            ->where('slug', 's-b-swegerrr-krenceng')
+            ->firstOrFail();
+        $this->assertSame('restaurants/22.JPG', $sbSweger->banner_image);
+        $this->assertSame([
+            'restaurants/22.JPG',
+        ], $sbSweger->gallery_images);
+
+        $rendysChicken = Restaurant::query()
+            ->where('slug', 'rendy-s-chicken')
+            ->firstOrFail();
+        $this->assertSame('restaurants/27.JPG', $rendysChicken->banner_image);
+        $this->assertSame([
+            'restaurants/27.JPG',
+        ], $rendysChicken->gallery_images);
+
         $mieCio = Restaurant::query()
             ->where('slug', 'mie-cio-mii-dempel-candi')
             ->firstOrFail();

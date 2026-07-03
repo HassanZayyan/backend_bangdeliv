@@ -748,8 +748,10 @@ return [
         'phone' => '-',
         'latitude' => -7.32065876,
         'longitude' => 110.47334801,
-        'banner_image' => null,
-        'gallery_images' => [],
+        'banner_image' => 'restaurants/22.JPG',
+        'gallery_images' => [
+            'restaurants/22.JPG',
+        ],
         'menus' => [
             ['name' => 'Jus Alpukat', 'price' => 8000],
             ['name' => 'Jus Mangga', 'price' => 8000],
@@ -997,8 +999,10 @@ return [
         'phone' => '-',
         'latitude' => -7.32053682,
         'longitude' => 110.47065237,
-        'banner_image' => null,
-        'gallery_images' => [],
+        'banner_image' => 'restaurants/27.JPG',
+        'gallery_images' => [
+            'restaurants/27.JPG',
+        ],
         'menus' => [
             ['name' => 'Ayam Krispi Sayap', 'price' => 5000],
             ['name' => 'Ayam Krispi Paha Bawah', 'price' => 7000],
