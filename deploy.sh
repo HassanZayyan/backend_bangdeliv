@@ -48,7 +48,14 @@ done
 echo "Running Laravel deployment commands..."
 docker compose exec -T app php artisan migrate --seed --force
 docker compose exec -T app php artisan storage:link
-docker compose exec -T app php artisan config:cache
+docker compose exec -T app sh -lc '
+if [ -f /var/www/html/storage/app/private/firebase/firebase-credentials.json ]; then
+    export FIREBASE_CREDENTIALS=/var/www/html/storage/app/private/firebase/firebase-credentials.json
+    export GOOGLE_APPLICATION_CREDENTIALS="$FIREBASE_CREDENTIALS"
+fi
+php artisan config:clear
+php artisan config:cache
+'
 docker compose exec -T app php artisan route:cache
 docker compose exec -T app php artisan view:cache
 
