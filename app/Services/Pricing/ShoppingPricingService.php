@@ -236,6 +236,9 @@ class ShoppingPricingService
 
         $this->broadcastContentUpdatedAfterCommit((int) $freshOrder->id, $triggerType, [
             ...$pricing,
+            'price_event_id' => (int) $event->id,
+            'old_total_price' => round((float) ($oldAmounts['TOTAL_PRICE'] ?? 0), 2),
+            'new_total_price' => round((float) ($newAmounts['TOTAL_PRICE'] ?? 0), 2),
             'recalculation_version' => $nextVersion,
             'delivery_fee_source' => $freshOrder->delivery_fee_source,
             'delivery_fee_change_note' => $freshOrder->delivery_fee_change_note,

@@ -18,11 +18,12 @@ class DriverIncomingOrderPushNotificationService
         $driver->loadMissing('user');
         $recipient = $driver->user;
         if (! $recipient instanceof User) {
-            Log::debug('Notifikasi order masuk driver tidak dikirim karena user driver tidak ditemukan.', [
+            Log::channel('notifications')->info('Notifikasi order masuk driver tidak dikirim karena user driver tidak ditemukan.', [
                 'order_id' => $order->id,
                 'driver_id' => $driver->id,
                 'driver_user_id' => $driver->user_id,
                 'sent' => false,
+                'reason' => 'driver_user_missing',
             ]);
 
             return false;
@@ -42,7 +43,7 @@ class DriverIncomingOrderPushNotificationService
             ],
         );
 
-        Log::debug('Percobaan notifikasi order masuk driver selesai.', [
+        Log::channel('notifications')->info('Percobaan notifikasi order masuk driver selesai.', [
             'order_id' => $order->id,
             'driver_id' => $driver->id,
             'driver_user_id' => $recipient->id,

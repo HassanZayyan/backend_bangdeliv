@@ -24,7 +24,18 @@ class DriverOrderRealtimeService
             return;
         }
 
-        foreach ($this->candidateSelector->candidatesForOrder($freshOrder) as $candidate) {
+        $candidates = $this->candidateSelector->candidatesForOrder($freshOrder);
+        $diagnostics = $this->candidateSelector->diagnosticsForOrder($freshOrder);
+        Log::channel('notifications')->info('Evaluasi kandidat driver untuk notifikasi order masuk selesai.', [
+            'order_id' => $freshOrder->id,
+            'candidate_count' => count($candidates),
+            'driver_count' => $diagnostics['driver_count'] ?? null,
+            'skipped_count' => $diagnostics['skipped_count'] ?? null,
+            'skipped_reason_counts' => $diagnostics['skipped_reason_counts'] ?? [],
+            'drivers' => $diagnostics['drivers'] ?? [],
+        ]);
+
+        foreach ($candidates as $candidate) {
             $driverUserId = (int) $candidate['driver']->user_id;
             if ($driverUserId <= 0) {
                 continue;

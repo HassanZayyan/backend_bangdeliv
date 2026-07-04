@@ -10,8 +10,10 @@ use App\Models\OrderStatus;
 use App\Models\ServiceType;
 use App\Models\User;
 use App\Services\Driver\DriverOrderRealtimeService;
+use App\Services\Driver\Dispatch\DriverCandidateSelector;
 use App\Services\Notification\DriverIncomingOrderPushNotificationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Event;
 use Kreait\Firebase\Contract\Messaging;
 use Kreait\Firebase\Messaging\MessageTarget;
@@ -97,6 +99,55 @@ class DriverIncomingOrderPushNotificationTest extends TestCase
             fn (DriverOrderAvailable $event): bool => (int) $event->driverUserId === (int) $driverUser->id
                 && (int) ($event->order['id'] ?? 0) === (int) $order->id,
         );
+    }
+
+    public function test_busy_driver_is_not_notified_as_incoming_order_candidate(): void
+    {
+        [$driverUser, $driver, $customer, $order] = $this->createRideOrder();
+        $driver->update(['status' => 'busy']);
+
+        $this->createToken($driverUser, 'busy-driver-token');
+        $this->createToken($customer, 'customer-token');
+
+        Event::fake([DriverOrderAvailable::class]);
+
+        $messaging = Mockery::mock(Messaging::class);
+        $messaging->shouldReceive('sendMulticast')->never();
+        $this->app->instance(Messaging::class, $messaging);
+
+        app(DriverOrderRealtimeService::class)->broadcastOrderAvailable($order);
+
+        Event::assertNotDispatched(DriverOrderAvailable::class);
+
+        $diagnostics = app(DriverCandidateSelector::class)->diagnosticsForOrder($order);
+        $this->assertSame(0, $diagnostics['candidate_count']);
+        $this->assertSame(1, $diagnostics['skipped_count']);
+        $this->assertSame(
+            1,
+            $diagnostics['skipped_reason_counts']['driver_not_available_busy'] ?? 0,
+        );
+    }
+
+    public function test_notification_diagnostic_command_reports_busy_driver_reason(): void
+    {
+        [$driverUser, $driver, $customer, $order] = $this->createRideOrder();
+        $driver->update(['status' => 'busy']);
+
+        $this->createToken($driverUser, 'busy-driver-token');
+        $this->createToken($customer, 'customer-token');
+
+        $exitCode = Artisan::call('notifications:diagnose', [
+            'userId' => $driverUser->id,
+            'type' => 'driver_order_available',
+            '--order-id' => $order->id,
+            '--dry-run' => true,
+        ]);
+
+        $this->assertSame(0, $exitCode);
+        $output = Artisan::output();
+        $this->assertStringContainsString('"status": "busy"', $output);
+        $this->assertStringContainsString('driver_not_available_busy', $output);
+        $this->assertStringContainsString('"dry_run": true', $output);
     }
 
     /**

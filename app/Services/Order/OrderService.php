@@ -4098,9 +4098,12 @@ class OrderService
         ]);
 
         $this->broadcastContentUpdatedAfterCommit((int) $order->id, $triggerType, [
+            'price_event_id' => (int) $event->id,
             'delivery_fee' => round((float) $order->delivery_fee, 2),
             'delivery_fee_source' => $order->delivery_fee_source ?: 'system',
             'delivery_fee_change_note' => $eventMetadata['reason'] ?? null,
+            'old_total_price' => round($oldTotalPrice, 2),
+            'new_total_price' => $nextTotalPrice,
             'total_price' => $nextTotalPrice,
         ]);
 
