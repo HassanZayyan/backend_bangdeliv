@@ -369,9 +369,17 @@ class OrderService
                 throw new ApiException('Merchant ini sudah selesai atau ditandai tutup/gagal pickup.', 409);
             }
 
-            $activeStatusCode = $order->statusRef?->code;
+            $activeStatusCode = $this->orderStatusCode($order);
             if (! in_array($activeStatusCode, $this->failedAttemptRecordableStatuses, true)) {
                 throw new ApiException('Percobaan gagal tidak bisa dicatat pada status order saat ini.', 409);
+            }
+
+            if (
+                $actor->role === 'driver' &&
+                $normalizedFailureType === 'PICKUP' &&
+                $this->deliveryFeeNegotiationService->hasPendingApproval($order)
+            ) {
+                throw new ApiException('Revisi ongkir belum disetujui customer.', 409);
             }
 
             if ($actor->role === 'driver') {
@@ -465,6 +473,17 @@ class OrderService
                     $withFee ? 'ALL_SHOPPING_MERCHANTS_FAILED_WITH_FEE' : 'ALL_SHOPPING_MERCHANTS_FAILED',
                     $statusChangeEventPayload,
                     $actor->role === 'driver' ? 'driver' : 'admin'
+                );
+            }
+
+            if ($pickup !== null && $activeStatusCode === 'DRIVER_ASSIGNED') {
+                $recalculated = $this->transitionShoppingOrderToArrivedMerchant(
+                    $recalculated,
+                    $actor,
+                    'MERCHANT_CLOSED_CONFIRMED',
+                    (int) $pickup->id,
+                    'Driver menandai merchant tutup dan mulai memproses order Nitip.',
+                    $statusChangeEventPayload
                 );
             }
 
@@ -1325,6 +1344,47 @@ class OrderService
             'status_label' => $status?->display_name,
             'is_terminal' => $status?->is_terminal !== null ? (bool) $status->is_terminal : null,
         ];
+    }
+
+    private function transitionShoppingOrderToArrivedMerchant(
+        Order $order,
+        User $actor,
+        string $actionCode,
+        ?int $pickupLocationId,
+        string $note,
+        ?array &$statusChangeEventPayload,
+    ): Order {
+        $order->loadMissing('statusRef');
+        $previousStatusCode = $this->orderStatusCode($order);
+        if ($previousStatusCode !== 'DRIVER_ASSIGNED') {
+            return $order;
+        }
+
+        $targetStatusId = $this->resolveStatusId('ARRIVED_MERCHANT');
+        $order->update(['status_id' => $targetStatusId]);
+
+        $priceSnapshot = ['action_code' => $actionCode];
+        if ($pickupLocationId !== null) {
+            $priceSnapshot['pickup_location_id'] = $pickupLocationId;
+        }
+
+        $statusHistory = OrderStatusHistory::query()->create([
+            'order_id' => $order->id,
+            'status_id' => $targetStatusId,
+            'event_type' => 'STATUS_CHANGE',
+            'changed_by_user_id' => $actor->id,
+            'note' => $note,
+            'price_snapshot' => $priceSnapshot,
+        ]);
+
+        $statusChangeEventPayload = $this->buildOrderStatusBroadcastPayload(
+            (int) $order->id,
+            'ARRIVED_MERCHANT',
+            $previousStatusCode,
+            $statusHistory
+        );
+
+        return $order->refresh()->loadMissing('statusRef');
     }
 
     /**
@@ -2386,6 +2446,10 @@ class OrderService
                 throw new ApiException('Merchant hanya bisa dikonfirmasi buka saat driver menuju atau tiba di merchant.', 409);
             }
 
+            if ($this->deliveryFeeNegotiationService->hasPendingApproval($order)) {
+                throw new ApiException('Revisi ongkir belum disetujui customer.', 409);
+            }
+
             $pickup = $this->shoppingPickupLocationService->pickupById($order, $pickupLocationId);
             $fulfillmentStatus = strtoupper((string) ($pickup->fulfillment_status ?? 'PENDING'));
             if (in_array($fulfillmentStatus, ['FAILED', 'SKIPPED', 'REPLACED', 'COMPLETED'], true)) {
@@ -2410,29 +2474,14 @@ class OrderService
                 ],
             ]);
 
-            if ($statusCode === 'DRIVER_ASSIGNED') {
-                $previousStatusCode = $statusCode;
-                $targetStatusId = $this->resolveStatusId('ARRIVED_MERCHANT');
-                $order->update(['status_id' => $targetStatusId]);
-                $statusHistory = OrderStatusHistory::query()->create([
-                    'order_id' => $order->id,
-                    'status_id' => $targetStatusId,
-                    'event_type' => 'STATUS_CHANGE',
-                    'changed_by_user_id' => $actor->id,
-                    'note' => 'Driver mulai memproses merchant Nitip.',
-                    'price_snapshot' => [
-                        'action_code' => 'MERCHANT_OPEN_CONFIRMED',
-                        'pickup_location_id' => (int) $pickup->id,
-                    ],
-                ]);
-
-                $statusChangeEventPayload = $this->buildOrderStatusBroadcastPayload(
-                    $order->id,
-                    'ARRIVED_MERCHANT',
-                    $previousStatusCode,
-                    $statusHistory
-                );
-            }
+            $order = $this->transitionShoppingOrderToArrivedMerchant(
+                $order,
+                $actor,
+                'MERCHANT_OPEN_CONFIRMED',
+                (int) $pickup->id,
+                'Driver mulai memproses merchant Nitip.',
+                $statusChangeEventPayload
+            );
 
             return $order->refresh()->load(['statusRef', 'serviceType', 'orderLocations.restaurant', 'items', 'shoppingReceipt']);
         });

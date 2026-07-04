@@ -618,11 +618,6 @@ class DriverOrderPayloadFactory
     private function shoppingActionRules(): array
     {
         return [
-            'ARRIVE_PICKUP' => [
-                'label' => 'Tiba di Toko / Merchant',
-                'from' => ['DRIVER_ASSIGNED'],
-                'to' => 'ARRIVED_MERCHANT',
-            ],
             'CONFIRM_PICKED_UP' => [
                 'label' => 'Belanja Selesai',
                 'from' => ['ARRIVED_MERCHANT'],

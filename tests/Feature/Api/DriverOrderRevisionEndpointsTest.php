@@ -304,6 +304,23 @@ class DriverOrderRevisionEndpointsTest extends TestCase
             ->assertJsonPath('data.delivery_fee_negotiation.quoted_amount', 22500);
     }
 
+    public function test_shopping_rejects_manual_delivery_fee_after_arrived_merchant(): void
+    {
+        [$driverUser, $driver] = $this->createDriver();
+        $order = $this->createAssignedOrder($driver, 'SHOPPING', 'ARRIVED_MERCHANT', 15000);
+
+        Sanctum::actingAs($driverUser);
+
+        $response = $this->postJson('/api/v1/driver/orders/'.$order->id.'/delivery-fee-override', [
+            'amount' => 22500,
+            'reason' => 'Tidak boleh setelah driver memproses merchant.',
+        ]);
+
+        $response->assertStatus(409)
+            ->assertJsonPath('success', false)
+            ->assertJsonPath('message', 'Revisi ongkir tidak tersedia untuk status atau pembayaran order ini.');
+    }
+
     public function test_driver_can_bypass_pending_delivery_fee_for_all_service_types(): void
     {
         [$driverUser, $driver] = $this->createDriver();

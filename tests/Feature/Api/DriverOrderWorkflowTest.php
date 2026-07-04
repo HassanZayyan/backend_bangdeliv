@@ -162,6 +162,107 @@ class DriverOrderWorkflowTest extends TestCase
         ]);
     }
 
+    public function test_shopping_assigned_payload_uses_per_merchant_arrival_actions(): void
+    {
+        [$driverUser, $driver] = $this->createActiveDriver('shopping-actions');
+        $order = $this->createShoppingOrder($driver, 'DRIVER_ASSIGNED');
+        $this->createPickupLocation($order, -7.3310, 110.5090, 'Merchant');
+        $this->createDropoffLocation($order, -7.3400, 110.5200, 'Alamat Customer');
+
+        Sanctum::actingAs($driverUser);
+
+        $response = $this->getJson('/api/v1/driver/orders/'.$order->id);
+
+        $response->assertOk()
+            ->assertJsonPath('data.shopping_capabilities.can_driver_mark_merchant_open', true)
+            ->assertJsonPath('data.shopping_capabilities.can_driver_mark_merchant_closed', true);
+
+        $actions = collect($response->json('data.available_actions'));
+        $this->assertNotContains('ARRIVE_PICKUP', $actions->pluck('action_code')->all());
+        $this->assertNotContains('Tiba di Toko / Merchant', $actions->pluck('label')->all());
+    }
+
+    public function test_shopping_open_merchant_moves_arrived_and_locks_delivery_fee_revision(): void
+    {
+        [$driverUser, $driver] = $this->createActiveDriver('shopping-open-locks-fee');
+        $order = $this->createShoppingOrder($driver, 'DRIVER_ASSIGNED');
+        $pickup = $this->createPickupLocation($order, -7.3310, 110.5090, 'Merchant Buka');
+        $this->createDropoffLocation($order, -7.3400, 110.5200, 'Alamat Customer');
+
+        Sanctum::actingAs($driverUser);
+
+        $openResponse = $this->postJson('/api/v1/driver/orders/'.$order->id.'/shopping-stops/'.$pickup->id.'/open');
+
+        $openResponse->assertOk()
+            ->assertJsonPath('data.status_code', 'ARRIVED_MERCHANT')
+            ->assertJsonPath('data.delivery_fee_negotiation.can_driver_submit_quote', false);
+
+        $this->postJson('/api/v1/driver/orders/'.$order->id.'/delivery-fee-override', [
+            'amount' => 12000,
+            'reason' => 'Tidak boleh setelah merchant diproses.',
+        ])->assertStatus(409)
+            ->assertJsonPath('success', false);
+
+        $this->assertDatabaseHas('order_status_histories', [
+            'order_id' => $order->id,
+            'note' => 'Driver mulai memproses merchant Nitip.',
+        ]);
+    }
+
+    public function test_pending_delivery_fee_revision_blocks_shopping_merchant_open(): void
+    {
+        [$driverUser, $driver] = $this->createActiveDriver('shopping-open-pending-fee');
+        $order = $this->createShoppingOrder($driver, 'DRIVER_ASSIGNED');
+        $pickup = $this->createPickupLocation($order, -7.3310, 110.5090, 'Merchant Pending Ongkir');
+        $this->createDropoffLocation($order, -7.3400, 110.5200, 'Alamat Customer');
+
+        Sanctum::actingAs($driverUser);
+
+        $this->postJson('/api/v1/driver/orders/'.$order->id.'/delivery-fee-override', [
+            'amount' => 9000,
+            'reason' => 'Menunggu persetujuan customer.',
+        ])->assertOk();
+
+        $this->postJson('/api/v1/driver/orders/'.$order->id.'/shopping-stops/'.$pickup->id.'/open')
+            ->assertStatus(409)
+            ->assertJsonPath('message', 'Revisi ongkir belum disetujui customer.');
+    }
+
+    public function test_shopping_closed_merchant_moves_arrived_and_locks_delivery_fee_revision(): void
+    {
+        Config::set('bangdeliv.google_maps_api_key', 'test-google-key');
+        Config::set('bangdeliv.routes.optimize_shopping_waypoints', false);
+        $this->fakeEtaRouteResponse(durationSeconds: 120, distanceMeters: 1000);
+
+        [$driverUser, $driver] = $this->createActiveDriver('shopping-closed-locks-fee');
+        $order = $this->createShoppingOrder($driver, 'DRIVER_ASSIGNED');
+        $firstPickup = $this->createShoppingPickupWithItem($order, 1, 'Merchant Tutup', -7.001, 110.401, 'Item Tutup');
+        $this->createShoppingPickupWithItem($order, 2, 'Merchant Lanjut', -7.011, 110.411, 'Item Lanjut');
+        $this->createDropoffLocation($order, -7.050, 110.450, 'Customer Lanjut');
+
+        Sanctum::actingAs($driverUser);
+
+        $failedResponse = $this->postJson('/api/v1/orders/'.$order->id.'/attempt-failed', [
+            'failure_type' => 'PICKUP',
+            'reason' => 'Tempat tutup saat driver tiba.',
+            'pickup_location_id' => $firstPickup->id,
+        ]);
+
+        $failedResponse->assertOk()
+            ->assertJsonPath('data.status_ref.code', 'ARRIVED_MERCHANT');
+
+        $this->assertDatabaseHas('order_status_histories', [
+            'order_id' => $order->id,
+            'note' => 'Driver menandai merchant tutup dan mulai memproses order Nitip.',
+        ]);
+
+        $this->postJson('/api/v1/driver/orders/'.$order->id.'/delivery-fee-override', [
+            'amount' => 12000,
+            'reason' => 'Tidak boleh setelah merchant tutup diproses.',
+        ])->assertStatus(409)
+            ->assertJsonPath('success', false);
+    }
+
     public function test_assigned_driver_can_update_live_location_for_tracking(): void
     {
         [$driverUser, $driver] = $this->createActiveDriver('live-location');
