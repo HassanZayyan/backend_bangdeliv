@@ -25,6 +25,7 @@ class AdminQrisAssetTest extends TestCase
             ->get(route('admin.settings'))
             ->assertOk()
             ->assertSee('QRIS Pembayaran')
+            ->assertSee('QRIS resmi')
             ->assertSee(route('payments.qris.show'), false)
             ->assertSee('name="qris_image"', false)
             ->assertSee(route('admin.settings.qris.update'), false);
@@ -98,7 +99,7 @@ class AdminQrisAssetTest extends TestCase
         $this->assertStringContainsString('max-age=0', (string) $response->headers->get('cache-control'));
     }
 
-    public function test_public_qris_route_serves_dummy_fallback_when_no_upload_exists(): void
+    public function test_public_qris_route_serves_official_default_image_when_no_upload_exists(): void
     {
         Storage::fake('public');
 
@@ -106,6 +107,12 @@ class AdminQrisAssetTest extends TestCase
             ->assertOk()
             ->assertHeader('content-type', 'image/jpeg');
 
+        $this->assertFileExists(public_path('images/payments/qris-bangdeliv.jpeg'));
+        $this->assertFileDoesNotExist(public_path('images/payments/qris-bangdeliv-dummy.jpeg'));
+        $this->assertSame(
+            realpath(public_path('images/payments/qris-bangdeliv.jpeg')),
+            $response->baseResponse->getFile()->getRealPath()
+        );
         $this->assertStringContainsString('no-store', (string) $response->headers->get('cache-control'));
         $this->assertStringContainsString('max-age=0', (string) $response->headers->get('cache-control'));
     }

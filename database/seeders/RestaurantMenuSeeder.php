@@ -22,11 +22,28 @@ class RestaurantMenuSeeder extends Seeder
         'indomaret-bangdeliv-point',
     ];
 
+    /**
+     * @var array<int, string>
+     */
+    private const REMOVED_OFFICIAL_RESTAURANT_SLUGS = [
+        'nasi-goreng-nikmal',
+    ];
+
+    /**
+     * @var array<string, array<int, string>>
+     */
+    private const LEGACY_RESTAURANT_SLUGS = [
+        'bakso-dan-mie-ayam-sragen-depan-perumahan-sraten' => [
+            'bakso-dan-mie-ayam-sragen',
+        ],
+    ];
+
     public function run(): void
     {
         $restaurants = require database_path('seeders/data/bangdeliv_official_restaurants.php');
 
         $this->deleteDummyRestaurants();
+        $this->deleteRemovedOfficialRestaurants();
 
         foreach ($restaurants as $restoData) {
             $restaurant = $this->upsertRestaurant($restoData);
@@ -36,8 +53,25 @@ class RestaurantMenuSeeder extends Seeder
 
     private function deleteDummyRestaurants(): void
     {
+        $this->deleteRestaurantsBySlug(self::DUMMY_RESTAURANT_SLUGS);
+    }
+
+    private function deleteRemovedOfficialRestaurants(): void
+    {
+        $this->deleteRestaurantsBySlug(self::REMOVED_OFFICIAL_RESTAURANT_SLUGS);
+    }
+
+    /**
+     * @param  array<int, string>  $slugs
+     */
+    private function deleteRestaurantsBySlug(array $slugs): void
+    {
+        if (empty($slugs)) {
+            return;
+        }
+
         Restaurant::withTrashed()
-            ->whereIn('slug', self::DUMMY_RESTAURANT_SLUGS)
+            ->whereIn('slug', $slugs)
             ->get()
             ->each(function (Restaurant $restaurant): void {
                 Menu::withTrashed()
@@ -53,12 +87,28 @@ class RestaurantMenuSeeder extends Seeder
      */
     private function upsertRestaurant(array $restoData): Restaurant
     {
+        $slug = (string) $restoData['slug'];
+        $legacySlugs = self::LEGACY_RESTAURANT_SLUGS[$slug] ?? [];
+
         $restaurant = Restaurant::withTrashed()
-            ->where('slug', (string) $restoData['slug'])
+            ->where('slug', $slug)
             ->first();
 
+        if (! $restaurant && ! empty($legacySlugs)) {
+            $restaurant = Restaurant::withTrashed()
+                ->whereIn('slug', $legacySlugs)
+                ->first();
+        }
+
         if (! $restaurant) {
-            $restaurant = new Restaurant(['slug' => (string) $restoData['slug']]);
+            $restaurant = new Restaurant(['slug' => $slug]);
+        } elseif (! empty($legacySlugs)) {
+            $this->deleteRestaurantsBySlug(
+                array_values(array_filter(
+                    $legacySlugs,
+                    fn (string $legacySlug): bool => $legacySlug !== $restaurant->slug
+                ))
+            );
         }
 
         if ($restaurant->exists && $restaurant->trashed()) {

@@ -12,9 +12,12 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 class QrisAssetService
 {
     private const DISK = 'public';
+
     private const STORAGE_DIRECTORY = 'settings/payments/qris';
+
     private const FILENAME_PREFIX = 'qris-bangdeliv';
-    private const FALLBACK_PUBLIC_PATH = 'images/payments/qris-bangdeliv-dummy.jpeg';
+
+    private const FALLBACK_PUBLIC_PATH = 'images/payments/qris-bangdeliv.jpeg';
 
     /**
      * @return array<string, mixed>
@@ -32,7 +35,7 @@ class QrisAssetService
         return [
             'url' => $url,
             'source' => $asset['source'],
-            'source_label' => $asset['source'] === 'uploaded' ? 'Upload admin' : 'Fallback dummy',
+            'source_label' => $asset['source'] === 'uploaded' ? 'Upload admin' : 'QRIS resmi',
             'location_label' => $asset['location_label'],
             'updated_at_label' => $this->formatTimestamp($version),
         ];
@@ -101,7 +104,7 @@ class QrisAssetService
         $fallbackPath = public_path(self::FALLBACK_PUBLIC_PATH);
 
         return [
-            'source' => 'fallback',
+            'source' => 'official',
             'path' => $fallbackPath,
             'location_label' => 'public/'.self::FALLBACK_PUBLIC_PATH,
             'last_modified' => is_file($fallbackPath) ? filemtime($fallbackPath) : null,

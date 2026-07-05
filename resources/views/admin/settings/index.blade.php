@@ -33,8 +33,8 @@
                     <div class="settings-section-title">QRIS Pembayaran</div>
                     <p class="settings-section-note">Gambar ini dipakai customer saat memilih pembayaran QRIS di tracking order.</p>
                 </div>
-                <span class="badge {{ ($qrisAsset['source'] ?? '') === 'uploaded' ? 'badge-success' : 'badge-warning' }}">
-                    {{ $qrisAsset['source_label'] ?? 'Fallback dummy' }}
+                <span class="badge {{ in_array(($qrisAsset['source'] ?? ''), ['uploaded', 'official'], true) ? 'badge-success' : 'badge-warning' }}">
+                    {{ $qrisAsset['source_label'] ?? 'QRIS resmi' }}
                 </span>
             </div>
 
@@ -51,7 +51,7 @@
                         </div>
                         <div class="settings-row">
                             <span>Lokasi aktif</span>
-                            <strong>{{ $qrisAsset['location_label'] ?? 'public/images/payments/qris-bangdeliv-dummy.jpeg' }}</strong>
+                            <strong>{{ $qrisAsset['location_label'] ?? 'public/images/payments/qris-bangdeliv.jpeg' }}</strong>
                         </div>
                         <div class="settings-row">
                             <span>Terakhir diperbarui</span>

@@ -15,7 +15,11 @@ class RestaurantMenuSeederTest extends TestCase
     public function test_it_seeds_official_bangdeliv_restaurants_and_removes_dummy_data(): void
     {
         $officialRestaurants = require database_path('seeders/data/bangdeliv_official_restaurants.php');
-        $this->assertSame(range(1, 63), array_column($officialRestaurants, 'source_no'));
+        $expectedSourceNos = array_values(array_filter(
+            range(1, 63),
+            fn (int $sourceNo): bool => $sourceNo !== 24
+        ));
+        $this->assertSame($expectedSourceNos, array_column($officialRestaurants, 'source_no'));
 
         $dummy = Restaurant::query()->create([
             'name' => 'Resto Taman Kedai Satu',
@@ -33,13 +37,51 @@ class RestaurantMenuSeederTest extends TestCase
             'sort_order' => 1,
         ]);
 
+        $legacyBaksoSragen = Restaurant::query()->create([
+            'name' => 'Bakso Dan Mie Ayam Sragen',
+            'slug' => 'bakso-dan-mie-ayam-sragen',
+            'merchant_type' => 'restaurant',
+            'address' => 'Alamat lama',
+            'latitude' => -7.31559352,
+            'longitude' => 110.46664161,
+            'phone' => '081233330102',
+        ]);
+        Menu::query()->create([
+            'restaurant_id' => $legacyBaksoSragen->id,
+            'name' => 'Menu Legacy Sragen',
+            'price' => 9000,
+            'sort_order' => 1,
+        ]);
+
+        $closedRestaurant = Restaurant::query()->create([
+            'name' => 'Nasi Goreng Nikmal',
+            'slug' => 'nasi-goreng-nikmal',
+            'merchant_type' => 'restaurant',
+            'address' => 'Resto tutup',
+            'latitude' => -7.319,
+            'longitude' => 110.46600000,
+            'phone' => '081233330103',
+        ]);
+        Menu::query()->create([
+            'restaurant_id' => $closedRestaurant->id,
+            'name' => 'Menu Nikmal Lama',
+            'price' => 9000,
+            'sort_order' => 1,
+        ]);
+
         $this->seed(RestaurantMenuSeeder::class);
 
         $this->assertDatabaseMissing('restaurants', [
             'slug' => 'resto-taman-kedai-satu',
         ]);
-        $this->assertSame(63, Restaurant::query()->count());
-        $this->assertSame(1307, Menu::query()->count());
+        $this->assertDatabaseMissing('restaurants', [
+            'slug' => 'nasi-goreng-nikmal',
+        ]);
+        $this->assertDatabaseMissing('menus', [
+            'name' => 'Menu Nikmal Lama',
+        ]);
+        $this->assertSame(62, Restaurant::query()->count());
+        $this->assertSame(1293, Menu::query()->count());
 
         $restaurant = Restaurant::query()
             ->where('slug', 'mie-ayam-bakso-pak-kumaidi')
@@ -69,9 +111,12 @@ class RestaurantMenuSeederTest extends TestCase
         $restaurantWithoutCoordinates = Restaurant::query()
             ->where('slug', 'santoso-food-kumpulrejo')
             ->firstOrFail();
-        $this->assertNull($restaurantWithoutCoordinates->address);
-        $this->assertNull($restaurantWithoutCoordinates->latitude);
-        $this->assertNull($restaurantWithoutCoordinates->longitude);
+        $this->assertSame(
+            'RT.01/RW.05, Kumpulrejo, Candirejo, Kec. Tuntang, Kabupaten Semarang, Jawa Tengah 50773',
+            $restaurantWithoutCoordinates->address
+        );
+        $this->assertSame('-7.30028456', (string) $restaurantWithoutCoordinates->latitude);
+        $this->assertSame('110.46112358', (string) $restaurantWithoutCoordinates->longitude);
         $this->assertSame(11, $restaurantWithoutCoordinates->menus()->count());
 
         $kedaiMbakVita = Restaurant::query()
@@ -89,12 +134,22 @@ class RestaurantMenuSeederTest extends TestCase
             ->firstOrFail();
         $this->assertSame(1, Restaurant::query()->where('slug', 'dapur-family')->count());
         $this->assertSame('restaurants/15.JPG', $dapurFamily->banner_image);
+        $this->assertSame('-7.31674239', (string) $dapurFamily->latitude);
+        $this->assertSame('110.46618112', (string) $dapurFamily->longitude);
         $this->assertSame(23, $dapurFamily->menus()->count());
         $this->assertDatabaseHas('menus', [
             'restaurant_id' => $dapurFamily->id,
             'name' => 'Chicken Katsu (LH / Cabe / Tomat)',
             'price' => 14000,
         ]);
+
+        $baksoSragen = Restaurant::query()
+            ->where('slug', 'bakso-dan-mie-ayam-sragen-depan-perumahan-sraten')
+            ->firstOrFail();
+        $this->assertSame($legacyBaksoSragen->id, $baksoSragen->id);
+        $this->assertSame('Bakso Dan Mie Ayam Sragen Depan Perumahan Sraten', $baksoSragen->name);
+        $this->assertSame(10, $baksoSragen->menus()->count());
+        $this->assertSame(0, Restaurant::query()->where('slug', 'bakso-dan-mie-ayam-sragen')->count());
 
         $sbSweger = Restaurant::query()
             ->where('slug', 's-b-swegerrr-krenceng')
@@ -119,6 +174,7 @@ class RestaurantMenuSeederTest extends TestCase
         $this->assertSame([
             'restaurants/33.JPG',
         ], $mieCio->gallery_images);
+        $this->assertSame(40, $mieCio->menus()->count());
         $this->assertDatabaseHas('menus', [
             'restaurant_id' => $mieCio->id,
             'name' => 'Level 0',
