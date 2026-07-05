@@ -47,8 +47,8 @@ class ProductionSeederTest extends TestCase
             $this->assertDatabaseMissing('users', ['email' => $email]);
         }
 
-        $this->assertSame(32, Restaurant::query()->count());
-        $this->assertSame(740, Menu::query()->count());
+        $this->assertSame(62, Restaurant::query()->count());
+        $this->assertSame(1293, Menu::query()->count());
     }
 
     public function test_production_admin_seeder_requires_email(): void

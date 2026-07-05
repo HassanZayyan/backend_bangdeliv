@@ -808,7 +808,7 @@ return [
         ],
     ],
     [
-        'source_no' => 25,
+        'source_no' => 24,
         'name' => 'Martabak Bangka Idola Cabang Krenceng',
         'slug' => 'martabak-bangka-idola-cabang-krenceng',
         'merchant_type' => 'restaurant',
@@ -862,7 +862,7 @@ return [
         ],
     ],
     [
-        'source_no' => 26,
+        'source_no' => 25,
         'name' => 'Warung Persegi',
         'slug' => 'warung-persegi',
         'merchant_type' => 'warung',
@@ -960,7 +960,7 @@ return [
         ],
     ],
     [
-        'source_no' => 27,
+        'source_no' => 26,
         'name' => 'Rendy\'s Chicken',
         'slug' => 'rendy-s-chicken',
         'merchant_type' => 'restaurant',
@@ -985,7 +985,7 @@ return [
         ],
     ],
     [
-        'source_no' => 28,
+        'source_no' => 27,
         'name' => 'Martabak Bandung Donny',
         'slug' => 'martabak-bandung-donny',
         'merchant_type' => 'restaurant',
@@ -1039,7 +1039,7 @@ return [
         ],
     ],
     [
-        'source_no' => 29,
+        'source_no' => 28,
         'name' => 'Kedai Mbak Vita',
         'slug' => 'kedai-mbak-vita',
         'merchant_type' => 'restaurant',
@@ -1074,7 +1074,7 @@ return [
         ],
     ],
     [
-        'source_no' => 30,
+        'source_no' => 29,
         'name' => 'Nasi Goreng Entus',
         'slug' => 'nasi-goreng-entus',
         'merchant_type' => 'restaurant',
@@ -1101,7 +1101,7 @@ return [
         ],
     ],
     [
-        'source_no' => 31,
+        'source_no' => 30,
         'name' => 'Seblak Jowo',
         'slug' => 'seblak-jowo',
         'merchant_type' => 'restaurant',
@@ -1213,7 +1213,7 @@ return [
         ],
     ],
     [
-        'source_no' => 32,
+        'source_no' => 31,
         'name' => 'Kedai El-Sha',
         'slug' => 'kedai-el-sha',
         'merchant_type' => 'restaurant',
@@ -1243,7 +1243,7 @@ return [
         ],
     ],
     [
-        'source_no' => 33,
+        'source_no' => 32,
         'name' => 'Mie Cio Mii Dempel Candi',
         'slug' => 'mie-cio-mii-dempel-candi',
         'merchant_type' => 'restaurant',
@@ -1299,7 +1299,7 @@ return [
         ],
     ],
     [
-        'source_no' => 34,
+        'source_no' => 33,
         'name' => 'Bakmi Remaja 6 Perumahan Sraten',
         'slug' => 'bakmi-remaja-6-perumahan-sraten',
         'merchant_type' => 'restaurant',
@@ -1324,7 +1324,7 @@ return [
         ],
     ],
     [
-        'source_no' => 35,
+        'source_no' => 34,
         'name' => 'D\'Celup Chicken Crispy Candirejo',
         'slug' => 'd-celup-chicken-crispy-candirejo',
         'merchant_type' => 'restaurant',
@@ -1364,7 +1364,7 @@ return [
         ],
     ],
     [
-        'source_no' => 36,
+        'source_no' => 35,
         'name' => 'Martabak Sakinah 3',
         'slug' => 'martabak-sakinah-3',
         'merchant_type' => 'restaurant',
@@ -1406,7 +1406,7 @@ return [
         ],
     ],
     [
-        'source_no' => 37,
+        'source_no' => 36,
         'name' => 'Cumi Mbledoss Kesongo',
         'slug' => 'cumi-mbledoss-kesongo',
         'merchant_type' => 'restaurant',
@@ -1468,7 +1468,7 @@ return [
         ],
     ],
     [
-        'source_no' => 38,
+        'source_no' => 37,
         'name' => 'Sate Ayam Cak Sabari',
         'slug' => 'sate-ayam-cak-sabari',
         'merchant_type' => 'restaurant',
@@ -1486,7 +1486,7 @@ return [
         ],
     ],
     [
-        'source_no' => 39,
+        'source_no' => 38,
         'name' => 'Dapur Hanifah',
         'slug' => 'dapur-hanifah',
         'merchant_type' => 'restaurant',
@@ -1523,7 +1523,7 @@ return [
         ],
     ],
     [
-        'source_no' => 40,
+        'source_no' => 39,
         'name' => 'Dimsum Gen Zum',
         'slug' => 'dimsum-gen-zum',
         'merchant_type' => 'restaurant',
@@ -1562,7 +1562,7 @@ return [
         ],
     ],
     [
-        'source_no' => 41,
+        'source_no' => 40,
         'name' => 'Martabak Elvano Sraten Gajah (Asli Tegal)',
         'slug' => 'martabak-elvano-sraten-gajah-asli-tegal',
         'merchant_type' => 'restaurant',
@@ -1616,7 +1616,7 @@ return [
         ],
     ],
     [
-        'source_no' => 42,
+        'source_no' => 41,
         'name' => 'Bamboo\'s Pizza',
         'slug' => 'bamboo-s-pizza',
         'merchant_type' => 'restaurant',
@@ -1654,7 +1654,7 @@ return [
         ],
     ],
     [
-        'source_no' => 43,
+        'source_no' => 42,
         'name' => 'Soto Seger Mbak Rum Sraten',
         'slug' => 'soto-seger-mbak-rum-sraten',
         'merchant_type' => 'restaurant',
@@ -1671,7 +1671,7 @@ return [
         ],
     ],
     [
-        'source_no' => 44,
+        'source_no' => 43,
         'name' => 'Boter Meals',
         'slug' => 'boter-meals',
         'merchant_type' => 'restaurant',
@@ -1709,7 +1709,7 @@ return [
         ],
     ],
     [
-        'source_no' => 45,
+        'source_no' => 44,
         'name' => 'Bebek & Ayam Kampung Mas Budi',
         'slug' => 'bebek-ayam-kampung-mas-budi',
         'merchant_type' => 'restaurant',
@@ -1770,7 +1770,7 @@ return [
         ],
     ],
     [
-        'source_no' => 46,
+        'source_no' => 45,
         'name' => 'Mie Ayam & Bakso Tetelan Prapatan',
         'slug' => 'mie-ayam-bakso-tetelan-prapatan',
         'merchant_type' => 'restaurant',
@@ -1796,7 +1796,7 @@ return [
         ],
     ],
     [
-        'source_no' => 47,
+        'source_no' => 46,
         'name' => 'Risoles Yummy Pasar Gedangan',
         'slug' => 'risoles-yummy-pasar-gedangan',
         'merchant_type' => 'restaurant',
@@ -1822,7 +1822,7 @@ return [
         ],
     ],
     [
-        'source_no' => 48,
+        'source_no' => 47,
         'name' => 'Oishi Kuliner',
         'slug' => 'oishi-kuliner',
         'merchant_type' => 'restaurant',
@@ -1854,7 +1854,7 @@ return [
         ],
     ],
     [
-        'source_no' => 49,
+        'source_no' => 48,
         'name' => 'Es Tehku & Aneka Bakaran Sabrina',
         'slug' => 'es-tehku-aneka-bakaran-sabrina',
         'merchant_type' => 'restaurant',
@@ -1895,7 +1895,7 @@ return [
         ],
     ],
     [
-        'source_no' => 50,
+        'source_no' => 49,
         'name' => 'Baloeng Gajah',
         'slug' => 'baloeng-gajah',
         'merchant_type' => 'restaurant',
@@ -1959,7 +1959,7 @@ return [
         ],
     ],
     [
-        'source_no' => 51,
+        'source_no' => 50,
         'name' => 'Dj\'Cil Roti Bakar',
         'slug' => 'dj-cil-roti-bakar',
         'merchant_type' => 'restaurant',
@@ -2010,7 +2010,7 @@ return [
         ],
     ],
     [
-        'source_no' => 52,
+        'source_no' => 51,
         'name' => 'Waroeng AA',
         'slug' => 'waroeng-aa',
         'merchant_type' => 'restaurant',
@@ -2068,7 +2068,7 @@ return [
         ],
     ],
     [
-        'source_no' => 53,
+        'source_no' => 52,
         'name' => 'Sate Ayam & Kambing Madura Cak Ferdi',
         'slug' => 'sate-ayam-kambing-madura-cak-ferdi',
         'merchant_type' => 'restaurant',
@@ -2086,7 +2086,7 @@ return [
         ],
     ],
     [
-        'source_no' => 54,
+        'source_no' => 53,
         'name' => 'Bakmi Remaja 3',
         'slug' => 'bakmi-remaja-3',
         'merchant_type' => 'restaurant',
@@ -2111,7 +2111,7 @@ return [
         ],
     ],
     [
-        'source_no' => 55,
+        'source_no' => 54,
         'name' => 'Mie Ayam Ceker Coba Rasa - Mas Mad Sraten',
         'slug' => 'mie-ayam-ceker-coba-rasa-mas-mad-sraten',
         'merchant_type' => 'restaurant',
@@ -2129,7 +2129,7 @@ return [
         ],
     ],
     [
-        'source_no' => 56,
+        'source_no' => 55,
         'name' => 'Sempol Ayam dan Ice Teh Vando',
         'slug' => 'sempol-ayam-dan-ice-teh-vando',
         'merchant_type' => 'restaurant',
@@ -2157,7 +2157,7 @@ return [
         ],
     ],
     [
-        'source_no' => 57,
+        'source_no' => 56,
         'name' => 'Warung Geprek Mbak Nur',
         'slug' => 'warung-geprek-mbak-nur',
         'merchant_type' => 'warung',
@@ -2187,7 +2187,7 @@ return [
         ],
     ],
     [
-        'source_no' => 58,
+        'source_no' => 57,
         'name' => 'Tahu Crispy Sraten',
         'slug' => 'tahu-crispy-sraten',
         'merchant_type' => 'restaurant',
@@ -2205,7 +2205,7 @@ return [
         ],
     ],
     [
-        'source_no' => 59,
+        'source_no' => 58,
         'name' => 'KedaiQu',
         'slug' => 'kedaiqu',
         'merchant_type' => 'restaurant',
@@ -2229,7 +2229,7 @@ return [
         ],
     ],
     [
-        'source_no' => 60,
+        'source_no' => 59,
         'name' => 'Soto Kwali Sapi "Mbak Iik"',
         'slug' => 'soto-kwali-sapi-mbak-iik',
         'merchant_type' => 'restaurant',
@@ -2247,7 +2247,7 @@ return [
         ],
     ],
     [
-        'source_no' => 61,
+        'source_no' => 60,
         'name' => 'Aneka Kripik Cap Gajah',
         'slug' => 'aneka-kripik-cap-gajah',
         'merchant_type' => 'restaurant',
@@ -2265,7 +2265,7 @@ return [
         ],
     ],
     [
-        'source_no' => 62,
+        'source_no' => 61,
         'name' => 'Nasi Goreng Pak Gundul Prapatan Sraten',
         'slug' => 'nasi-goreng-pak-gundul-prapatan-sraten',
         'merchant_type' => 'restaurant',
@@ -2288,7 +2288,7 @@ return [
         ],
     ],
     [
-        'source_no' => 63,
+        'source_no' => 62,
         'name' => 'Warung Soto & Campur Mami Yolla',
         'slug' => 'warung-soto-campur-mami-yolla',
         'merchant_type' => 'warung',

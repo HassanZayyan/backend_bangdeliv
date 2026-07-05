@@ -15,11 +15,9 @@ class RestaurantMenuSeederTest extends TestCase
     public function test_it_seeds_official_bangdeliv_restaurants_and_removes_dummy_data(): void
     {
         $officialRestaurants = require database_path('seeders/data/bangdeliv_official_restaurants.php');
-        $expectedSourceNos = array_values(array_filter(
-            range(1, 63),
-            fn (int $sourceNo): bool => $sourceNo !== 24
-        ));
-        $this->assertSame($expectedSourceNos, array_column($officialRestaurants, 'source_no'));
+        $this->assertSame(range(1, 62), array_column($officialRestaurants, 'source_no'));
+        $this->assertSame('Martabak Bangka Idola Cabang Krenceng', $officialRestaurants[23]['name']);
+        $this->assertSame('restaurants/25-1.JPG', $officialRestaurants[23]['banner_image']);
 
         $dummy = Restaurant::query()->create([
             'name' => 'Resto Taman Kedai Satu',

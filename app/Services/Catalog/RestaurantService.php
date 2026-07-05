@@ -9,6 +9,10 @@ use Illuminate\Database\Eloquent\Builder;
 
 class RestaurantService
 {
+    private const LEGACY_FULL_CATALOG_REQUEST_SIZE = 50;
+
+    private const LEGACY_FULL_CATALOG_RESPONSE_SIZE = 100;
+
     /**
      * @param  array<string, mixed>  $filters
      */
@@ -50,7 +54,7 @@ class RestaurantService
             $query->latest('id');
         }
 
-        $perPage = (int) ($filters['per_page'] ?? 10);
+        $perPage = $this->resolvePerPage($filters);
         $paginator = $query->paginate($perPage);
 
         $transformed = $paginator->getCollection()->map(function (Restaurant $restaurant) use ($latitude, $longitude): array {
@@ -185,6 +189,23 @@ class RestaurantService
         ));
 
         return round($earthRadiusKm * $angle, 2);
+    }
+
+    /**
+     * @param  array<string, mixed>  $filters
+     */
+    private function resolvePerPage(array $filters): int
+    {
+        $perPage = (int) ($filters['per_page'] ?? 10);
+
+        if (
+            ! array_key_exists('page', $filters) &&
+            $perPage >= self::LEGACY_FULL_CATALOG_REQUEST_SIZE
+        ) {
+            return self::LEGACY_FULL_CATALOG_RESPONSE_SIZE;
+        }
+
+        return $perPage;
     }
 
     private function nullableFloat(mixed $value): ?float

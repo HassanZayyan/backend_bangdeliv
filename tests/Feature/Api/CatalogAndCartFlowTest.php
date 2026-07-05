@@ -104,6 +104,40 @@ class CatalogAndCartFlowTest extends TestCase
             ->assertJsonPath('data.1.name', 'Warung Zeta');
     }
 
+    public function test_legacy_map_picker_request_returns_full_current_catalog_without_explicit_page(): void
+    {
+        for ($index = 1; $index <= 62; $index++) {
+            Restaurant::query()->create([
+                'name' => sprintf('Warung Map %02d', $index),
+                'slug' => sprintf('warung-map-%02d', $index),
+                'merchant_type' => 'warung',
+                'address' => sprintf('Jl. Map %02d', $index),
+                'latitude' => -7.30000000 - ($index / 100000),
+                'longitude' => 110.460 + ($index / 100000),
+                'phone' => '081234567890',
+                'banner_image' => null,
+            ]);
+        }
+
+        $legacyMapResponse = $this->getJson('/api/v1/restaurants?sort=name&per_page=50');
+
+        $legacyMapResponse->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonCount(62, 'data')
+            ->assertJsonPath('meta.total', 62)
+            ->assertJsonPath('meta.per_page', 100)
+            ->assertJsonPath('meta.last_page', 1);
+
+        $explicitPageResponse = $this->getJson('/api/v1/restaurants?sort=name&per_page=50&page=1');
+
+        $explicitPageResponse->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonCount(50, 'data')
+            ->assertJsonPath('meta.total', 62)
+            ->assertJsonPath('meta.per_page', 50)
+            ->assertJsonPath('meta.last_page', 2);
+    }
+
     public function test_restaurant_list_sorts_nearest_before_pagination(): void
     {
         Restaurant::query()->create([
