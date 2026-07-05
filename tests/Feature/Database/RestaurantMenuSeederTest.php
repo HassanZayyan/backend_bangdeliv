@@ -134,8 +134,8 @@ class RestaurantMenuSeederTest extends TestCase
             ->firstOrFail();
         $this->assertSame(1, Restaurant::query()->where('slug', 'dapur-family')->count());
         $this->assertSame('restaurants/15.JPG', $dapurFamily->banner_image);
-        $this->assertSame('-7.31674239', (string) $dapurFamily->latitude);
-        $this->assertSame('110.46618112', (string) $dapurFamily->longitude);
+        $this->assertSame('-7.31693801', (string) $dapurFamily->latitude);
+        $this->assertSame('110.46631791', (string) $dapurFamily->longitude);
         $this->assertSame(23, $dapurFamily->menus()->count());
         $this->assertDatabaseHas('menus', [
             'restaurant_id' => $dapurFamily->id,
@@ -148,6 +148,8 @@ class RestaurantMenuSeederTest extends TestCase
             ->firstOrFail();
         $this->assertSame($legacyBaksoSragen->id, $baksoSragen->id);
         $this->assertSame('Bakso Dan Mie Ayam Sragen Depan Perumahan Sraten', $baksoSragen->name);
+        $this->assertSame('-7.31566632', (string) $baksoSragen->latitude);
+        $this->assertSame('110.46650368', (string) $baksoSragen->longitude);
         $this->assertSame(10, $baksoSragen->menus()->count());
         $this->assertSame(0, Restaurant::query()->where('slug', 'bakso-dan-mie-ayam-sragen')->count());
 
