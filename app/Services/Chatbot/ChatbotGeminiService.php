@@ -14,6 +14,12 @@ class ChatbotGeminiService
     public function parseFoodOrder(string $message, ?array $context = null): array
     {
         $systemInstruction = 'Kamu adalah NLU assistant BangDeliv untuk layanan Nitip. Keluarkan hanya JSON sesuai schema. intent valid: "shopping_order" atau "out_of_domain". command valid: "confirm", "add_merchant", atau "none"; gunakan confirm hanya untuk pesan konfirmasi singkat seperti "konfirmasi", "confirm", atau "lanjut". Gunakan add_merchant hanya untuk pesan singkat seperti "tambah merchant", "tambah toko", "tambah resto", "tambah order", atau "order baru"; jangan jadikan kata order sebagai item. Ekstrak merchant/resto/toko, item belanja, jumlah, catatan, dan alamat antar hanya jika disebut di pesan terbaru. Jika CONTEXT_JSON berisi active_merchant_name atau merchant aktif, pesan terbaru yang hanya berisi daftar belanja biasanya adalah item untuk merchant aktif itu; jangan paksa nama merchant ke item, tetapi nama brand yang memang disebut sebagai menu tetap boleh menjadi bagian nama item. Jangan gabungkan item dari baris, bullet, nomor, koma, tanda plus, atau kata "dan" yang berbeda; setiap baris atau frasa berjumlah seperti "gacoan level 6 1 porsi dan udang keju 1 porsi" harus menjadi item terpisah: "gacoan level 6" quantity 1 dan "udang keju" quantity 1. Koma boleh memisahkan item berbeda, contoh "nasi goreng 1, nasi ruwet 2, kwetiau goreng 1" menjadi 3 item; jika setelah koma hanya jumlah, angka itu quantity untuk item sebelumnya, contoh "beras 1kg, 1" berarti item "beras 1kg" quantity 1. Angka level/pedas/varian dan ukuran seperti "level 6", "500ml", "1kg", "1 kg", atau "1 liter" adalah bagian nama item, bukan jumlah; angka terakhir tanpa unit setelah nama item boleh menjadi quantity, contoh "mie gacoan level 7 2" berarti item "mie gacoan level 7" quantity 2. Format jumlah seperti "3x", "3 x", "3 pcs", "3 porsi", atau "3 buah" setelah nama item juga harus menjadi quantity; nama item harus bersih tanpa frasa intent seperti "aku mau beli", "saya mau beli", "mau beli", dan tanpa ekor merchant seperti "di Rendy\'s Chicken". Jika satu pesan jelas menyebut beberapa merchant, isi stops berisi merchant dan item masing-masing; jika hanya satu merchant, boleh pakai field merchant/items biasa. Jika user menambah item, operation item adalah "add"; jika user mengurangi item dengan kata "kurangi", "kurangin", atau "kurang", operation item adalah "decrement"; jika user mengubah jumlah final dengan kata seperti "saja", "cukup", atau "jadi", operation adalah "set"; jika user menghapus/membatalkan item, operation adalah "remove". Jangan jadikan kata "kurangi", "kurangin", "tambah", atau "hapus" sebagai bagian nama item. Jangan mengembalikan ulang item lama dari CONTEXT_JSON kecuali item itu disebut lagi di pesan terbaru. Item dari warung/alfamart/restoran boleh berupa barang umum atau nama makanan. Jangan menentukan item berat; berat akan dikonfirmasi driver. Jika disediakan CONTEXT_JSON, gunakan untuk menjaga kesinambungan draft dan merchant aktif tanpa menyalin ulang semua item lama. Dilarang merespon teks biasa.';
+        $systemInstruction = str_replace(
+            'command valid: "confirm", "add_merchant", atau "none"',
+            'command valid: "confirm", "add_merchant", "show_menu", "menu_next", "menu_previous", "search_menu", "recommend_food", atau "none"',
+            $systemInstruction,
+        );
+        $systemInstruction .= ' Gunakan show_menu saat pengguna meminta daftar menu. Gunakan menu_next atau menu_previous untuk navigasi halaman menu. Gunakan search_menu saat pengguna menanyakan atau mencari menu tertentu, lalu isi menu_search hanya dengan nama atau jenis menu yang dicari. Gunakan recommend_food untuk permintaan saran seperti "bingung makan apa". Untuk command informasional tersebut, intent harus shopping_order dan items harus kosong. Jika pengguna menyebut restoran target, isi merchant/resto dengan nama tersebut; kata urutan seperti pertama atau kedua tidak perlu diubah menjadi nama.';
 
         $schema = [
             'type' => 'OBJECT',
@@ -22,6 +28,7 @@ class ChatbotGeminiService
                 'command' => ['type' => 'STRING'],
                 'merchant' => ['type' => 'STRING', 'nullable' => true],
                 'resto' => ['type' => 'STRING', 'nullable' => true],
+                'menu_search' => ['type' => 'STRING', 'nullable' => true],
                 'delivery_address' => ['type' => 'STRING', 'nullable' => true],
                 'items' => [
                     'type' => 'ARRAY',
@@ -73,6 +80,7 @@ class ChatbotGeminiService
             'command' => 'none',
             'merchant' => null,
             'resto' => null,
+            'menu_search' => null,
             'delivery_address' => null,
             'items' => [],
             'stops' => [],
@@ -296,6 +304,7 @@ class ChatbotGeminiService
             'command' => $this->normalizeCommand($payload['command'] ?? null),
             'merchant' => $merchant,
             'resto' => $merchant,
+            'menu_search' => $this->normalizeOptionalString($payload['menu_search'] ?? null),
             'delivery_address' => $this->normalizeOptionalString($payload['delivery_address'] ?? null),
             'items' => $items,
             'stops' => $stops,
@@ -360,6 +369,11 @@ class ChatbotGeminiService
         return match ($normalized) {
             'confirm', 'konfirmasi', 'lanjut' => 'confirm',
             'add_merchant', 'tambah_merchant', 'tambah merchant', 'tambah toko', 'tambah resto', 'tambah order', 'order baru' => 'add_merchant',
+            'show_menu', 'lihat_menu', 'tampilkan_menu' => 'show_menu',
+            'menu_next', 'menu_berikutnya', 'menu_selanjutnya' => 'menu_next',
+            'menu_previous', 'menu_sebelumnya' => 'menu_previous',
+            'search_menu', 'cari_menu' => 'search_menu',
+            'recommend_food', 'rekomendasi_makanan', 'rekomendasi_menu' => 'recommend_food',
             'reset_destination', 'ubah tujuan', 'ganti tujuan', 'reset tujuan' => 'reset_destination',
             default => 'none',
         };

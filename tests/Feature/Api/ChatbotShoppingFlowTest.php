@@ -8,6 +8,8 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Restaurant;
 use App\Models\User;
+use App\Services\Chatbot\ChatbotDraftStore;
+use App\Services\Chatbot\ChatbotGeminiService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Config;
@@ -2081,6 +2083,360 @@ class ChatbotShoppingFlowTest extends TestCase
         $this->assertSame('PENDING_DRIVER_INPUT', $item->metadata['price_status'] ?? null);
     }
 
+    public function test_chatbot_shopping_browses_searches_and_paginates_official_menu_without_mutating_draft(): void
+    {
+        $customer = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+            'name' => 'Hassan',
+        ]);
+        $restaurant = Restaurant::query()->create([
+            'name' => 'Warung Menu Lengkap',
+            'slug' => 'warung-menu-lengkap-chatbot',
+            'merchant_type' => 'warung',
+            'address' => 'Jl. Menu No. 1',
+            'latitude' => -7.002,
+            'longitude' => 110.402,
+        ]);
+        foreach (range(1, 10) as $index) {
+            Menu::query()->create([
+                'restaurant_id' => $restaurant->id,
+                'name' => sprintf('Menu %02d', $index),
+                'price' => $index === 2 ? 0 : 10000 + $index,
+                'is_available' => true,
+                'sort_order' => $index,
+            ]);
+        }
+        Menu::query()->create([
+            'restaurant_id' => $restaurant->id,
+            'name' => 'Menu Tidak Tersedia',
+            'price' => 12000,
+            'is_available' => false,
+            'sort_order' => 0,
+        ]);
+
+        $sessionId = 'shopping-menu-browse-session';
+        $this->saveShoppingDraft($customer, $sessionId, [$restaurant]);
+        $this->fakeGeminiAndDistance(['intent' => 'shopping_order', 'command' => 'none', 'items' => []]);
+        Sanctum::actingAs($customer);
+
+        $firstPage = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'tampilkan menu',
+        ]);
+
+        $firstPage->assertOk()
+            ->assertJsonPath('model_used', 'deterministic-assistant');
+        $firstText = (string) $firstPage->json('data.assistant_text');
+        $this->assertStringContainsString('Baik Hassan', $firstText);
+        $this->assertStringContainsString('1. Menu 01', $firstText);
+        $this->assertStringContainsString('8. Menu 08', $firstText);
+        $this->assertStringNotContainsString('Menu 09', $firstText);
+        $this->assertStringNotContainsString('Menu Tidak Tersedia', $firstText);
+        $this->assertStringContainsString('harga belum tersedia', $firstText);
+        $originalStops = $firstPage->json('data.shopping.stops');
+
+        $nextPage = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'menu berikutnya',
+        ]);
+        $nextPage->assertOk();
+        $this->assertStringContainsString('9. Menu 09', (string) $nextPage->json('data.assistant_text'));
+        $this->assertStringContainsString('10. Menu 10', (string) $nextPage->json('data.assistant_text'));
+        $this->assertSame($originalStops, $nextPage->json('data.shopping.stops'));
+
+        $previousPage = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'menu sebelumnya',
+        ]);
+        $previousPage->assertOk();
+        $this->assertStringContainsString('1. Menu 01', (string) $previousPage->json('data.assistant_text'));
+
+        $search = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'cari menu 09',
+        ]);
+        $search->assertOk();
+        $this->assertStringContainsString('Menu 09', (string) $search->json('data.assistant_text'));
+        $this->assertStringNotContainsString('Menu 08', (string) $search->json('data.assistant_text'));
+        $this->assertSame($originalStops, $search->json('data.shopping.stops'));
+
+        $notFound = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'cari menu sate naga',
+        ]);
+        $this->assertStringContainsString('belum menemukan menu', strtolower((string) $notFound->json('data.assistant_text')));
+
+        $recommendation = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'rekomendasi makanan',
+        ]);
+        $recommendationText = (string) $recommendation->json('data.assistant_text');
+        $this->assertStringContainsString('Menu 01', $recommendationText);
+        $this->assertStringContainsString('Menu 02', $recommendationText);
+        $this->assertStringContainsString('Menu 03', $recommendationText);
+        $this->assertStringNotContainsString('Menu 04', $recommendationText);
+        $this->assertSame($originalStops, $recommendation->json('data.shopping.stops'));
+
+        $isolatedSession = 'shopping-menu-browse-isolated-session';
+        $this->saveShoppingDraft($customer, $isolatedSession, [$restaurant]);
+        $isolatedNavigation = $this->postJson('/api/chatbot/process', [
+            'session_id' => $isolatedSession,
+            'service_type' => 'nitip',
+            'message' => 'menu berikutnya',
+        ]);
+        $this->assertStringContainsString('Belum ada daftar menu', (string) $isolatedNavigation->json('data.assistant_text'));
+        $this->assertDatabaseCount('orders', 0);
+    }
+
+    public function test_chatbot_shopping_resolves_draft_restaurant_by_order_name_partial_and_typo(): void
+    {
+        $customer = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+        $alpha = $this->createRestaurantWithMenus('Warung Alpha', 'warung-alpha-chatbot', -7.001, 110.401, ['Ayam Alpha']);
+        $beta = $this->createRestaurantWithMenus('Warung Beta', 'warung-beta-chatbot', -7.002, 110.402, ['Bakso Beta']);
+        $sessionId = 'shopping-menu-multi-session';
+        $this->saveShoppingDraft($customer, $sessionId, [$alpha, $beta]);
+        $this->fakeGeminiAndDistance(['intent' => 'shopping_order', 'command' => 'none', 'items' => []]);
+        Sanctum::actingAs($customer);
+
+        $clarification = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'tampilkan menu',
+        ]);
+        $clarification->assertOk();
+        $clarificationText = (string) $clarification->json('data.assistant_text');
+        $this->assertStringContainsString('1. Warung Alpha', $clarificationText);
+        $this->assertStringContainsString('2. Warung Beta', $clarificationText);
+        $originalStops = $clarification->json('data.shopping.stops');
+
+        $byOrder = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'yang kedua',
+        ]);
+        $byOrder->assertJsonPath('model_used', 'deterministic-assistant');
+        $this->assertStringContainsString('Bakso Beta', (string) $byOrder->json('data.assistant_text'));
+
+        $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'tampilkan menu',
+        ])->assertOk();
+        $byNumber = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => '1',
+        ]);
+        $byNumber->assertJsonPath('model_used', 'deterministic-assistant');
+        $this->assertStringContainsString('Ayam Alpha', (string) $byNumber->json('data.assistant_text'));
+
+        $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'tampilkan menu',
+        ])->assertOk();
+        $byNameReply = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'Warung Alpha',
+        ]);
+        $byNameReply->assertJsonPath('model_used', 'deterministic-assistant');
+        $this->assertStringContainsString('Ayam Alpha', (string) $byNameReply->json('data.assistant_text'));
+
+        $byPartialName = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'menu Alpha',
+        ]);
+        $this->assertStringContainsString('Ayam Alpha', (string) $byPartialName->json('data.assistant_text'));
+
+        $byTypo = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'menu Warung Alpa',
+        ]);
+        $this->assertStringContainsString('Ayam Alpha', (string) $byTypo->json('data.assistant_text'));
+
+        $ambiguous = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'menu Warung',
+        ]);
+        $this->assertStringContainsString('lebih dari satu pilihan', (string) $ambiguous->json('data.assistant_text'));
+
+        $notInDraft = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'menu Resto Tidak Ada',
+        ]);
+        $this->assertStringContainsString('belum ada di draft', (string) $notInDraft->json('data.assistant_text'));
+
+        $conflict = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'menu restoran pertama Warung Beta',
+        ]);
+        $this->assertStringContainsString('tidak menunjuk pilihan yang sama', (string) $conflict->json('data.assistant_text'));
+        $this->assertSame($originalStops, $conflict->json('data.shopping.stops'));
+        $this->assertDatabaseCount('orders', 0);
+    }
+
+    public function test_chatbot_shopping_recommends_three_nearest_restaurants_without_creating_draft(): void
+    {
+        $customer = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+        Address::query()->create([
+            'user_id' => $customer->id,
+            'label' => 'Rumah',
+            'recipient_name' => $customer->name,
+            'phone' => $customer->phone ?: '081200000001',
+            'full_address' => 'Jl. Rekomendasi No. 1',
+            'latitude' => -7.000,
+            'longitude' => 110.400,
+            'is_default' => true,
+        ]);
+        $nearest = $this->createRestaurantWithMenus('Resto Paling Dekat', 'resto-paling-dekat', -7.001, 110.401, ['Dekat Satu', 'Dekat Dua', 'Dekat Tiga']);
+        $second = $this->createRestaurantWithMenus('Resto Dekat Kedua', 'resto-dekat-kedua', -7.010, 110.410, ['Kedua Satu', 'Kedua Dua']);
+        $third = $this->createRestaurantWithMenus('Resto Dekat Ketiga', 'resto-dekat-ketiga', -7.020, 110.420, ['Ketiga Satu', 'Ketiga Dua']);
+        $this->createRestaurantWithMenus('Resto Terjauh', 'resto-terjauh', -7.100, 110.500, ['Jauh Satu']);
+
+        $this->fakeGeminiAndDistance(['intent' => 'shopping_order', 'command' => 'none', 'items' => []]);
+        Sanctum::actingAs($customer);
+        $response = $this->postJson('/api/chatbot/process', [
+            'session_id' => 'shopping-nearby-recommendation-session',
+            'service_type' => 'nitip',
+            'message' => 'aku bingung mau makan apa',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('model_used', 'deterministic-assistant')
+            ->assertJsonPath('data.shopping.stops', []);
+        $text = (string) $response->json('data.assistant_text');
+        $this->assertLessThan(strpos($text, $second->name), strpos($text, $nearest->name));
+        $this->assertLessThan(strpos($text, $third->name), strpos($text, $second->name));
+        $this->assertStringNotContainsString('Resto Terjauh', $text);
+        $this->assertStringContainsString('Dekat Satu', $text);
+        $this->assertStringContainsString('Dekat Dua', $text);
+        $this->assertStringNotContainsString('Dekat Tiga', $text);
+        $this->assertDatabaseCount('orders', 0);
+    }
+
+    public function test_chatbot_shopping_recommendation_without_location_keeps_open_addresses_action(): void
+    {
+        $customer = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+        $this->createRestaurantWithMenus('Resto Lokasi Wajib', 'resto-lokasi-wajib', -7.001, 110.401, ['Menu Lokasi']);
+        $this->fakeGeminiAndDistance(['intent' => 'shopping_order', 'command' => 'none', 'items' => []]);
+        Sanctum::actingAs($customer);
+
+        $response = $this->postJson('/api/chatbot/process', [
+            'session_id' => 'shopping-recommendation-no-location-session',
+            'service_type' => 'nitip',
+            'message' => 'rekomendasi makanan',
+        ]);
+
+        $response->assertOk();
+        $this->assertStringContainsString('Lengkapi alamatmu', (string) $response->json('data.assistant_text'));
+        $this->assertContains('OPEN_ADDRESSES', $response->json('data.validation.next_actions'));
+        $this->assertDatabaseCount('orders', 0);
+    }
+
+    public function test_chatbot_shopping_external_restaurant_menu_request_falls_back_to_manual_items(): void
+    {
+        $customer = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+        $sessionId = 'shopping-external-menu-session';
+        $merchant = [
+            'id' => null,
+            'name' => 'Kedai Eksternal',
+            'merchant_place' => [
+                'place_id' => 'external-place-1',
+                'name' => 'Kedai Eksternal',
+                'address' => 'Jl. Eksternal No. 1',
+                'latitude' => -7.001,
+                'longitude' => 110.401,
+                'types' => ['restaurant'],
+            ],
+        ];
+        app(ChatbotDraftStore::class)->savePayload($customer, $sessionId, [
+            'intent' => 'shopping_order',
+            'service_type' => 'nitip',
+            'shopping' => [
+                'merchant' => $merchant,
+                'delivery' => [
+                    'address' => 'Jl. Draft No. 1',
+                    'latitude' => -7.000,
+                    'longitude' => 110.400,
+                    'source' => 'map_pin',
+                ],
+                'items' => [],
+                'stops' => [[
+                    'merchant' => $merchant,
+                    'items' => [],
+                    'is_active' => true,
+                ]],
+                'active_stop_index' => 0,
+                'ready_to_confirm' => false,
+                'payment_method' => null,
+            ],
+            'order' => ['created' => false],
+        ]);
+        $this->fakeGeminiAndDistance(['intent' => 'shopping_order', 'command' => 'none', 'items' => []]);
+        Sanctum::actingAs($customer);
+
+        $response = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'tampilkan menu',
+        ]);
+
+        $response->assertOk();
+        $this->assertStringContainsString('belum tersedia di katalog', (string) $response->json('data.assistant_text'));
+        $this->assertStringContainsString('manual', (string) $response->json('data.assistant_text'));
+        $this->assertSame('Kedai Eksternal', $response->json('data.shopping.stops.0.merchant.name'));
+        $this->assertDatabaseCount('orders', 0);
+    }
+
+    public function test_chatbot_gemini_normalizes_informational_food_command_as_shopping_context(): void
+    {
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'search_menu',
+            'merchant' => 'Warung Alpha',
+            'menu_search' => 'ayam geprek',
+            'items' => [],
+        ]);
+
+        $parsed = app(ChatbotGeminiService::class)->parseFoodOrder('Warung Alpha punya ayam geprek tidak?');
+
+        $this->assertSame('shopping_order', $parsed['payload']['intent']);
+        $this->assertSame('search_menu', $parsed['payload']['command']);
+        $this->assertSame('Warung Alpha', $parsed['payload']['merchant']);
+        $this->assertSame('ayam geprek', $parsed['payload']['menu_search']);
+        $this->assertSame([], $parsed['payload']['items']);
+    }
+
     /**
      * @return array<string, int>
      */
@@ -2105,6 +2461,72 @@ class ChatbotShoppingFlowTest extends TestCase
         ksort($quantities);
 
         return $quantities;
+    }
+
+    /**
+     * @param  array<int, Restaurant>  $restaurants
+     */
+    private function saveShoppingDraft(User $customer, string $sessionId, array $restaurants): void
+    {
+        $stops = array_map(fn (Restaurant $restaurant, int $index): array => [
+            'merchant' => [
+                'id' => $restaurant->id,
+                'name' => $restaurant->name,
+            ],
+            'items' => [],
+            'is_active' => $index === count($restaurants) - 1,
+        ], $restaurants, array_keys($restaurants));
+
+        app(ChatbotDraftStore::class)->savePayload($customer, $sessionId, [
+            'intent' => 'shopping_order',
+            'service_type' => 'nitip',
+            'shopping' => [
+                'merchant' => $stops[array_key_last($stops)]['merchant'] ?? [],
+                'delivery' => [
+                    'address' => 'Jl. Draft No. 1',
+                    'latitude' => -7.000,
+                    'longitude' => 110.400,
+                    'source' => 'map_pin',
+                ],
+                'items' => [],
+                'stops' => $stops,
+                'active_stop_index' => max(0, count($stops) - 1),
+                'ready_to_confirm' => false,
+                'payment_method' => null,
+            ],
+            'order' => ['created' => false],
+        ]);
+    }
+
+    /**
+     * @param  array<int, string>  $menuNames
+     */
+    private function createRestaurantWithMenus(
+        string $name,
+        string $slug,
+        float $latitude,
+        float $longitude,
+        array $menuNames,
+    ): Restaurant {
+        $restaurant = Restaurant::query()->create([
+            'name' => $name,
+            'slug' => $slug,
+            'merchant_type' => 'restaurant',
+            'address' => 'Jl. '.$name,
+            'latitude' => $latitude,
+            'longitude' => $longitude,
+        ]);
+        foreach ($menuNames as $index => $menuName) {
+            Menu::query()->create([
+                'restaurant_id' => $restaurant->id,
+                'name' => $menuName,
+                'price' => 10000 + ($index * 1000),
+                'is_available' => true,
+                'sort_order' => $index + 1,
+            ]);
+        }
+
+        return $restaurant;
     }
 
     /**

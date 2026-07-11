@@ -17,6 +17,7 @@ class DatabaseSeeder extends Seeder
         if (app()->isProduction()) {
             $this->call([
                 ProductionAdminSeeder::class,
+                PreservedProductionDataSeeder::class,
                 RestaurantMenuSeeder::class,
             ]);
 

@@ -335,8 +335,7 @@ class ChatbotController extends Controller
         float $longitude,
         string $providedAddress,
         bool $includeNearbyPlace = true
-    ): string
-    {
+    ): string {
         $normalizedAddress = trim($providedAddress);
 
         if ($normalizedAddress !== '' && ! $this->isPinPlaceholderAddress($normalizedAddress)) {
@@ -474,7 +473,7 @@ class ChatbotController extends Controller
             $nluPayload = null;
             $modelUsed = null;
             $nluFromModel = false;
-            $fastPayload = $this->detectShoppingFastPayload($message);
+            $fastPayload = $this->detectShoppingFastPayload($message, $user, $sessionId);
 
             if ($fastPayload !== null) {
                 $nluPayload = $fastPayload['payload'];
@@ -682,7 +681,7 @@ class ChatbotController extends Controller
     /**
      * @return array{payload: array<string, mixed>, model_used: string}|null
      */
-    private function detectShoppingFastPayload(string $message): ?array
+    private function detectShoppingFastPayload(string $message, User $user, string $sessionId): ?array
     {
         $normalized = strtolower(trim((string) preg_replace('/[^\p{L}\p{N}\s]+/u', ' ', $message)));
         $normalized = strtolower(trim((string) preg_replace('/\s+/', ' ', $normalized)));
@@ -694,6 +693,52 @@ class ChatbotController extends Controller
             return [
                 'payload' => ['command' => 'confirm'],
                 'model_used' => 'deterministic-command',
+            ];
+        }
+
+        if (preg_match('/\bmenu\s+(?:berikutnya|selanjutnya|lanjut)\b/u', $normalized) === 1) {
+            return [
+                'payload' => ['intent' => 'shopping_order', 'command' => 'menu_next'],
+                'model_used' => 'deterministic-assistant',
+            ];
+        }
+
+        if (preg_match('/\bmenu\s+(?:sebelumnya|mundur|kembali)\b/u', $normalized) === 1) {
+            return [
+                'payload' => ['intent' => 'shopping_order', 'command' => 'menu_previous'],
+                'model_used' => 'deterministic-assistant',
+            ];
+        }
+
+        if (preg_match('/\b(?:rekomendasi|rekomendasikan|sarankan|saran)\b/u', $normalized) === 1
+            || preg_match('/\b(?:bingung|enaknya|baiknya)\s+(?:mau\s+)?makan\s+apa\b/u', $normalized) === 1
+            || preg_match('/\bmau\s+makan\s+apa\b/u', $normalized) === 1) {
+            return [
+                'payload' => ['intent' => 'shopping_order', 'command' => 'recommend_food'],
+                'model_used' => 'deterministic-assistant',
+            ];
+        }
+
+        $hasQuantity = preg_match('/\b\d+\s*(?:x|pcs|porsi|buah|bungkus|gelas)?\b/u', $normalized) === 1;
+        $hasExplicitMenuSearch = preg_match('/\b(?:cari|carikan)\s+menu\s+\S+/u', $normalized) === 1;
+        if ($hasExplicitMenuSearch || (! $hasQuantity && (
+            preg_match('/\b(?:cari|carikan)\s+\S+/u', $normalized) === 1
+            || preg_match('/\b(?:ada|punya)\s+(?!menu\s+apa\b)\S+/u', $normalized) === 1
+            || preg_match('/\bminuman(?:nya)?\s+apa\b/u', $normalized) === 1
+        ))) {
+            return [
+                'payload' => ['intent' => 'shopping_order', 'command' => 'search_menu'],
+                'model_used' => 'deterministic-assistant',
+            ];
+        }
+
+        if (preg_match('/\b(?:tampilkan|lihat|cek|buka|bukakan)\s+(?:daftar\s+)?menu(?:nya)?\b/u', $normalized) === 1
+            || preg_match('/^(?:menu|menunya)\b/u', $normalized) === 1
+            || preg_match('/\bada\s+menu\s+apa\b/u', $normalized) === 1
+            || preg_match('/\bmakanan(?:nya)?\s+apa\b/u', $normalized) === 1) {
+            return [
+                'payload' => ['intent' => 'shopping_order', 'command' => 'show_menu'],
+                'model_used' => 'deterministic-assistant',
             ];
         }
 
@@ -717,6 +762,37 @@ class ChatbotController extends Controller
                 'payload' => ['payment_method' => 'TRANSFER'],
                 'model_used' => 'deterministic-payment',
             ];
+        }
+
+        $assistantState = $this->draftStore->shoppingAssistantState($user, $sessionId);
+        if (($assistantState['mode'] ?? null) === 'awaiting_restaurant') {
+            $choices = is_array($assistantState['restaurant_choices'] ?? null)
+                ? $assistantState['restaurant_choices']
+                : [];
+            $looksLikeOrdinal = preg_match('/^(?:(?:yang|resto|restoran|tempat|nomor|no)\s+)?(?:[1-3]|pertama|kesatu|kedua|ketiga)$/u', $normalized) === 1;
+            $looksLikeName = collect($choices)->contains(function ($choice) use ($normalized): bool {
+                if (! is_array($choice)) {
+                    return false;
+                }
+                $name = strtolower(trim((string) preg_replace('/[^\p{L}\p{N}]+/u', ' ', (string) ($choice['name'] ?? ''))));
+                if (str_contains($name, $normalized) || str_contains($normalized, $name)) {
+                    return true;
+                }
+
+                $maxLength = max(strlen($name), strlen($normalized), 1);
+
+                return (1 - (levenshtein($name, $normalized) / $maxLength)) >= 0.70;
+            });
+            if ($looksLikeOrdinal || (! $hasQuantity && $looksLikeName)) {
+                return [
+                    'payload' => [
+                        'intent' => 'shopping_order',
+                        'command' => (string) ($assistantState['pending_command'] ?? 'show_menu'),
+                        'menu_search' => $assistantState['menu_search'] ?? null,
+                    ],
+                    'model_used' => 'deterministic-assistant',
+                ];
+            }
         }
 
         return null;

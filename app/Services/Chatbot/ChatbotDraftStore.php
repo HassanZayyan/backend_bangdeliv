@@ -33,6 +33,35 @@ class ChatbotDraftStore
     /**
      * @return array<string, mixed>
      */
+    public function shoppingAssistantState(User $user, string $sessionId): array
+    {
+        $assistantState = $this->state($user, $sessionId)['shopping_assistant'] ?? [];
+
+        return is_array($assistantState) ? $assistantState : [];
+    }
+
+    /**
+     * @param  array<string, mixed>  $assistantState
+     */
+    public function saveShoppingAssistantState(User $user, string $sessionId, array $assistantState): void
+    {
+        $state = $this->state($user, $sessionId);
+        $state['shopping_assistant'] = $assistantState;
+
+        $this->putState($user, $sessionId, $state);
+    }
+
+    public function forgetShoppingAssistantState(User $user, string $sessionId): void
+    {
+        $state = $this->state($user, $sessionId);
+        unset($state['shopping_assistant']);
+
+        $this->putState($user, $sessionId, $state);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
     public function context(User $user, string $sessionId, string $serviceType): array
     {
         $state = $this->state($user, $sessionId);

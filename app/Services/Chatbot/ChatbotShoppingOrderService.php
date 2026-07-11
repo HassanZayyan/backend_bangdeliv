@@ -47,6 +47,7 @@ class ChatbotShoppingOrderService
         private readonly ChatbotShoppingItemIntentParser $itemIntentParser,
         private readonly ShoppingMerchantCandidateResolver $merchantCandidateResolver,
         private readonly ChatbotDraftStore $draftStore,
+        private readonly ChatbotShoppingAssistantService $shoppingAssistantService,
     ) {}
 
     /**
@@ -58,11 +59,27 @@ class ChatbotShoppingOrderService
         $this->assertCustomerCanOrder($user);
 
         $normalizedMessage = $this->normalizeWhitespace($message);
-        if ($this->resolveCommand($normalizedMessage, $nluPayload) === 'confirm') {
+        $command = $this->resolveCommand($normalizedMessage, $nluPayload);
+        if ($command === 'confirm') {
             return $this->confirmPendingDraft($user, $sessionId);
         }
 
         $latestSeed = $this->resolveLatestDraftSeed($user, $sessionId);
+        if ($this->shoppingAssistantService->supports($command)) {
+            $payload = $this->buildDraftPayload($user, $latestSeed);
+            $payload['assistant_text'] = $this->shoppingAssistantService->assistantText(
+                $user,
+                $sessionId,
+                $message,
+                $command,
+                $nluPayload,
+                $payload,
+            );
+
+            return $payload;
+        }
+
+        $this->draftStore->forgetShoppingAssistantState($user, $sessionId);
         $incomingSeed = $this->buildIncomingDraftSeed($message, $nluPayload, $latestSeed);
         $draftSeed = $this->mergeDraftSeed($latestSeed, $incomingSeed);
 
@@ -1876,8 +1893,28 @@ class ChatbotShoppingOrderService
     /**
      * @return array<int, string>
      */
-    private function shoppingItemExampleLines(): array
+    private function shoppingItemExampleLines(array $merchant = []): array
     {
+        $merchantId = isset($merchant['id']) && is_numeric($merchant['id'])
+            ? (int) $merchant['id']
+            : 0;
+        if ($merchantId > 0) {
+            $menuNames = Restaurant::query()
+                ->find($merchantId)?->menus()
+                ->where('is_available', true)
+                ->orderBy('sort_order')
+                ->orderBy('id')
+                ->limit(3)
+                ->pluck('name')
+                ->map(fn (mixed $name): string => '- '.trim((string) $name).' 1')
+                ->filter(fn (string $line): bool => $line !== '-  1')
+                ->values()
+                ->all() ?? [];
+            if ($menuNames !== []) {
+                return $menuNames;
+            }
+        }
+
         return [
             '- nasi goreng 1',
             '- mie pedas level 7, 1',
@@ -2018,7 +2055,7 @@ class ChatbotShoppingOrderService
             '',
             'Tulis item dan jumlah untuk tempat ini.',
             'Contoh:',
-            ...$this->shoppingItemExampleLines(),
+            ...$this->shoppingItemExampleLines($activeMerchant),
         ]);
     }
 
@@ -2053,6 +2090,15 @@ class ChatbotShoppingOrderService
         $command = strtolower(trim((string) ($nluPayload['command'] ?? '')));
         if (in_array($command, ['confirm', 'konfirmasi', 'lanjut'], true)) {
             return 'confirm';
+        }
+        if (in_array($command, [
+            'show_menu',
+            'menu_next',
+            'menu_previous',
+            'search_menu',
+            'recommend_food',
+        ], true)) {
+            return $command;
         }
 
         $normalized = strtolower(trim((string) preg_replace('/\s+/', ' ', $message)));
