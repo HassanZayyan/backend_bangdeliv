@@ -147,8 +147,7 @@ class ShoppingRouteService
         Order $order,
         ?float $preservedDeliveryFee = null,
         ?string $preservedDeliveryFeeSource = null,
-    ): ?array
-    {
+    ): ?array {
         $order->refresh()->load(['orderLocations.restaurant']);
         $preservedDeliveryFee = is_numeric($preservedDeliveryFee) && $preservedDeliveryFee > 0
             ? round((float) $preservedDeliveryFee, 2)
@@ -451,7 +450,7 @@ class ShoppingRouteService
                     return false;
                 }
 
-                if (in_array(strtoupper((string) ($location->fulfillment_status ?? 'PENDING')), ['FAILED', 'SKIPPED', 'REPLACED'], true)) {
+                if (in_array(strtoupper((string) ($location->fulfillment_status ?? 'PENDING')), ['FAILED', 'SKIPPED', 'REPLACED', 'ABANDONED_AFTER_LIMIT'], true)) {
                     return false;
                 }
 

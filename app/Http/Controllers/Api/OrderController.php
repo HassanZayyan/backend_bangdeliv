@@ -10,12 +10,14 @@ use App\Http\Requests\Api\CancelOrderRequest;
 use App\Http\Requests\Api\CreateRideOrderRequest;
 use App\Http\Requests\Api\RecordCodPaymentRequest;
 use App\Http\Requests\Api\RecordFailedAttemptRequest;
+use App\Http\Requests\Api\ShoppingMerchantReplacementRequest;
 use App\Http\Requests\Api\UpdateDriverShoppingItemsRequest;
 use App\Http\Requests\Api\UpdateShoppingOrderItemRequest;
 use App\Http\Requests\Api\ValidateRideDestinationRequest;
 use App\Http\Responses\ApiResponse;
 use App\Services\Order\OrderService;
 use App\Services\Order\RideOrderService;
+use App\Services\Shopping\ShoppingMerchantReplacementService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -25,7 +27,8 @@ class OrderController extends Controller
 
     public function __construct(
         private readonly OrderService $orderService,
-        private readonly RideOrderService $rideOrderService
+        private readonly RideOrderService $rideOrderService,
+        private readonly ShoppingMerchantReplacementService $shoppingMerchantReplacementService,
     ) {}
 
     public function createRideOrder(CreateRideOrderRequest $request): JsonResponse
@@ -202,6 +205,8 @@ class OrderController extends Controller
             'request_kind' => ['nullable', 'string', 'in:EDIT_UNAVAILABLE'],
             'target_pickup_location_id' => ['nullable', 'integer', 'min:1'],
             'item_id' => ['nullable', 'integer', 'min:1'],
+            'item_ids' => ['nullable', 'array', 'min:1', 'max:30'],
+            'item_ids.*' => ['integer', 'min:1', 'distinct'],
             'note' => ['nullable', 'string', 'max:500'],
             'items' => ['nullable', 'array', 'max:30'],
             'items.*.merchant_id' => ['nullable', 'integer', 'exists:restaurants,id'],
@@ -233,13 +238,113 @@ class OrderController extends Controller
 
             return $this->success($order, $message);
         } catch (ApiException $exception) {
-            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+            $errors = $exception->errors();
+            if ($exception->status() === 409 && ($errors['code'] ?? null) === 'STATE_CHANGED') {
+                try {
+                    $errors['latest_order'] = $this->orderService->customerOrderDetail(
+                        $request->user(),
+                        $orderId,
+                    );
+                } catch (ApiException) {
+                    // Preserve the original conflict when the refresh payload cannot be loaded.
+                }
+            }
+
+            return $this->error($exception->getMessage(), $exception->status(), $errors);
         }
     }
 
     public function skipFailedShoppingStop(Request $request, int $orderId, int $pickupLocationId): JsonResponse
     {
         return $this->error('Endpoint skip merchant sudah deprecated pada flow Nitip baru.', 410);
+    }
+
+    public function previewShoppingMerchantReplacement(
+        ShoppingMerchantReplacementRequest $request,
+        int $orderId,
+        int $pickupLocationId,
+    ): JsonResponse {
+        try {
+            $preview = $this->shoppingMerchantReplacementService->preview(
+                $request->user(),
+                $orderId,
+                $pickupLocationId,
+                $request->validated(),
+                false,
+            );
+
+            return $this->success($preview, 'Preview merchant pengganti berhasil dihitung.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
+    public function replaceShoppingMerchant(
+        ShoppingMerchantReplacementRequest $request,
+        int $orderId,
+        int $pickupLocationId,
+    ): JsonResponse {
+        try {
+            $this->shoppingMerchantReplacementService->commit(
+                $request->user(),
+                $orderId,
+                $pickupLocationId,
+                $request->validated(),
+                (string) $request->header('Idempotency-Key', ''),
+                false,
+            );
+
+            return $this->success(
+                $this->orderService->customerOrderDetail($request->user(), $orderId),
+                'Merchant Nitip berhasil diganti.',
+            );
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
+    public function previewShoppingMerchantReplacementByDriver(
+        ShoppingMerchantReplacementRequest $request,
+        int $orderId,
+        int $pickupLocationId,
+    ): JsonResponse {
+        try {
+            $preview = $this->shoppingMerchantReplacementService->preview(
+                $request->user(),
+                $orderId,
+                $pickupLocationId,
+                $request->validated(),
+                true,
+            );
+
+            return $this->success($preview, 'Preview merchant pengganti berhasil dihitung.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
+    public function replaceShoppingMerchantByDriver(
+        ShoppingMerchantReplacementRequest $request,
+        int $orderId,
+        int $pickupLocationId,
+    ): JsonResponse {
+        try {
+            $this->shoppingMerchantReplacementService->commit(
+                $request->user(),
+                $orderId,
+                $pickupLocationId,
+                $request->validated(),
+                (string) $request->header('Idempotency-Key', ''),
+                true,
+            );
+
+            return $this->success(
+                $this->orderService->driverOrderDetail($request->user(), $orderId),
+                'Merchant Nitip berhasil diganti.',
+            );
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
     }
 
     public function respondShoppingPriceQuote(Request $request, int $orderId): JsonResponse
@@ -315,6 +420,81 @@ class OrderController extends Controller
             return $this->success($payload, 'Merchant ditandai buka.');
         } catch (ApiException $exception) {
             return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
+    public function bypassUnavailableShoppingItems(Request $request, int $orderId, int $pickupLocationId): JsonResponse
+    {
+        try {
+            $payload = $this->orderService->bypassUnavailableShoppingItemsByDriver(
+                $request->user(),
+                $orderId,
+                $pickupLocationId
+            );
+
+            return $this->success($payload, 'Item tidak tersedia berhasil dilewati driver.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
+    public function replaceUnavailableShoppingItems(Request $request, int $orderId, int $pickupLocationId): JsonResponse
+    {
+        $validated = $request->validate([
+            'items' => ['required', 'array', 'min:1', 'max:30'],
+            'items.*.item_source' => ['required', 'in:MANUAL,MENU_DB'],
+            'items.*.menu_id' => ['nullable', 'integer', 'exists:menus,id'],
+            'items.*.menu_name' => ['required', 'string', 'max:255'],
+            'items.*.quantity' => ['required', 'integer', 'min:1', 'max:99'],
+            'items.*.notes' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        try {
+            $payload = $this->orderService->replaceUnavailableShoppingItemsByDriver(
+                $request->user(),
+                $orderId,
+                $pickupLocationId,
+                $validated,
+                (string) $request->header('Idempotency-Key', '')
+            );
+
+            return $this->success($payload, 'Item tidak tersedia berhasil diganti driver.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
+    public function decideUnavailableShoppingItems(Request $request, int $orderId, int $pickupLocationId): JsonResponse
+    {
+        $validated = $request->validate([
+            'action' => ['required', 'string', 'in:REMOVE,CANCEL_MERCHANT'],
+            'item_ids' => ['nullable', 'array', 'min:1', 'max:30'],
+            'item_ids.*' => ['integer', 'min:1', 'distinct'],
+        ]);
+
+        try {
+            $payload = $this->orderService->decideUnavailableShoppingItemsByDriver(
+                $request->user(),
+                $orderId,
+                $pickupLocationId,
+                $validated,
+            );
+
+            return $this->success($payload, 'Keputusan item tidak tersedia berhasil diproses driver.');
+        } catch (ApiException $exception) {
+            $errors = $exception->errors();
+            if ($exception->status() === 409 && ($errors['code'] ?? null) === 'STATE_CHANGED') {
+                try {
+                    $errors['latest_order'] = $this->orderService->driverOrderDetail(
+                        $request->user(),
+                        $orderId,
+                    );
+                } catch (ApiException) {
+                    // Preserve the original conflict when the refresh payload cannot be loaded.
+                }
+            }
+
+            return $this->error($exception->getMessage(), $exception->status(), $errors);
         }
     }
 
@@ -661,7 +841,8 @@ class OrderController extends Controller
                 (string) $request->input('reason'),
                 $request->filled('pickup_location_id')
                     ? $request->integer('pickup_location_id')
-                    : null
+                    : null,
+                $request->file('merchant_closed_photo'),
             );
 
             return $this->success($order, 'Percobaan gagal berhasil dicatat.');

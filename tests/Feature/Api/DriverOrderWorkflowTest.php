@@ -21,6 +21,7 @@ use App\Models\ServiceType;
 use App\Models\User;
 use App\Services\Driver\Dispatch\DriverDispatchMetadataFactory;
 use App\Services\Driver\DriverOrderRealtimeService;
+use App\Services\Shopping\ShoppingReplacementProjectionService;
 use Database\Seeders\AccessAccountSeeder;
 use Illuminate\Broadcasting\BroadcastException;
 use Illuminate\Contracts\Broadcasting\Broadcaster as BroadcasterContract;
@@ -182,7 +183,7 @@ class DriverOrderWorkflowTest extends TestCase
         $this->assertNotContains('Tiba di Toko / Merchant', $actions->pluck('label')->all());
     }
 
-    public function test_shopping_open_merchant_moves_arrived_and_locks_delivery_fee_revision(): void
+    public function test_shopping_open_merchant_moves_arrived_and_keeps_delivery_fee_revision_open(): void
     {
         [$driverUser, $driver] = $this->createActiveDriver('shopping-open-locks-fee');
         $order = $this->createShoppingOrder($driver, 'DRIVER_ASSIGNED');
@@ -195,13 +196,13 @@ class DriverOrderWorkflowTest extends TestCase
 
         $openResponse->assertOk()
             ->assertJsonPath('data.status_code', 'ARRIVED_MERCHANT')
-            ->assertJsonPath('data.delivery_fee_negotiation.can_driver_submit_quote', false);
+            ->assertJsonPath('data.delivery_fee_negotiation.can_driver_submit_quote', true);
 
         $this->postJson('/api/v1/driver/orders/'.$order->id.'/delivery-fee-override', [
             'amount' => 12000,
-            'reason' => 'Tidak boleh setelah merchant diproses.',
-        ])->assertStatus(409)
-            ->assertJsonPath('success', false);
+            'reason' => 'Rute berubah setelah merchant diproses.',
+        ])->assertOk()
+            ->assertJsonPath('success', true);
 
         $this->assertDatabaseHas('order_status_histories', [
             'order_id' => $order->id,
@@ -209,7 +210,35 @@ class DriverOrderWorkflowTest extends TestCase
         ]);
     }
 
-    public function test_pending_delivery_fee_revision_blocks_shopping_merchant_open(): void
+    public function test_driver_can_open_pending_shopping_merchant_outside_recommended_order(): void
+    {
+        [$driverUser, $driver] = $this->createActiveDriver('shopping-open-flexible-order');
+        $order = $this->createShoppingOrder($driver, 'DRIVER_ASSIGNED');
+        $firstPickup = $this->createPickupLocation($order, -7.3310, 110.5090, 'Merchant Rekomendasi');
+        $firstPickup->update(['sequence_no' => 2]);
+        $secondPickup = $this->createPickupLocation($order, -7.3320, 110.5100, 'Merchant Alternatif');
+        $this->createDropoffLocation($order, -7.3400, 110.5200, 'Alamat Customer');
+        $order->update([
+            'route_snapshot' => [
+                'ordered_pickup_location_ids' => [$firstPickup->id, $secondPickup->id],
+            ],
+        ]);
+        $deliveryFeeBefore = (float) $order->delivery_fee;
+
+        Sanctum::actingAs($driverUser);
+
+        $response = $this->postJson(
+            '/api/v1/driver/orders/'.$order->id.'/shopping-stops/'.$secondPickup->id.'/open'
+        );
+
+        $response->assertOk()
+            ->assertJsonPath('data.status_code', 'ARRIVED_MERCHANT');
+        $this->assertSame('PENDING', $firstPickup->refresh()->fulfillment_status);
+        $this->assertSame('OPEN_CONFIRMED', $secondPickup->refresh()->fulfillment_status);
+        $this->assertSame($deliveryFeeBefore, (float) $order->refresh()->delivery_fee);
+    }
+
+    public function test_pending_delivery_fee_revision_does_not_block_shopping_merchant_open(): void
     {
         [$driverUser, $driver] = $this->createActiveDriver('shopping-open-pending-fee');
         $order = $this->createShoppingOrder($driver, 'DRIVER_ASSIGNED');
@@ -224,11 +253,11 @@ class DriverOrderWorkflowTest extends TestCase
         ])->assertOk();
 
         $this->postJson('/api/v1/driver/orders/'.$order->id.'/shopping-stops/'.$pickup->id.'/open')
-            ->assertStatus(409)
-            ->assertJsonPath('message', 'Revisi ongkir belum disetujui customer.');
+            ->assertOk()
+            ->assertJsonPath('data.status_code', 'ARRIVED_MERCHANT');
     }
 
-    public function test_shopping_closed_merchant_moves_arrived_and_locks_delivery_fee_revision(): void
+    public function test_shopping_closed_merchant_moves_arrived_and_keeps_delivery_fee_revision_open(): void
     {
         Config::set('bangdeliv.google_maps_api_key', 'test-google-key');
         Config::set('bangdeliv.routes.optimize_shopping_waypoints', false);
@@ -258,9 +287,9 @@ class DriverOrderWorkflowTest extends TestCase
 
         $this->postJson('/api/v1/driver/orders/'.$order->id.'/delivery-fee-override', [
             'amount' => 12000,
-            'reason' => 'Tidak boleh setelah merchant tutup diproses.',
-        ])->assertStatus(409)
-            ->assertJsonPath('success', false);
+            'reason' => 'Rute direvisi setelah merchant tutup.',
+        ])->assertOk()
+            ->assertJsonPath('success', true);
     }
 
     public function test_assigned_driver_can_update_live_location_for_tracking(): void
@@ -1812,25 +1841,17 @@ class DriverOrderWorkflowTest extends TestCase
         ]);
 
         $finalResponse->assertOk()
-            ->assertJsonPath('data.status_ref.code', 'CANCELLED_WITH_FEE')
-            ->assertJsonPath('data.delivery_fee', '0.00')
-            ->assertJsonPath('data.service_fee', '15000.00')
-            ->assertJsonPath('data.total_price', '15000.00')
-            ->assertJsonPath('data.payment_method', 'TRANSFER')
-            ->assertJsonPath('data.payment_status', 'unpaid');
+            ->assertJsonPath('data.status_ref.code', 'ARRIVED_MERCHANT')
+            ->assertJsonPath('data.shopping_stops.2.unavailable_item_actions.can_driver_replace_merchant', true);
 
         $this->assertDatabaseHas('orders', [
             'id' => $order->id,
-            'delivery_fee' => 0,
-            'total_price' => 15000,
+            'status_id' => OrderStatus::query()->where('code', 'ARRIVED_MERCHANT')->value('id'),
         ]);
-        $this->assertDatabaseHas('order_payments', [
+        $this->assertDatabaseMissing('order_events', [
             'order_id' => $order->id,
-            'payment_method' => 'TRANSFER',
-            'payment_status' => 'PENDING',
-            'amount' => 15000,
+            'trigger_type' => 'ALL_SHOPPING_MERCHANTS_FAILED_WITH_FEE',
         ]);
-        $this->assertTrue($this->orderHasPenaltyBaseLog($order, 30000));
     }
 
     public function test_customer_cancelled_places_preserve_last_delivery_fee_for_half_fee_cancellation(): void
@@ -1873,27 +1894,18 @@ class DriverOrderWorkflowTest extends TestCase
                 $this->assertSame(30000.0, round((float) $order->refresh()->delivery_fee, 2));
             } else {
                 $response->assertOk()
-                    ->assertJsonPath('data.status_ref.code', 'CANCELLED_WITH_FEE')
-                    ->assertJsonPath('data.delivery_fee', '0.00')
-                    ->assertJsonPath('data.service_fee', '15000.00')
-                    ->assertJsonPath('data.total_price', '15000.00')
-                    ->assertJsonPath('data.payment_method', 'TRANSFER')
-                    ->assertJsonPath('data.payment_status', 'unpaid');
+                    ->assertJsonPath('data.status_ref.code', 'CANCELLED');
             }
         }
 
         $this->assertDatabaseHas('orders', [
             'id' => $order->id,
-            'delivery_fee' => 0,
-            'total_price' => 15000,
+            'cancelled_by' => 'customer',
         ]);
-        $this->assertDatabaseHas('order_payments', [
+        $this->assertDatabaseMissing('order_events', [
             'order_id' => $order->id,
-            'payment_method' => 'TRANSFER',
-            'payment_status' => 'PENDING',
-            'amount' => 15000,
+            'trigger_type' => 'CUSTOMER_CANCEL_MERCHANT_WITH_FEE',
         ]);
-        $this->assertTrue($this->orderHasPenaltyBaseLog($order, 30000));
     }
 
     public function test_driver_can_cancel_shopping_with_fee_after_three_failed_pickups(): void
@@ -1937,7 +1949,7 @@ class DriverOrderWorkflowTest extends TestCase
 
         $pickup->update(['failed_attempt_count' => 2]);
 
-        OrderItem::query()->create([
+        $item = OrderItem::query()->create([
             'order_id' => $order->id,
             'pickup_location_id' => $pickup->id,
             'item_source' => 'MANUAL',
@@ -1974,15 +1986,18 @@ class DriverOrderWorkflowTest extends TestCase
 
         $this->assertDatabaseHas('order_locations', [
             'id' => $pickup->id,
-            'fulfillment_status' => 'FAILED',
+            'fulfillment_status' => 'ABANDONED_AFTER_LIMIT',
         ]);
 
-        $this->assertDatabaseHas('shopping_order_items', [
+        $this->assertDatabaseMissing('shopping_order_items', [
             'order_id' => $order->id,
             'pickup_location_id' => $pickup->id,
-            'is_available' => false,
-            'subtotal' => 0,
         ]);
+        $abandonedEvent = OrderLog::query()
+            ->where('order_id', $order->id)
+            ->where('event_type', ShoppingReplacementProjectionService::CHAIN_ABANDONED_EVENT)
+            ->firstOrFail();
+        $this->assertSame($item->id, (int) data_get($abandonedEvent->metadata, 'removed_items.0.id'));
 
         $detailResponse = $this->getJson('/api/v1/driver/orders/'.$order->id);
         $detailResponse->assertOk()
@@ -1992,7 +2007,7 @@ class DriverOrderWorkflowTest extends TestCase
             ->assertJsonPath('data.pricing.service_fee', 7500)
             ->assertJsonPath('data.pricing.total_price', 7500)
             ->assertJsonPath('data.pricing.failed_attempt_count', 3)
-            ->assertJsonPath('data.shopping_stops.0.fulfillment_status', 'FAILED');
+            ->assertJsonPath('data.shopping_stops.0.fulfillment_status', 'ABANDONED_AFTER_LIMIT');
 
         $this->assertDatabaseHas('orders', [
             'id' => $order->id,

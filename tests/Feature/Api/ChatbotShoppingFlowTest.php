@@ -2317,22 +2317,63 @@ class ChatbotShoppingFlowTest extends TestCase
 
         $this->fakeGeminiAndDistance(['intent' => 'shopping_order', 'command' => 'none', 'items' => []]);
         Sanctum::actingAs($customer);
+        $prompts = [
+            'aku bingung mau makan apa',
+            'enaknya pesan apa?',
+            'nitip apa enaknya',
+            'enaknya nitip apa',
+            'baiknya beli apa',
+            'mau pesan apa',
+        ];
+
+        foreach ($prompts as $index => $prompt) {
+            $response = $this->postJson('/api/chatbot/process', [
+                'session_id' => 'shopping-nearby-recommendation-session-'.$index,
+                'service_type' => 'nitip',
+                'message' => $prompt,
+            ]);
+
+            $response->assertOk()
+                ->assertJsonPath('model_used', 'deterministic-assistant')
+                ->assertJsonPath('data.shopping.stops', []);
+            $text = (string) $response->json('data.assistant_text');
+            $this->assertLessThan(strpos($text, $second->name), strpos($text, $nearest->name));
+            $this->assertLessThan(strpos($text, $third->name), strpos($text, $second->name));
+            $this->assertStringNotContainsString('Resto Terjauh', $text);
+            $this->assertStringContainsString('Dekat Satu', $text);
+            $this->assertStringContainsString('Dekat Dua', $text);
+            $this->assertStringNotContainsString('Dekat Tiga', $text);
+        }
+        $this->assertDatabaseCount('orders', 0);
+    }
+
+    public function test_chatbot_shopping_concrete_nitip_item_is_not_treated_as_recommendation(): void
+    {
+        $customer = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'merchant' => null,
+            'items' => [
+                ['name' => 'nasi goreng', 'quantity' => 1],
+            ],
+        ]);
+        Sanctum::actingAs($customer);
+
         $response = $this->postJson('/api/chatbot/process', [
-            'session_id' => 'shopping-nearby-recommendation-session',
+            'session_id' => 'shopping-concrete-nitip-item-session',
             'service_type' => 'nitip',
-            'message' => 'aku bingung mau makan apa',
+            'message' => 'nitip nasi goreng 1',
         ]);
 
-        $response->assertOk()
-            ->assertJsonPath('model_used', 'deterministic-assistant')
-            ->assertJsonPath('data.shopping.stops', []);
-        $text = (string) $response->json('data.assistant_text');
-        $this->assertLessThan(strpos($text, $second->name), strpos($text, $nearest->name));
-        $this->assertLessThan(strpos($text, $third->name), strpos($text, $second->name));
-        $this->assertStringNotContainsString('Resto Terjauh', $text);
-        $this->assertStringContainsString('Dekat Satu', $text);
-        $this->assertStringContainsString('Dekat Dua', $text);
-        $this->assertStringNotContainsString('Dekat Tiga', $text);
+        $response->assertOk();
+        $this->assertNotSame('deterministic-assistant', $response->json('model_used'));
+        $this->assertSame('nasi goreng', $response->json('data.shopping.items.0.name'));
+        $this->assertSame(1, $response->json('data.shopping.items.0.quantity'));
         $this->assertDatabaseCount('orders', 0);
     }
 

@@ -60,7 +60,7 @@ class ShoppingPickupLocationService
 
                 return ! in_array(
                     strtoupper((string) ($location->fulfillment_status ?? 'PENDING')),
-                    ['FAILED', 'SKIPPED', 'REPLACED', 'CANCELLED'],
+                    ['FAILED', 'SKIPPED', 'REPLACED', 'CANCELLED', 'ABANDONED_AFTER_LIMIT'],
                     true
                 );
             })
@@ -79,7 +79,7 @@ class ShoppingPickupLocationService
         return OrderLocation::query()
             ->where('order_id', $order->id)
             ->where('location_role', 'PICKUP')
-            ->whereNotIn('fulfillment_status', ['FAILED', 'SKIPPED', 'REPLACED', 'CANCELLED'])
+            ->whereNotIn('fulfillment_status', ['FAILED', 'SKIPPED', 'REPLACED', 'CANCELLED', 'ABANDONED_AFTER_LIMIT'])
             ->count();
     }
 
@@ -114,7 +114,7 @@ class ShoppingPickupLocationService
 
                 return ! in_array(
                     strtoupper((string) ($location->fulfillment_status ?? 'PENDING')),
-                    ['FAILED', 'SKIPPED', 'REPLACED'],
+                    ['FAILED', 'SKIPPED', 'REPLACED', 'ABANDONED_AFTER_LIMIT'],
                     true
                 );
             });
@@ -157,7 +157,7 @@ class ShoppingPickupLocationService
 
                 if (in_array(
                     strtoupper((string) ($location->fulfillment_status ?? 'PENDING')),
-                    ['FAILED', 'SKIPPED', 'REPLACED'],
+                    ['FAILED', 'SKIPPED', 'REPLACED', 'ABANDONED_AFTER_LIMIT'],
                     true
                 )) {
                     return false;

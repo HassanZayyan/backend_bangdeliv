@@ -31,6 +31,8 @@ class ShoppingPriceNegotiationService
 
     public const DRIVER_ITEM_CHANGE_REQUIRES_REQUOTE = 'DRIVER_ITEM_CHANGE_REQUIRES_REQUOTE';
 
+    public const DRIVER_BYPASS_UNAVAILABLE_ITEMS = 'DRIVER_BYPASS_UNAVAILABLE_ITEMS';
+
     public function __construct(private readonly OrderNegotiationLogService $negotiationLogs) {}
 
     /**
@@ -257,7 +259,7 @@ class ShoppingPriceNegotiationService
             self::DRIVER_PRICE_QUOTED, self::DRIVER_PRICE_REQUOTED => 'PENDING_CUSTOMER',
             self::CUSTOMER_PRICE_COUNTERED => 'PENDING_DRIVER',
             self::CUSTOMER_PRICE_APPROVED, self::DRIVER_COUNTER_APPROVED, self::MERCHANT_PRICE_APPROVED_BY_DRIVER_BYPASS => 'APPROVED',
-            self::CUSTOMER_CANCEL_MERCHANT => 'CANCELLED_MERCHANT',
+            self::CUSTOMER_CANCEL_MERCHANT, self::DRIVER_BYPASS_UNAVAILABLE_ITEMS => 'CANCELLED_MERCHANT',
             self::CUSTOMER_CANCEL_ORDER => 'CANCELLED_ORDER',
             self::SHOPPING_ITEM_CHANGE_REQUIRES_REQUOTE, self::DRIVER_ITEM_CHANGE_REQUIRES_REQUOTE => 'NEEDS_REQUOTE',
             default => 'NONE',
@@ -293,7 +295,7 @@ class ShoppingPriceNegotiationService
 
                 $fulfillmentStatus = strtoupper((string) ($location->fulfillment_status ?? 'PENDING'));
 
-                return ! in_array($fulfillmentStatus, ['FAILED', 'REPLACED', 'SKIPPED', 'CANCELLED'], true);
+                return ! in_array($fulfillmentStatus, ['FAILED', 'REPLACED', 'SKIPPED', 'CANCELLED', 'ABANDONED_AFTER_LIMIT'], true);
             })
             ->sortBy('sequence_no')
             ->keyBy(fn (OrderLocation $location): int => (int) $location->id)

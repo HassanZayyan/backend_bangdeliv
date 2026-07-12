@@ -3,7 +3,6 @@
 namespace App\Services\Order;
 
 use App\Enums\OrderStatusCode;
-use App\Enums\ServiceTypeCode;
 use App\Events\AdminNotificationUpdated;
 use App\Exceptions\ApiException;
 use App\Models\Driver;
@@ -30,12 +29,14 @@ use App\Services\Notification\OrderStatusPushNotificationService;
 use App\Services\Notification\PaymentProofReminderNotificationService;
 use App\Services\Notification\ShoppingItemAvailabilityPushNotificationService;
 use App\Services\Pricing\ShoppingPricingService;
+use App\Services\Shopping\ShoppingFailedTripCompensationService;
 use App\Services\Shopping\ShoppingItemChangeRequestService;
 use App\Services\Shopping\ShoppingMerchantCandidate;
 use App\Services\Shopping\ShoppingMerchantCandidateResolver;
 use App\Services\Shopping\ShoppingOrderCapabilityService;
 use App\Services\Shopping\ShoppingPickupLocationService;
 use App\Services\Shopping\ShoppingPriceNegotiationService;
+use App\Services\Shopping\ShoppingReplacementProjectionService;
 use App\Services\Shopping\ShoppingRouteService;
 use App\Services\Shopping\ShoppingUnavailableItemDecisionService;
 use Carbon\Carbon;
@@ -69,6 +70,8 @@ class OrderService
         private readonly ShoppingOrderCapabilityService $shoppingOrderCapabilityService,
         private readonly ShoppingUnavailableItemDecisionService $shoppingUnavailableItemDecisionService,
         private readonly ShoppingItemAvailabilityPushNotificationService $shoppingItemAvailabilityPushNotificationService,
+        private readonly ShoppingFailedTripCompensationService $shoppingFailedTripCompensationService,
+        private readonly ShoppingReplacementProjectionService $shoppingReplacementProjectionService,
         private readonly DeliveryFeeNegotiationService $deliveryFeeNegotiationService,
         private readonly DriverArrivalEtaService $driverArrivalEtaService
     ) {}
@@ -179,6 +182,12 @@ class OrderService
             if ($isShopping) {
             }
             $order->update($cancelUpdates);
+            $this->purgeTerminalShoppingUnavailableItems(
+                $order,
+                (int) $user->id,
+                $cancelledStatusCode,
+                'CUSTOMER_CANCELLED_SHOPPING_ORDER',
+            );
 
             OrderStatusHistory::query()->create([
                 'order_id' => $order->id,
@@ -324,6 +333,7 @@ class OrderService
         string $failureType,
         string $reason,
         ?int $pickupLocationId = null,
+        ?UploadedFile $merchantClosedPhoto = null,
     ): Order {
         $normalizedFailureType = strtoupper(trim($failureType));
         $allowedFailureTypes = ['DRIVER_ASSIGNMENT', 'PICKUP', 'DELIVERY'];
@@ -337,7 +347,7 @@ class OrderService
             throw new ApiException('Hanya driver atau admin yang dapat mencatat failed attempt.', 403);
         }
 
-        $order = DB::transaction(function () use ($actor, $orderId, $normalizedFailureType, $reason, $pickupLocationId, &$statusChangeEventPayload): Order {
+        $order = DB::transaction(function () use ($actor, $orderId, $normalizedFailureType, $reason, $pickupLocationId, $merchantClosedPhoto, &$statusChangeEventPayload): Order {
             $order = Order::query()
                 ->with(['statusRef', 'serviceType', 'orderLocations', 'items', 'shoppingReceipt'])
                 ->lockForUpdate()
@@ -365,21 +375,13 @@ class OrderService
                     ->first(fn (OrderLocation $location): bool => strtoupper((string) $location->location_role) === 'PICKUP');
             }
 
-            if ($pickup !== null && in_array(strtoupper((string) ($pickup->fulfillment_status ?? 'PENDING')), ['FAILED', 'SKIPPED', 'REPLACED', 'COMPLETED'], true)) {
+            if ($pickup !== null && in_array(strtoupper((string) ($pickup->fulfillment_status ?? 'PENDING')), ['FAILED', 'SKIPPED', 'REPLACED', 'COMPLETED', 'ABANDONED_AFTER_LIMIT'], true)) {
                 throw new ApiException('Merchant ini sudah selesai atau ditandai tutup/gagal pickup.', 409);
             }
 
             $activeStatusCode = $this->orderStatusCode($order);
             if (! in_array($activeStatusCode, $this->failedAttemptRecordableStatuses, true)) {
                 throw new ApiException('Percobaan gagal tidak bisa dicatat pada status order saat ini.', 409);
-            }
-
-            if (
-                $actor->role === 'driver' &&
-                $normalizedFailureType === 'PICKUP' &&
-                $this->deliveryFeeNegotiationService->hasPendingApproval($order)
-            ) {
-                throw new ApiException('Revisi ongkir belum disetujui customer.', 409);
             }
 
             if ($actor->role === 'driver') {
@@ -420,6 +422,52 @@ class OrderService
                             'metadata' => $metadata,
                         ]);
                     });
+
+                $evidence = null;
+                if ($merchantClosedPhoto instanceof UploadedFile) {
+                    $evidence = $this->orderEvidenceService->storeAndRecordDriverEvidence(
+                        $order,
+                        $merchantClosedPhoto,
+                        (int) $actor->id,
+                        'STORE_CLOSED_PHOTO',
+                        'store-closed',
+                        $reason,
+                    );
+                }
+                $verifiedForCompensation = $normalizedFailureType === 'PICKUP'
+                    && $evidence !== null
+                    && $this->shoppingFailedTripCompensationService->isDriverWithinMerchantRadius($order, $pickup);
+                $this->shoppingFailedTripCompensationService->recordFailure(
+                    $order,
+                    $pickup,
+                    (int) $actor->id,
+                    $reason,
+                    'MERCHANT_CLOSED',
+                    $verifiedForCompensation,
+                    $evidence?->id,
+                );
+
+                $order->unsetRelation('orderLocations');
+                $order->load('orderLocations');
+                $chain = $this->shoppingReplacementProjectionService->forPickup($order, (int) $pickup->id);
+                if ((int) $chain['chain_failed_attempt_count'] >= ShoppingReplacementProjectionService::MAX_FAILURES_PER_CHAIN) {
+                    $removedItems = $this->unavailableShoppingItemSnapshotsForPickup($order, (int) $pickup->id);
+                    $pickup->update(['fulfillment_status' => 'ABANDONED_AFTER_LIMIT']);
+                    OrderLog::query()->create([
+                        'order_id' => $order->id,
+                        'event_type' => ShoppingReplacementProjectionService::CHAIN_ABANDONED_EVENT,
+                        'trigger_type' => 'SHOPPING_REPLACEMENT_CHAIN_LIMIT_REACHED',
+                        'changed_by_user_id' => $actor->id,
+                        'note' => 'Rantai merchant dihentikan setelah tiga kegagalan.',
+                        'metadata' => [
+                            'chain_id' => $chain['chain_id'],
+                            'pickup_location_id' => (int) $pickup->id,
+                            'failed_attempt_count' => (int) $chain['chain_failed_attempt_count'],
+                            'removed_items' => $removedItems,
+                        ],
+                    ]);
+                    $this->deleteShoppingItemsBySnapshots($order, $removedItems);
+                }
             }
 
             $order->refresh()->load(['orderLocations.restaurant', 'items', 'shoppingReceipt']);
@@ -462,8 +510,27 @@ class OrderService
                 $reason
             );
 
+            // Replacement is exposed in ARRIVED_MERCHANT. Transition before
+            // the early return that keeps the failed chain open for a direct
+            // customer/driver replacement decision.
+            if ($pickup !== null && $activeStatusCode === 'DRIVER_ASSIGNED') {
+                $recalculated = $this->transitionShoppingOrderToArrivedMerchant(
+                    $recalculated,
+                    $actor,
+                    'MERCHANT_CLOSED_CONFIRMED',
+                    (int) $pickup->id,
+                    'Driver menandai merchant tutup dan mulai memproses order Nitip.',
+                    $statusChangeEventPayload
+                );
+            }
+
             if ($pickup !== null && ! $this->shoppingPickupLocationService->hasActivePickupWithAvailableItems($recalculated)) {
-                $withFee = $this->shoppingPricingService->isCancellationPenaltyEligible($recalculated);
+                $latestProjection = $this->shoppingReplacementProjectionService->forPickup($recalculated, (int) $pickup->id);
+                $hasReplacementOption = (bool) ($latestProjection['can_replace_merchant'] ?? false);
+                if ($hasReplacementOption || $this->hasCommittedShoppingMerchant($recalculated)) {
+                    return $recalculated;
+                }
+                $withFee = $this->shoppingFailedTripCompensationService->summary($recalculated)['eligible'];
 
                 return $this->cancelShoppingOrderWithOptionalFee(
                     $actor,
@@ -473,17 +540,6 @@ class OrderService
                     $withFee ? 'ALL_SHOPPING_MERCHANTS_FAILED_WITH_FEE' : 'ALL_SHOPPING_MERCHANTS_FAILED',
                     $statusChangeEventPayload,
                     $actor->role === 'driver' ? 'driver' : 'admin'
-                );
-            }
-
-            if ($pickup !== null && $activeStatusCode === 'DRIVER_ASSIGNED') {
-                $recalculated = $this->transitionShoppingOrderToArrivedMerchant(
-                    $recalculated,
-                    $actor,
-                    'MERCHANT_CLOSED_CONFIRMED',
-                    (int) $pickup->id,
-                    'Driver menandai merchant tutup dan mulai memproses order Nitip.',
-                    $statusChangeEventPayload
                 );
             }
 
@@ -968,6 +1024,128 @@ class OrderService
      * @param  array<string, mixed>  $payload
      * @return array<string, mixed>
      */
+    public function decideUnavailableShoppingItemsByDriver(
+        User $actor,
+        int $orderId,
+        int $pickupLocationId,
+        array $payload,
+    ): array {
+        $driver = $this->resolveActiveDriverProfile($actor);
+        $action = strtoupper(trim((string) ($payload['action'] ?? '')));
+        $itemIds = collect(is_array($payload['item_ids'] ?? null) ? $payload['item_ids'] : [])
+            ->filter(fn (mixed $candidate): bool => is_numeric($candidate) && (int) $candidate > 0)
+            ->map(fn (mixed $candidate): int => (int) $candidate)
+            ->unique()
+            ->values()
+            ->all();
+        $statusChangeEventPayload = null;
+
+        $order = DB::transaction(function () use (
+            $actor,
+            $driver,
+            $orderId,
+            $pickupLocationId,
+            $action,
+            $itemIds,
+            &$statusChangeEventPayload,
+        ): Order {
+            $order = $this->lockedAssignedDriverOrder(
+                $orderId,
+                $driver->id,
+                ['statusRef', 'serviceType', 'orderLocations.restaurant', 'items', 'shoppingReceipt'],
+            );
+            if (($order->serviceType->code ?? null) !== 'SHOPPING') {
+                throw new ApiException('Keputusan item hanya tersedia untuk order SHOPPING.', 409);
+            }
+            if ($this->orderStatusCode($order) !== 'ARRIVED_MERCHANT') {
+                throw new ApiException('Keputusan item hanya tersedia saat driver berada di toko/resto.', 409);
+            }
+
+            $pickup = $this->shoppingPickupLocationService->pickupById($order, $pickupLocationId);
+            if (strtoupper((string) ($pickup->fulfillment_status ?? '')) !== 'ITEMS_PENDING_CUSTOMER') {
+                throw new ApiException('Keputusan item sudah diselesaikan pihak lain.', 409, [
+                    'code' => 'STATE_CHANGED',
+                ]);
+            }
+
+            $lockedItems = $order->items()->lockForUpdate()->get();
+            $order->setRelation('items', $lockedItems);
+            $actions = $this->shoppingUnavailableItemDecisionService->actionsForPickup($order, $pickupLocationId);
+
+            if ($action === 'CANCEL_MERCHANT') {
+                if (! (bool) ($actions['can_driver_cancel_merchant'] ?? false)) {
+                    throw new ApiException('Toko/resto ini tidak lagi dapat dibatalkan.', 409, [
+                        'code' => 'STATE_CHANGED',
+                    ]);
+                }
+
+                return $this->cancelShoppingMerchant(
+                    actor: $actor,
+                    order: $order,
+                    pickup: $pickup,
+                    reason: 'Driver membatalkan toko/resto karena item tidak tersedia.',
+                    failureType: 'DRIVER_CANCEL_UNAVAILABLE_MERCHANT',
+                    negotiationTrigger: 'DRIVER_CANCEL_UNAVAILABLE_MERCHANT',
+                    cancellationWithFeeTrigger: 'DRIVER_CANCEL_UNAVAILABLE_MERCHANT_WITH_FEE',
+                    cancellationLastMerchantTrigger: 'DRIVER_CANCEL_LAST_UNAVAILABLE_MERCHANT',
+                    cancelledBy: 'driver',
+                    statusChangeEventPayload: $statusChangeEventPayload,
+                );
+            }
+
+            if ($action !== 'REMOVE') {
+                throw new ApiException('Aksi keputusan item driver tidak valid.', 422);
+            }
+            if (! (bool) ($actions['can_driver_continue_without_item'] ?? false)) {
+                throw new ApiException('Item tidak tersedia sudah diselesaikan pihak lain.', 409, [
+                    'code' => 'STATE_CHANGED',
+                ]);
+            }
+
+            return $this->applyImmediateUnavailableItemRemoval(
+                order: $order,
+                actor: $actor,
+                itemIds: $itemIds,
+                pickupLocationId: $pickupLocationId,
+                trigger: ShoppingItemChangeRequestService::DRIVER_UNAVAILABLE_ITEMS_REMOVED,
+                note: 'Driver melanjutkan tanpa item tidak tersedia yang dipilih.',
+            );
+        });
+
+        if ($action === 'CANCEL_MERCHANT') {
+            $this->broadcastOrderStatusChanged($statusChangeEventPayload);
+            $this->sendOrderStatusPushNotification($order, $statusChangeEventPayload);
+            $this->broadcastShoppingNegotiationUpdated((int) $order->id);
+        }
+
+        $this->broadcastContentUpdatedAfterCommit((int) $order->id, $action === 'CANCEL_MERCHANT'
+            ? 'DRIVER_CANCEL_UNAVAILABLE_MERCHANT'
+            : ShoppingItemChangeRequestService::DRIVER_UNAVAILABLE_ITEMS_REMOVED, [
+                'pickup_location_id' => $pickupLocationId,
+                'requires_driver_response' => false,
+            ]);
+        $this->orderPricingPushNotificationService->sendPriceChanged(
+            $order,
+            'customer',
+            $action === 'CANCEL_MERCHANT'
+                ? 'DRIVER_CANCEL_UNAVAILABLE_MERCHANT'
+                : ShoppingItemChangeRequestService::DRIVER_UNAVAILABLE_ITEMS_REMOVED,
+            (float) $order->total_price,
+            false,
+            $actor,
+        );
+        $this->paymentProofReminderNotificationService->scheduleForBlockingPaymentStatus($order->refresh());
+
+        return $this->driverOrderPayloadFactory->serialize(
+            $order->fresh($this->driverOrderPayloadFactory->relations()),
+            includeTimeline: true,
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
     public function updateDriverLocation(User $actor, int $orderId, array $payload): array
     {
         $driver = $this->resolveActiveDriverProfile($actor);
@@ -1113,8 +1291,6 @@ class OrderService
     ): array {
         $driver = $this->resolveActiveDriverProfile($actor);
         $statusChangeEventPayload = null;
-        $shouldSchedulePaymentReminder = false;
-
         $order = DB::transaction(function () use (
             $actor,
             $driver,
@@ -1123,7 +1299,6 @@ class OrderService
             $targetStatusCode,
             $note,
             &$statusChangeEventPayload,
-            &$shouldSchedulePaymentReminder,
         ): Order {
             $order = Order::query()
                 ->with(['statusRef', 'serviceType', 'rideOrder', 'evidences', 'orderLocations', 'shoppingReceipt'])
@@ -1250,6 +1425,12 @@ class OrderService
             }
 
             $order->update($updates);
+            $this->purgeTerminalShoppingUnavailableItems(
+                $order,
+                (int) $actor->id,
+                $resolvedTargetStatusCode,
+                'DRIVER_FINALIZED_SHOPPING_ORDER',
+            );
             $this->syncDriverServiceTimestamp($order, $resolvedTargetStatusCode);
             if (! $this->isRunningDriverStatusCode($resolvedTargetStatusCode)) {
                 $this->syncDriverAvailabilityAfterNonRunningOrder($driver->id);
@@ -1673,7 +1854,7 @@ class OrderService
             }
 
             $note = trim((string) ($payload['note'] ?? ''));
-            $trigger = $this->shoppingPriceNegotiationService->nextDriverQuoteTrigger($order, $pickup?->id);
+            $trigger = $this->shoppingPriceNegotiationService->nextDriverQuoteTrigger($order, $pickup->id);
 
             $this->shoppingPriceNegotiationService->record(
                 $order,
@@ -1681,7 +1862,7 @@ class OrderService
                 $actor->id,
                 $note !== '' ? $note : 'Driver mengirim quote harga Nitip.',
                 [
-                    'pickup_location_id' => $pickup?->id,
+                    'pickup_location_id' => $pickup->id,
                     'quoted_amount' => $amount,
                     'amount' => $amount,
                     'status' => 'PENDING_CUSTOMER',
@@ -1785,6 +1966,372 @@ class OrderService
     }
 
     /**
+     * @return array<string, mixed>
+     */
+    public function bypassUnavailableShoppingItemsByDriver(
+        User $actor,
+        int $orderId,
+        int $pickupLocationId,
+    ): array {
+        $driver = $this->resolveActiveDriverProfile($actor);
+        $statusChangeEventPayload = null;
+        $bypassedItemNames = [];
+        $bypassEventId = 0;
+        $merchantCancelled = false;
+
+        $order = DB::transaction(function () use (
+            $actor,
+            $driver,
+            $orderId,
+            $pickupLocationId,
+            &$statusChangeEventPayload,
+            &$bypassedItemNames,
+            &$bypassEventId,
+            &$merchantCancelled,
+        ): Order {
+            $order = $this->lockedAssignedDriverOrder(
+                $orderId,
+                $driver->id,
+                ['statusRef', 'serviceType', 'orderLocations.restaurant', 'items', 'shoppingReceipt']
+            );
+
+            if (($order->serviceType->code ?? null) !== 'SHOPPING') {
+                throw new ApiException('Bypass item hanya tersedia untuk order SHOPPING.', 409);
+            }
+            if ($this->orderStatusCode($order) !== 'ARRIVED_MERCHANT') {
+                throw new ApiException('Bypass item hanya tersedia saat driver berada di merchant.', 409);
+            }
+
+            $pickup = $this->shoppingPickupLocationService->pickupById($order, $pickupLocationId);
+            if (strtoupper((string) ($pickup->fulfillment_status ?? '')) !== 'ITEMS_PENDING_CUSTOMER') {
+                throw new ApiException('Bypass hanya tersedia untuk item yang menunggu keputusan customer.', 409);
+            }
+
+            $lockedItems = $order->items()->lockForUpdate()->get();
+            $order->setRelation('items', $lockedItems);
+            $pickupItems = $this->shoppingItemsForPickup($order, $pickup);
+            $unavailableItems = $pickupItems
+                ->filter(fn (OrderItem $item): bool => ! (bool) ($item->is_available ?? true))
+                ->values();
+
+            if ($unavailableItems->isEmpty()) {
+                throw new ApiException('Item tidak tersedia sudah diselesaikan.', 409);
+            }
+
+            $availableItems = $pickupItems
+                ->filter(fn (OrderItem $item): bool => (bool) ($item->is_available ?? true))
+                ->values();
+            $itemSnapshots = $unavailableItems
+                ->map(fn (OrderItem $item): array => [
+                    'id' => (int) $item->id,
+                    'name' => trim((string) ($item->menu_name ?? '')) ?: 'Item Nitip',
+                    'quantity' => (int) $item->quantity,
+                    'unit_price' => round((float) $item->unit_price, 2),
+                    'subtotal' => round((float) $item->subtotal, 2),
+                    'is_available' => (bool) $item->is_available,
+                ])
+                ->all();
+            $bypassedItemNames = array_values(array_map(
+                static fn (array $item): string => (string) $item['name'],
+                $itemSnapshots,
+            ));
+            $merchantCancelled = $availableItems->isEmpty();
+
+            $bypassLog = OrderLog::query()->create([
+                'order_id' => $order->id,
+                'event_type' => 'SHOPPING_ITEM_AVAILABILITY',
+                'trigger_type' => ShoppingPriceNegotiationService::DRIVER_BYPASS_UNAVAILABLE_ITEMS,
+                'changed_by_user_id' => $actor->id,
+                'note' => $merchantCancelled
+                    ? 'Driver membypass semua item tidak tersedia dan membatalkan merchant.'
+                    : 'Driver melanjutkan order tanpa item yang tidak tersedia.',
+                'metadata' => [
+                    'pickup_location_id' => (int) $pickup->id,
+                    'merchant_name' => $pickup->restaurant_id !== null
+                        ? ($pickup->restaurant->name ?? $pickup->label)
+                        : $pickup->label,
+                    'items' => $itemSnapshots,
+                    'merchant_cancelled' => $merchantCancelled,
+                    'fulfillment_status_before' => 'ITEMS_PENDING_CUSTOMER',
+                    'fulfillment_status_after' => $merchantCancelled ? 'FAILED' : 'ITEMS_CONFIRMED',
+                ],
+            ]);
+            $bypassEventId = (int) $bypassLog->id;
+
+            if ($merchantCancelled) {
+                return $this->cancelShoppingMerchant(
+                    actor: $actor,
+                    order: $order,
+                    pickup: $pickup,
+                    reason: 'Semua item merchant tidak tersedia dan dibypass driver.',
+                    failureType: ShoppingPriceNegotiationService::DRIVER_BYPASS_UNAVAILABLE_ITEMS,
+                    negotiationTrigger: ShoppingPriceNegotiationService::DRIVER_BYPASS_UNAVAILABLE_ITEMS,
+                    cancellationWithFeeTrigger: 'DRIVER_BYPASS_UNAVAILABLE_ITEMS_WITH_FEE',
+                    cancellationLastMerchantTrigger: 'DRIVER_BYPASS_LAST_UNAVAILABLE_MERCHANT',
+                    cancelledBy: 'driver',
+                    statusChangeEventPayload: $statusChangeEventPayload,
+                );
+            }
+
+            foreach ($unavailableItems as $item) {
+                $item->delete();
+            }
+            $pickup->update(['fulfillment_status' => 'ITEMS_CONFIRMED']);
+
+            return $this->shoppingPricingService->recalculate(
+                $order->refresh()->load(['items', 'statusRef', 'serviceType', 'shoppingReceipt', 'orderLocations']),
+                (int) $actor->id,
+                ShoppingPriceNegotiationService::DRIVER_BYPASS_UNAVAILABLE_ITEMS,
+                true,
+                'Driver melanjutkan order tanpa item yang tidak tersedia.',
+                false,
+            );
+        });
+
+        $this->broadcastOrderStatusChanged($statusChangeEventPayload);
+        $this->sendOrderStatusPushNotification($order, $statusChangeEventPayload);
+        $this->broadcastContentUpdatedAfterCommit(
+            (int) $order->id,
+            ShoppingPriceNegotiationService::DRIVER_BYPASS_UNAVAILABLE_ITEMS,
+            [
+                'pickup_location_id' => $pickupLocationId,
+                'event_id' => $bypassEventId,
+                'merchant_cancelled' => $merchantCancelled,
+            ],
+        );
+        $this->broadcastShoppingNegotiationUpdated((int) $order->id);
+        $this->shoppingItemAvailabilityPushNotificationService->sendUnavailableItemsBypassed(
+            $order,
+            $pickupLocationId,
+            $bypassedItemNames,
+            $bypassEventId,
+            $merchantCancelled,
+        );
+        $this->paymentProofReminderNotificationService->scheduleForBlockingPaymentStatus($order->refresh());
+
+        return $this->driverOrderPayloadFactory->serialize(
+            $order->fresh($this->driverOrderPayloadFactory->relations()),
+            includeTimeline: true,
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    public function replaceUnavailableShoppingItemsByDriver(
+        User $actor,
+        int $orderId,
+        int $pickupLocationId,
+        array $payload,
+        string $idempotencyKey,
+    ): array {
+        $driver = $this->resolveActiveDriverProfile($actor);
+        $idempotencyKey = trim($idempotencyKey);
+        if ($idempotencyKey === '' || mb_strlen($idempotencyKey) > 100) {
+            throw new ApiException('Idempotency-Key wajib diisi dan maksimal 100 karakter.', 422);
+        }
+
+        $itemsPayload = is_array($payload['items'] ?? null) ? $payload['items'] : [];
+        $fingerprint = $this->shoppingUnavailableItemReplacementFingerprint($itemsPayload);
+        $eventId = 0;
+        $oldItemNames = [];
+        $newItemNames = [];
+        $idempotentReplay = false;
+
+        $order = DB::transaction(function () use (
+            $actor,
+            $driver,
+            $orderId,
+            $pickupLocationId,
+            $itemsPayload,
+            $idempotencyKey,
+            $fingerprint,
+            &$eventId,
+            &$oldItemNames,
+            &$newItemNames,
+            &$idempotentReplay,
+        ): Order {
+            $order = $this->lockedAssignedDriverOrder(
+                $orderId,
+                $driver->id,
+                ['statusRef', 'serviceType', 'orderLocations.restaurant', 'items', 'shoppingReceipt']
+            );
+
+            if (($order->serviceType->code ?? null) !== 'SHOPPING') {
+                throw new ApiException('Ganti item hanya tersedia untuk order Nitip.', 409);
+            }
+
+            $replay = OrderLog::query()
+                ->where('order_id', $order->id)
+                ->where('event_type', 'SHOPPING_ITEM_AVAILABILITY')
+                ->where('trigger_type', 'DRIVER_UNAVAILABLE_ITEMS_REPLACED')
+                ->orderByDesc('id')
+                ->get()
+                ->first(fn (OrderLog $event): bool => (string) data_get($event->metadata, 'idempotency_key') === $idempotencyKey);
+            if ($replay instanceof OrderLog) {
+                if ((string) data_get($replay->metadata, 'payload_fingerprint') !== $fingerprint) {
+                    throw new ApiException('Idempotency-Key sudah dipakai untuk payload ganti item yang berbeda.', 422);
+                }
+
+                $eventId = (int) $replay->id;
+                $idempotentReplay = true;
+
+                return $order->refresh();
+            }
+
+            if ($this->orderStatusCode($order) !== 'ARRIVED_MERCHANT') {
+                throw new ApiException('Ganti item hanya tersedia saat driver berada di toko/resto.', 409, [
+                    'code' => 'STATE_CHANGED',
+                ]);
+            }
+
+            $pickup = OrderLocation::query()
+                ->where('order_id', $order->id)
+                ->whereKey($pickupLocationId)
+                ->lockForUpdate()
+                ->first();
+            if (! $pickup instanceof OrderLocation || strtoupper((string) $pickup->location_role) !== 'PICKUP') {
+                throw new ApiException('Toko/resto order tidak valid.', 422);
+            }
+            if (strtoupper((string) ($pickup->fulfillment_status ?? '')) !== 'ITEMS_PENDING_CUSTOMER') {
+                throw new ApiException('Keputusan item toko/resto sudah diselesaikan.', 409, [
+                    'code' => 'STATE_CHANGED',
+                ]);
+            }
+
+            $lockedItems = $order->items()->lockForUpdate()->get();
+            $order->setRelation('items', $lockedItems);
+            $pickupItems = $this->shoppingItemsForPickup($order, $pickup);
+            $unavailableItems = $pickupItems
+                ->filter(fn (OrderItem $item): bool => ! (bool) ($item->is_available ?? true))
+                ->values();
+            if ($unavailableItems->isEmpty()) {
+                throw new ApiException('Item tidak tersedia sudah diselesaikan pihak lain.', 409, [
+                    'code' => 'STATE_CHANGED',
+                ]);
+            }
+
+            $oldItemSnapshots = $unavailableItems
+                ->map(fn (OrderItem $item): array => [
+                    'id' => (int) $item->id,
+                    'name' => (string) $item->menu_name,
+                    'quantity' => (int) $item->quantity,
+                    'is_available' => false,
+                ])
+                ->values()
+                ->all();
+            $oldItemNames = array_values(array_filter(array_map(
+                static fn (array $item): string => trim($item['name']),
+                $oldItemSnapshots,
+            )));
+            $beforeItemIds = $lockedItems->pluck('id')->map(fn ($id): int => (int) $id)->all();
+
+            $items = $this->withTargetPickupMerchantPayload($order, $itemsPayload, $pickupLocationId);
+            $items = $this->enrichShoppingItemChangeRequestItems($order, $items);
+            $this->applyApprovedShoppingItemChange(
+                $order,
+                $actor,
+                'ADD',
+                $items,
+                null,
+                $pickupLocationId,
+            );
+
+            $pickup->update(['fulfillment_status' => 'ITEMS_CONFIRMED']);
+            $createdItems = $order->items()
+                ->where('pickup_location_id', $pickupLocationId)
+                ->whereNotIn('id', $beforeItemIds)
+                ->orderBy('id')
+                ->get();
+            $newItemSnapshots = $createdItems
+                ->map(fn (OrderItem $item): array => [
+                    'id' => (int) $item->id,
+                    'name' => (string) $item->menu_name,
+                    'quantity' => (int) $item->quantity,
+                    'item_source' => (string) $item->item_source,
+                    'menu_id' => $item->menu_id !== null ? (int) $item->menu_id : null,
+                ])
+                ->values()
+                ->all();
+            $newItemNames = array_values(array_filter(array_map(
+                static fn (array $item): string => trim($item['name']),
+                $newItemSnapshots,
+            )));
+
+            $event = OrderLog::query()->create([
+                'order_id' => $order->id,
+                'event_type' => 'SHOPPING_ITEM_AVAILABILITY',
+                'trigger_type' => 'DRIVER_UNAVAILABLE_ITEMS_REPLACED',
+                'changed_by_user_id' => $actor->id,
+                'note' => 'Driver mengganti item tidak tersedia pada toko/resto yang sama.',
+                'metadata' => [
+                    'pickup_location_id' => $pickupLocationId,
+                    'actor_role' => 'driver',
+                    'old_items' => $oldItemSnapshots,
+                    'items' => $newItemSnapshots,
+                    'idempotency_key' => $idempotencyKey,
+                    'payload_fingerprint' => $fingerprint,
+                    'fulfillment_status_before' => 'ITEMS_PENDING_CUSTOMER',
+                    'fulfillment_status_after' => 'ITEMS_CONFIRMED',
+                ],
+            ]);
+            $eventId = (int) $event->id;
+
+            $this->shoppingPriceNegotiationService->record(
+                $order,
+                ShoppingPriceNegotiationService::SHOPPING_ITEM_CHANGE_REQUIRES_REQUOTE,
+                $actor->id,
+                'Driver mengganti item tidak tersedia. Harga toko/resto perlu dikirim ulang.',
+                [
+                    'status' => 'NEEDS_REQUOTE',
+                    'request_log_id' => $eventId,
+                    'request_kind' => 'EDIT_UNAVAILABLE',
+                    'pickup_location_id' => $pickupLocationId,
+                    'actor_role' => 'driver',
+                ]
+            );
+
+            return $this->shoppingPricingService->recalculate(
+                $order->refresh()->load(['items', 'statusRef', 'serviceType', 'shoppingReceipt', 'orderLocations']),
+                $actor->id,
+                'DRIVER_UNAVAILABLE_ITEMS_REPLACED',
+                true,
+                'Driver mengganti item tidak tersedia pada toko/resto yang sama.',
+                false,
+            );
+        });
+
+        if (! $idempotentReplay) {
+            $this->broadcastContentUpdatedAfterCommit((int) $order->id, 'DRIVER_UNAVAILABLE_ITEMS_REPLACED', [
+                'pickup_location_id' => $pickupLocationId,
+                'event_id' => $eventId,
+            ]);
+            $this->broadcastShoppingNegotiationUpdated((int) $order->id);
+            $this->orderPricingPushNotificationService->sendPriceChanged(
+                $order,
+                'customer',
+                'DRIVER_UNAVAILABLE_ITEMS_REPLACED',
+                (float) $order->total_price,
+                false,
+                $actor,
+            );
+            $this->shoppingItemAvailabilityPushNotificationService->sendUnavailableItemsReplaced(
+                $order,
+                $pickupLocationId,
+                $oldItemNames,
+                $newItemNames,
+                $eventId,
+            );
+        }
+
+        return $this->driverOrderPayloadFactory->serialize(
+            $order->fresh($this->driverOrderPayloadFactory->relations()),
+            includeTimeline: true,
+        );
+    }
+
+    /**
      * @param  array<string, mixed>  $payload
      */
     public function respondShoppingPriceQuoteByCustomer(User $actor, int $orderId, array $payload): Order
@@ -1867,13 +2414,28 @@ class OrderService
             $itemId = isset($payload['item_id']) && is_numeric($payload['item_id'])
                 ? (int) $payload['item_id']
                 : null;
+            $itemIds = collect(is_array($payload['item_ids'] ?? null) ? $payload['item_ids'] : [])
+                ->filter(fn (mixed $candidate): bool => is_numeric($candidate) && (int) $candidate > 0)
+                ->map(fn (mixed $candidate): int => (int) $candidate)
+                ->unique()
+                ->values()
+                ->all();
+            if ($action === 'REMOVE' && $itemIds === [] && $itemId !== null) {
+                $itemIds = [$itemId];
+            }
+            if ($action === 'REMOVE' && $itemId === null && $itemIds !== []) {
+                $itemId = $itemIds[0];
+            }
 
             if ($action === 'ADD' && $items === []) {
                 throw new ApiException('Minimal satu item belanja wajib diajukan.', 422);
             }
 
-            if (in_array($action, ['UPDATE', 'REMOVE'], true) && ($itemId ?? 0) <= 0) {
+            if ($action === 'UPDATE' && ($itemId ?? 0) <= 0) {
                 throw new ApiException('Item yang ingin diubah wajib dipilih.', 422);
+            }
+            if ($action === 'REMOVE' && $itemIds === []) {
+                throw new ApiException('Minimal satu item yang ingin dilewati wajib dipilih.', 422);
             }
 
             $targetPickupLocationId = isset($payload['target_pickup_location_id']) && is_numeric($payload['target_pickup_location_id'])
@@ -1886,7 +2448,9 @@ class OrderService
 
             if ($requestKind === 'EDIT_UNAVAILABLE') {
                 if (! $this->shoppingOrderCapabilityService->canCustomerEditUnavailableItems($order)) {
-                    throw new ApiException('Edit item hanya tersedia saat ada item merchant yang tidak tersedia.', 409);
+                    throw new ApiException('Keputusan item toko/resto sudah berubah.', 409, [
+                        'code' => 'STATE_CHANGED',
+                    ]);
                 }
                 if ($targetPickupLocationId === null) {
                     throw new ApiException('Merchant yang ingin diedit wajib dipilih.', 422);
@@ -1906,6 +2470,17 @@ class OrderService
             }
 
             $note = trim((string) ($payload['note'] ?? ''));
+            if ($action === 'REMOVE') {
+                return $this->applyImmediateUnavailableItemRemoval(
+                    order: $order,
+                    actor: $actor,
+                    itemIds: $itemIds,
+                    pickupLocationId: (int) $targetPickupLocationId,
+                    trigger: 'CUSTOMER_UNAVAILABLE_ITEMS_REMOVED',
+                    note: $note !== '' ? $note : 'Customer melanjutkan tanpa item tidak tersedia.',
+                );
+            }
+
             $items = $this->enrichShoppingItemChangeRequestItems($order, $items);
 
             return $this->applyImmediateShoppingUnavailableItemDecision(
@@ -2057,6 +2632,96 @@ class OrderService
     }
 
     /**
+     * @param  list<int>  $itemIds
+     */
+    private function applyImmediateUnavailableItemRemoval(
+        Order $order,
+        User $actor,
+        array $itemIds,
+        int $pickupLocationId,
+        string $trigger,
+        string $note,
+    ): Order {
+        $this->shoppingUnavailableItemDecisionService->assertCanContinueWithoutItems(
+            $order,
+            $pickupLocationId,
+            $itemIds,
+        );
+
+        $items = $order->items()
+            ->where('pickup_location_id', $pickupLocationId)
+            ->whereIn('id', $itemIds)
+            ->lockForUpdate()
+            ->get();
+        if ($items->count() !== count($itemIds)) {
+            throw new ApiException('Keputusan item sudah diselesaikan pihak lain.', 409, [
+                'code' => 'STATE_CHANGED',
+            ]);
+        }
+
+        $removedItems = $items->map(fn (OrderItem $item): array => [
+            'id' => (int) $item->id,
+            'name' => trim((string) ($item->menu_name ?? '')) ?: 'Item Nitip',
+            'quantity' => max(1, (int) $item->quantity),
+        ])->values()->all();
+        foreach ($items as $item) {
+            $item->delete();
+        }
+
+        $hasRemainingUnavailable = $order->items()
+            ->where('pickup_location_id', $pickupLocationId)
+            ->where('is_available', false)
+            ->exists();
+        $fulfillmentStatus = $hasRemainingUnavailable
+            ? 'ITEMS_PENDING_CUSTOMER'
+            : 'ITEMS_CONFIRMED';
+        $pickup = $this->shoppingPickupLocationService->pickupById(
+            $order->refresh()->load(['orderLocations']),
+            $pickupLocationId,
+        );
+        $pickup->update(['fulfillment_status' => $fulfillmentStatus]);
+
+        $appliedLog = $this->shoppingItemChangeRequestService->recordApplied(
+            $order,
+            (int) $actor->id,
+            [
+                'action' => 'REMOVE',
+                'request_kind' => 'EDIT_UNAVAILABLE',
+                'target_pickup_location_id' => $pickupLocationId,
+                'item_ids' => $itemIds,
+                'removed_items' => $removedItems,
+                'actor_role' => (string) $actor->role,
+                'fulfillment_status_after' => $fulfillmentStatus,
+            ],
+            $note,
+            $trigger,
+        );
+
+        $this->shoppingPriceNegotiationService->record(
+            $order,
+            ShoppingPriceNegotiationService::SHOPPING_ITEM_CHANGE_REQUIRES_REQUOTE,
+            (int) $actor->id,
+            $note,
+            [
+                'status' => 'NEEDS_REQUOTE',
+                'request_log_id' => (int) $appliedLog->id,
+                'request_kind' => 'EDIT_UNAVAILABLE',
+                'pickup_location_id' => $pickupLocationId,
+                'item_ids' => $itemIds,
+                'fulfillment_status_after' => $fulfillmentStatus,
+            ],
+        );
+
+        return $this->shoppingPricingService->recalculate(
+            $order->refresh()->load(['items', 'statusRef', 'serviceType', 'shoppingReceipt', 'orderLocations']),
+            (int) $actor->id,
+            $trigger,
+            true,
+            $note,
+        );
+    }
+
+    /**
      * @param  array<int, array<string, mixed>>  $items
      */
     private function applyImmediateShoppingUnavailableItemDecision(
@@ -2187,18 +2852,74 @@ class OrderService
             $order,
             isset($payload['pickup_location_id']) ? (int) $payload['pickup_location_id'] : null
         );
-        $reason = 'Resto tutup/order batal.';
+        if (! $pickup instanceof OrderLocation) {
+            throw new ApiException('Merchant/pickup order tidak valid.', 422);
+        }
+
+        return $this->cancelShoppingMerchant(
+            actor: $actor,
+            order: $order,
+            pickup: $pickup,
+            reason: 'Resto tutup/order batal.',
+            failureType: 'CUSTOMER_CANCEL_MERCHANT',
+            negotiationTrigger: ShoppingPriceNegotiationService::CUSTOMER_CANCEL_MERCHANT,
+            cancellationWithFeeTrigger: 'CUSTOMER_CANCEL_MERCHANT_WITH_FEE',
+            cancellationLastMerchantTrigger: 'CUSTOMER_CANCEL_LAST_MERCHANT',
+            cancelledBy: 'customer',
+            statusChangeEventPayload: $statusChangeEventPayload,
+        );
+    }
+
+    private function cancelShoppingMerchant(
+        User $actor,
+        Order $order,
+        OrderLocation $pickup,
+        string $reason,
+        string $failureType,
+        string $negotiationTrigger,
+        string $cancellationWithFeeTrigger,
+        string $cancellationLastMerchantTrigger,
+        string $cancelledBy,
+        mixed &$statusChangeEventPayload,
+    ): Order {
         $penaltyBaseDeliveryFee = round(max(0.0, (float) $order->delivery_fee), 2);
 
-        $this->markShoppingPickupFailedForCustomerCancel($order, $pickup, $reason);
+        $this->markShoppingPickupFailed($order, $pickup, $reason);
+        $this->shoppingFailedTripCompensationService->recordFailure(
+            $order,
+            $pickup,
+            (int) $actor->id,
+            $reason,
+            $failureType,
+            $this->shoppingFailedTripCompensationService->isDriverWithinMerchantRadius($order, $pickup),
+        );
 
         $order->refresh()->load(['statusRef', 'serviceType', 'orderLocations.restaurant', 'items', 'shoppingReceipt']);
+        $chain = $this->shoppingReplacementProjectionService->forPickup($order, (int) $pickup->id);
+        if ((int) $chain['chain_failed_attempt_count'] >= ShoppingReplacementProjectionService::MAX_FAILURES_PER_CHAIN) {
+            $removedItems = $this->unavailableShoppingItemSnapshotsForPickup($order, (int) $pickup->id);
+            $pickup->update(['fulfillment_status' => 'ABANDONED_AFTER_LIMIT']);
+            OrderLog::query()->create([
+                'order_id' => $order->id,
+                'event_type' => ShoppingReplacementProjectionService::CHAIN_ABANDONED_EVENT,
+                'trigger_type' => 'SHOPPING_REPLACEMENT_CHAIN_LIMIT_REACHED',
+                'changed_by_user_id' => $actor->id,
+                'note' => 'Rantai merchant dihentikan setelah tiga kegagalan.',
+                'metadata' => [
+                    'chain_id' => $chain['chain_id'],
+                    'pickup_location_id' => (int) $pickup->id,
+                    'failed_attempt_count' => (int) $chain['chain_failed_attempt_count'],
+                    'removed_items' => $removedItems,
+                ],
+            ]);
+            $this->deleteShoppingItemsBySnapshots($order, $removedItems);
+        }
         $failedAttemptCount = $this->shoppingPricingService->failedAttemptCount($order);
 
         $this->shoppingRouteService->applyRouteToOrder(
             $order,
             $penaltyBaseDeliveryFee,
-            'CUSTOMER_CANCEL_MERCHANT'
+            $failureType
         );
 
         OrderLog::query()->create([
@@ -2207,9 +2928,9 @@ class OrderService
             'changed_by_user_id' => $actor->id,
             'note' => $reason,
             'metadata' => [
-                'failure_type' => 'CUSTOMER_CANCEL_MERCHANT',
+                'failure_type' => $failureType,
                 'failed_attempt_count' => $failedAttemptCount,
-                'pickup_location_id' => $pickup?->id,
+                'pickup_location_id' => $pickup->id,
                 'fulfillment_status' => 'FAILED',
                 'failure_reason' => $reason,
                 'failed_at' => now()->toIso8601String(),
@@ -2219,11 +2940,11 @@ class OrderService
 
         $this->shoppingPriceNegotiationService->record(
             $order,
-            ShoppingPriceNegotiationService::CUSTOMER_CANCEL_MERCHANT,
+            $negotiationTrigger,
             $actor->id,
             $reason,
             [
-                'pickup_location_id' => $pickup?->id,
+                'pickup_location_id' => $pickup->id,
                 'failed_attempt_count' => $failedAttemptCount,
                 'status' => 'CANCELLED_MERCHANT',
                 'penalty_base_delivery_fee' => $penaltyBaseDeliveryFee,
@@ -2233,52 +2954,26 @@ class OrderService
         $order = $this->shoppingPricingService->recalculate(
             $order->refresh()->load(['items', 'statusRef', 'serviceType', 'shoppingReceipt']),
             $actor->id,
-            'CUSTOMER_CANCEL_MERCHANT',
+            $failureType,
             false,
             $reason
         );
 
         $hasActivePickup = $this->shoppingPickupLocationService->hasActivePickupWithAvailableItems($order);
-        $withFee = $this->shoppingPricingService->isCancellationPenaltyEligible($order);
-        if (! $hasActivePickup || $withFee) {
+        $withFee = (bool) $this->shoppingFailedTripCompensationService->summary($order)['eligible'];
+        if (! $hasActivePickup && ! $this->hasCommittedShoppingMerchant($order)) {
             return $this->cancelShoppingOrderWithOptionalFee(
                 $actor,
                 $order,
-                ! $hasActivePickup ? 'Semua merchant Nitip batal/gagal.' : $reason,
+                'Semua merchant Nitip batal/gagal.',
                 $withFee,
-                $withFee ? 'CUSTOMER_CANCEL_MERCHANT_WITH_FEE' : 'CUSTOMER_CANCEL_LAST_MERCHANT',
-                $statusChangeEventPayload
+                $withFee ? $cancellationWithFeeTrigger : $cancellationLastMerchantTrigger,
+                $statusChangeEventPayload,
+                $cancelledBy,
             );
         }
 
         return $order->refresh()->load(['statusRef', 'serviceType', 'orderLocations', 'items', 'shoppingReceipt']);
-    }
-
-    private function cancelShoppingOrderFromNegotiation(User $actor, Order $order, mixed &$statusChangeEventPayload): Order
-    {
-        $withFee = $this->shoppingPricingService->isCancellationPenaltyEligible($order);
-
-        $this->shoppingPriceNegotiationService->record(
-            $order,
-            ShoppingPriceNegotiationService::CUSTOMER_CANCEL_ORDER,
-            $actor->id,
-            'Customer membatalkan order Nitip dari negosiasi harga.',
-            [
-                'failed_attempt_count' => $this->shoppingPricingService->failedAttemptCount($order),
-                'with_fee' => $withFee,
-            ]
-        );
-
-        return $this->cancelShoppingOrderWithOptionalFee(
-            $actor,
-            $order,
-            $withFee
-                ? 'Order Nitip dibatalkan dengan fee setelah merchant gagal.'
-                : 'Order Nitip dibatalkan customer.',
-            $withFee,
-            $withFee ? 'CUSTOMER_CANCEL_ORDER_WITH_FEE' : 'CUSTOMER_CANCEL_ORDER',
-            $statusChangeEventPayload
-        );
     }
 
     private function cancelShoppingOrderWithOptionalFee(
@@ -2306,6 +3001,12 @@ class OrderService
 
         $cancelUpdates = $this->cancelledOrderUpdateAttributes($statusCode, $cancelledBy, $reason);
         $order->update($cancelUpdates);
+        $this->purgeTerminalShoppingUnavailableItems(
+            $order,
+            (int) $actor->id,
+            $statusCode,
+            'TERMINAL_SHOPPING_UNAVAILABLE_ITEMS_PURGED',
+        );
 
         $statusHistory = OrderStatusHistory::query()->create([
             'order_id' => $order->id,
@@ -2397,7 +3098,7 @@ class OrderService
         return $pickup instanceof OrderLocation ? $pickup : null;
     }
 
-    private function markShoppingPickupFailedForCustomerCancel(Order $order, ?OrderLocation $pickup, string $reason): void
+    private function markShoppingPickupFailed(Order $order, ?OrderLocation $pickup, string $reason): void
     {
         if (! $pickup instanceof OrderLocation) {
             throw new ApiException('Merchant/pickup order tidak valid.', 422);
@@ -2425,6 +3126,45 @@ class OrderService
             });
     }
 
+    private function hasCommittedShoppingMerchant(Order $order): bool
+    {
+        $order->loadMissing('orderLocations');
+
+        return $order->orderLocations->contains(function (OrderLocation $location): bool {
+            if (strtoupper((string) $location->location_role) !== 'PICKUP') {
+                return false;
+            }
+
+            return in_array(strtoupper((string) ($location->fulfillment_status ?? '')), [
+                'PRICE_APPROVED',
+                'COMPLETED',
+            ], true);
+        });
+    }
+
+    /**
+     * @return \Illuminate\Support\Collection<int, OrderItem>
+     */
+    private function shoppingItemsForPickup(Order $order, OrderLocation $pickup): \Illuminate\Support\Collection
+    {
+        $order->loadMissing(['items', 'orderLocations']);
+        $firstPickup = $order->orderLocations
+            ->filter(fn (OrderLocation $location): bool => strtoupper((string) $location->location_role) === 'PICKUP')
+            ->sortBy([['sequence_no', 'asc'], ['id', 'asc']])
+            ->first();
+
+        return $order->items->filter(function (OrderItem $item) use ($order, $pickup, $firstPickup): bool {
+            if ($item->pickup_location_id !== null) {
+                return (int) $item->pickup_location_id === (int) $pickup->id;
+            }
+
+            return $firstPickup instanceof OrderLocation
+                && (int) $firstPickup->id === (int) $pickup->id
+                && $pickup->restaurant_id !== null
+                && (int) $order->restaurant_id === (int) $pickup->restaurant_id;
+        })->values();
+    }
+
     public function markShoppingMerchantOpen(User $actor, int $orderId, int $pickupLocationId): array
     {
         $driver = $this->resolveActiveDriverProfile($actor);
@@ -2446,13 +3186,9 @@ class OrderService
                 throw new ApiException('Merchant hanya bisa dikonfirmasi buka saat driver menuju atau tiba di merchant.', 409);
             }
 
-            if ($this->deliveryFeeNegotiationService->hasPendingApproval($order)) {
-                throw new ApiException('Revisi ongkir belum disetujui customer.', 409);
-            }
-
             $pickup = $this->shoppingPickupLocationService->pickupById($order, $pickupLocationId);
             $fulfillmentStatus = strtoupper((string) ($pickup->fulfillment_status ?? 'PENDING'));
-            if (in_array($fulfillmentStatus, ['FAILED', 'SKIPPED', 'REPLACED', 'COMPLETED'], true)) {
+            if (in_array($fulfillmentStatus, ['FAILED', 'SKIPPED', 'REPLACED', 'COMPLETED', 'ABANDONED_AFTER_LIMIT'], true)) {
                 throw new ApiException('Merchant ini sudah selesai atau batal.', 409);
             }
 
@@ -2461,6 +3197,12 @@ class OrderService
                     'fulfillment_status' => 'OPEN_CONFIRMED',
                 ]);
             }
+
+            $this->shoppingFailedTripCompensationService->recordCheckpoint(
+                $order,
+                $pickup,
+                (int) $actor->id,
+            );
 
             OrderLog::query()->create([
                 'order_id' => $order->id,
@@ -2696,11 +3438,9 @@ class OrderService
         if (is_array($unavailableItemNotification)) {
             $this->shoppingItemAvailabilityPushNotificationService->sendUnavailableItems(
                 $order,
-                (int) ($unavailableItemNotification['pickup_location_id'] ?? 0),
-                is_array($unavailableItemNotification['item_names'] ?? null)
-                    ? $unavailableItemNotification['item_names']
-                    : [],
-                (int) ($unavailableItemNotification['event_id'] ?? 0),
+                $unavailableItemNotification['pickup_location_id'],
+                $unavailableItemNotification['item_names'],
+                $unavailableItemNotification['event_id'],
             );
         }
 
@@ -2738,7 +3478,7 @@ class OrderService
                 throw new ApiException('Nominal ongkir manual harus lebih dari 0.', 422);
             }
 
-            if ($manualAmount !== null && $reason === '') {
+            if ($reason === '') {
                 throw new ApiException('Alasan edit ongkir wajib diisi.', 422);
             }
 
@@ -3067,6 +3807,12 @@ class OrderService
         );
 
         $order->update($this->cancelledOrderUpdateAttributes('CANCELLED', 'customer', $reason));
+        $this->purgeTerminalShoppingUnavailableItems(
+            $order,
+            (int) $actor->id,
+            'CANCELLED',
+            'CUSTOMER_CANCELLED_DELIVERY_FEE_NEGOTIATION',
+        );
 
         $statusHistory = OrderStatusHistory::query()->create([
             'order_id' => $order->id,
@@ -3941,6 +4687,128 @@ class OrderService
     }
 
     /**
+     * @return list<array<string, mixed>>
+     */
+    private function unavailableShoppingItemSnapshotsForPickup(Order $order, int $pickupLocationId): array
+    {
+        return $order->items()
+            ->where('pickup_location_id', $pickupLocationId)
+            ->where('is_available', false)
+            ->lockForUpdate()
+            ->get()
+            ->map(fn (OrderItem $item): array => $this->shoppingUnavailableItemAuditSnapshot($item))
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $snapshots
+     */
+    private function deleteShoppingItemsBySnapshots(Order $order, array $snapshots): void
+    {
+        $itemIds = collect($snapshots)
+            ->pluck('id')
+            ->filter(fn (mixed $id): bool => is_numeric($id) && (int) $id > 0)
+            ->map(fn (mixed $id): int => (int) $id)
+            ->values()
+            ->all();
+        if ($itemIds === []) {
+            return;
+        }
+
+        $order->items()->whereIn('id', $itemIds)->delete();
+        $order->unsetRelation('items');
+    }
+
+    private function purgeTerminalShoppingUnavailableItems(
+        Order $order,
+        ?int $actorUserId,
+        string $terminalStatusCode,
+        string $triggerType,
+    ): void {
+        $order->loadMissing('serviceType');
+        if (
+            strtoupper((string) ($order->serviceType?->code ?? '')) !== 'SHOPPING'
+            || ! in_array(strtoupper($terminalStatusCode), ['COMPLETED', 'CANCELLED', 'CANCELLED_WITH_FEE'], true)
+        ) {
+            return;
+        }
+
+        $items = $order->items()
+            ->where('is_available', false)
+            ->lockForUpdate()
+            ->get();
+        if ($items->isEmpty()) {
+            return;
+        }
+
+        foreach ($items->groupBy(fn (OrderItem $item): string => (string) ($item->pickup_location_id ?? 'none')) as $group) {
+            $snapshots = $group
+                ->map(fn (OrderItem $item): array => $this->shoppingUnavailableItemAuditSnapshot($item))
+                ->values()
+                ->all();
+            $pickupLocationId = $group->first()?->pickup_location_id;
+
+            OrderLog::query()->create([
+                'order_id' => $order->id,
+                'event_type' => 'SHOPPING_ITEM_AVAILABILITY',
+                'trigger_type' => $triggerType,
+                'changed_by_user_id' => $actorUserId,
+                'note' => 'Item tidak tersedia dihapus saat order Nitip mencapai status terminal.',
+                'metadata' => [
+                    'terminal_status_code' => strtoupper($terminalStatusCode),
+                    'pickup_location_id' => $pickupLocationId !== null ? (int) $pickupLocationId : null,
+                    'removed_items' => $snapshots,
+                ],
+            ]);
+        }
+
+        $items->each->delete();
+        $order->unsetRelation('items');
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function shoppingUnavailableItemAuditSnapshot(OrderItem $item): array
+    {
+        $metadata = is_array($item->metadata) ? $item->metadata : [];
+
+        return [
+            'id' => (int) $item->id,
+            'pickup_location_id' => $item->pickup_location_id !== null ? (int) $item->pickup_location_id : null,
+            'name' => trim((string) ($item->menu_name ?? '')) ?: 'Item Nitip',
+            'quantity' => max(1, (int) $item->quantity),
+            'unit_price' => round((float) $item->unit_price, 2),
+            'subtotal' => round((float) $item->subtotal, 2),
+            'price_status' => $metadata['price_status'] ?? null,
+            'failure_reason' => $metadata['failure_reason'] ?? null,
+        ];
+    }
+
+    /**
+     * @param  array<int, mixed>  $items
+     */
+    private function shoppingUnavailableItemReplacementFingerprint(array $items): string
+    {
+        $normalized = collect($items)
+            ->filter(fn (mixed $item): bool => is_array($item))
+            ->map(fn (array $item): array => [
+                'item_source' => strtoupper(trim((string) ($item['item_source'] ?? 'MANUAL'))),
+                'menu_id' => isset($item['menu_id']) && is_numeric($item['menu_id'])
+                    ? (int) $item['menu_id']
+                    : null,
+                'menu_name' => trim((string) ($item['menu_name'] ?? '')),
+                'quantity' => max(1, min(99, (int) ($item['quantity'] ?? 1))),
+                'notes' => trim((string) ($item['notes'] ?? '')) ?: null,
+            ])
+            ->values()
+            ->all();
+
+        return hash('sha256', (string) json_encode($normalized, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+    }
+
+    /**
      * @param  array<string, mixed>  $payload
      * @return array<string, mixed>
      */
@@ -4330,15 +5198,6 @@ class OrderService
             'vehicle_model' => $driver->vehicle_model,
             'vehicle_plate' => $driver->vehicle_plate,
         ];
-    }
-
-    private function orderServiceCode(Order $order): string
-    {
-        $serviceType = $order->serviceType;
-
-        return $serviceType !== null
-            ? ServiceTypeCode::normalize($serviceType->code)
-            : ServiceTypeCode::Unknown->value;
     }
 
     private function orderStatusCode(Order $order): string

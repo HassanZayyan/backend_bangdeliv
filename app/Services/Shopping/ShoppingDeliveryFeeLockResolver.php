@@ -16,6 +16,11 @@ class ShoppingDeliveryFeeLockResolver
         $latest = OrderLog::query()
             ->where('order_id', $order->id)
             ->where('event_type', DeliveryFeeNegotiationService::EVENT_TYPE)
+            ->whereIn('trigger_type', [
+                DeliveryFeeNegotiationService::CUSTOMER_FEE_APPROVED,
+                DeliveryFeeNegotiationService::DRIVER_COUNTER_APPROVED,
+                DeliveryFeeNegotiationService::DRIVER_FEE_APPROVED_BY_DRIVER_BYPASS,
+            ])
             ->latest('id')
             ->first();
 
@@ -24,6 +29,7 @@ class ShoppingDeliveryFeeLockResolver
             if (in_array($trigger, [
                 DeliveryFeeNegotiationService::CUSTOMER_FEE_APPROVED,
                 DeliveryFeeNegotiationService::DRIVER_COUNTER_APPROVED,
+                DeliveryFeeNegotiationService::DRIVER_FEE_APPROVED_BY_DRIVER_BYPASS,
             ], true)) {
                 $metadata = is_array($latest->metadata) ? $latest->metadata : [];
                 $amount = $this->amountFromMetadata($metadata) ?? $this->positiveAmount($order->delivery_fee);

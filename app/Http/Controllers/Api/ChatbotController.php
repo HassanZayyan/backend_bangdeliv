@@ -711,8 +711,10 @@ class ChatbotController extends Controller
         }
 
         if (preg_match('/\b(?:rekomendasi|rekomendasikan|sarankan|saran)\b/u', $normalized) === 1
-            || preg_match('/\b(?:bingung|enaknya|baiknya)\s+(?:mau\s+)?makan\s+apa\b/u', $normalized) === 1
-            || preg_match('/\bmau\s+makan\s+apa\b/u', $normalized) === 1) {
+            || preg_match('/\b(?:bingung|enaknya|baiknya|bagusnya)\s+(?:mau\s+)?(?:makan|pesan|beli|order)\s+apa\b/u', $normalized) === 1
+            || preg_match('/\b(?:mau\s+)?(?:makan|pesan|beli|order)\s+apa(?:\s+(?:ya|enaknya|baiknya|bagusnya))?\b/u', $normalized) === 1
+            || preg_match('/\bnitip\s+apa\s+(?:enaknya|baiknya|bagusnya)\b/u', $normalized) === 1
+            || preg_match('/\b(?:enaknya|baiknya|bagusnya)\s+nitip\s+apa\b/u', $normalized) === 1) {
             return [
                 'payload' => ['intent' => 'shopping_order', 'command' => 'recommend_food'],
                 'model_used' => 'deterministic-assistant',

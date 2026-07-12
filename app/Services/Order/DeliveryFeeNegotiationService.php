@@ -154,7 +154,7 @@ class DeliveryFeeNegotiationService
         return match ($service) {
             ServiceTypeCode::Ride->value => in_array($action, ['ARRIVE_PICKUP', 'BOARD_PASSENGER'], true),
             ServiceTypeCode::Courier->value => in_array($action, ['ARRIVE_PICKUP', 'CONFIRM_PICKED_UP'], true),
-            ServiceTypeCode::Shopping->value => in_array($action, ['ARRIVE_PICKUP', 'CONFIRM_PICKED_UP'], true),
+            ServiceTypeCode::Shopping->value => $action === 'CONFIRM_PICKED_UP',
             default => false,
         };
     }
@@ -210,6 +210,13 @@ class DeliveryFeeNegotiationService
     {
         $statusCode = strtoupper((string) ($order->statusRef?->code ?? ''));
 
+        if (ServiceTypeCode::normalize((string) ($order->serviceType?->code ?? '')) === ServiceTypeCode::Shopping->value) {
+            $order->loadMissing('shoppingReceipt');
+
+            return in_array($statusCode, ['DRIVER_ASSIGNED', 'ARRIVED_MERCHANT'], true)
+                && $order->shoppingReceipt === null;
+        }
+
         return $statusCode === 'DRIVER_ASSIGNED';
     }
 
@@ -219,6 +226,7 @@ class DeliveryFeeNegotiationService
             self::DRIVER_FEE_QUOTED, self::DRIVER_FEE_REQUOTED => 'PENDING_CUSTOMER',
             self::CUSTOMER_FEE_COUNTERED => 'PENDING_DRIVER',
             self::CUSTOMER_FEE_APPROVED, self::DRIVER_COUNTER_APPROVED, self::DRIVER_FEE_APPROVED_BY_DRIVER_BYPASS => 'APPROVED',
+            'SUPERSEDED_BY_ROUTE_REVISION' => 'SUPERSEDED',
             self::CUSTOMER_CANCEL_ORDER => 'CANCELLED_ORDER',
             default => 'NONE',
         };

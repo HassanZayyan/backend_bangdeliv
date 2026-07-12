@@ -46,8 +46,8 @@ class DriverIncomeFeeCalculator
     public function grossIncomeForOrder(Order $order): float
     {
         $order->loadMissing(['serviceType', 'statusRef']);
-        $serviceCode = ServiceTypeCode::normalize((string) ($order->serviceType?->code ?? ''));
-        $statusCode = strtoupper((string) ($order->statusRef?->code ?? ''));
+        $serviceCode = ServiceTypeCode::normalize((string) $order->serviceType->code);
+        $statusCode = strtoupper((string) $order->statusRef->code);
 
         if ($serviceCode === ServiceTypeCode::Shopping->value && $statusCode === 'CANCELLED_WITH_FEE') {
             $driverFee = $this->shoppingPricingService->cancellationDriverFeeAmount($order);
@@ -57,6 +57,21 @@ class DriverIncomeFeeCalculator
         }
 
         $deliveryFee = round((float) $order->delivery_fee, 2);
+        if ($serviceCode === ServiceTypeCode::Shopping->value) {
+            $failedTripCompensation = 0.0;
+            foreach ($this->shoppingPricingService->feeBreakdownForOrder($order) as $line) {
+                if (($line['code'] ?? null) !== 'FAILED_TRIP_COMPENSATION') {
+                    continue;
+                }
+                $failedTripCompensation = round((float) ($line['amount'] ?? 0), 2);
+                break;
+            }
+
+            $transportIncome = round(max(0.0, $deliveryFee) + max(0.0, $failedTripCompensation), 2);
+            if ($transportIncome > 0) {
+                return $transportIncome;
+            }
+        }
         if ($deliveryFee > 0) {
             return $deliveryFee;
         }

@@ -10,11 +10,16 @@ use App\Models\OrderItem;
 use App\Models\OrderLog;
 use App\Models\OrderPayment;
 use App\Models\OrderStatus;
+use App\Models\Restaurant;
 use App\Models\ServiceType;
 use App\Models\User;
+use App\Services\Driver\DriverIncomeFeeCalculator;
+use App\Services\Shopping\ShoppingFailedTripCompensationService;
+use App\Services\Shopping\ShoppingReplacementProjectionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -304,7 +309,7 @@ class DriverOrderRevisionEndpointsTest extends TestCase
             ->assertJsonPath('data.delivery_fee_negotiation.quoted_amount', 22500);
     }
 
-    public function test_shopping_rejects_manual_delivery_fee_after_arrived_merchant(): void
+    public function test_shopping_allows_manual_delivery_fee_until_checkout_is_saved(): void
     {
         [$driverUser, $driver] = $this->createDriver();
         $order = $this->createAssignedOrder($driver, 'SHOPPING', 'ARRIVED_MERCHANT', 15000);
@@ -316,9 +321,9 @@ class DriverOrderRevisionEndpointsTest extends TestCase
             'reason' => 'Tidak boleh setelah driver memproses merchant.',
         ]);
 
-        $response->assertStatus(409)
-            ->assertJsonPath('success', false)
-            ->assertJsonPath('message', 'Revisi ongkir tidak tersedia untuk status atau pembayaran order ini.');
+        $response->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.delivery_fee_negotiation.status', 'PENDING_CUSTOMER');
     }
 
     public function test_driver_can_bypass_pending_delivery_fee_for_all_service_types(): void
@@ -1073,6 +1078,617 @@ class DriverOrderRevisionEndpointsTest extends TestCase
             ->firstOrFail();
         $this->assertSame($newProof->id, (int) data_get($approvalEvent->metadata, 'order_evidence_id'));
         $this->assertSame('approved', data_get($approvalEvent->metadata, 'payment_proof_status'));
+    }
+
+    public function test_driver_can_bypass_all_unavailable_items_for_a_merchant(): void
+    {
+        [$driverUser, $driver] = $this->createDriver();
+        $order = $this->createAssignedOrder($driver, 'SHOPPING', 'ARRIVED_MERCHANT', 15000);
+        $pickup = $order->orderLocations()->create([
+            'location_role' => 'PICKUP',
+            'label' => 'Merchant Bypass',
+            'full_address' => 'Jl. Merchant Bypass',
+            'latitude' => -7.001,
+            'longitude' => 110.401,
+            'sequence_no' => 1,
+            'fulfillment_status' => 'ITEMS_PENDING_CUSTOMER',
+            'failed_attempt_count' => 0,
+        ]);
+        $availableItem = OrderItem::query()->create([
+            'order_id' => $order->id,
+            'pickup_location_id' => $pickup->id,
+            'item_source' => 'MANUAL',
+            'menu_name' => 'Item tersedia',
+            'quantity' => 1,
+            'unit_price' => 20000,
+            'subtotal' => 20000,
+            'is_available' => true,
+        ]);
+        $unavailableItem = OrderItem::query()->create([
+            'order_id' => $order->id,
+            'pickup_location_id' => $pickup->id,
+            'item_source' => 'MANUAL',
+            'menu_name' => 'Item kosong',
+            'quantity' => 2,
+            'unit_price' => 12000,
+            'subtotal' => 0,
+            'is_available' => false,
+        ]);
+
+        Sanctum::actingAs($driverUser);
+
+        $detail = $this->getJson('/api/v1/driver/orders/'.$order->id);
+        $detail->assertOk()
+            ->assertJsonPath('data.shopping_stops.0.unavailable_item_actions.can_driver_bypass', true);
+
+        $response = $this->postJson(
+            '/api/v1/driver/orders/'.$order->id.'/shopping-stops/'.$pickup->id.'/unavailable-items/bypass'
+        );
+
+        $response->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.shopping_stops.0.fulfillment_status', 'ITEMS_CONFIRMED')
+            ->assertJsonPath('data.shopping_stops.0.unavailable_item_actions.can_driver_bypass', false);
+        $this->assertDatabaseHas('shopping_order_items', ['id' => $availableItem->id]);
+        $this->assertDatabaseMissing('shopping_order_items', ['id' => $unavailableItem->id]);
+        $event = OrderLog::query()
+            ->where('order_id', $order->id)
+            ->where('trigger_type', 'DRIVER_BYPASS_UNAVAILABLE_ITEMS')
+            ->where('event_type', 'SHOPPING_ITEM_AVAILABILITY')
+            ->firstOrFail();
+        $this->assertFalse((bool) data_get($event->metadata, 'merchant_cancelled'));
+        $this->assertSame($unavailableItem->id, (int) data_get($event->metadata, 'items.0.id'));
+
+        $this->postJson(
+            '/api/v1/driver/orders/'.$order->id.'/shopping-stops/'.$pickup->id.'/unavailable-items/bypass'
+        )->assertStatus(409);
+        $this->assertSame(1, OrderLog::query()
+            ->where('order_id', $order->id)
+            ->where('trigger_type', 'DRIVER_BYPASS_UNAVAILABLE_ITEMS')
+            ->where('event_type', 'SHOPPING_ITEM_AVAILABILITY')
+            ->count());
+    }
+
+    public function test_driver_can_remove_selected_unavailable_items_and_keep_pending_until_all_resolved(): void
+    {
+        [$driverUser, $driver] = $this->createDriver();
+        $order = $this->createAssignedOrder($driver, 'SHOPPING', 'ARRIVED_MERCHANT', 15000);
+        $pickup = $order->orderLocations()->create([
+            'location_role' => 'PICKUP',
+            'label' => 'Merchant Pilih Item',
+            'full_address' => 'Jl. Merchant Pilih Item',
+            'latitude' => -7.001,
+            'longitude' => 110.401,
+            'sequence_no' => 1,
+            'fulfillment_status' => 'ITEMS_PENDING_CUSTOMER',
+        ]);
+        OrderItem::query()->create([
+            'order_id' => $order->id,
+            'pickup_location_id' => $pickup->id,
+            'item_source' => 'MANUAL',
+            'menu_name' => 'Item tersedia',
+            'quantity' => 1,
+            'unit_price' => 20000,
+            'subtotal' => 20000,
+            'is_available' => true,
+        ]);
+        $unavailableItems = collect(['Kosong satu', 'Kosong dua', 'Kosong tiga'])
+            ->map(fn (string $name): OrderItem => OrderItem::query()->create([
+                'order_id' => $order->id,
+                'pickup_location_id' => $pickup->id,
+                'item_source' => 'MANUAL',
+                'menu_name' => $name,
+                'quantity' => 1,
+                'unit_price' => 0,
+                'subtotal' => 0,
+                'is_available' => false,
+            ]));
+
+        Sanctum::actingAs($driverUser);
+        $endpoint = '/api/v1/driver/orders/'.$order->id.'/shopping-stops/'.$pickup->id.'/unavailable-items/decision';
+        $this->getJson('/api/v1/driver/orders/'.$order->id)
+            ->assertOk()
+            ->assertJsonPath('data.shopping_stops.0.unavailable_item_actions.can_driver_continue_without_item', true)
+            ->assertJsonPath('data.shopping_stops.0.unavailable_item_actions.can_driver_cancel_merchant', true);
+
+        $this->postJson($endpoint, [
+            'action' => 'REMOVE',
+            'item_ids' => $unavailableItems->take(2)->pluck('id')->all(),
+        ])->assertOk()
+            ->assertJsonPath('data.shopping_stops.0.fulfillment_status', 'ITEMS_PENDING_CUSTOMER');
+        $this->assertDatabaseHas('shopping_order_items', ['id' => $unavailableItems[2]->id]);
+
+        $this->postJson($endpoint, [
+            'action' => 'REMOVE',
+            'item_ids' => [$unavailableItems[2]->id],
+        ])->assertOk()
+            ->assertJsonPath('data.shopping_stops.0.fulfillment_status', 'ITEMS_CONFIRMED');
+        $this->assertSame(2, OrderLog::query()
+            ->where('order_id', $order->id)
+            ->where('event_type', 'SHOPPING_ITEM_CHANGE_REQUEST')
+            ->where('trigger_type', 'DRIVER_UNAVAILABLE_ITEMS_REMOVED')
+            ->count());
+        $this->postJson($endpoint, [
+            'action' => 'REMOVE',
+            'item_ids' => [$unavailableItems[2]->id],
+        ])->assertStatus(409)
+            ->assertJsonPath('errors.code', 'STATE_CHANGED')
+            ->assertJsonPath('errors.latest_order.id', (string) $order->id)
+            ->assertJsonPath('errors.latest_order.shopping_stops.0.fulfillment_status', 'ITEMS_CONFIRMED');
+    }
+
+    public function test_driver_can_cancel_place_because_items_are_unavailable(): void
+    {
+        [$driverUser, $driver] = $this->createDriver();
+        $order = $this->createAssignedOrder($driver, 'SHOPPING', 'ARRIVED_MERCHANT', 15000);
+        $pickup = $order->orderLocations()->create([
+            'location_role' => 'PICKUP',
+            'label' => 'Merchant Batal Item',
+            'full_address' => 'Jl. Merchant Batal Item',
+            'latitude' => -7.001,
+            'longitude' => 110.401,
+            'sequence_no' => 1,
+            'fulfillment_status' => 'ITEMS_PENDING_CUSTOMER',
+        ]);
+        OrderItem::query()->create([
+            'order_id' => $order->id,
+            'pickup_location_id' => $pickup->id,
+            'item_source' => 'MANUAL',
+            'menu_name' => 'Item kosong',
+            'quantity' => 1,
+            'unit_price' => 0,
+            'subtotal' => 0,
+            'is_available' => false,
+        ]);
+
+        Sanctum::actingAs($driverUser);
+        $endpoint = '/api/v1/driver/orders/'.$order->id.'/shopping-stops/'.$pickup->id.'/unavailable-items/decision';
+        $this->postJson($endpoint, ['action' => 'CANCEL_MERCHANT'])
+            ->assertOk()
+            ->assertJsonPath('data.status_code', 'CANCELLED');
+
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
+            'cancelled_by' => 'driver',
+        ]);
+        $this->assertDatabaseHas('order_events', [
+            'order_id' => $order->id,
+            'trigger_type' => 'DRIVER_CANCEL_UNAVAILABLE_MERCHANT',
+            'changed_by_user_id' => $driverUser->id,
+        ]);
+        $this->assertDatabaseMissing('order_events', [
+            'order_id' => $order->id,
+            'trigger_type' => 'MERCHANT_CLOSED',
+        ]);
+    }
+
+    public function test_driver_can_replace_unavailable_items_at_the_same_store_idempotently(): void
+    {
+        [$driverUser, $driver] = $this->createDriver();
+        $order = $this->createAssignedOrder($driver, 'SHOPPING', 'ARRIVED_MERCHANT', 19000);
+        $pickup = $order->orderLocations()->create([
+            'location_role' => 'PICKUP',
+            'label' => 'Toko Suku Cadang',
+            'full_address' => 'Jl. Suku Cadang',
+            'latitude' => -7.001,
+            'longitude' => 110.401,
+            'sequence_no' => 1,
+            'fulfillment_status' => 'ITEMS_PENDING_CUSTOMER',
+        ]);
+        $availableItem = OrderItem::query()->create([
+            'order_id' => $order->id,
+            'pickup_location_id' => $pickup->id,
+            'item_source' => 'MANUAL',
+            'menu_name' => 'Oli tersedia',
+            'quantity' => 1,
+            'unit_price' => 15000,
+            'subtotal' => 15000,
+            'is_available' => true,
+        ]);
+        $unavailableItem = OrderItem::query()->create([
+            'order_id' => $order->id,
+            'pickup_location_id' => $pickup->id,
+            'item_source' => 'MANUAL',
+            'menu_name' => 'Busi kosong',
+            'quantity' => 1,
+            'unit_price' => 0,
+            'subtotal' => 0,
+            'is_available' => false,
+        ]);
+        $payload = ['items' => [[
+            'item_source' => 'MANUAL',
+            'menu_name' => 'Busi alternatif',
+            'quantity' => 2,
+            'notes' => 'Merek setara',
+        ]]];
+        $endpoint = '/api/v1/driver/orders/'.$order->id.'/shopping-stops/'.$pickup->id.'/unavailable-items/replace';
+
+        Sanctum::actingAs($driverUser);
+
+        $this->getJson('/api/v1/driver/orders/'.$order->id)
+            ->assertOk()
+            ->assertJsonPath('data.shopping_stops.0.unavailable_item_actions.can_driver_replace_unavailable_items', true);
+        $this->withHeader('Idempotency-Key', 'replace-items-empty')
+            ->postJson($endpoint, ['items' => []])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['items']);
+        $response = $this->withHeader('Idempotency-Key', 'replace-items-driver-1')
+            ->postJson($endpoint, $payload);
+
+        $response->assertOk()
+            ->assertJsonPath('data.shopping_stops.0.fulfillment_status', 'ITEMS_CONFIRMED')
+            ->assertJsonPath('data.shopping_stops.0.unavailable_item_actions.can_driver_replace_unavailable_items', false);
+        $this->assertDatabaseHas('shopping_order_items', ['id' => $availableItem->id]);
+        $this->assertDatabaseMissing('shopping_order_items', ['id' => $unavailableItem->id]);
+        $this->assertDatabaseHas('shopping_order_items', [
+            'order_id' => $order->id,
+            'pickup_location_id' => $pickup->id,
+            'menu_name' => 'Busi alternatif',
+            'quantity' => 2,
+            'is_available' => true,
+        ]);
+        $this->assertSame(19000.0, (float) $order->refresh()->delivery_fee);
+        $event = OrderLog::query()
+            ->where('order_id', $order->id)
+            ->where('trigger_type', 'DRIVER_UNAVAILABLE_ITEMS_REPLACED')
+            ->firstOrFail();
+        $this->assertSame($driverUser->id, (int) $event->changed_by_user_id);
+        $this->assertSame('Busi kosong', data_get($event->metadata, 'old_items.0.name'));
+        $this->assertSame('Busi alternatif', data_get($event->metadata, 'items.0.name'));
+
+        $this->withHeader('Idempotency-Key', 'replace-items-driver-1')
+            ->postJson($endpoint, $payload)
+            ->assertOk();
+        $this->assertSame(1, OrderLog::query()
+            ->where('order_id', $order->id)
+            ->where('event_type', 'SHOPPING_ITEM_AVAILABILITY')
+            ->where('trigger_type', 'DRIVER_UNAVAILABLE_ITEMS_REPLACED')
+            ->count());
+        $this->assertSame(1, OrderItem::query()
+            ->where('order_id', $order->id)
+            ->where('menu_name', 'Busi alternatif')
+            ->count());
+
+        $changedPayload = $payload;
+        $changedPayload['items'][0]['menu_name'] = 'Payload lain';
+        $this->withHeader('Idempotency-Key', 'replace-items-driver-1')
+            ->postJson($endpoint, $changedPayload)
+            ->assertStatus(422);
+        $this->withHeader('Idempotency-Key', 'replace-items-driver-2')
+            ->postJson($endpoint, $payload)
+            ->assertStatus(409)
+            ->assertJsonPath('errors.code', 'STATE_CHANGED');
+    }
+
+    public function test_driver_bypass_of_last_unavailable_merchant_uses_existing_cancellation_fee_rule(): void
+    {
+        [$driverUser, $driver] = $this->createDriver();
+        $order = $this->createAssignedOrder($driver, 'SHOPPING', 'ARRIVED_MERCHANT', 18000);
+        $pickup = $order->orderLocations()->create([
+            'location_role' => 'PICKUP',
+            'label' => 'Merchant Terakhir',
+            'full_address' => 'Jl. Merchant Terakhir',
+            'latitude' => -7.001,
+            'longitude' => 110.401,
+            'sequence_no' => 1,
+            'fulfillment_status' => 'ITEMS_PENDING_CUSTOMER',
+            'failed_attempt_count' => 2,
+        ]);
+        $unavailableItem = OrderItem::query()->create([
+            'order_id' => $order->id,
+            'pickup_location_id' => $pickup->id,
+            'item_source' => 'MANUAL',
+            'menu_name' => 'Satu-satunya item',
+            'quantity' => 1,
+            'unit_price' => 22000,
+            'subtotal' => 0,
+            'is_available' => false,
+        ]);
+
+        Sanctum::actingAs($driverUser);
+
+        $response = $this->postJson(
+            '/api/v1/driver/orders/'.$order->id.'/shopping-stops/'.$pickup->id.'/unavailable-items/bypass'
+        );
+
+        $response->assertOk()
+            ->assertJsonPath('data.status_code', 'CANCELLED_WITH_FEE');
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
+            'cancelled_by' => 'driver',
+        ]);
+        $this->assertDatabaseHas('order_locations', [
+            'id' => $pickup->id,
+            'fulfillment_status' => 'ABANDONED_AFTER_LIMIT',
+            'failed_attempt_count' => 3,
+        ]);
+        $this->assertDatabaseMissing('shopping_order_items', ['id' => $unavailableItem->id]);
+        $abandonedEvent = OrderLog::query()
+            ->where('order_id', $order->id)
+            ->where('event_type', ShoppingReplacementProjectionService::CHAIN_ABANDONED_EVENT)
+            ->firstOrFail();
+        $this->assertSame($unavailableItem->id, (int) data_get($abandonedEvent->metadata, 'removed_items.0.id'));
+        $this->assertDatabaseHas('order_events', [
+            'order_id' => $order->id,
+            'trigger_type' => 'DRIVER_BYPASS_UNAVAILABLE_ITEMS_WITH_FEE',
+        ]);
+    }
+
+    public function test_other_driver_cannot_bypass_unavailable_items(): void
+    {
+        [, $driver] = $this->createDriver();
+        [$otherDriverUser] = $this->createDriver();
+        $order = $this->createAssignedOrder($driver, 'SHOPPING', 'ARRIVED_MERCHANT', 15000);
+        $pickup = $order->orderLocations()->create([
+            'location_role' => 'PICKUP',
+            'label' => 'Merchant',
+            'full_address' => 'Jl. Merchant',
+            'latitude' => -7.001,
+            'longitude' => 110.401,
+            'sequence_no' => 1,
+            'fulfillment_status' => 'ITEMS_PENDING_CUSTOMER',
+        ]);
+        OrderItem::query()->create([
+            'order_id' => $order->id,
+            'pickup_location_id' => $pickup->id,
+            'item_source' => 'MANUAL',
+            'menu_name' => 'Item kosong',
+            'quantity' => 1,
+            'unit_price' => 0,
+            'subtotal' => 0,
+            'is_available' => false,
+        ]);
+
+        Sanctum::actingAs($otherDriverUser);
+
+        $this->postJson(
+            '/api/v1/driver/orders/'.$order->id.'/shopping-stops/'.$pickup->id.'/unavailable-items/bypass'
+        )->assertStatus(403)
+            ->assertJsonPath('message', 'Order ini tidak ditugaskan kepada driver saat ini.');
+
+        $this->withHeader('Idempotency-Key', 'wrong-driver-replace')
+            ->postJson(
+                '/api/v1/driver/orders/'.$order->id.'/shopping-stops/'.$pickup->id.'/unavailable-items/replace',
+                ['items' => [[
+                    'item_source' => 'MANUAL',
+                    'menu_name' => 'Item pengganti',
+                    'quantity' => 1,
+                ]]],
+            )
+            ->assertStatus(403)
+            ->assertJsonPath('message', 'Order ini tidak ditugaskan kepada driver saat ini.');
+
+        $this->postJson(
+            '/api/v1/driver/orders/'.$order->id.'/shopping-stops/'.$pickup->id.'/unavailable-items/decision',
+            ['action' => 'CANCEL_MERCHANT'],
+        )->assertStatus(403)
+            ->assertJsonPath('message', 'Order ini tidak ditugaskan kepada driver saat ini.');
+    }
+
+    public function test_customer_replaces_unavailable_merchant_with_event_projection_and_idempotency(): void
+    {
+        [, $driver] = $this->createDriver();
+        $order = $this->createAssignedOrder($driver, 'SHOPPING', 'ARRIVED_MERCHANT', 15000);
+        $pickup = $order->orderLocations()->create([
+            'location_role' => 'PICKUP',
+            'label' => 'Merchant Lama',
+            'full_address' => 'Jl. Merchant Lama',
+            'latitude' => -7.001,
+            'longitude' => 110.401,
+            'sequence_no' => 1,
+            'fulfillment_status' => 'ITEMS_PENDING_CUSTOMER',
+        ]);
+        $order->orderLocations()->create([
+            'location_role' => 'DROPOFF',
+            'label' => 'Customer',
+            'full_address' => 'Jl. Customer',
+            'latitude' => -7.015,
+            'longitude' => 110.415,
+            'sequence_no' => 2,
+        ]);
+        $oldItem = OrderItem::query()->create([
+            'order_id' => $order->id,
+            'pickup_location_id' => $pickup->id,
+            'item_source' => 'MANUAL',
+            'menu_name' => 'Ayam lama',
+            'quantity' => 1,
+            'unit_price' => 0,
+            'subtotal' => 0,
+            'is_available' => false,
+        ]);
+        $replacement = Restaurant::query()->create([
+            'name' => 'Merchant Pengganti',
+            'slug' => 'merchant-pengganti-'.uniqid(),
+            'merchant_type' => 'restaurant',
+            'address' => 'Jl. Merchant Pengganti',
+            'latitude' => -7.008,
+            'longitude' => 110.408,
+        ]);
+        config()->set('bangdeliv.google_maps_api_key', 'test-key');
+        Http::fake([
+            '*' => Http::response([
+                'routes' => [[
+                    'distanceMeters' => 3500,
+                    'duration' => '600s',
+                    'polyline' => ['encodedPolyline' => 'encoded'],
+                ]],
+            ]),
+        ]);
+
+        Sanctum::actingAs($order->user);
+        $payload = [
+            'expected_version' => 0,
+            'merchant_id' => $replacement->id,
+            'items' => [[
+                'item_source' => 'MANUAL',
+                'menu_name' => 'Ayam pengganti',
+                'quantity' => 2,
+            ]],
+        ];
+
+        $this->postJson('/api/v1/orders/'.$order->id.'/shopping-stops/'.$pickup->id.'/replacement-preview', $payload)
+            ->assertOk()
+            ->assertJsonPath('data.chain_id', 'pickup:'.$pickup->id)
+            ->assertJsonPath('data.next_attempt_no', 2);
+
+        $endpoint = '/api/v1/orders/'.$order->id.'/shopping-stops/'.$pickup->id.'/replace';
+        $response = $this->withHeader('Idempotency-Key', 'replace-customer-1')->postJson($endpoint, $payload);
+        $response->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.shopping_stops.0.chain_attempt_no', 2);
+        $this->assertDatabaseHas('order_locations', ['id' => $pickup->id, 'fulfillment_status' => 'REPLACED']);
+        $this->assertDatabaseMissing('shopping_order_items', ['id' => $oldItem->id]);
+        $this->assertDatabaseHas('order_events', [
+            'order_id' => $order->id,
+            'event_type' => 'SHOPPING_MERCHANT_REPLACEMENT',
+            'trigger_type' => 'CUSTOMER_REPLACED_SHOPPING_MERCHANT',
+        ]);
+        $replacementEvent = OrderLog::query()
+            ->where('order_id', $order->id)
+            ->where('event_type', ShoppingReplacementProjectionService::REPLACEMENT_EVENT)
+            ->firstOrFail();
+        $this->assertSame($oldItem->id, (int) data_get($replacementEvent->metadata, 'old_items.0.id'));
+        $this->assertSame(1, OrderLog::query()
+            ->where('order_id', $order->id)
+            ->where('event_type', 'SHOPPING_MERCHANT_REPLACEMENT')
+            ->count());
+
+        $this->withHeader('Idempotency-Key', 'replace-customer-1')->postJson($endpoint, $payload)
+            ->assertOk();
+        $this->assertSame(1, OrderLog::query()
+            ->where('order_id', $order->id)
+            ->where('event_type', 'SHOPPING_MERCHANT_REPLACEMENT')
+            ->count());
+        $changedPayload = $payload;
+        $changedPayload['items'][0]['menu_name'] = 'Payload berbeda';
+        $this->withHeader('Idempotency-Key', 'replace-customer-1')->postJson($endpoint, $changedPayload)
+            ->assertStatus(422);
+        $this->withHeader('Idempotency-Key', 'replace-customer-2')->postJson($endpoint, $payload)
+            ->assertStatus(409)
+            ->assertJsonPath('errors.code', 'STATE_CHANGED');
+    }
+
+    public function test_three_global_failed_trips_activate_compensation_without_cancelling_replacement_chains(): void
+    {
+        [, $driver] = $this->createDriver();
+        $order = $this->createAssignedOrder($driver, 'SHOPPING', 'ARRIVED_MERCHANT', 18000);
+        $chainIds = [];
+
+        foreach (['A', 'B', 'C'] as $index => $name) {
+            $source = $order->orderLocations()->create([
+                'location_role' => 'PICKUP',
+                'label' => 'Resto '.$name,
+                'full_address' => 'Jl. '.$name,
+                'latitude' => -7.00 - ($index * 0.01),
+                'longitude' => 110.40 + ($index * 0.01),
+                'sequence_no' => $index + 1,
+                'fulfillment_status' => 'FAILED',
+                'failed_attempt_count' => 1,
+            ]);
+            $replacement = $order->orderLocations()->create([
+                'location_role' => 'PICKUP',
+                'label' => 'Resto Pengganti '.$name,
+                'full_address' => 'Jl. Pengganti '.$name,
+                'latitude' => -7.05 - ($index * 0.01),
+                'longitude' => 110.45 + ($index * 0.01),
+                'sequence_no' => $index + 4,
+                'fulfillment_status' => 'PRICE_APPROVED',
+                'failed_attempt_count' => 0,
+            ]);
+            $chainId = 'pickup:'.$source->id;
+            $chainIds[] = $chainId;
+            OrderLog::query()->create([
+                'order_id' => $order->id,
+                'event_type' => ShoppingReplacementProjectionService::FAILED_TRIP_EVENT,
+                'metadata' => [
+                    'pickup_location_id' => $source->id,
+                    'chain_id' => $chainId,
+                    'distance_meters' => 2000,
+                    'verified_for_compensation' => true,
+                ],
+            ]);
+            OrderLog::query()->create([
+                'order_id' => $order->id,
+                'event_type' => ShoppingReplacementProjectionService::REPLACEMENT_EVENT,
+                'metadata' => [
+                    'chain_id' => $chainId,
+                    'attempt_no' => 2,
+                    'source_pickup_location_id' => $source->id,
+                    'replacement_pickup_location_id' => $replacement->id,
+                ],
+            ]);
+        }
+
+        $snapshot = app(ShoppingReplacementProjectionService::class)->snapshot($order->refresh());
+        $compensation = app(ShoppingFailedTripCompensationService::class)->summary($order->refresh());
+
+        $this->assertSame(3, $snapshot['order_failed_trip_count']);
+        $this->assertSame(3, $snapshot['verified_failed_trip_count']);
+        $this->assertTrue($snapshot['compensation_eligible']);
+        foreach ($chainIds as $chainId) {
+            $this->assertSame(1, $snapshot['chains'][$chainId]['failed_attempt_count']);
+            $this->assertFalse($snapshot['chains'][$chainId]['is_abandoned']);
+        }
+        $this->assertTrue($compensation['eligible']);
+        $this->assertGreaterThan(0, $compensation['amount']);
+        $this->assertSame(
+            round(18000 + (float) $compensation['amount'], 2),
+            app(DriverIncomeFeeCalculator::class)->grossIncomeForOrder($order->refresh()),
+        );
+        $this->assertSame('ARRIVED_MERCHANT', $order->refresh()->statusRef->code);
+        $this->assertSame(3, $order->orderLocations()->where('fulfillment_status', 'PRICE_APPROVED')->count());
+    }
+
+    public function test_third_failure_abandons_only_its_replacement_chain_projection(): void
+    {
+        [, $driver] = $this->createDriver();
+        $order = $this->createAssignedOrder($driver, 'SHOPPING', 'ARRIVED_MERCHANT', 18000);
+        $pickups = collect(['A', 'D', 'E'])->map(function (string $name, int $index) use ($order) {
+            return $order->orderLocations()->create([
+                'location_role' => 'PICKUP',
+                'label' => 'Resto '.$name,
+                'full_address' => 'Jl. '.$name,
+                'latitude' => -7.00 - ($index * 0.01),
+                'longitude' => 110.40 + ($index * 0.01),
+                'sequence_no' => $index + 1,
+                'fulfillment_status' => $index === 2 ? 'ABANDONED_AFTER_LIMIT' : 'REPLACED',
+                'failed_attempt_count' => 1,
+            ]);
+        })->values();
+        $chainId = 'pickup:'.$pickups[0]->id;
+
+        foreach ($pickups as $index => $pickup) {
+            OrderLog::query()->create([
+                'order_id' => $order->id,
+                'event_type' => ShoppingReplacementProjectionService::FAILED_TRIP_EVENT,
+                'metadata' => [
+                    'pickup_location_id' => $pickup->id,
+                    'chain_id' => $chainId,
+                    'distance_meters' => 1000,
+                    'verified_for_compensation' => true,
+                ],
+            ]);
+            if ($index < 2) {
+                OrderLog::query()->create([
+                    'order_id' => $order->id,
+                    'event_type' => ShoppingReplacementProjectionService::REPLACEMENT_EVENT,
+                    'metadata' => [
+                        'chain_id' => $chainId,
+                        'attempt_no' => $index + 2,
+                        'source_pickup_location_id' => $pickup->id,
+                        'replacement_pickup_location_id' => $pickups[$index + 1]->id,
+                    ],
+                ]);
+            }
+        }
+
+        $snapshot = app(ShoppingReplacementProjectionService::class)->snapshot($order->refresh());
+
+        $this->assertSame(3, $snapshot['chains'][$chainId]['failed_attempt_count']);
+        $this->assertTrue($snapshot['chains'][$chainId]['is_abandoned']);
+        $this->assertFalse($snapshot['pickups'][$pickups[2]->id]['can_replace_merchant']);
+        $this->assertSame(3, $snapshot['order_failed_trip_count']);
+        $this->assertSame('ARRIVED_MERCHANT', $order->refresh()->statusRef->code);
     }
 
     /**

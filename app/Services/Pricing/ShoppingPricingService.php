@@ -9,6 +9,7 @@ use App\Services\Notification\OrderPricingPushNotificationService;
 use App\Services\Notification\OrderRealtimeBroadcaster;
 use App\Services\Order\OrderPaymentService;
 use App\Services\Shopping\ShoppingDeliveryFeeLockResolver;
+use App\Services\Shopping\ShoppingFailedTripCompensationService;
 use App\Services\Shopping\ShoppingPriceNegotiationService;
 use Illuminate\Support\Facades\DB;
 
@@ -25,6 +26,7 @@ class ShoppingPricingService
         private readonly OrderRealtimeBroadcaster $realtimeBroadcaster,
         private readonly OrderPricingPushNotificationService $pricingPushNotificationService,
         private readonly ShoppingDeliveryFeeLockResolver $deliveryFeeLockResolver,
+        private readonly ShoppingFailedTripCompensationService $failedTripCompensationService,
     ) {}
 
     public function subtotalAmount(Order $order): float
@@ -57,8 +59,9 @@ class ShoppingPricingService
             return 0.0;
         }
 
+        $failedTripCompensation = $this->failedTripCompensationService->amount($order);
         if (strtoupper((string) ($order->statusRef?->code ?? '')) !== 'CANCELLED_WITH_FEE') {
-            return 0.0;
+            return $failedTripCompensation;
         }
 
         $subtotal = $this->subtotalAmount($order);
@@ -71,9 +74,7 @@ class ShoppingPricingService
 
         $calculatedPenalty = $this->calculateCancellationPenalty($order);
 
-        return $calculatedPenalty > 0 && abs($snapshotFee - $calculatedPenalty) > 0.01
-            ? $calculatedPenalty
-            : $snapshotFee;
+        return max($failedTripCompensation, $calculatedPenalty, $snapshotFee);
     }
 
     /**
@@ -87,6 +88,7 @@ class ShoppingPricingService
         float $cancellationPenalty = 0.0,
         ?float $subtotalOverride = null,
         bool $penaltyOnly = false,
+        float $failedTripCompensation = 0.0,
     ): array {
         $subtotal = 0.0;
         $totalItemQuantity = 0;
@@ -106,6 +108,7 @@ class ShoppingPricingService
 
         $subtotal = round($subtotal, 2);
         $cancellationPenalty = round(max(0.0, $cancellationPenalty), 2);
+        $failedTripCompensation = round(max(0.0, $failedTripCompensation), 2);
 
         if ($subtotalOverride !== null && $subtotalOverride > 0) {
             $subtotal = round($subtotalOverride, 2);
@@ -116,7 +119,9 @@ class ShoppingPricingService
             $deliveryFee = 0.0;
         }
 
-        $serviceFee = $cancellationPenalty;
+        $serviceFee = $penaltyOnly
+            ? max($cancellationPenalty, $failedTripCompensation)
+            : round($cancellationPenalty + $failedTripCompensation, 2);
         $totalPrice = round($subtotal + $deliveryFee + $serviceFee, 2);
 
         return [
@@ -126,6 +131,7 @@ class ShoppingPricingService
             'item_surcharge' => 0.0,
             'overweight_surcharge' => 0.0,
             'cancellation_penalty' => round($cancellationPenalty, 2),
+            'failed_trip_compensation' => $failedTripCompensation,
             'service_fee' => $serviceFee,
             'total_price' => $totalPrice,
             'has_overweight_item' => false,
@@ -157,6 +163,7 @@ class ShoppingPricingService
             ? $this->calculateCancellationPenalty($order)
             : 0.0;
         $penaltyOnly = $cancellationPenalty > 0 && $statusCode === 'CANCELLED_WITH_FEE';
+        $failedTripCompensation = $this->failedTripCompensationService->amount($order);
         $subtotalOverride = $penaltyOnly ? null : $this->approvedShoppingSubtotalAmount($order);
 
         $pricing = $this->calculateForItems(
@@ -166,11 +173,13 @@ class ShoppingPricingService
             $cancellationPenalty,
             $subtotalOverride,
             $penaltyOnly,
+            $failedTripCompensation,
         );
 
         $nextVersion = $this->latestRecalculationVersion($order) + 1;
 
         $orderUpdates = [
+            'service_fee' => $pricing['service_fee'],
             'total_price' => $pricing['total_price'],
         ];
 
@@ -194,6 +203,7 @@ class ShoppingPricingService
             'metadata' => [
                 'item_count' => $pricing['item_count'],
                 'has_overweight_item' => $pricing['has_overweight_item'],
+                'failed_trip_compensation' => $pricing['failed_trip_compensation'],
                 'trigger_type' => $triggerType,
                 'recalculation_version' => $nextVersion,
                 ...($penaltyBaseDeliveryFee !== null ? [
@@ -214,6 +224,7 @@ class ShoppingPricingService
                 'metadata' => [
                     'subtotal' => $pricing['subtotal'],
                     'service_fee' => $pricing['service_fee'],
+                    'failed_trip_compensation' => $pricing['failed_trip_compensation'],
                     'total_price' => $pricing['total_price'],
                     'recalculation_version' => $nextVersion,
                     ...($penaltyBaseDeliveryFee !== null ? [
@@ -260,6 +271,11 @@ class ShoppingPricingService
 
     public function calculateCancellationPenalty(Order $order): float
     {
+        $failedTripCompensation = $this->failedTripCompensationService->amount($order);
+        if ($failedTripCompensation > 0) {
+            return $failedTripCompensation;
+        }
+
         $threshold = self::CANCELLATION_FAILED_ATTEMPT_THRESHOLD;
         $percent = self::CANCELLATION_PENALTY_PERCENT;
 
@@ -359,6 +375,10 @@ class ShoppingPricingService
 
     public function feeLineAmount(Order $order, string $code): float
     {
+        if (strtoupper($code) === 'FAILED_TRIP_COMPENSATION') {
+            return $this->failedTripCompensationService->amount($order);
+        }
+
         if (strtoupper($code) !== self::CANCELLATION_PENALTY) {
             return 0.0;
         }
@@ -371,17 +391,25 @@ class ShoppingPricingService
      */
     public function feeBreakdownForOrder(Order $order): array
     {
-        $penalty = $this->cancellationPenaltyAmount($order);
-        if ($penalty <= 0) {
-            return [];
+        $lines = [];
+        $failedTripLine = $this->failedTripCompensationService->feeLine($order);
+        if ($failedTripLine !== null) {
+            $lines[] = $failedTripLine;
         }
 
-        return [[
+        $penalty = $this->cancellationPenaltyAmount($order);
+        if ($penalty <= 0 || $failedTripLine !== null) {
+            return $lines;
+        }
+
+        $lines[] = [
             'code' => self::CANCELLATION_PENALTY,
             'label' => $this->feeLineLabel(self::CANCELLATION_PENALTY),
             'description' => $this->feeLineDescription(self::CANCELLATION_PENALTY),
             'amount' => $penalty,
-        ]];
+        ];
+
+        return $lines;
     }
 
     /**

@@ -146,7 +146,7 @@ class ShoppingOrderCapabilityService
 
             $status = strtoupper((string) ($location->fulfillment_status ?? 'PENDING'));
 
-            return ! in_array($status, ['FAILED', 'SKIPPED', 'REPLACED', 'COMPLETED'], true);
+            return ! in_array($status, ['FAILED', 'SKIPPED', 'REPLACED', 'COMPLETED', 'ABANDONED_AFTER_LIMIT'], true);
         });
     }
 

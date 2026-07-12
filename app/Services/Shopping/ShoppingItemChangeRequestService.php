@@ -17,6 +17,8 @@ class ShoppingItemChangeRequestService
 
     public const CUSTOMER_APPLIED = 'CUSTOMER_ITEM_CHANGE_APPLIED';
 
+    public const DRIVER_UNAVAILABLE_ITEMS_REMOVED = 'DRIVER_UNAVAILABLE_ITEMS_REMOVED';
+
     /**
      * @param  array<string, mixed>  $metadata
      */
@@ -49,12 +51,17 @@ class ShoppingItemChangeRequestService
     /**
      * @param  array<string, mixed>  $metadata
      */
-    public function recordApplied(Order $order, int $actorId, array $metadata, ?string $note = null): OrderLog
-    {
+    public function recordApplied(
+        Order $order,
+        int $actorId,
+        array $metadata,
+        ?string $note = null,
+        string $triggerType = self::CUSTOMER_APPLIED,
+    ): OrderLog {
         return OrderLog::query()->create([
             'order_id' => $order->id,
             'event_type' => self::EVENT_TYPE,
-            'trigger_type' => self::CUSTOMER_APPLIED,
+            'trigger_type' => $triggerType,
             'changed_by_user_id' => $actorId,
             'note' => $note ?: 'Customer langsung memperbarui item Nitip yang tidak tersedia.',
             'metadata' => [

@@ -7,6 +7,7 @@ use App\Models\Driver;
 use App\Models\Menu;
 use App\Models\Order;
 use App\Models\OrderItem;
+use App\Models\OrderLog;
 use App\Models\OrderPayment;
 use App\Models\OrderStatus;
 use App\Models\Restaurant;
@@ -886,6 +887,91 @@ class ShoppingOrderItemEditTest extends TestCase
         ]);
     }
 
+    public function test_customer_can_remove_multiple_unavailable_items_and_pending_state_is_preserved_until_all_resolved(): void
+    {
+        [, $driver] = $this->createDriver();
+        $customer = User::factory()->create(['role' => 'customer']);
+        $order = $this->createShoppingOrder($customer, 'ARRIVED_MERCHANT');
+        $order->forceFill(['driver_id' => $driver->id])->save();
+        $pickup = $order->orderLocations()->where('location_role', 'PICKUP')->firstOrFail();
+        $firstUnavailable = $order->items()->firstOrFail();
+        $firstUnavailable->update(['is_available' => false, 'unit_price' => 0, 'subtotal' => 0]);
+        $secondUnavailable = OrderItem::query()->create([
+            'order_id' => $order->id,
+            'pickup_location_id' => $pickup->id,
+            'item_source' => 'MANUAL',
+            'menu_name' => 'Item kosong kedua',
+            'quantity' => 1,
+            'unit_price' => 0,
+            'subtotal' => 0,
+            'is_available' => false,
+        ]);
+        $thirdUnavailable = OrderItem::query()->create([
+            'order_id' => $order->id,
+            'pickup_location_id' => $pickup->id,
+            'item_source' => 'MANUAL',
+            'menu_name' => 'Item kosong ketiga',
+            'quantity' => 1,
+            'unit_price' => 0,
+            'subtotal' => 0,
+            'is_available' => false,
+        ]);
+        OrderItem::query()->create([
+            'order_id' => $order->id,
+            'pickup_location_id' => $pickup->id,
+            'item_source' => 'MANUAL',
+            'menu_name' => 'Item tersedia',
+            'quantity' => 1,
+            'unit_price' => 18000,
+            'subtotal' => 18000,
+            'is_available' => true,
+        ]);
+
+        Sanctum::actingAs($customer);
+        $endpoint = '/api/v1/orders/'.$order->id.'/shopping/item-change-request';
+        $basePayload = [
+            'action' => 'REMOVE',
+            'request_kind' => 'EDIT_UNAVAILABLE',
+            'target_pickup_location_id' => $pickup->id,
+        ];
+
+        $this->postJson($endpoint, [
+            ...$basePayload,
+            'item_ids' => [$firstUnavailable->id, $secondUnavailable->id],
+        ])->assertOk();
+
+        $this->assertDatabaseMissing('shopping_order_items', ['id' => $firstUnavailable->id]);
+        $this->assertDatabaseMissing('shopping_order_items', ['id' => $secondUnavailable->id]);
+        $this->assertDatabaseHas('shopping_order_items', ['id' => $thirdUnavailable->id]);
+        $this->assertDatabaseHas('order_locations', [
+            'id' => $pickup->id,
+            'fulfillment_status' => 'ITEMS_PENDING_CUSTOMER',
+        ]);
+
+        $this->postJson($endpoint, [
+            ...$basePayload,
+            'item_ids' => [$thirdUnavailable->id],
+        ])->assertOk();
+
+        $this->assertDatabaseMissing('shopping_order_items', ['id' => $thirdUnavailable->id]);
+        $this->assertDatabaseHas('order_locations', [
+            'id' => $pickup->id,
+            'fulfillment_status' => 'ITEMS_CONFIRMED',
+        ]);
+        $this->assertSame(2, OrderLog::query()
+            ->where('order_id', $order->id)
+            ->where('event_type', 'SHOPPING_ITEM_CHANGE_REQUEST')
+            ->where('trigger_type', 'CUSTOMER_UNAVAILABLE_ITEMS_REMOVED')
+            ->count());
+
+        $this->postJson($endpoint, [
+            ...$basePayload,
+            'item_ids' => [$thirdUnavailable->id],
+        ])->assertStatus(409)
+            ->assertJsonPath('errors.code', 'STATE_CHANGED')
+            ->assertJsonPath('errors.latest_order.id', $order->id);
+    }
+
     public function test_customer_cannot_continue_without_only_unavailable_item_in_merchant(): void
     {
         [, $driver] = $this->createDriver();
@@ -910,7 +996,7 @@ class ShoppingOrderItemEditTest extends TestCase
         ]);
 
         $response->assertStatus(409)
-            ->assertJsonPath('message', 'Merchant hanya punya item tidak tersedia. Pilih edit item atau batal merchant.');
+            ->assertJsonPath('message', 'Toko/resto hanya punya item tidak tersedia. Pilih ganti item atau batal tempat.');
 
         $this->assertDatabaseHas('shopping_order_items', [
             'id' => $unavailableItem->id,
