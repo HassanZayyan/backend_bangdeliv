@@ -3491,6 +3491,19 @@ class OrderService
             }
 
             $trigger = $this->deliveryFeeNegotiationService->nextDriverQuoteTrigger($order);
+            $pricingScopeMetadata = [];
+            if (($order->serviceType->code ?? null) === 'SHOPPING') {
+                $failedTripCompensation = $this->shoppingPricingService->feeLineAmount(
+                    $order,
+                    'FAILED_TRIP_COMPENSATION'
+                );
+                $pricingScopeMetadata = [
+                    'pricing_scope' => DeliveryFeeNegotiationService::PRICING_SCOPE_SHOPPING_TOTAL_TRANSPORT,
+                    'previous_total_transport' => round((float) $order->delivery_fee + $failedTripCompensation, 2),
+                    'replaced_delivery_fee' => round((float) $order->delivery_fee, 2),
+                    'replaced_failed_trip_compensation' => round($failedTripCompensation, 2),
+                ];
+            }
             $this->deliveryFeeNegotiationService->record(
                 $order,
                 $trigger,
@@ -3504,6 +3517,7 @@ class OrderService
                     'amount' => $quoteAmounts['final_amount'],
                     'delivery_fee_source' => 'driver_manual',
                     'status' => 'PENDING_CUSTOMER',
+                    ...$pricingScopeMetadata,
                 ]
             );
 
@@ -3564,6 +3578,7 @@ class OrderService
                     'delivery_fee_source' => 'driver_manual',
                     'status' => 'APPROVED',
                     'bypassed_by_driver' => true,
+                    ...$this->deliveryFeePricingScopeMetadata($snapshot),
                 ]
             );
 
@@ -3628,6 +3643,7 @@ class OrderService
                     'final_amount' => $counterAmount,
                     'delivery_fee_source' => 'driver_manual',
                     'status' => 'APPROVED',
+                    ...$this->deliveryFeePricingScopeMetadata($snapshot),
                 ]
             );
 
@@ -3720,6 +3736,7 @@ class OrderService
                 'final_amount' => $quotedAmount,
                 'delivery_fee_source' => 'driver_manual',
                 'status' => 'APPROVED',
+                ...$this->deliveryFeePricingScopeMetadata($snapshot),
             ]
         );
 
@@ -3771,6 +3788,7 @@ class OrderService
                 'counter_amount' => $counterAmounts['final_amount'],
                 'delivery_fee_source' => 'driver_manual',
                 'status' => 'PENDING_DRIVER',
+                ...$this->deliveryFeePricingScopeMetadata($snapshot),
             ]
         );
 
@@ -3866,6 +3884,24 @@ class OrderService
             $reason,
             $changedByRole,
         );
+    }
+
+    /**
+     * @param  array<string, mixed>  $snapshot
+     * @return array<string, mixed>
+     */
+    private function deliveryFeePricingScopeMetadata(array $snapshot): array
+    {
+        if (($snapshot['pricing_scope'] ?? null) !== DeliveryFeeNegotiationService::PRICING_SCOPE_SHOPPING_TOTAL_TRANSPORT) {
+            return [];
+        }
+
+        return array_filter([
+            'pricing_scope' => DeliveryFeeNegotiationService::PRICING_SCOPE_SHOPPING_TOTAL_TRANSPORT,
+            'previous_total_transport' => $snapshot['previous_total_transport'] ?? null,
+            'replaced_delivery_fee' => $snapshot['replaced_delivery_fee'] ?? null,
+            'replaced_failed_trip_compensation' => $snapshot['replaced_failed_trip_compensation'] ?? null,
+        ], static fn (mixed $value): bool => $value !== null);
     }
 
     /**

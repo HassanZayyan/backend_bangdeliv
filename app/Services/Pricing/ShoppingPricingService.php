@@ -7,6 +7,7 @@ use App\Models\OrderItem;
 use App\Models\OrderLog;
 use App\Services\Notification\OrderPricingPushNotificationService;
 use App\Services\Notification\OrderRealtimeBroadcaster;
+use App\Services\Order\DeliveryFeeNegotiationService;
 use App\Services\Order\OrderPaymentService;
 use App\Services\Shopping\ShoppingDeliveryFeeLockResolver;
 use App\Services\Shopping\ShoppingFailedTripCompensationService;
@@ -59,7 +60,7 @@ class ShoppingPricingService
             return 0.0;
         }
 
-        $failedTripCompensation = $this->failedTripCompensationService->amount($order);
+        $failedTripCompensation = $this->chargeableFailedTripCompensationAmount($order);
         if (strtoupper((string) ($order->statusRef?->code ?? '')) !== 'CANCELLED_WITH_FEE') {
             return $failedTripCompensation;
         }
@@ -163,7 +164,7 @@ class ShoppingPricingService
             ? $this->calculateCancellationPenalty($order)
             : 0.0;
         $penaltyOnly = $cancellationPenalty > 0 && $statusCode === 'CANCELLED_WITH_FEE';
-        $failedTripCompensation = $this->failedTripCompensationService->amount($order);
+        $failedTripCompensation = $this->chargeableFailedTripCompensationAmount($order);
         $subtotalOverride = $penaltyOnly ? null : $this->approvedShoppingSubtotalAmount($order);
 
         $pricing = $this->calculateForItems(
@@ -271,7 +272,7 @@ class ShoppingPricingService
 
     public function calculateCancellationPenalty(Order $order): float
     {
-        $failedTripCompensation = $this->failedTripCompensationService->amount($order);
+        $failedTripCompensation = $this->chargeableFailedTripCompensationAmount($order);
         if ($failedTripCompensation > 0) {
             return $failedTripCompensation;
         }
@@ -376,7 +377,7 @@ class ShoppingPricingService
     public function feeLineAmount(Order $order, string $code): float
     {
         if (strtoupper($code) === 'FAILED_TRIP_COMPENSATION') {
-            return $this->failedTripCompensationService->amount($order);
+            return $this->chargeableFailedTripCompensationAmount($order);
         }
 
         if (strtoupper($code) !== self::CANCELLATION_PENALTY) {
@@ -392,8 +393,12 @@ class ShoppingPricingService
     public function feeBreakdownForOrder(Order $order): array
     {
         $lines = [];
-        $failedTripLine = $this->failedTripCompensationService->feeLine($order);
+        $chargeableFailedTripCompensation = $this->chargeableFailedTripCompensationAmount($order);
+        $failedTripLine = $chargeableFailedTripCompensation > 0
+            ? $this->failedTripCompensationService->feeLine($order)
+            : null;
         if ($failedTripLine !== null) {
+            $failedTripLine['amount'] = $chargeableFailedTripCompensation;
             $lines[] = $failedTripLine;
         }
 
@@ -410,6 +415,16 @@ class ShoppingPricingService
         ];
 
         return $lines;
+    }
+
+    public function chargeableFailedTripCompensationAmount(Order $order): float
+    {
+        $lock = $this->deliveryFeeLockResolver->resolve($order);
+        if (($lock['pricing_scope'] ?? null) === DeliveryFeeNegotiationService::PRICING_SCOPE_SHOPPING_TOTAL_TRANSPORT) {
+            return 0.0;
+        }
+
+        return $this->failedTripCompensationService->amount($order);
     }
 
     /**

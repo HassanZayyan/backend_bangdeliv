@@ -183,7 +183,7 @@ class DriverOrderWorkflowTest extends TestCase
         $this->assertNotContains('Tiba di Toko / Merchant', $actions->pluck('label')->all());
     }
 
-    public function test_shopping_open_merchant_moves_arrived_and_keeps_delivery_fee_revision_open(): void
+    public function test_shopping_open_merchant_moves_arrived_without_opening_final_delivery_fee_revision(): void
     {
         [$driverUser, $driver] = $this->createActiveDriver('shopping-open-locks-fee');
         $order = $this->createShoppingOrder($driver, 'DRIVER_ASSIGNED');
@@ -196,13 +196,13 @@ class DriverOrderWorkflowTest extends TestCase
 
         $openResponse->assertOk()
             ->assertJsonPath('data.status_code', 'ARRIVED_MERCHANT')
-            ->assertJsonPath('data.delivery_fee_negotiation.can_driver_submit_quote', true);
+            ->assertJsonPath('data.delivery_fee_negotiation.can_driver_submit_quote', false);
 
         $this->postJson('/api/v1/driver/orders/'.$order->id.'/delivery-fee-override', [
             'amount' => 12000,
             'reason' => 'Rute berubah setelah merchant diproses.',
-        ])->assertOk()
-            ->assertJsonPath('success', true);
+        ])->assertConflict()
+            ->assertJsonPath('success', false);
 
         $this->assertDatabaseHas('order_status_histories', [
             'order_id' => $order->id,
@@ -238,7 +238,7 @@ class DriverOrderWorkflowTest extends TestCase
         $this->assertSame($deliveryFeeBefore, (float) $order->refresh()->delivery_fee);
     }
 
-    public function test_pending_delivery_fee_revision_does_not_block_shopping_merchant_open(): void
+    public function test_shopping_delivery_fee_revision_is_unavailable_before_merchant_open(): void
     {
         [$driverUser, $driver] = $this->createActiveDriver('shopping-open-pending-fee');
         $order = $this->createShoppingOrder($driver, 'DRIVER_ASSIGNED');
@@ -250,14 +250,14 @@ class DriverOrderWorkflowTest extends TestCase
         $this->postJson('/api/v1/driver/orders/'.$order->id.'/delivery-fee-override', [
             'amount' => 9000,
             'reason' => 'Menunggu persetujuan customer.',
-        ])->assertOk();
+        ])->assertConflict();
 
         $this->postJson('/api/v1/driver/orders/'.$order->id.'/shopping-stops/'.$pickup->id.'/open')
             ->assertOk()
             ->assertJsonPath('data.status_code', 'ARRIVED_MERCHANT');
     }
 
-    public function test_shopping_closed_merchant_moves_arrived_and_keeps_delivery_fee_revision_open(): void
+    public function test_shopping_closed_merchant_moves_arrived_without_opening_final_delivery_fee_revision(): void
     {
         Config::set('bangdeliv.google_maps_api_key', 'test-google-key');
         Config::set('bangdeliv.routes.optimize_shopping_waypoints', false);
@@ -288,8 +288,8 @@ class DriverOrderWorkflowTest extends TestCase
         $this->postJson('/api/v1/driver/orders/'.$order->id.'/delivery-fee-override', [
             'amount' => 12000,
             'reason' => 'Rute direvisi setelah merchant tutup.',
-        ])->assertOk()
-            ->assertJsonPath('success', true);
+        ])->assertConflict()
+            ->assertJsonPath('success', false);
     }
 
     public function test_assigned_driver_can_update_live_location_for_tracking(): void

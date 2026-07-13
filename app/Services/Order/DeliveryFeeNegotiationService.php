@@ -7,6 +7,8 @@ use App\Models\Order;
 use App\Models\OrderEvidence;
 use App\Models\OrderLog;
 use App\Models\OrderPayment;
+use App\Services\Shopping\ShoppingDeliveryFeeLockResolver;
+use App\Services\Shopping\ShoppingPriceNegotiationService;
 
 class DeliveryFeeNegotiationService
 {
@@ -25,6 +27,8 @@ class DeliveryFeeNegotiationService
     public const DRIVER_FEE_REQUOTED = 'DRIVER_FEE_REQUOTED';
 
     public const CUSTOMER_CANCEL_ORDER = 'CUSTOMER_CANCEL_ORDER';
+
+    public const PRICING_SCOPE_SHOPPING_TOTAL_TRANSPORT = 'SHOPPING_TOTAL_TRANSPORT';
 
     public function __construct(private readonly OrderNegotiationLogService $negotiationLogs) {}
 
@@ -64,6 +68,9 @@ class DeliveryFeeNegotiationService
                 'counter_amount' => null,
                 'approved_amount' => null,
                 'old_delivery_fee' => $this->negotiationLogs->floatOrNull($order->delivery_fee),
+                'pricing_scope' => null,
+                'active_pricing_scope' => $this->activePricingScope($order),
+                'previous_total_transport' => null,
                 'note' => null,
                 'updated_at' => null,
                 'can_customer_respond' => false,
@@ -104,11 +111,16 @@ class DeliveryFeeNegotiationService
             'counter_base_amount' => $this->negotiationLogs->floatOrNull($metadata['counter_base_amount'] ?? null),
             'approved_amount' => $this->negotiationLogs->floatOrNull($metadata['approved_amount'] ?? null),
             'old_delivery_fee' => $this->negotiationLogs->floatOrNull($metadata['old_delivery_fee'] ?? null),
+            'pricing_scope' => $this->pricingScope($metadata['pricing_scope'] ?? null),
+            'active_pricing_scope' => $this->activePricingScope($order),
+            'previous_total_transport' => $this->negotiationLogs->floatOrNull($metadata['previous_total_transport'] ?? null),
+            'replaced_delivery_fee' => $this->negotiationLogs->floatOrNull($metadata['replaced_delivery_fee'] ?? null),
+            'replaced_failed_trip_compensation' => $this->negotiationLogs->floatOrNull($metadata['replaced_failed_trip_compensation'] ?? null),
             'note' => $log->note,
             'updated_at' => $this->negotiationLogs->iso($log->created_at),
             'can_customer_respond' => $isPendingCustomer && $this->canCustomerRespond($order),
             'can_driver_submit_quote' => $this->canDriverSubmitQuote($order),
-            'can_driver_accept_counter' => $isPendingDriver && $this->canDriverSubmitQuote($order),
+            'can_driver_accept_counter' => $isPendingDriver && $this->canDriverContinueNegotiation($order, $metadata),
             'approval_required' => $isPendingCustomer || $isPendingDriver,
             'is_pending' => $isPendingCustomer || $isPendingDriver,
             'is_approved' => $isApproved,
@@ -179,8 +191,11 @@ class DeliveryFeeNegotiationService
 
     public function canCustomerRespond(Order $order): bool
     {
+        $latest = $this->latest($order);
+        $metadata = $latest instanceof OrderLog && is_array($latest->metadata) ? $latest->metadata : [];
+
         return $this->supportsOrder($order)
-            && $this->isWithinEditableStatus($order)
+            && $this->isWithinNegotiationStatus($order, $metadata)
             && ! $this->hasPaidPayment($order)
             && ! $this->hasPendingTransferEvidence($order);
     }
@@ -213,11 +228,39 @@ class DeliveryFeeNegotiationService
         if (ServiceTypeCode::normalize((string) ($order->serviceType?->code ?? '')) === ServiceTypeCode::Shopping->value) {
             $order->loadMissing('shoppingReceipt');
 
+            return $statusCode === 'ARRIVED_MERCHANT'
+                && $order->shoppingReceipt === null
+                && app(ShoppingPriceNegotiationService::class)->isApproved($order);
+        }
+
+        return $statusCode === 'DRIVER_ASSIGNED';
+    }
+
+    /** @param array<string, mixed> $metadata */
+    private function isWithinNegotiationStatus(Order $order, array $metadata): bool
+    {
+        if ($this->pricingScope($metadata['pricing_scope'] ?? null) === self::PRICING_SCOPE_SHOPPING_TOTAL_TRANSPORT) {
+            return $this->isWithinEditableStatus($order);
+        }
+
+        $statusCode = strtoupper((string) ($order->statusRef?->code ?? ''));
+        if (ServiceTypeCode::normalize((string) ($order->serviceType?->code ?? '')) === ServiceTypeCode::Shopping->value) {
+            $order->loadMissing('shoppingReceipt');
+
             return in_array($statusCode, ['DRIVER_ASSIGNED', 'ARRIVED_MERCHANT'], true)
                 && $order->shoppingReceipt === null;
         }
 
         return $statusCode === 'DRIVER_ASSIGNED';
+    }
+
+    /** @param array<string, mixed> $metadata */
+    private function canDriverContinueNegotiation(Order $order, array $metadata): bool
+    {
+        return $this->supportsOrder($order)
+            && $this->isWithinNegotiationStatus($order, $metadata)
+            && ! $this->hasPaidPayment($order)
+            && ! $this->hasPendingTransferEvidence($order);
     }
 
     private function statusForTrigger(string $trigger): string
@@ -270,5 +313,19 @@ class DeliveryFeeNegotiationService
         return $order->evidences()
             ->where('evidence_type', 'PAYMENT_TRANSFER_PHOTO')
             ->exists();
+    }
+
+    private function pricingScope(mixed $value): ?string
+    {
+        $scope = strtoupper(trim((string) ($value ?? '')));
+
+        return $scope === self::PRICING_SCOPE_SHOPPING_TOTAL_TRANSPORT ? $scope : null;
+    }
+
+    private function activePricingScope(Order $order): ?string
+    {
+        $lock = app(ShoppingDeliveryFeeLockResolver::class)->resolve($order);
+
+        return $this->pricingScope($lock['pricing_scope'] ?? null);
     }
 }

@@ -7,6 +7,7 @@ use App\Models\Driver;
 use App\Models\Order;
 use App\Models\OrderEvidence;
 use App\Models\OrderItem;
+use App\Models\OrderLocation;
 use App\Models\OrderLog;
 use App\Models\OrderPayment;
 use App\Models\OrderStatus;
@@ -14,6 +15,7 @@ use App\Models\Restaurant;
 use App\Models\ServiceType;
 use App\Models\User;
 use App\Services\Driver\DriverIncomeFeeCalculator;
+use App\Services\Pricing\ShoppingPricingService;
 use App\Services\Shopping\ShoppingFailedTripCompensationService;
 use App\Services\Shopping\ShoppingReplacementProjectionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -291,7 +293,7 @@ class DriverOrderRevisionEndpointsTest extends TestCase
             ->assertJsonValidationErrors(['reason']);
     }
 
-    public function test_shopping_accepts_manual_delivery_fee_for_normal_negotiation(): void
+    public function test_shopping_rejects_manual_total_transport_before_all_merchants_are_approved(): void
     {
         [$driverUser, $driver] = $this->createDriver();
         $order = $this->createAssignedOrder($driver, 'SHOPPING', 'DRIVER_ASSIGNED', 15000);
@@ -303,10 +305,8 @@ class DriverOrderRevisionEndpointsTest extends TestCase
             'reason' => 'Belanja banyak dan perlu bantuan.',
         ]);
 
-        $response->assertOk()
-            ->assertJsonPath('success', true)
-            ->assertJsonPath('data.delivery_fee_negotiation.status', 'PENDING_CUSTOMER')
-            ->assertJsonPath('data.delivery_fee_negotiation.quoted_amount', 22500);
+        $response->assertConflict()
+            ->assertJsonPath('success', false);
     }
 
     public function test_shopping_allows_manual_delivery_fee_until_checkout_is_saved(): void
@@ -314,16 +314,195 @@ class DriverOrderRevisionEndpointsTest extends TestCase
         [$driverUser, $driver] = $this->createDriver();
         $order = $this->createAssignedOrder($driver, 'SHOPPING', 'ARRIVED_MERCHANT', 15000);
 
+        $customer = User::query()->findOrFail($order->user_id);
+        $firstPickup = $order->orderLocations()->create([
+            'location_role' => 'PICKUP',
+            'label' => 'Toko Pertama',
+            'full_address' => 'Jl. Toko Pertama',
+            'latitude' => -7.001,
+            'longitude' => 110.401,
+            'sequence_no' => 1,
+            'fulfillment_status' => 'ITEMS_CONFIRMED',
+        ]);
+        $secondPickup = $order->orderLocations()->create([
+            'location_role' => 'PICKUP',
+            'label' => 'Toko Kedua',
+            'full_address' => 'Jl. Toko Kedua',
+            'latitude' => -7.002,
+            'longitude' => 110.402,
+            'sequence_no' => 2,
+            'fulfillment_status' => 'ITEMS_CONFIRMED',
+        ]);
+        foreach ([$firstPickup, $secondPickup] as $index => $pickup) {
+            OrderItem::query()->create([
+                'order_id' => $order->id,
+                'pickup_location_id' => $pickup->id,
+                'item_source' => 'MANUAL',
+                'menu_name' => 'Item '.($index + 1),
+                'quantity' => 1,
+                'unit_price' => 0,
+                'subtotal' => 0,
+                'is_available' => true,
+            ]);
+        }
+
         Sanctum::actingAs($driverUser);
+
+        $this->postJson('/api/v1/driver/orders/'.$order->id.'/delivery-fee-override', [
+            'amount' => 22500,
+            'reason' => 'Belum semua toko selesai.',
+        ])->assertConflict();
+
+        $firstPickup->update(['fulfillment_status' => 'PRICE_APPROVED']);
+        $this->approveShoppingQuoteForTest($order, $driverUser, $customer, 20000, $firstPickup);
+        $this->postJson('/api/v1/driver/orders/'.$order->id.'/delivery-fee-override', [
+            'amount' => 22500,
+            'reason' => 'Baru satu toko selesai.',
+        ])->assertConflict();
+
+        $secondPickup->update(['fulfillment_status' => 'PRICE_APPROVED']);
+        $this->approveShoppingQuoteForTest($order, $driverUser, $customer, 30000, $secondPickup);
 
         $response = $this->postJson('/api/v1/driver/orders/'.$order->id.'/delivery-fee-override', [
             'amount' => 22500,
-            'reason' => 'Tidak boleh setelah driver memproses merchant.',
+            'reason' => 'Semua toko selesai sebelum checkout.',
         ]);
 
         $response->assertOk()
             ->assertJsonPath('success', true)
-            ->assertJsonPath('data.delivery_fee_negotiation.status', 'PENDING_CUSTOMER');
+            ->assertJsonPath('data.delivery_fee_negotiation.status', 'PENDING_CUSTOMER')
+            ->assertJsonPath('data.delivery_fee_negotiation.pricing_scope', 'SHOPPING_TOTAL_TRANSPORT')
+            ->assertJsonPath('data.delivery_fee_negotiation.previous_total_transport', 15000);
+
+        $checkoutSavedOrder = $this->createAssignedOrder($driver, 'SHOPPING', 'ARRIVED_MERCHANT', 15000);
+        $checkoutCustomer = User::query()->findOrFail($checkoutSavedOrder->user_id);
+        $this->approveShoppingQuoteForTest($checkoutSavedOrder, $driverUser, $checkoutCustomer, 50000);
+        $checkoutSavedOrder->shoppingReceipt()->create([
+            'total_amount' => 50000,
+            'recorded_by_user_id' => $driverUser->id,
+            'recorded_at' => now(),
+        ]);
+
+        $this->postJson('/api/v1/driver/orders/'.$checkoutSavedOrder->id.'/delivery-fee-override', [
+            'amount' => 23000,
+            'reason' => 'Checkout sudah tersimpan.',
+        ])->assertConflict();
+    }
+
+    public function test_shopping_all_in_approval_replaces_delivery_fee_and_failed_trip_compensation(): void
+    {
+        [$driverUser, $driver] = $this->createDriver();
+        $order = $this->createAssignedOrder($driver, 'SHOPPING', 'ARRIVED_MERCHANT', 20000, 'TRANSFER');
+        $customer = User::query()->findOrFail($order->user_id);
+        $this->createFailedPickup($order, 3);
+        $this->approveShoppingQuoteForTest($order, $driverUser, $customer, 50000);
+
+        Sanctum::actingAs($driverUser);
+        $proposal = $this->postJson('/api/v1/driver/orders/'.$order->id.'/delivery-fee-override', [
+            'amount' => 26000,
+            'reason' => 'Koreksi final seluruh perjalanan Nitip.',
+        ]);
+
+        $proposal->assertOk()
+            ->assertJsonPath('data.delivery_fee_negotiation.pricing_scope', 'SHOPPING_TOTAL_TRANSPORT')
+            ->assertJsonPath('data.delivery_fee_negotiation.previous_total_transport', 30000)
+            ->assertJsonPath('data.delivery_fee_negotiation.replaced_delivery_fee', 20000)
+            ->assertJsonPath('data.delivery_fee_negotiation.replaced_failed_trip_compensation', 10000);
+
+        Sanctum::actingAs($customer);
+        $this->postJson('/api/v1/orders/'.$order->id.'/delivery-fee-override/respond', [
+            'action' => 'APPROVE',
+        ])->assertOk();
+
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
+            'delivery_fee' => 26000,
+            'total_price' => 76000,
+            'delivery_fee_source' => 'driver_manual',
+        ]);
+        $this->assertSame(0.0, (float) $order->refresh()->service_fee);
+        $this->assertDatabaseHas('order_payments', [
+            'order_id' => $order->id,
+            'payment_status' => 'PENDING',
+            'amount' => 76000,
+        ]);
+
+        Sanctum::actingAs($driverUser);
+        $detail = $this->getJson('/api/v1/driver/orders/'.$order->id);
+        $detail->assertOk()
+            ->assertJsonPath('data.delivery_fee_negotiation.active_pricing_scope', 'SHOPPING_TOTAL_TRANSPORT')
+            ->assertJsonPath('data.pricing.failed_trip_compensation', 0)
+            ->assertJsonPath('data.pricing.service_fee', 0)
+            ->assertJsonPath('data.pricing.total_price', 76000);
+        $this->assertSame([], $detail->json('data.pricing.fee_breakdown'));
+        $this->assertSame(26000.0, app(DriverIncomeFeeCalculator::class)->grossIncomeForOrder($order->refresh()));
+    }
+
+    public function test_legacy_shopping_manual_fee_without_scope_keeps_failed_trip_compensation_separate(): void
+    {
+        [$driverUser, $driver] = $this->createDriver();
+        $order = $this->createAssignedOrder($driver, 'SHOPPING', 'ARRIVED_MERCHANT', 20000);
+        $customer = User::query()->findOrFail($order->user_id);
+        $this->createFailedPickup($order, 3);
+        $this->approveShoppingQuoteForTest($order, $driverUser, $customer, 50000);
+        OrderLog::query()->create([
+            'order_id' => $order->id,
+            'event_type' => 'DELIVERY_FEE_NEGOTIATION',
+            'trigger_type' => 'CUSTOMER_FEE_APPROVED',
+            'changed_by_user_id' => $customer->id,
+            'note' => 'Proposal lama tanpa scope.',
+            'metadata' => [
+                'approved_amount' => 24000,
+                'final_amount' => 24000,
+                'status' => 'APPROVED',
+            ],
+        ]);
+        $order->update([
+            'delivery_fee' => 24000,
+            'delivery_fee_source' => 'driver_manual',
+        ]);
+
+        app(ShoppingPricingService::class)->recalculate(
+            $order->refresh()->load(['items', 'statusRef', 'serviceType', 'shoppingReceipt', 'orderLocations']),
+            $driverUser->id,
+            'LEGACY_MANUAL_FEE_TEST'
+        );
+
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
+            'delivery_fee' => 24000,
+            'total_price' => 86000,
+        ]);
+        $this->assertSame(12000.0, (float) $order->refresh()->service_fee);
+    }
+
+    public function test_shopping_all_in_scope_survives_customer_counter_and_driver_acceptance(): void
+    {
+        [$driverUser, $driver] = $this->createDriver();
+        $order = $this->createAssignedOrder($driver, 'SHOPPING', 'ARRIVED_MERCHANT', 15000);
+        $customer = User::query()->findOrFail($order->user_id);
+        $this->approveShoppingQuoteForTest($order, $driverUser, $customer, 50000);
+
+        Sanctum::actingAs($driverUser);
+        $this->postJson('/api/v1/driver/orders/'.$order->id.'/delivery-fee-override', [
+            'amount' => 25000,
+            'reason' => 'Total final perjalanan.',
+        ])->assertOk();
+
+        Sanctum::actingAs($customer);
+        $this->postJson('/api/v1/orders/'.$order->id.'/delivery-fee-override/respond', [
+            'action' => 'COUNTER',
+            'counter_amount' => 23000,
+        ])->assertOk()
+            ->assertJsonPath('data.delivery_fee_negotiation.pricing_scope', 'SHOPPING_TOTAL_TRANSPORT');
+
+        Sanctum::actingAs($driverUser);
+        $this->postJson('/api/v1/driver/orders/'.$order->id.'/delivery-fee-override/accept-counter')
+            ->assertOk()
+            ->assertJsonPath('data.delivery_fee_negotiation.pricing_scope', 'SHOPPING_TOTAL_TRANSPORT')
+            ->assertJsonPath('data.delivery_fee_negotiation.active_pricing_scope', 'SHOPPING_TOTAL_TRANSPORT')
+            ->assertJsonPath('data.pricing.failed_trip_compensation', 0)
+            ->assertJsonPath('data.pricing.total_price', 73000);
     }
 
     public function test_driver_can_bypass_pending_delivery_fee_for_all_service_types(): void
@@ -331,7 +510,21 @@ class DriverOrderRevisionEndpointsTest extends TestCase
         [$driverUser, $driver] = $this->createDriver();
 
         foreach (['RIDE', 'COURIER', 'SHOPPING'] as $serviceCode) {
-            $order = $this->createAssignedOrder($driver, $serviceCode, 'DRIVER_ASSIGNED', 15000);
+            $isShopping = $serviceCode === 'SHOPPING';
+            $order = $this->createAssignedOrder(
+                $driver,
+                $serviceCode,
+                $isShopping ? 'ARRIVED_MERCHANT' : 'DRIVER_ASSIGNED',
+                15000
+            );
+            if ($isShopping) {
+                $this->approveShoppingQuoteForTest(
+                    $order,
+                    $driverUser,
+                    User::query()->findOrFail($order->user_id),
+                    50000
+                );
+            }
 
             Sanctum::actingAs($driverUser);
 
@@ -347,17 +540,25 @@ class DriverOrderRevisionEndpointsTest extends TestCase
                 ->assertJsonPath('success', true)
                 ->assertJsonPath('data.delivery_fee_negotiation.status', 'APPROVED')
                 ->assertJsonPath('data.delivery_fee_negotiation.approved_amount', 21000);
+            if ($isShopping) {
+                $response
+                    ->assertJsonPath('data.delivery_fee_negotiation.pricing_scope', 'SHOPPING_TOTAL_TRANSPORT')
+                    ->assertJsonPath('data.delivery_fee_negotiation.active_pricing_scope', 'SHOPPING_TOTAL_TRANSPORT')
+                    ->assertJsonPath('data.pricing.failed_trip_compensation', 0);
+            }
+
+            $expectedTotal = $isShopping ? 71000 : 21000;
 
             $this->assertDatabaseHas('orders', [
                 'id' => $order->id,
                 'delivery_fee' => 21000,
-                'total_price' => 21000,
+                'total_price' => $expectedTotal,
                 'delivery_fee_source' => 'driver_manual',
             ]);
             $this->assertDatabaseHas('order_payments', [
                 'order_id' => $order->id,
                 'payment_status' => 'PENDING',
-                'amount' => 21000,
+                'amount' => $expectedTotal,
             ]);
 
             $event = OrderLog::query()
@@ -1765,9 +1966,14 @@ class DriverOrderRevisionEndpointsTest extends TestCase
         return $order;
     }
 
-    private function approveShoppingQuoteForTest(Order $order, User $driverUser, User $customer, float $amount): void
-    {
-        $pickup = $order->orderLocations()->where('location_role', 'PICKUP')->first();
+    private function approveShoppingQuoteForTest(
+        Order $order,
+        User $driverUser,
+        User $customer,
+        float $amount,
+        ?OrderLocation $pickup = null,
+    ): void {
+        $pickup ??= $order->orderLocations()->where('location_role', 'PICKUP')->first();
 
         $quote = OrderLog::query()->create([
             'order_id' => $order->id,

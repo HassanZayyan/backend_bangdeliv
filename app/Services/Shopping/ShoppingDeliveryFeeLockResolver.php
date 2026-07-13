@@ -9,7 +9,7 @@ use App\Services\Order\DeliveryFeeNegotiationService;
 class ShoppingDeliveryFeeLockResolver
 {
     /**
-     * @return array{is_locked: bool, amount: float|null, source: string|null, event_id: int|null}
+     * @return array{is_locked: bool, amount: float|null, source: string|null, event_id: int|null, pricing_scope: string|null}
      */
     public function resolve(Order $order): array
     {
@@ -39,6 +39,7 @@ class ShoppingDeliveryFeeLockResolver
                     'amount' => $amount,
                     'source' => $trigger,
                     'event_id' => (int) $latest->id,
+                    'pricing_scope' => $this->pricingScope($metadata['pricing_scope'] ?? null),
                 ];
             }
         }
@@ -48,6 +49,7 @@ class ShoppingDeliveryFeeLockResolver
             'amount' => null,
             'source' => null,
             'event_id' => null,
+            'pricing_scope' => null,
         ];
     }
 
@@ -75,5 +77,14 @@ class ShoppingDeliveryFeeLockResolver
         $amount = round((float) $value, 2);
 
         return $amount > 0 ? $amount : null;
+    }
+
+    private function pricingScope(mixed $value): ?string
+    {
+        $scope = strtoupper(trim((string) ($value ?? '')));
+
+        return $scope === DeliveryFeeNegotiationService::PRICING_SCOPE_SHOPPING_TOTAL_TRANSPORT
+            ? $scope
+            : null;
     }
 }
