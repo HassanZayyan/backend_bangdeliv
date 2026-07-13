@@ -1193,7 +1193,7 @@ class DriverOrderRevisionEndpointsTest extends TestCase
     public function test_driver_can_record_transfer_payment(): void
     {
         [$driverUser, $driver] = $this->createDriver();
-        $order = $this->createAssignedOrder($driver, 'RIDE', 'DELIVERED', 18000);
+        $order = $this->createAssignedOrder($driver, 'RIDE', 'DELIVERED', 18000, 'TRANSFER');
 
         Sanctum::actingAs($driverUser);
 

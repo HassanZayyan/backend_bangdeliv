@@ -1265,7 +1265,8 @@ class DriverOrderWorkflowTest extends TestCase
             ->assertJsonPath('data.available_actions.0.action_code', 'CONFIRM_PICKED_UP')
             ->assertJsonPath('data.available_actions.0.blocked', true)
             ->assertJsonPath('data.available_actions.1.action_code', 'REPORT_PACKAGE_INVALID')
-            ->assertJsonPath('data.available_actions.2.action_code', 'COLLECT_COD');
+            ->assertJsonPath('data.available_actions.2.action_code', 'COLLECT_COD')
+            ->assertJsonPath('data.available_actions.2.label', 'Catat Pembayaran COD');
 
         $this->postJson('/api/v1/driver/orders/'.$order->id.'/status-transition', [
             'action_code' => 'CONFIRM_PICKED_UP',
@@ -1331,6 +1332,45 @@ class DriverOrderWorkflowTest extends TestCase
             'note' => 'Terlalu awal.',
         ])->assertStatus(409)
             ->assertJsonPath('message', 'Pembayaran COD courier hanya bisa dicatat saat driver tiba di pickup.');
+    }
+
+    public function test_driver_can_only_confirm_courier_qris_at_pickup(): void
+    {
+        [$driverUser, $driver] = $this->createActiveDriver('courier-qris-stage');
+        $order = $this->createCourierOrderForDriver($driver, 'DRIVER_ASSIGNED', 22000);
+        OrderPayment::query()->where('order_id', $order->id)->update([
+            'payment_method' => 'TRANSFER',
+        ]);
+
+        Sanctum::actingAs($driverUser);
+
+        $this->postJson('/api/v1/orders/'.$order->id.'/payment/transfer/confirm', [
+            'amount' => 22000,
+        ])->assertStatus(409)
+            ->assertJsonPath('message', 'Pembayaran QRIS courier hanya bisa dicatat saat driver tiba di pickup.');
+
+        $order->update([
+            'status_id' => OrderStatus::query()->where('code', 'ARRIVED_PICKUP')->value('id'),
+        ]);
+
+        $this->postJson('/api/v1/orders/'.$order->id.'/payment/transfer/confirm', [
+            'amount' => 22000,
+        ])->assertOk()
+            ->assertJsonPath('data.payment_status', 'paid')
+            ->assertJsonPath('data.payment_method', 'TRANSFER');
+    }
+
+    public function test_driver_cannot_use_qris_confirmation_for_courier_cod(): void
+    {
+        [$driverUser, $driver] = $this->createActiveDriver('courier-cod-qris-guard');
+        $order = $this->createCourierOrderForDriver($driver, 'ARRIVED_PICKUP', 23000);
+
+        Sanctum::actingAs($driverUser);
+
+        $this->postJson('/api/v1/orders/'.$order->id.'/payment/transfer/confirm', [
+            'amount' => 23000,
+        ])->assertStatus(409)
+            ->assertJsonPath('message', 'Order ini menggunakan pembayaran COD. Gunakan pencatatan COD.');
     }
 
     public function test_driver_can_cancel_courier_at_pickup_when_package_invalid(): void

@@ -4113,6 +4113,30 @@ class OrderService
                 'payments',
                 'evidences',
             ]);
+
+            if ($this->orderPaymentService->isPaid($order)) {
+                throw new ApiException('Pembayaran order ini sudah tercatat.', 409);
+            }
+
+            if ($this->orderPaymentService->currentMethod($order) !== OrderPaymentService::METHOD_TRANSFER) {
+                throw new ApiException('Order ini menggunakan pembayaran COD. Gunakan pencatatan COD.', 409);
+            }
+
+            $serviceCode = strtoupper((string) ($order->serviceType->code ?? ''));
+            $statusCode = strtoupper((string) ($order->statusRef->code ?? ''));
+            $isCourierPickupConfirmation = $serviceCode === 'COURIER' && $statusCode === 'ARRIVED_PICKUP';
+            $isDeliveredConfirmation = $serviceCode !== 'COURIER' && $statusCode === 'DELIVERED';
+            $isShoppingCancellationFeeConfirmation =
+                $serviceCode === 'SHOPPING' && $statusCode === 'CANCELLED_WITH_FEE';
+
+            if (! $isCourierPickupConfirmation && ! $isDeliveredConfirmation && ! $isShoppingCancellationFeeConfirmation) {
+                $message = $serviceCode === 'COURIER'
+                    ? 'Pembayaran QRIS courier hanya bisa dicatat saat driver tiba di pickup.'
+                    : 'Pembayaran QRIS hanya bisa dicatat setelah order berstatus DELIVERED.';
+
+                throw new ApiException($message, 409);
+            }
+
             $paymentProofFeedback = app(AdminPaymentProofStatusService::class)->feedbackForOrder($order);
             if (($paymentProofFeedback['status'] ?? null) === 'rejected') {
                 throw new ApiException('Bukti QRIS ditolak. Tunggu customer mengirim bukti baru.', 409);

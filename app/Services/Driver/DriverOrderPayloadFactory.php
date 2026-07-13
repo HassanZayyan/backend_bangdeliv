@@ -508,9 +508,7 @@ class DriverOrderPayloadFactory
         if ($shouldCollectCourierAtPickup || $shouldCollectAtDelivered) {
             $actions[] = [
                 'action_code' => 'COLLECT_COD',
-                'label' => $shouldCollectCourierAtPickup
-                    ? 'Catat Pembayaran Pickup'
-                    : 'Catat Pembayaran COD',
+                'label' => 'Catat Pembayaran COD',
                 'target_status_code' => null,
                 'blocked' => false,
                 'blocked_reason' => null,
