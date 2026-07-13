@@ -791,6 +791,7 @@ class OrderController extends Controller
             'action_code' => ['required', 'string', 'max:60'],
             'target_status_code' => ['nullable', 'string', 'max:60'],
             'note' => ['nullable', 'string', 'max:1000'],
+            'cancellation_penalty_base_delivery_fee' => ['nullable', 'numeric', 'min:1', 'max:99999999'],
         ]);
 
         try {
@@ -802,6 +803,9 @@ class OrderController extends Controller
                     ? (string) $validated['target_status_code']
                     : null,
                 isset($validated['note']) ? (string) $validated['note'] : null,
+                isset($validated['cancellation_penalty_base_delivery_fee'])
+                    ? (float) $validated['cancellation_penalty_base_delivery_fee']
+                    : null,
             );
 
             return $this->success($order, 'Status order berhasil diperbarui.');

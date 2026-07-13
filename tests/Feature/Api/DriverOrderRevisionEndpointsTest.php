@@ -625,6 +625,83 @@ class DriverOrderRevisionEndpointsTest extends TestCase
         ]);
     }
 
+    public function test_driver_can_set_full_delivery_fee_base_for_shopping_half_fee_cancellation(): void
+    {
+        [$driverUser, $driver] = $this->createDriver();
+        $order = $this->createAssignedOrder($driver, 'SHOPPING', 'ARRIVED_MERCHANT', 10000);
+        $this->createFailedPickup($order, 3);
+
+        Sanctum::actingAs($driverUser);
+
+        $response = $this->postJson('/api/v1/driver/orders/'.$order->id.'/status-transition', [
+            'action_code' => 'CANCEL_WITH_FEE',
+            'target_status_code' => 'CANCELLED_WITH_FEE',
+            'note' => 'Rute aktual lebih jauh dari estimasi sistem.',
+            'cancellation_penalty_base_delivery_fee' => 100000,
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.status_code', 'CANCELLED_WITH_FEE')
+            ->assertJsonPath('data.pricing.delivery_fee', 0)
+            ->assertJsonPath('data.pricing.service_fee', 50000)
+            ->assertJsonPath('data.pricing.cancellation_penalty', 50000)
+            ->assertJsonPath('data.pricing.failed_trip_compensation', 0)
+            ->assertJsonPath('data.pricing.total_price', 50000);
+
+        $detail = $this->getJson('/api/v1/driver/orders/'.$order->id);
+        $detail->assertOk()
+            ->assertJsonPath('data.pricing.cancellation_penalty_base_delivery_fee', 100000)
+            ->assertJsonPath('data.pricing.cancellation_penalty_percent', 50)
+            ->assertJsonPath('data.driver_income_gross', 50000);
+
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
+            'delivery_fee' => 0,
+            'total_price' => 50000,
+        ]);
+        $this->assertDatabaseHas('order_payments', [
+            'order_id' => $order->id,
+            'payment_method' => 'TRANSFER',
+            'payment_status' => 'PENDING',
+            'amount' => 50000,
+        ]);
+
+        $audit = OrderLog::query()
+            ->where('order_id', $order->id)
+            ->where('trigger_type', ShoppingPricingService::MANUAL_CANCELLATION_TRIGGER)
+            ->firstOrFail();
+        $this->assertSame(ShoppingPricingService::PRICING_SCOPE_SHOPPING_CANCELLATION_BASE_50_PERCENT, data_get($audit->metadata, 'pricing_scope'));
+        $this->assertSame(100000.0, (float) data_get($audit->metadata, 'cancellation_penalty_base_delivery_fee'));
+        $this->assertSame(50.0, (float) data_get($audit->metadata, 'cancellation_penalty_percent'));
+        $this->assertSame(50000.0, (float) data_get($audit->metadata, 'cancellation_penalty'));
+        $this->assertSame('Rute aktual lebih jauh dari estimasi sistem.', data_get($audit->metadata, 'reason'));
+        $this->assertSame($driverUser->id, $audit->changed_by_user_id);
+    }
+
+    public function test_manual_shopping_cancellation_base_requires_reason_and_correct_action(): void
+    {
+        [$driverUser, $driver] = $this->createDriver();
+        $shopping = $this->createAssignedOrder($driver, 'SHOPPING', 'ARRIVED_MERCHANT', 10000);
+        $this->createFailedPickup($shopping, 3);
+        $ride = $this->createAssignedOrder($driver, 'RIDE', 'DRIVER_ASSIGNED', 10000);
+
+        Sanctum::actingAs($driverUser);
+
+        $this->postJson('/api/v1/driver/orders/'.$shopping->id.'/status-transition', [
+            'action_code' => 'CANCEL_WITH_FEE',
+            'target_status_code' => 'CANCELLED_WITH_FEE',
+            'cancellation_penalty_base_delivery_fee' => 100000,
+        ])->assertUnprocessable()
+            ->assertJsonPath('message', 'Alasan koreksi ongkir pembatalan wajib diisi.');
+
+        $this->postJson('/api/v1/driver/orders/'.$ride->id.'/status-transition', [
+            'action_code' => 'ARRIVE_PICKUP',
+            'cancellation_penalty_base_delivery_fee' => 100000,
+            'note' => 'Tidak boleh dipakai untuk ride.',
+        ])->assertUnprocessable()
+            ->assertJsonPath('message', 'Basis ongkir pembatalan hanya berlaku untuk pembatalan Nitip dengan fee 50%.');
+    }
+
     public function test_cancel_with_fee_is_rejected_after_payment_paid(): void
     {
         [$driverUser, $driver] = $this->createDriver();

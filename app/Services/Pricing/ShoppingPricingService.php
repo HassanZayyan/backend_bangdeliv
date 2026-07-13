@@ -16,11 +16,15 @@ use Illuminate\Support\Facades\DB;
 
 class ShoppingPricingService
 {
+    public const PRICING_SCOPE_SHOPPING_CANCELLATION_BASE_50_PERCENT = 'SHOPPING_CANCELLATION_BASE_50_PERCENT';
+
+    public const MANUAL_CANCELLATION_TRIGGER = 'DRIVER_MANUAL_CANCELLATION_BASE';
+
     private const CANCELLATION_PENALTY = 'CANCELLATION_PENALTY_AFTER_FAILED_ATTEMPTS';
 
     private const CANCELLATION_FAILED_ATTEMPT_THRESHOLD = 3;
 
-    private const CANCELLATION_PENALTY_PERCENT = 50.0;
+    public const CANCELLATION_PENALTY_PERCENT = 50.0;
 
     public function __construct(
         private readonly OrderPaymentService $orderPaymentService,
@@ -272,6 +276,11 @@ class ShoppingPricingService
 
     public function calculateCancellationPenalty(Order $order): float
     {
+        $manualPricing = $this->manualCancellationPricing($order);
+        if ($manualPricing !== null) {
+            return round((float) $manualPricing['cancellation_penalty'], 2);
+        }
+
         $failedTripCompensation = $this->chargeableFailedTripCompensationAmount($order);
         if ($failedTripCompensation > 0) {
             return $failedTripCompensation;
@@ -287,6 +296,16 @@ class ShoppingPricingService
         $deliveryFee = $this->cancellationPenaltyBaseDeliveryFee($order);
 
         return round($deliveryFee * ($percent / 100), 2);
+    }
+
+    public function calculateCancellationPenaltyFromBase(float $baseDeliveryFee): float
+    {
+        return round(max(0.0, $baseDeliveryFee) * (self::CANCELLATION_PENALTY_PERCENT / 100), 2);
+    }
+
+    public function cancellationPenaltyPercent(): float
+    {
+        return self::CANCELLATION_PENALTY_PERCENT;
     }
 
     public function cancellationPenaltyBaseAmount(Order $order): float
@@ -419,6 +438,10 @@ class ShoppingPricingService
 
     public function chargeableFailedTripCompensationAmount(Order $order): float
     {
+        if ($this->manualCancellationPricing($order) !== null) {
+            return 0.0;
+        }
+
         $lock = $this->deliveryFeeLockResolver->resolve($order);
         if (($lock['pricing_scope'] ?? null) === DeliveryFeeNegotiationService::PRICING_SCOPE_SHOPPING_TOTAL_TRANSPORT) {
             return 0.0;
@@ -563,6 +586,11 @@ class ShoppingPricingService
 
     private function cancellationPenaltyBaseDeliveryFee(Order $order): float
     {
+        $manualPricing = $this->manualCancellationPricing($order);
+        if ($manualPricing !== null) {
+            return round((float) $manualPricing['base_delivery_fee'], 2);
+        }
+
         $deliveryFeeLock = $this->deliveryFeeLockResolver->resolve($order);
         if ((bool) ($deliveryFeeLock['is_locked'] ?? false)
             && is_numeric($deliveryFeeLock['amount'] ?? null)
@@ -583,6 +611,45 @@ class ShoppingPricingService
         }
 
         return round(max(0.0, (float) $order->delivery_fee), 2);
+    }
+
+    /**
+     * @return array{base_delivery_fee: float, cancellation_penalty: float}|null
+     */
+    private function manualCancellationPricing(Order $order): ?array
+    {
+        $order->loadMissing('statusRef');
+        if (strtoupper((string) ($order->statusRef?->code ?? '')) !== 'CANCELLED_WITH_FEE') {
+            return null;
+        }
+
+        $event = OrderLog::query()
+            ->where('order_id', $order->id)
+            ->where('trigger_type', self::MANUAL_CANCELLATION_TRIGGER)
+            ->latest('id')
+            ->first();
+        $metadata = $event instanceof OrderLog && is_array($event->metadata)
+            ? $event->metadata
+            : [];
+        if (($metadata['pricing_scope'] ?? null) !== self::PRICING_SCOPE_SHOPPING_CANCELLATION_BASE_50_PERCENT) {
+            return null;
+        }
+
+        $baseDeliveryFee = $metadata['cancellation_penalty_base_delivery_fee'] ?? null;
+        $cancellationPenalty = $metadata['cancellation_penalty'] ?? null;
+        if (! is_numeric($baseDeliveryFee) || (float) $baseDeliveryFee <= 0) {
+            return null;
+        }
+
+        $normalizedBase = round((float) $baseDeliveryFee, 2);
+        $normalizedPenalty = is_numeric($cancellationPenalty) && (float) $cancellationPenalty > 0
+            ? round((float) $cancellationPenalty, 2)
+            : $this->calculateCancellationPenaltyFromBase($normalizedBase);
+
+        return [
+            'base_delivery_fee' => $normalizedBase,
+            'cancellation_penalty' => $normalizedPenalty,
+        ];
     }
 
     /**

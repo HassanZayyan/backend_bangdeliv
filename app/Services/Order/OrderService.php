@@ -1288,6 +1288,7 @@ class OrderService
         string $actionCode,
         ?string $targetStatusCode = null,
         ?string $note = null,
+        ?float $cancellationPenaltyBaseDeliveryFee = null,
     ): array {
         $driver = $this->resolveActiveDriverProfile($actor);
         $statusChangeEventPayload = null;
@@ -1298,6 +1299,7 @@ class OrderService
             $actionCode,
             $targetStatusCode,
             $note,
+            $cancellationPenaltyBaseDeliveryFee,
             &$statusChangeEventPayload,
         ): Order {
             $order = Order::query()
@@ -1320,6 +1322,12 @@ class OrderService
             $rule = $rules[$normalizedActionCode] ?? null;
             if ($rule === null) {
                 throw new ApiException('Aksi driver tidak valid.', 422);
+            }
+
+            $isShoppingCancellationWithFee = strtoupper((string) $serviceCode) === 'SHOPPING'
+                && $normalizedActionCode === 'CANCEL_WITH_FEE';
+            if ($cancellationPenaltyBaseDeliveryFee !== null && ! $isShoppingCancellationWithFee) {
+                throw new ApiException('Basis ongkir pembatalan hanya berlaku untuk pembatalan Nitip dengan fee 50%.', 422);
             }
 
             $currentStatusCode = (string) ($order->statusRef->code ?? '');
@@ -1383,7 +1391,10 @@ class OrderService
 
             $shoppingCancellationPenalty = null;
             $shoppingCancellationPenaltyBaseDeliveryFee = null;
-            if (strtoupper((string) $serviceCode) === 'SHOPPING' && $normalizedActionCode === 'CANCEL_WITH_FEE') {
+            $shoppingPreviousCancellationPenaltyBaseDeliveryFee = null;
+            $shoppingPreviousCancellationPenalty = null;
+            $hasManualCancellationPricing = false;
+            if ($isShoppingCancellationWithFee) {
                 if (! $this->shoppingPricingService->isCancellationPenaltyEligible($order)) {
                     throw new ApiException('Order belum memenuhi batas failed attempt untuk dibatalkan dengan fee.', 409);
                 }
@@ -1392,8 +1403,22 @@ class OrderService
                     throw new ApiException('Order sudah memiliki pembayaran lunas dan tidak bisa dibatalkan dengan fee.', 409);
                 }
 
-                $shoppingCancellationPenaltyBaseDeliveryFee = $this->shoppingPricingService->cancellationPenaltyBaseAmount($order);
-                $shoppingCancellationPenalty = $this->shoppingPricingService->calculateCancellationPenalty($order);
+                $shoppingPreviousCancellationPenaltyBaseDeliveryFee = $this->shoppingPricingService->cancellationPenaltyBaseAmount($order);
+                $shoppingPreviousCancellationPenalty = $this->shoppingPricingService->calculateCancellationPenalty($order);
+                $hasManualCancellationPricing = $cancellationPenaltyBaseDeliveryFee !== null;
+                if ($hasManualCancellationPricing) {
+                    if (trim((string) $note) === '') {
+                        throw new ApiException('Alasan koreksi ongkir pembatalan wajib diisi.', 422);
+                    }
+
+                    $shoppingCancellationPenaltyBaseDeliveryFee = round(max(0.0, (float) $cancellationPenaltyBaseDeliveryFee), 2);
+                    $shoppingCancellationPenalty = $this->shoppingPricingService->calculateCancellationPenaltyFromBase(
+                        $shoppingCancellationPenaltyBaseDeliveryFee,
+                    );
+                } else {
+                    $shoppingCancellationPenaltyBaseDeliveryFee = $shoppingPreviousCancellationPenaltyBaseDeliveryFee;
+                    $shoppingCancellationPenalty = $shoppingPreviousCancellationPenalty;
+                }
                 if ($shoppingCancellationPenalty <= 0) {
                     throw new ApiException('Penalty pembatalan belum dapat dihitung.', 409);
                 }
@@ -1410,9 +1435,6 @@ class OrderService
             $updates = [
                 'status_id' => $targetStatusId,
             ];
-
-            if ($shoppingCancellationPenalty !== null) {
-            }
 
             if (in_array($resolvedTargetStatusCode, ['DELIVERED', 'COMPLETED'], true)) {
                 $updates['delivered_at'] = now();
@@ -1441,6 +1463,13 @@ class OrderService
                 'service_type' => $serviceCode,
                 ...($shoppingCancellationPenaltyBaseDeliveryFee !== null ? [
                     'penalty_base_delivery_fee' => round($shoppingCancellationPenaltyBaseDeliveryFee, 2),
+                    'cancellation_penalty' => round((float) $shoppingCancellationPenalty, 2),
+                    'cancellation_penalty_percent' => $this->shoppingPricingService->cancellationPenaltyPercent(),
+                ] : []),
+                ...($hasManualCancellationPricing ? [
+                    'pricing_scope' => ShoppingPricingService::PRICING_SCOPE_SHOPPING_CANCELLATION_BASE_50_PERCENT,
+                    'previous_penalty_base_delivery_fee' => round((float) $shoppingPreviousCancellationPenaltyBaseDeliveryFee, 2),
+                    'previous_cancellation_penalty' => round((float) $shoppingPreviousCancellationPenalty, 2),
                 ] : []),
             ];
 
@@ -1459,6 +1488,24 @@ class OrderService
                 strtoupper($currentStatusCode),
                 $statusHistory,
             );
+            if ($hasManualCancellationPricing) {
+                OrderLog::query()->create([
+                    'order_id' => $order->id,
+                    'event_type' => 'PRICE_UPDATE',
+                    'trigger_type' => ShoppingPricingService::MANUAL_CANCELLATION_TRIGGER,
+                    'changed_by_user_id' => $actor->id,
+                    'note' => $eventNote,
+                    'metadata' => [
+                        'pricing_scope' => ShoppingPricingService::PRICING_SCOPE_SHOPPING_CANCELLATION_BASE_50_PERCENT,
+                        'previous_cancellation_penalty_base_delivery_fee' => round((float) $shoppingPreviousCancellationPenaltyBaseDeliveryFee, 2),
+                        'cancellation_penalty_base_delivery_fee' => round((float) $shoppingCancellationPenaltyBaseDeliveryFee, 2),
+                        'cancellation_penalty_percent' => $this->shoppingPricingService->cancellationPenaltyPercent(),
+                        'previous_cancellation_penalty' => round((float) $shoppingPreviousCancellationPenalty, 2),
+                        'cancellation_penalty' => round((float) $shoppingCancellationPenalty, 2),
+                        'reason' => $eventNote,
+                    ],
+                ]);
+            }
             if ($shoppingCancellationPenalty !== null) {
                 $order = $this->shoppingPricingService->recalculate(
                     $order->refresh()->load(['items', 'statusRef', 'serviceType', 'shoppingReceipt']),
