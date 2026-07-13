@@ -37,7 +37,12 @@ class ShoppingReplacementProjectionService
      */
     public function snapshot(Order $order): array
     {
-        $order->loadMissing('orderLocations');
+        $order->loadMissing(['orderLocations', 'statusRef']);
+        $isTerminalOrder = in_array(
+            strtoupper((string) ($order->statusRef?->code ?? '')),
+            ['COMPLETED', 'CANCELLED', 'CANCELLED_WITH_FEE'],
+            true,
+        );
         $pickups = $order->orderLocations
             ->filter(fn (OrderLocation $location): bool => strtoupper((string) $location->location_role) === 'PICKUP')
             ->keyBy(fn (OrderLocation $location): int => (int) $location->id);
@@ -180,6 +185,7 @@ class ShoppingReplacementProjectionService
             $failureAlreadyRecorded = isset($failedPickupIds[$pickupId]);
             $wouldReachLimit = ! $failureAlreadyRecorded && $failedCount >= self::MAX_FAILURES_PER_CHAIN - 1;
             $canReplace = $isCurrent
+                && ! $isTerminalOrder
                 && ! $chain['is_abandoned']
                 && ($isUnavailableDecision || $isClosedReplaceable)
                 && ! ($isUnavailableDecision && $wouldReachLimit)
@@ -197,7 +203,9 @@ class ShoppingReplacementProjectionService
                 'can_replace_merchant' => $canReplace,
                 'replacement_block_reason' => $canReplace
                     ? null
-                    : $this->replacementBlockReason($status, $isCurrent, $chain['is_abandoned'], $wouldReachLimit),
+                    : ($isTerminalOrder
+                        ? 'Order sudah berakhir.'
+                        : $this->replacementBlockReason($status, $isCurrent, $chain['is_abandoned'], $wouldReachLimit)),
                 'replaced_from_pickup_location_id' => $this->positiveInt($replacementByTarget[$pickupId]['source_pickup_location_id'] ?? null),
                 'replacement_pickup_location_id' => $this->positiveInt($replacementBySource[$pickupId]['replacement_pickup_location_id'] ?? null),
                 'google_place_id' => $this->text($replacementByTarget[$pickupId]['merchant']['google_place_id'] ?? null),

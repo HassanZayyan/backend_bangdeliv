@@ -21,6 +21,7 @@ use App\Services\Admin\AdminNotificationService;
 use App\Services\Admin\AdminPaymentProofStatusService;
 use App\Services\Driver\Dispatch\DriverCandidateSelector;
 use App\Services\Driver\DriverIncomeFeeCalculator;
+use App\Services\Driver\DriverOrderLifecycleService;
 use App\Services\Driver\DriverOrderPayloadFactory;
 use App\Services\Driver\DriverOrderRealtimeService;
 use App\Services\Notification\OrderPricingPushNotificationService;
@@ -55,6 +56,7 @@ class OrderService
         private readonly ShoppingPricingService $shoppingPricingService,
         private readonly ShoppingRouteService $shoppingRouteService,
         private readonly DriverOrderPayloadFactory $driverOrderPayloadFactory,
+        private readonly DriverOrderLifecycleService $driverOrderLifecycleService,
         private readonly DriverIncomeFeeCalculator $driverIncomeFeeCalculator,
         private readonly DriverOrderRealtimeService $driverOrderRealtimeService,
         private readonly DriverCandidateSelector $driverCandidateSelector,
@@ -91,13 +93,20 @@ class OrderService
         $query = Order::query()
             ->where('user_id', $user->id)
             ->with(['restaurant', 'items', 'orderLocations.restaurant', 'payments', 'evidences', 'statusRef', 'serviceType', 'courierOrder', 'shoppingReceipt'])
+            ->withExists([
+                'statusHistories as was_cancelled_with_fee' => fn ($historyQuery) => $historyQuery
+                    ->whereHas('statusRef', fn ($statusQuery) => $statusQuery->where('code', 'CANCELLED_WITH_FEE')),
+            ])
             ->latest('id');
 
         if (! empty($filters['status'])) {
             $query->where('status_id', $this->resolveStatusId((string) $filters['status']));
         }
 
-        return $query->paginate($perPage);
+        $paginator = $query->paginate($perPage);
+        $paginator->getCollection()->each(fn (Order $order) => $this->markCancelledWithFeeOutcome($order));
+
+        return $paginator;
     }
 
     public function customerOrderDetail(User $user, int $orderId): Order
@@ -118,11 +127,27 @@ class OrderService
         }
 
         $freshOrder->setAttribute('driver_eta', $this->driverArrivalEtaService->forCustomerTracking($freshOrder));
+        $this->markCancelledWithFeeOutcome($freshOrder);
         $driverAvatarUrl = $this->resolveAvatarUrl($freshOrder->driver?->user?->avatar);
         $freshOrder->setAttribute('driver_avatar_url', $driverAvatarUrl);
         $freshOrder->driver?->user?->setAttribute('avatar_url', $driverAvatarUrl);
 
         return $freshOrder;
+    }
+
+    private function markCancelledWithFeeOutcome(Order $order): void
+    {
+        $currentStatusCode = strtoupper((string) ($order->statusRef?->code ?? ''));
+        $wasCancelledWithFee = $currentStatusCode === 'CANCELLED_WITH_FEE'
+            || (bool) $order->getAttribute('was_cancelled_with_fee');
+
+        if (! $wasCancelledWithFee && $order->relationLoaded('statusHistories')) {
+            $wasCancelledWithFee = $order->statusHistories->contains(
+                fn (OrderStatusHistory $history): bool => strtoupper((string) ($history->statusRef?->code ?? '')) === 'CANCELLED_WITH_FEE'
+            );
+        }
+
+        $order->setAttribute('was_cancelled_with_fee', $wasCancelledWithFee);
     }
 
     private function resolveAvatarUrl(?string $avatar): ?string
@@ -716,7 +741,6 @@ class OrderService
     {
         $driver = $this->resolveActiveDriverProfile($actor);
         $pendingStatusId = $this->resolveStatusId('PENDING');
-        $runningStatusIds = $this->runningDriverOrderStatusIds();
 
         $incoming = $this->isDriverAvailableForIncomingOrders($driver)
             ? Order::query()
@@ -733,10 +757,11 @@ class OrderService
                 ->get()
             : collect();
 
-        $running = Order::query()
+        $runningQuery = Order::query()
             ->with($this->driverOrderPayloadFactory->relations())
-            ->where('driver_id', $driver->id)
-            ->whereIn('status_id', $runningStatusIds)
+            ->where('driver_id', $driver->id);
+        $running = $this->driverOrderLifecycleService
+            ->constrainRunningOrders($runningQuery)
             ->latest('id')
             ->limit(30)
             ->get();
@@ -765,12 +790,6 @@ class OrderService
     public function listDriverHistory(User $actor): array
     {
         $driver = $this->resolveActiveDriverProfile($actor);
-        $historyStatusIds = $this->resolveStatusIds([
-            'COMPLETED',
-            'CANCELLED',
-            'CANCELLED_WITH_FEE',
-        ]);
-
         $orders = Order::query()
             ->with([
                 'user:id,name',
@@ -780,7 +799,15 @@ class OrderService
                 'orderLocations:id,order_id,location_role,failed_attempt_count',
             ])
             ->where('driver_id', $driver->id)
-            ->whereIn('status_id', $historyStatusIds)
+            ->where(function ($query): void {
+                $query
+                    ->whereHas('statusRef', fn ($statusQuery) => $statusQuery->whereIn('code', ['COMPLETED', 'CANCELLED']))
+                    ->orWhere(function ($cancelledWithFeeQuery): void {
+                        $cancelledWithFeeQuery
+                            ->whereHas('statusRef', fn ($statusQuery) => $statusQuery->where('code', 'CANCELLED_WITH_FEE'))
+                            ->whereHas('payments', fn ($paymentQuery) => $paymentQuery->where('payment_status', 'PAID'));
+                    });
+            })
             ->latest('id')
             ->limit(100)
             ->get();
@@ -1666,25 +1693,9 @@ class OrderService
         return $driver;
     }
 
-    /**
-     * @return array<int, int>
-     */
-    private function runningDriverOrderStatusIds(): array
-    {
-        return $this->resolveStatusIdsLenient(OrderStatusCode::runningDriverStatuses());
-    }
-
     private function hasRunningDriverOrder(int $driverId): bool
     {
-        $runningStatusIds = $this->runningDriverOrderStatusIds();
-        if ($runningStatusIds === []) {
-            return false;
-        }
-
-        return Order::query()
-            ->where('driver_id', $driverId)
-            ->whereIn('status_id', $runningStatusIds)
-            ->exists();
+        return $this->driverOrderLifecycleService->hasRunningOrder($driverId);
     }
 
     private function isRunningDriverStatusCode(string $statusCode): bool
@@ -1734,18 +1745,7 @@ class OrderService
 
     private function syncDriverAvailabilityAfterNonRunningOrder(int $driverId): void
     {
-        $driver = Driver::query()->find($driverId);
-        if (! $driver || (string) $driver->status !== 'busy') {
-            return;
-        }
-
-        if ($this->hasRunningDriverOrder($driverId)) {
-            return;
-        }
-
-        $driver->update([
-            'status' => 'available',
-        ]);
+        $this->driverOrderLifecycleService->syncAvailabilityAfterNonRunningOrder($driverId);
     }
 
     /**
@@ -4180,6 +4180,8 @@ class OrderService
 
             return $order->refresh();
         });
+
+        $this->syncDriverAvailabilityAfterNonRunningOrder($driver->id);
 
         return $this->driverOrderPayloadFactory->serialize(
             $order->fresh($this->driverOrderPayloadFactory->relations()),

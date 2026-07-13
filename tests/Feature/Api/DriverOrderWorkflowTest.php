@@ -380,6 +380,35 @@ class DriverOrderWorkflowTest extends TestCase
             ->assertJsonMissingPath('data.driver.heading');
     }
 
+    public function test_customer_payload_marks_legacy_completed_cancelled_with_fee_outcome(): void
+    {
+        [, $driver] = $this->createActiveDriver('legacy-cancelled-fee-outcome');
+        $legacyCancelled = $this->createShoppingOrder($driver, 'COMPLETED');
+        $normalCompleted = $this->createShoppingOrder($driver, 'COMPLETED');
+        $normalCompleted->update(['user_id' => $legacyCancelled->user_id]);
+
+        OrderStatusHistory::query()->create([
+            'order_id' => $legacyCancelled->id,
+            'status_id' => OrderStatus::query()->where('code', 'CANCELLED_WITH_FEE')->value('id'),
+            'event_type' => 'STATUS_CHANGE',
+            'changed_by_user_id' => $legacyCancelled->user_id,
+            'note' => 'Legacy fee pembatalan sudah dibayar.',
+        ]);
+
+        Sanctum::actingAs(User::query()->findOrFail($legacyCancelled->user_id));
+
+        $list = $this->getJson('/api/v1/orders?per_page=50');
+        $list->assertOk();
+        $byId = collect($list->json('data'))->keyBy('id');
+        $this->assertTrue((bool) data_get($byId, $legacyCancelled->id.'.was_cancelled_with_fee'));
+        $this->assertFalse((bool) data_get($byId, $normalCompleted->id.'.was_cancelled_with_fee'));
+
+        $this->getJson('/api/v1/orders/'.$legacyCancelled->id)
+            ->assertOk()
+            ->assertJsonPath('data.status_ref.code', 'COMPLETED')
+            ->assertJsonPath('data.was_cancelled_with_fee', true);
+    }
+
     public function test_customer_order_detail_derives_zaky_driver_contact_from_driver_user_relation(): void
     {
         $this->seed(AccessAccountSeeder::class);
@@ -2051,7 +2080,7 @@ class DriverOrderWorkflowTest extends TestCase
             'action_code' => 'COMPLETE_ORDER',
             'target_status_code' => 'COMPLETED',
         ])->assertStatus(409)
-            ->assertJsonPath('message', 'Pembayaran belum dicatat.');
+            ->assertJsonPath('message', 'Transisi status tidak valid untuk order ini.');
 
         $this->postJson('/api/v1/orders/'.$order->id.'/payment/transfer/confirm', [
             'amount' => 7500,
@@ -2060,8 +2089,9 @@ class DriverOrderWorkflowTest extends TestCase
 
         $paidDetailResponse = $this->getJson('/api/v1/driver/orders/'.$order->id);
         $paidDetailResponse->assertOk()
+            ->assertJsonPath('data.status_code', 'CANCELLED_WITH_FEE')
             ->assertJsonPath('data.payment_status', 'paid');
-        $this->assertContains(
+        $this->assertNotContains(
             'COMPLETE_ORDER',
             collect($paidDetailResponse->json('data.available_actions'))->pluck('action_code')->all()
         );
@@ -2070,15 +2100,23 @@ class DriverOrderWorkflowTest extends TestCase
             'action_code' => 'COMPLETE_ORDER',
             'target_status_code' => 'COMPLETED',
             'note' => 'Penalty sudah dibayar customer.',
-        ])->assertOk()
-            ->assertJsonPath('data.status_code', 'COMPLETED');
+        ])->assertStatus(409)
+            ->assertJsonPath('message', 'Transisi status tidak valid untuk order ini.');
 
-        $runningAfterComplete = $this->getJson('/api/v1/driver/orders');
-        $runningAfterComplete->assertOk();
+        $runningAfterPayment = $this->getJson('/api/v1/driver/orders');
+        $runningAfterPayment->assertOk();
         $this->assertFalse(
-            collect($runningAfterComplete->json('data.running_orders'))
+            collect($runningAfterPayment->json('data.running_orders'))
                 ->contains(fn (array $runningOrder): bool => (string) $runningOrder['id'] === (string) $order->id)
         );
+        $this->assertSame(
+            'CANCELLED_WITH_FEE',
+            (string) $order->fresh('statusRef')->statusRef?->code,
+        );
+        $this->assertDatabaseHas('drivers', [
+            'id' => $driver->id,
+            'status' => 'available',
+        ]);
 
         $historyResponse = $this->getJson('/api/v1/driver/history');
         $historyResponse->assertOk();

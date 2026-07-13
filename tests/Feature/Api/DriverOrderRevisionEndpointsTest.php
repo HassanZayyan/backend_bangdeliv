@@ -1970,6 +1970,26 @@ class DriverOrderRevisionEndpointsTest extends TestCase
         $this->assertSame('ARRIVED_MERCHANT', $order->refresh()->statusRef->code);
     }
 
+    public function test_terminal_shopping_order_disables_stale_merchant_replacement_capability(): void
+    {
+        [, $driver] = $this->createDriver();
+        $order = $this->createAssignedOrder($driver, 'SHOPPING', 'ARRIVED_MERCHANT', 10000);
+        $this->createFailedPickup($order, 1);
+        $pickup = $order->orderLocations()->where('location_role', 'PICKUP')->firstOrFail();
+        $projection = app(ShoppingReplacementProjectionService::class);
+
+        $activeSnapshot = $projection->snapshot($order->fresh(['orderLocations', 'statusRef']));
+        $this->assertTrue($activeSnapshot['pickups'][$pickup->id]['can_replace_merchant']);
+
+        $order->update([
+            'status_id' => OrderStatus::query()->where('code', 'CANCELLED_WITH_FEE')->value('id'),
+        ]);
+        $terminalSnapshot = $projection->snapshot($order->fresh(['orderLocations', 'statusRef']));
+
+        $this->assertFalse($terminalSnapshot['pickups'][$pickup->id]['can_replace_merchant']);
+        $this->assertSame('Order sudah berakhir.', $terminalSnapshot['pickups'][$pickup->id]['replacement_block_reason']);
+    }
+
     /**
      * @return array{0: User, 1: Driver}
      */

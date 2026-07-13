@@ -108,6 +108,49 @@ class AdminOrderWebTest extends TestCase
         ]);
     }
 
+    public function test_admin_approval_resolves_paid_shopping_cancellation_and_releases_driver(): void
+    {
+        $admin = $this->admin();
+        $customer = User::factory()->create([
+            'role' => 'customer',
+            'phone' => '081300002223',
+        ]);
+        $order = $this->baseOrder($customer, 'SHOPPING', 'CANCELLED_WITH_FEE');
+        $order->update([
+            'delivery_fee' => 0,
+            'total_price' => 50000,
+        ]);
+        OrderPayment::query()->create([
+            'order_id' => $order->id,
+            'payment_method' => 'TRANSFER',
+            'payment_status' => 'PENDING',
+            'amount' => 50000,
+        ]);
+        $proof = OrderEvidence::query()->create([
+            'order_id' => $order->id,
+            'user_id' => $customer->id,
+            'evidence_type' => 'PAYMENT_TRANSFER_PHOTO',
+            'file_url' => '/storage/orders/'.$order->id.'/payments/cancellation-proof.jpg',
+            'uploaded_at' => now(),
+            'notes' => 'Bukti fee pembatalan.',
+        ]);
+
+        $this->actingAs($admin)
+            ->post(route('admin.orders.payment-proofs.approve', ['order' => $order->id, 'evidence' => $proof->id]))
+            ->assertRedirect();
+
+        $this->assertSame('CANCELLED_WITH_FEE', (string) $order->fresh('statusRef')->statusRef?->code);
+        $this->assertDatabaseHas('order_payments', [
+            'order_id' => $order->id,
+            'payment_status' => 'PAID',
+            'amount' => 50000,
+        ]);
+        $this->assertDatabaseHas('drivers', [
+            'id' => $order->driver_id,
+            'status' => 'available',
+        ]);
+    }
+
     public function test_admin_can_reject_qris_proof_without_marking_payment_paid(): void
     {
         Storage::fake('public');

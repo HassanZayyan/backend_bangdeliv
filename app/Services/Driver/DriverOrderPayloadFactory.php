@@ -643,7 +643,7 @@ class DriverOrderPayloadFactory
             ],
             'COMPLETE_ORDER' => [
                 'label' => 'Selesaikan Order',
-                'from' => ['DELIVERED', 'CANCELLED_WITH_FEE'],
+                'from' => ['DELIVERED'],
                 'to' => 'COMPLETED',
                 'requires_paid' => true,
             ],

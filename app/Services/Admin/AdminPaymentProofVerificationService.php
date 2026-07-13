@@ -9,6 +9,7 @@ use App\Models\OrderEvidence;
 use App\Models\OrderLog;
 use App\Models\OrderPayment;
 use App\Models\User;
+use App\Services\Driver\DriverOrderLifecycleService;
 use App\Services\Order\OrderEvidenceService;
 use App\Services\Order\OrderPaymentService;
 use Illuminate\Support\Facades\DB;
@@ -21,6 +22,7 @@ class AdminPaymentProofVerificationService
         private readonly AdminNotificationService $notificationService,
         private readonly AdminPaymentProofStatusService $proofStatuses,
         private readonly OrderEvidenceService $orderEvidenceService,
+        private readonly DriverOrderLifecycleService $driverOrderLifecycleService,
     ) {}
 
     public function approve(User $admin, Order $order, OrderEvidence $evidence): Order
@@ -48,6 +50,9 @@ class AdminPaymentProofVerificationService
         });
 
         $this->broadcastChanges((int) $order->id, AdminPaymentProofStatusService::APPROVED_TRIGGER);
+        if ($order->driver_id !== null) {
+            $this->driverOrderLifecycleService->syncAvailabilityAfterNonRunningOrder((int) $order->driver_id);
+        }
 
         return $order;
     }
