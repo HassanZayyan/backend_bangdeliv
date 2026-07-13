@@ -1468,7 +1468,7 @@ class DriverOrderRevisionEndpointsTest extends TestCase
     public function test_customer_replaces_unavailable_merchant_with_event_projection_and_idempotency(): void
     {
         [, $driver] = $this->createDriver();
-        $order = $this->createAssignedOrder($driver, 'SHOPPING', 'ARRIVED_MERCHANT', 15000);
+        $order = $this->createAssignedOrder($driver, 'SHOPPING', 'ARRIVED_MERCHANT', 5000);
         $pickup = $order->orderLocations()->create([
             'location_role' => 'PICKUP',
             'label' => 'Merchant Lama',
@@ -1535,7 +1535,8 @@ class DriverOrderRevisionEndpointsTest extends TestCase
         $response = $this->withHeader('Idempotency-Key', 'replace-customer-1')->postJson($endpoint, $payload);
         $response->assertOk()
             ->assertJsonPath('success', true)
-            ->assertJsonPath('data.shopping_stops.0.chain_attempt_no', 2);
+            ->assertJsonPath('data.shopping_stops.0.chain_attempt_no', 2)
+            ->assertJsonPath('data.delivery_fee_negotiation.note', 'Ongkir diperbarui karena toko/resto diganti.');
         $this->assertDatabaseHas('order_locations', ['id' => $pickup->id, 'fulfillment_status' => 'REPLACED']);
         $this->assertDatabaseMissing('shopping_order_items', ['id' => $oldItem->id]);
         $this->assertDatabaseHas('order_events', [

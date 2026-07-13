@@ -438,7 +438,7 @@ class ShoppingMerchantReplacementService
         $trigger = $asDriver
             ? DeliveryFeeNegotiationService::DRIVER_FEE_QUOTED
             : DeliveryFeeNegotiationService::CUSTOMER_FEE_APPROVED;
-        $this->deliveryFeeNegotiation->record($order, $trigger, (int) $actor->id, 'Ongkir diperbarui karena merchant Nitip diganti.', [
+        $this->deliveryFeeNegotiation->record($order, $trigger, (int) $actor->id, 'Ongkir diperbarui karena toko/resto diganti.', [
             'old_delivery_fee' => $oldFee,
             'base_amount' => $newFee,
             'quoted_amount' => $newFee,
