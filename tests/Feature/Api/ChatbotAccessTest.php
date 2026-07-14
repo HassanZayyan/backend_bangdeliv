@@ -260,6 +260,7 @@ class ChatbotAccessTest extends TestCase
                 'action_path' => 'data.action_payloads.OPEN_ROUTE_PICKER.label',
                 'action_label' => 'Atur Lokasi Jemput/Tujuan',
                 'text' => 'Untuk membuat pesanan Antar Jemput',
+                'guidance' => ['Google Maps'],
             ],
             'kurir' => [
                 'message' => 'CARA PESENNYA GIMANA???',
@@ -268,6 +269,7 @@ class ChatbotAccessTest extends TestCase
                 'action_path' => 'data.action_payloads.OPEN_ROUTE_PICKER.label',
                 'action_label' => 'Atur Lokasi Ambil/Tujuan',
                 'text' => 'Untuk membuat pesanan Kurir',
+                'guidance' => ['Google Maps'],
             ],
             'nitip' => [
                 'message' => 'mulainya dari mana?',
@@ -276,6 +278,7 @@ class ChatbotAccessTest extends TestCase
                 'action_path' => 'data.action_payloads.OPEN_MERCHANT_PICKER.label',
                 'action_label' => 'Pilih Toko/Resto',
                 'text' => 'Untuk membuat pesanan Nitip',
+                'guidance' => ['terdaftar di BangDeliv', 'Cari lewat Maps'],
             ],
         ];
 
@@ -291,8 +294,15 @@ class ChatbotAccessTest extends TestCase
                 ->assertJsonPath('data.validation.next_actions', $case['actions'])
                 ->assertJsonPath($case['action_path'], $case['action_label'])
                 ->assertJsonPath('model_used', 'deterministic-help');
-            $this->assertStringContainsString($case['text'], (string) $response->json('data.assistant_text'));
-            $this->assertStringContainsString('Google Maps', (string) $response->json('data.assistant_text'));
+            $assistantText = (string) $response->json('data.assistant_text');
+            $this->assertStringContainsString($case['text'], $assistantText);
+            foreach ($case['guidance'] as $guidance) {
+                $this->assertStringContainsString($guidance, $assistantText);
+            }
+
+            if ($serviceType === 'nitip') {
+                $this->assertStringNotContainsString('pastikan tempat tersebut dapat ditemukan di Google Maps', $assistantText);
+            }
         }
 
         Http::assertNothingSent();
@@ -346,6 +356,7 @@ class ChatbotAccessTest extends TestCase
             ->assertJsonMissingPath('data.action_payloads.OPEN_MERCHANT_PICKER')
             ->assertJsonPath('model_used', 'deterministic-help');
         $this->assertStringContainsString('Sebelum membuat pesanan Nitip', (string) $response->json('data.assistant_text'));
+        $this->assertStringContainsString('Google Maps', (string) $response->json('data.assistant_text'));
 
         Http::assertNothingSent();
     }
@@ -401,6 +412,70 @@ class ChatbotAccessTest extends TestCase
             ->assertJsonPath('model_used', 'deterministic-help');
         $this->assertStringContainsString('Data pesanan yang sudah kamu isi tetap tersimpan', (string) $response->json('data.assistant_text'));
         $this->assertStringContainsString('lokasi tujuan', (string) $response->json('data.assistant_text'));
+        $this->assertSame($draft, $store->latestPayload($user, $sessionId));
+
+        Http::assertNothingSent();
+    }
+
+    public function test_nitip_help_for_missing_merchant_uses_bangdeliv_and_maps_guidance_without_changing_draft(): void
+    {
+        $user = User::factory()->create([
+            'role' => 'customer',
+            'phone' => '081299990006',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+        $this->createUsableAddress($user);
+        $sessionId = 'help-nitip-missing-merchant';
+        $draft = [
+            'intent' => 'shopping_order',
+            'service_type' => 'nitip',
+            'shopping' => [
+                'merchant' => ['name' => null],
+                'items' => [
+                    ['name' => 'kopi', 'quantity' => 1],
+                ],
+                'delivery' => ['address' => 'FISIP UNDIP'],
+            ],
+            'validation' => [
+                'is_valid_order' => false,
+                'rejection_reasons' => [],
+                'missing_fields' => ['merchant'],
+                'next_actions' => ['OPEN_MERCHANT_PICKER'],
+            ],
+            'action_payloads' => [
+                'OPEN_MERCHANT_PICKER' => [
+                    'label' => 'Pilih Toko/Resto',
+                    'mode' => 'select',
+                ],
+            ],
+            'order' => [
+                'created' => false,
+                'id' => null,
+            ],
+        ];
+        $store = app(ChatbotDraftStore::class);
+        $store->savePayload($user, $sessionId, $draft);
+        Sanctum::actingAs($user);
+        Http::fake();
+
+        $response = $this->postJson('/api/chatbot/process', [
+            'message' => 'ini harus ngapain?',
+            'service_type' => 'nitip',
+            'session_id' => $sessionId,
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.validation.missing_fields', ['merchant'])
+            ->assertJsonPath('data.validation.next_actions', ['OPEN_MERCHANT_PICKER'])
+            ->assertJsonPath('data.action_payloads.OPEN_MERCHANT_PICKER.label', 'Pilih Toko/Resto')
+            ->assertJsonPath('model_used', 'deterministic-help');
+        $assistantText = (string) $response->json('data.assistant_text');
+        $this->assertStringContainsString('Data pesanan yang sudah kamu isi tetap tersimpan', $assistantText);
+        $this->assertStringContainsString('toko/resto', $assistantText);
+        $this->assertStringContainsString('belum terdaftar di BangDeliv', $assistantText);
+        $this->assertStringContainsString('Cari lewat Maps', $assistantText);
+        $this->assertStringNotContainsString('dapat ditemukan di Google Maps', $assistantText);
         $this->assertSame($draft, $store->latestPayload($user, $sessionId));
 
         Http::assertNothingSent();

@@ -144,7 +144,11 @@ class ChatbotHelpService
             $text .= "\n\nKetik detail yang masih diperlukan untuk melanjutkan pesanan.";
         }
 
-        if ($this->hasLocationField($missingFields)) {
+        if ($serviceType === 'nitip' && $this->hasMerchantField($missingFields)) {
+            $text .= "\n\nJika toko/resto belum terdaftar di BangDeliv, ketuk tombol Cari lewat Maps yang muncul untuk memilih lokasinya agar driver mendapatkan titik yang tepat.";
+        }
+
+        if ($this->hasAddressLocationField($missingFields)) {
             $text .= "\n\nUntuk lokasi yang diketik manual, pastikan tempatnya dapat ditemukan di Google Maps.";
         }
 
@@ -156,7 +160,7 @@ class ChatbotHelpService
         return match ($serviceType) {
             'antar_jemput' => "Tentu, saya bantu. Untuk membuat pesanan Antar Jemput, kamu bisa memilih salah satu cara:\n\n1. Ketik tujuan perjalanan, misalnya: \"Antar ke Ramayana Salatiga\".\n2. Atau ketuk tombol Atur Lokasi Jemput/Tujuan di bawah untuk memilih titik melalui peta.\n\nJika mengetik tujuan secara manual, pastikan lokasinya dapat ditemukan di Google Maps.",
             'kurir' => "Tentu, saya bantu. Untuk membuat pesanan Kurir, kirim detail dengan format:\n\nAmbil: Laundry Berkah Salatiga\nTujuan: Universitas Kristen Satya Wacana\nBarang: 1 tas laundry\n\nAtau ketuk tombol Atur Lokasi Ambil/Tujuan di bawah. Pastikan lokasi ambil dan tujuan dapat ditemukan di Google Maps.",
-            default => "Tentu, saya bantu. Untuk membuat pesanan Nitip:\n\n1. Ketuk Pilih Toko/Resto, atau ketik nama toko/resto beserta barang yang ingin dibeli.\n2. Ketuk Pilih Alamat Antar untuk menentukan tujuan pengiriman.\n\nJika mengetik nama toko/resto secara manual, pastikan tempat tersebut dapat ditemukan di Google Maps. Kamu bisa menambahkan maksimal 3 toko/resto dalam satu pesanan.",
+            default => "Tentu, saya bantu. Untuk membuat pesanan Nitip:\n\n1. Ketuk Pilih Toko/Resto, atau ketik nama toko/resto yang sudah terdaftar di BangDeliv beserta barang yang ingin dibeli.\n2. Ketuk Pilih Alamat Antar untuk menentukan tujuan pengiriman.\n\nJika toko/resto belum terdaftar di BangDeliv, ketuk tombol Cari lewat Maps yang muncul untuk memilih lokasinya agar driver mendapatkan titik yang tepat.\n\nKamu bisa menambahkan maksimal 3 toko/resto dalam satu pesanan.",
         };
     }
 
@@ -259,15 +263,30 @@ class ChatbotHelpService
     /**
      * @param  array<int, mixed>  $missingFields
      */
-    private function hasLocationField(array $missingFields): bool
+    private function hasMerchantField(array $missingFields): bool
+    {
+        foreach ($missingFields as $field) {
+            if (in_array(strtolower(trim((string) $field)), [
+                'merchant',
+                'merchant_location',
+            ], true)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param  array<int, mixed>  $missingFields
+     */
+    private function hasAddressLocationField(array $missingFields): bool
     {
         foreach ($missingFields as $field) {
             if (in_array(strtolower(trim((string) $field)), [
                 'pickup_address',
                 'destination_address',
                 'dropoff_address',
-                'merchant',
-                'merchant_location',
                 'delivery_address',
             ], true)) {
                 return true;
