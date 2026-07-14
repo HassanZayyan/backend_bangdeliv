@@ -106,6 +106,7 @@ Route::prefix('v1')->group(function () {
             Route::post('/orders/{orderId}/attempt-failed', [OrderController::class, 'recordFailedAttemptByDriver'])->name('api.v1.driver.orders.attempt-failed');
             Route::post('/orders/{orderId}/payment/collect-cod', [OrderController::class, 'recordCodCollectionByDriver'])->name('api.v1.driver.orders.payment.collect-cod');
             Route::post('/orders/{orderId}/payment/transfer/confirm', [OrderController::class, 'recordTransferPaymentByDriver'])->name('api.v1.driver.orders.payment.transfer.confirm');
+            Route::post('/orders/{orderId}/payment/transfer/bypass', [OrderController::class, 'bypassRejectedTransferPaymentByDriver'])->name('api.v1.driver.orders.payment.transfer.bypass');
             Route::post('/orders/{orderId}/payment/transfer/reject', [OrderController::class, 'rejectTransferPaymentByDriver'])->name('api.v1.driver.orders.payment.transfer.reject');
         });
     });

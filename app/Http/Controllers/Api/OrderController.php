@@ -886,6 +886,20 @@ class OrderController extends Controller
         }
     }
 
+    public function bypassRejectedTransferPaymentByDriver(Request $request, int $orderId): JsonResponse
+    {
+        try {
+            $payload = $this->orderService->bypassRejectedTransferPaymentByDriver(
+                $request->user(),
+                $orderId
+            );
+
+            return $this->success($payload, 'Pembayaran QRIS yang ditolak berhasil dibypass.');
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
     public function rejectTransferPaymentByDriver(Request $request, int $orderId): JsonResponse
     {
         $validated = $request->validate([

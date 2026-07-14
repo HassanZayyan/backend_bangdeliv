@@ -81,6 +81,7 @@ class ApiRouteContractTest extends TestCase
             'driver failed attempt' => ['api.v1.driver.orders.attempt-failed', 'POST', 'api/v1/orders/{orderId}/attempt-failed'],
             'driver cod payment' => ['api.v1.driver.orders.payment.collect-cod', 'POST', 'api/v1/orders/{orderId}/payment/collect-cod'],
             'driver transfer payment' => ['api.v1.driver.orders.payment.transfer.confirm', 'POST', 'api/v1/orders/{orderId}/payment/transfer/confirm'],
+            'driver rejected transfer payment bypass' => ['api.v1.driver.orders.payment.transfer.bypass', 'POST', 'api/v1/orders/{orderId}/payment/transfer/bypass'],
             'driver transfer payment reject' => ['api.v1.driver.orders.payment.transfer.reject', 'POST', 'api/v1/orders/{orderId}/payment/transfer/reject'],
         ];
     }

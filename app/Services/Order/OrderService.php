@@ -4114,28 +4114,7 @@ class OrderService
                 'evidences',
             ]);
 
-            if ($this->orderPaymentService->isPaid($order)) {
-                throw new ApiException('Pembayaran order ini sudah tercatat.', 409);
-            }
-
-            if ($this->orderPaymentService->currentMethod($order) !== OrderPaymentService::METHOD_TRANSFER) {
-                throw new ApiException('Order ini menggunakan pembayaran COD. Gunakan pencatatan COD.', 409);
-            }
-
-            $serviceCode = strtoupper((string) ($order->serviceType->code ?? ''));
-            $statusCode = strtoupper((string) ($order->statusRef->code ?? ''));
-            $isCourierPickupConfirmation = $serviceCode === 'COURIER' && $statusCode === 'ARRIVED_PICKUP';
-            $isDeliveredConfirmation = $serviceCode !== 'COURIER' && $statusCode === 'DELIVERED';
-            $isShoppingCancellationFeeConfirmation =
-                $serviceCode === 'SHOPPING' && $statusCode === 'CANCELLED_WITH_FEE';
-
-            if (! $isCourierPickupConfirmation && ! $isDeliveredConfirmation && ! $isShoppingCancellationFeeConfirmation) {
-                $message = $serviceCode === 'COURIER'
-                    ? 'Pembayaran QRIS courier hanya bisa dicatat saat driver tiba di pickup.'
-                    : 'Pembayaran QRIS hanya bisa dicatat setelah order berstatus DELIVERED.';
-
-                throw new ApiException($message, 409);
-            }
+            $this->assertDriverCanRecordTransferPayment($order);
 
             $paymentProofFeedback = app(AdminPaymentProofStatusService::class)->feedbackForOrder($order);
             if (($paymentProofFeedback['status'] ?? null) === 'rejected') {
@@ -4211,6 +4190,107 @@ class OrderService
             $order->fresh($this->driverOrderPayloadFactory->relations()),
             includeTimeline: true,
         );
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function bypassRejectedTransferPaymentByDriver(User $actor, int $orderId): array
+    {
+        $driver = $this->resolveActiveDriverProfile($actor);
+
+        $order = DB::transaction(function () use ($actor, $driver, $orderId): Order {
+            $order = $this->lockedAssignedDriverOrder($orderId, $driver->id, [
+                'statusRef',
+                'serviceType',
+                'payment',
+                'payments',
+                'evidences',
+            ]);
+
+            $this->assertDriverCanRecordTransferPayment($order);
+
+            $paymentProofFeedback = app(AdminPaymentProofStatusService::class)->feedbackForOrder($order);
+            if (($paymentProofFeedback['status'] ?? null) !== 'rejected') {
+                throw new ApiException('Bypass QRIS hanya tersedia setelah bukti ditolak dan sebelum ada bukti baru.', 409);
+            }
+
+            $amount = round((float) $order->total_price, 2);
+            if ($amount <= 0) {
+                throw new ApiException('Nominal QRIS harus lebih dari 0.', 422);
+            }
+
+            $rejectedProofId = data_get($paymentProofFeedback, 'proof_id');
+            $rejectionReason = trim((string) data_get($paymentProofFeedback, 'reason', ''));
+
+            $this->orderPaymentService->markPaid(
+                $order,
+                OrderPaymentService::METHOD_TRANSFER,
+                $amount,
+                $actor->id,
+                $driver->id,
+                now(),
+                [
+                    'recorded_by_role' => $actor->role,
+                    'source' => 'DRIVER_QRIS_REJECTION_BYPASS',
+                    'expected_amount' => $amount,
+                    'bypassed_by_driver' => true,
+                    'rejected_proof_id' => $rejectedProofId,
+                    'rejection_reason' => $rejectionReason !== '' ? $rejectionReason : null,
+                ],
+            );
+
+            OrderLog::query()->create([
+                'order_id' => $order->id,
+                'event_type' => 'PAYMENT_UPDATE',
+                'trigger_type' => 'QRIS_PAYMENT_RECORDED_BY_DRIVER_BYPASS',
+                'changed_by_user_id' => $actor->id,
+                'note' => 'Driver membypass bukti QRIS yang ditolak.',
+                'metadata' => [
+                    'paid_amount' => $amount,
+                    'expected_amount' => $amount,
+                    'recorded_by_role' => $actor->role,
+                    'bypassed_by_driver' => true,
+                    'rejected_proof_id' => $rejectedProofId,
+                    'rejection_reason' => $rejectionReason !== '' ? $rejectionReason : null,
+                ],
+            ]);
+
+            return $order->refresh();
+        });
+
+        $this->syncDriverAvailabilityAfterNonRunningOrder($driver->id);
+
+        return $this->driverOrderPayloadFactory->serialize(
+            $order->fresh($this->driverOrderPayloadFactory->relations()),
+            includeTimeline: true,
+        );
+    }
+
+    private function assertDriverCanRecordTransferPayment(Order $order): void
+    {
+        if ($this->orderPaymentService->isPaid($order)) {
+            throw new ApiException('Pembayaran order ini sudah tercatat.', 409);
+        }
+
+        if ($this->orderPaymentService->currentMethod($order) !== OrderPaymentService::METHOD_TRANSFER) {
+            throw new ApiException('Order ini menggunakan pembayaran COD. Gunakan pencatatan COD.', 409);
+        }
+
+        $serviceCode = strtoupper((string) ($order->serviceType->code ?? ''));
+        $statusCode = strtoupper((string) ($order->statusRef->code ?? ''));
+        $isCourierPickupConfirmation = $serviceCode === 'COURIER' && $statusCode === 'ARRIVED_PICKUP';
+        $isDeliveredConfirmation = $serviceCode !== 'COURIER' && $statusCode === 'DELIVERED';
+        $isShoppingCancellationFeeConfirmation =
+            $serviceCode === 'SHOPPING' && $statusCode === 'CANCELLED_WITH_FEE';
+
+        if (! $isCourierPickupConfirmation && ! $isDeliveredConfirmation && ! $isShoppingCancellationFeeConfirmation) {
+            $message = $serviceCode === 'COURIER'
+                ? 'Pembayaran QRIS courier hanya bisa dicatat saat driver tiba di pickup.'
+                : 'Pembayaran QRIS hanya bisa dicatat setelah order berstatus DELIVERED.';
+
+            throw new ApiException($message, 409);
+        }
     }
 
     /**

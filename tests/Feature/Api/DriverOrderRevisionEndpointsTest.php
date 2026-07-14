@@ -1358,6 +1358,103 @@ class DriverOrderRevisionEndpointsTest extends TestCase
         $this->assertSame('approved', data_get($approvalEvent->metadata, 'payment_proof_status'));
     }
 
+    public function test_driver_can_bypass_rejected_transfer_payment_for_every_supported_service_stage(): void
+    {
+        $cases = [
+            ['RIDE', 'DELIVERED'],
+            ['COURIER', 'ARRIVED_PICKUP'],
+            ['SHOPPING', 'DELIVERED'],
+            ['SHOPPING', 'CANCELLED_WITH_FEE'],
+        ];
+
+        foreach ($cases as $index => [$serviceCode, $statusCode]) {
+            [$driverUser, $driver] = $this->createDriver();
+            $amount = 18000 + ($index * 1000);
+            $order = $this->createAssignedOrder($driver, $serviceCode, $statusCode, $amount, 'TRANSFER');
+            $rejectedProofId = 900 + $index;
+            $reason = 'Bukti ditolak untuk '.$serviceCode.' '.$statusCode.'.';
+            $this->recordRejectedPaymentProofForTest($order, $driverUser, $rejectedProofId, $reason);
+
+            Sanctum::actingAs($driverUser);
+
+            $this->postJson('/api/v1/orders/'.$order->id.'/payment/transfer/bypass')
+                ->assertOk()
+                ->assertJsonPath('success', true)
+                ->assertJsonPath('data.payment_status', 'paid')
+                ->assertJsonPath('data.payment_method', 'TRANSFER');
+
+            $payment = OrderPayment::query()->where('order_id', $order->id)->firstOrFail();
+            $this->assertSame('PAID', $payment->payment_status);
+            $this->assertSame(number_format($amount, 2, '.', ''), $payment->amount);
+            $this->assertSame($driverUser->id, $payment->recorded_by_user_id);
+            $this->assertSame($driver->id, $payment->driver_id);
+            $this->assertSame('DRIVER_QRIS_REJECTION_BYPASS', data_get($payment->metadata, 'source'));
+            $this->assertTrue((bool) data_get($payment->metadata, 'bypassed_by_driver'));
+            $this->assertSame($rejectedProofId, (int) data_get($payment->metadata, 'rejected_proof_id'));
+            $this->assertSame($reason, data_get($payment->metadata, 'rejection_reason'));
+
+            $event = OrderLog::query()
+                ->where('order_id', $order->id)
+                ->where('trigger_type', 'QRIS_PAYMENT_RECORDED_BY_DRIVER_BYPASS')
+                ->firstOrFail();
+            $this->assertSame('PAYMENT_UPDATE', $event->event_type);
+            $this->assertSame($driverUser->id, $event->changed_by_user_id);
+            $this->assertSame($amount, (int) data_get($event->metadata, 'paid_amount'));
+            $this->assertTrue((bool) data_get($event->metadata, 'bypassed_by_driver'));
+            $this->assertSame($rejectedProofId, (int) data_get($event->metadata, 'rejected_proof_id'));
+            $this->assertSame($reason, data_get($event->metadata, 'rejection_reason'));
+
+            $this->postJson('/api/v1/orders/'.$order->id.'/payment/transfer/bypass')
+                ->assertStatus(409)
+                ->assertJsonPath('message', 'Pembayaran order ini sudah tercatat.');
+        }
+    }
+
+    public function test_rejected_transfer_payment_bypass_keeps_assignment_payment_stage_and_proof_guards(): void
+    {
+        [$assignedUser, $assignedDriver] = $this->createDriver();
+        [$otherUser] = $this->createDriver();
+
+        $unrejectedOrder = $this->createAssignedOrder($assignedDriver, 'RIDE', 'DELIVERED', 18000, 'TRANSFER');
+        Sanctum::actingAs($assignedUser);
+        $this->postJson('/api/v1/orders/'.$unrejectedOrder->id.'/payment/transfer/bypass')
+            ->assertStatus(409)
+            ->assertJsonPath('message', 'Bypass QRIS hanya tersedia setelah bukti ditolak dan sebelum ada bukti baru.');
+
+        $newProofOrder = $this->createAssignedOrder($assignedDriver, 'RIDE', 'DELIVERED', 19000, 'TRANSFER');
+        $this->recordRejectedPaymentProofForTest($newProofOrder, $assignedUser, 990, 'Bukti lama ditolak.');
+        OrderEvidence::query()->create([
+            'order_id' => $newProofOrder->id,
+            'user_id' => $newProofOrder->user_id,
+            'evidence_type' => 'PAYMENT_TRANSFER_PHOTO',
+            'file_url' => '/storage/orders/'.$newProofOrder->id.'/payments/proof-new.jpg',
+            'uploaded_at' => now()->addSecond(),
+            'notes' => 'Bukti QRIS customer terbaru.',
+        ]);
+        $this->postJson('/api/v1/orders/'.$newProofOrder->id.'/payment/transfer/bypass')
+            ->assertStatus(409)
+            ->assertJsonPath('message', 'Bypass QRIS hanya tersedia setelah bukti ditolak dan sebelum ada bukti baru.');
+
+        $codOrder = $this->createAssignedOrder($assignedDriver, 'RIDE', 'DELIVERED', 20000, 'COD');
+        $this->recordRejectedPaymentProofForTest($codOrder, $assignedUser, 991, 'Metode COD.');
+        $this->postJson('/api/v1/orders/'.$codOrder->id.'/payment/transfer/bypass')
+            ->assertStatus(409)
+            ->assertJsonPath('message', 'Order ini menggunakan pembayaran COD. Gunakan pencatatan COD.');
+
+        $wrongStageOrder = $this->createAssignedOrder($assignedDriver, 'RIDE', 'DRIVER_ASSIGNED', 21000, 'TRANSFER');
+        $this->recordRejectedPaymentProofForTest($wrongStageOrder, $assignedUser, 992, 'Tahap belum tepat.');
+        $this->postJson('/api/v1/orders/'.$wrongStageOrder->id.'/payment/transfer/bypass')
+            ->assertStatus(409)
+            ->assertJsonPath('message', 'Pembayaran QRIS hanya bisa dicatat setelah order berstatus DELIVERED.');
+
+        $assignedOrder = $this->createAssignedOrder($assignedDriver, 'RIDE', 'DELIVERED', 22000, 'TRANSFER');
+        $this->recordRejectedPaymentProofForTest($assignedOrder, $assignedUser, 993, 'Hanya driver terpilih.');
+        Sanctum::actingAs($otherUser);
+        $this->postJson('/api/v1/orders/'.$assignedOrder->id.'/payment/transfer/bypass')
+            ->assertStatus(403)
+            ->assertJsonPath('message', 'Order ini tidak ditugaskan kepada driver saat ini.');
+    }
+
     public function test_driver_can_bypass_all_unavailable_items_for_a_merchant(): void
     {
         [$driverUser, $driver] = $this->createDriver();
@@ -1988,6 +2085,25 @@ class DriverOrderRevisionEndpointsTest extends TestCase
 
         $this->assertFalse($terminalSnapshot['pickups'][$pickup->id]['can_replace_merchant']);
         $this->assertSame('Order sudah berakhir.', $terminalSnapshot['pickups'][$pickup->id]['replacement_block_reason']);
+    }
+
+    private function recordRejectedPaymentProofForTest(
+        Order $order,
+        User $driverUser,
+        int $deletedEvidenceId,
+        string $reason,
+    ): void {
+        OrderLog::query()->create([
+            'order_id' => $order->id,
+            'event_type' => 'PAYMENT_UPDATE',
+            'trigger_type' => 'PAYMENT_PROOF_REJECTED',
+            'changed_by_user_id' => $driverUser->id,
+            'note' => $reason,
+            'metadata' => [
+                'deleted_evidence_id' => $deletedEvidenceId,
+                'payment_proof_status' => 'rejected',
+            ],
+        ]);
     }
 
     /**
