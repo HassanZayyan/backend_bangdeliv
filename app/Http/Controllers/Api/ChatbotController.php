@@ -9,6 +9,7 @@ use App\Services\Chatbot\ChatbotContextLimitService;
 use App\Services\Chatbot\ChatbotCourierOrderService;
 use App\Services\Chatbot\ChatbotDraftStore;
 use App\Services\Chatbot\ChatbotGeminiService;
+use App\Services\Chatbot\ChatbotHelpService;
 use App\Services\Chatbot\ChatbotRideOrderService;
 use App\Services\Chatbot\ChatbotShoppingOrderService;
 use App\Services\Maps\GoogleMapsGeocodingService;
@@ -52,6 +53,7 @@ class ChatbotController extends Controller
         private readonly GoogleMapsGeocodingService $geocodingService,
         private readonly ChatbotDraftStore $draftStore,
         private readonly ChatbotContextLimitService $contextLimitService,
+        private readonly ChatbotHelpService $helpService,
     ) {}
 
     public function processChat(Request $request)
@@ -293,6 +295,7 @@ class ChatbotController extends Controller
             $patchedPayload = match ($serviceType) {
                 'antar_jemput' => $this->rideOrderService->applyLocationPatches($user, $normalizedSessionId, $locations),
                 'kurir' => $this->courierOrderService->applyLocationPatches($user, $normalizedSessionId, $locations),
+                default => throw new \UnhandledMatchError,
             };
         } catch (ApiException $exception) {
             return response()->json([
@@ -399,7 +402,7 @@ class ChatbotController extends Controller
             $nluPayload = null;
             $modelUsed = null;
             $nluFromModel = false;
-            $fastPayload = $this->detectTransportFastPayload($message);
+            $fastPayload = $this->detectTransportFastPayload($message, $serviceType);
 
             if ($fastPayload !== null) {
                 $nluPayload = $fastPayload['payload'];
@@ -408,14 +411,18 @@ class ChatbotController extends Controller
                 try {
                     $modelContext = $this->draftStore->context($user, $sessionId, $serviceType);
                     $nluResult = $this->geminiService->interpretTransportMessage($serviceType, $message, $modelContext);
-                    $nluPayload = is_array($nluResult['payload'] ?? null) ? $nluResult['payload'] : null;
-                    $modelUsed = isset($nluResult['model_used']) ? (string) $nluResult['model_used'] : null;
+                    $nluPayload = $nluResult['payload'];
+                    $modelUsed = $nluResult['model_used'];
                     $nluFromModel = true;
                 } catch (ApiException $exception) {
                     // Fallback ke parser deterministik jika Gemini unavailable.
                     $nluPayload = null;
                     $modelUsed = null;
                 }
+            }
+
+            if ($this->isHelpPayload($nluPayload, $serviceType)) {
+                return $this->handleHelpMessage($user, $sessionId, $message, $serviceType, $serviceCode, $modelUsed);
             }
 
             if (
@@ -482,13 +489,17 @@ class ChatbotController extends Controller
                 try {
                     $modelContext = $this->draftStore->context($user, $sessionId, $serviceType);
                     $parsed = $this->geminiService->parseFoodOrder($message, $modelContext);
-                    $nluPayload = is_array($parsed['payload'] ?? null) ? $parsed['payload'] : null;
-                    $modelUsed = isset($parsed['model_used']) ? (string) $parsed['model_used'] : null;
+                    $nluPayload = $parsed['payload'];
+                    $modelUsed = $parsed['model_used'];
                     $nluFromModel = true;
                 } catch (ApiException $exception) {
                     $nluPayload = null;
                     $modelUsed = null;
                 }
+            }
+
+            if ($this->isHelpPayload($nluPayload, $serviceType)) {
+                return $this->handleHelpMessage($user, $sessionId, $message, $serviceType, $serviceCode, $modelUsed);
             }
 
             if (
@@ -556,6 +567,36 @@ class ChatbotController extends Controller
         ], 200);
     }
 
+    private function handleHelpMessage(
+        User $user,
+        string $sessionId,
+        string $message,
+        string $serviceType,
+        string $serviceCode,
+        ?string $modelUsed
+    ): JsonResponse {
+        $payload = $this->helpService->responsePayload($user, $sessionId, $serviceType);
+        if ($serviceType === 'antar_jemput' || $serviceType === 'kurir') {
+            $payload = $this->enrichTransportActionPayload($payload, $serviceType);
+        }
+
+        $assistantText = trim((string) ($payload['assistant_text'] ?? 'Tentu, saya bantu.'));
+        $this->contextLimitService->clear($user, $serviceType);
+        $this->draftStore->appendTurn($user, $sessionId, 'user', $message);
+        $this->draftStore->appendTurn($user, $sessionId, 'assistant', $assistantText);
+
+        return response()->json([
+            'status' => 'success',
+            'session_id' => $sessionId,
+            'service_context' => [
+                'service_type' => $serviceType,
+                'service_code' => $serviceCode,
+            ],
+            'data' => $payload,
+            'model_used' => $modelUsed,
+        ], 200);
+    }
+
     /**
      * @param  array<string, mixed>  $payload
      */
@@ -589,6 +630,20 @@ class ChatbotController extends Controller
             'kurir' => 'courier_order',
             default => 'shopping_order',
         };
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $nluPayload
+     */
+    private function isHelpPayload(?array $nluPayload, string $serviceType): bool
+    {
+        if ($nluPayload === null || strtolower(trim((string) ($nluPayload['command'] ?? ''))) !== 'help') {
+            return false;
+        }
+
+        $intent = strtolower(trim((string) ($nluPayload['intent'] ?? '')));
+
+        return $intent === '' || $intent === $this->expectedIntent($serviceType);
     }
 
     /**
@@ -645,7 +700,7 @@ class ChatbotController extends Controller
     /**
      * @return array{payload: array<string, mixed>, model_used: string}|null
      */
-    private function detectTransportFastPayload(string $message): ?array
+    private function detectTransportFastPayload(string $message, string $serviceType): ?array
     {
         $command = $this->detectTransportFastCommand($message);
         if ($command !== null) {
@@ -672,6 +727,16 @@ class ChatbotController extends Controller
             return [
                 'payload' => ['payment_method' => 'TRANSFER'],
                 'model_used' => 'deterministic-payment',
+            ];
+        }
+
+        if ($this->helpService->matches($message)) {
+            return [
+                'payload' => [
+                    'intent' => $this->expectedIntent($serviceType),
+                    'command' => 'help',
+                ],
+                'model_used' => 'deterministic-help',
             ];
         }
 
@@ -763,6 +828,17 @@ class ChatbotController extends Controller
             return [
                 'payload' => ['payment_method' => 'TRANSFER'],
                 'model_used' => 'deterministic-payment',
+            ];
+        }
+
+        if ($this->helpService->matches($message)) {
+            return [
+                'payload' => [
+                    'intent' => 'shopping_order',
+                    'command' => 'help',
+                    'items' => [],
+                ],
+                'model_used' => 'deterministic-help',
             ];
         }
 

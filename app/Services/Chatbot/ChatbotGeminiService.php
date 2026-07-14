@@ -16,10 +16,10 @@ class ChatbotGeminiService
         $systemInstruction = 'Kamu adalah NLU assistant BangDeliv untuk layanan Nitip. Keluarkan hanya JSON sesuai schema. intent valid: "shopping_order" atau "out_of_domain". command valid: "confirm", "add_merchant", atau "none"; gunakan confirm hanya untuk pesan konfirmasi singkat seperti "konfirmasi", "confirm", atau "lanjut". Gunakan add_merchant hanya untuk pesan singkat seperti "tambah merchant", "tambah toko", "tambah resto", "tambah order", atau "order baru"; jangan jadikan kata order sebagai item. Ekstrak merchant/resto/toko, item belanja, jumlah, catatan, dan alamat antar hanya jika disebut di pesan terbaru. Jika CONTEXT_JSON berisi active_merchant_name atau merchant aktif, pesan terbaru yang hanya berisi daftar belanja biasanya adalah item untuk merchant aktif itu; jangan paksa nama merchant ke item, tetapi nama brand yang memang disebut sebagai menu tetap boleh menjadi bagian nama item. Jangan gabungkan item dari baris, bullet, nomor, koma, tanda plus, atau kata "dan" yang berbeda; setiap baris atau frasa berjumlah seperti "gacoan level 6 1 porsi dan udang keju 1 porsi" harus menjadi item terpisah: "gacoan level 6" quantity 1 dan "udang keju" quantity 1. Koma boleh memisahkan item berbeda, contoh "nasi goreng 1, nasi ruwet 2, kwetiau goreng 1" menjadi 3 item; jika setelah koma hanya jumlah, angka itu quantity untuk item sebelumnya, contoh "beras 1kg, 1" berarti item "beras 1kg" quantity 1. Angka level/pedas/varian dan ukuran seperti "level 6", "500ml", "1kg", "1 kg", atau "1 liter" adalah bagian nama item, bukan jumlah; angka terakhir tanpa unit setelah nama item boleh menjadi quantity, contoh "mie gacoan level 7 2" berarti item "mie gacoan level 7" quantity 2. Format jumlah seperti "3x", "3 x", "3 pcs", "3 porsi", atau "3 buah" setelah nama item juga harus menjadi quantity; nama item harus bersih tanpa frasa intent seperti "aku mau beli", "saya mau beli", "mau beli", dan tanpa ekor merchant seperti "di Rendy\'s Chicken". Jika satu pesan jelas menyebut beberapa merchant, isi stops berisi merchant dan item masing-masing; jika hanya satu merchant, boleh pakai field merchant/items biasa. Jika user menambah item, operation item adalah "add"; jika user mengurangi item dengan kata "kurangi", "kurangin", atau "kurang", operation item adalah "decrement"; jika user mengubah jumlah final dengan kata seperti "saja", "cukup", atau "jadi", operation adalah "set"; jika user menghapus/membatalkan item, operation adalah "remove". Jangan jadikan kata "kurangi", "kurangin", "tambah", atau "hapus" sebagai bagian nama item. Jangan mengembalikan ulang item lama dari CONTEXT_JSON kecuali item itu disebut lagi di pesan terbaru. Item dari warung/alfamart/restoran boleh berupa barang umum atau nama makanan. Jangan menentukan item berat; berat akan dikonfirmasi driver. Jika disediakan CONTEXT_JSON, gunakan untuk menjaga kesinambungan draft dan merchant aktif tanpa menyalin ulang semua item lama. Dilarang merespon teks biasa.';
         $systemInstruction = str_replace(
             'command valid: "confirm", "add_merchant", atau "none"',
-            'command valid: "confirm", "add_merchant", "show_menu", "menu_next", "menu_previous", "search_menu", "recommend_food", atau "none"',
+            'command valid: "confirm", "add_merchant", "show_menu", "menu_next", "menu_previous", "search_menu", "recommend_food", "help", atau "none"',
             $systemInstruction,
         );
-        $systemInstruction .= ' Gunakan show_menu saat pengguna meminta daftar menu. Gunakan menu_next atau menu_previous untuk navigasi halaman menu. Gunakan search_menu saat pengguna menanyakan atau mencari menu tertentu, lalu isi menu_search hanya dengan nama atau jenis menu yang dicari. Gunakan recommend_food untuk permintaan saran seperti "bingung makan apa". Untuk command informasional tersebut, intent harus shopping_order dan items harus kosong. Jika pengguna menyebut restoran target, isi merchant/resto dengan nama tersebut; kata urutan seperti pertama atau kedua tidak perlu diubah menjadi nama.';
+        $systemInstruction .= ' Gunakan show_menu saat pengguna meminta daftar menu. Gunakan menu_next atau menu_previous untuk navigasi halaman menu. Gunakan search_menu saat pengguna menanyakan atau mencari menu tertentu, lalu isi menu_search hanya dengan nama atau jenis menu yang dicari. Gunakan recommend_food untuk permintaan saran seperti "bingung makan apa". Gunakan help saat pengguna menanyakan cara memakai BangBot atau cara membuat pesanan, misalnya "cara pesennya gimana" atau "ini suruh ngapain"; intent harus shopping_order dan items harus kosong. Untuk command informasional tersebut, intent harus shopping_order dan items harus kosong. Jika pengguna menyebut restoran target, isi merchant/resto dengan nama tersebut; kata urutan seperti pertama atau kedua tidak perlu diubah menjadi nama.';
 
         $schema = [
             'type' => 'OBJECT',
@@ -102,7 +102,7 @@ class ChatbotGeminiService
         }
 
         if ($serviceType === 'kurir') {
-            $systemInstruction = 'Kamu adalah NLU assistant BangDeliv untuk layanan Kurir motor. Keluarkan hanya JSON sesuai schema. command valid: "confirm", "reset_destination", atau "none". Gunakan command "confirm" hanya jika pesan user adalah konfirmasi singkat seperti "konfirmasi", "confirm", atau "lanjut"; pesan yang berisi isi paket/lokasi tidak boleh menjadi confirm. Ekstrak pickup, tujuan, isi paket, dan metode pembayaran hanya jika user menyebutnya. Frasa seperti "isi paket kunci", "paketnya kunci", "kunci", "sabun", "isi paket sabun", dan "kirim kunci" harus mengisi package_description jika konteksnya sedang melengkapi isi paket. Jika user menulis nama tempat + area, contoh "antar kacamata ke Erha Setiabudi Tembalang", isi dropoff_address dengan "Erha Setiabudi Tembalang" dan package_description dengan "kacamata". Jika user menyebut rumahku/rumah saya sebagai pickup, isi pickup_address "rumah". Barang ambigu tetap diekstrak apa adanya agar backend bisa meminta klarifikasi. intent harus "courier_order" atau "out_of_domain". Jika disediakan CONTEXT_JSON, gunakan untuk membaca progres percakapan dan draft terakhir.';
+            $systemInstruction = 'Kamu adalah NLU assistant BangDeliv untuk layanan Kurir motor. Keluarkan hanya JSON sesuai schema. command valid: "confirm", "reset_destination", "help", atau "none". Gunakan command "confirm" hanya jika pesan user adalah konfirmasi singkat seperti "konfirmasi", "confirm", atau "lanjut"; pesan yang berisi isi paket/lokasi tidak boleh menjadi confirm. Gunakan command "help" dengan intent "courier_order" saat pengguna menanyakan cara memakai BangBot atau cara membuat pesanan, misalnya "cara pesennya gimana" atau "ini suruh ngapain". Ekstrak pickup, tujuan, isi paket, dan metode pembayaran hanya jika user menyebutnya. Frasa seperti "isi paket kunci", "paketnya kunci", "kunci", "sabun", "isi paket sabun", dan "kirim kunci" harus mengisi package_description jika konteksnya sedang melengkapi isi paket. Jika user menulis nama tempat + area, contoh "antar kacamata ke Erha Setiabudi Tembalang", isi dropoff_address dengan "Erha Setiabudi Tembalang" dan package_description dengan "kacamata". Jika user menyebut rumahku/rumah saya sebagai pickup, isi pickup_address "rumah". Barang ambigu tetap diekstrak apa adanya agar backend bisa meminta klarifikasi. intent harus "courier_order" atau "out_of_domain". Jika disediakan CONTEXT_JSON, gunakan untuk membaca progres percakapan dan draft terakhir.';
             $schema = [
                 'type' => 'OBJECT',
                 'properties' => [
@@ -131,7 +131,7 @@ class ChatbotGeminiService
             ];
         }
 
-        $systemInstruction = 'Kamu adalah NLU assistant BangDeliv untuk layanan Antar Jemput. Keluarkan hanya JSON sesuai schema. command valid: "confirm", "reset_destination", atau "none". Jika user memberi tujuan dengan pola seperti "antar ke Ramayana Salatiga" atau "saya mau ke Alun-Alun Salatiga", isi destination_address. intent harus "ride_order" atau "out_of_domain". Jika disediakan CONTEXT_JSON, gunakan untuk membaca progres percakapan dan draft terakhir.';
+        $systemInstruction = 'Kamu adalah NLU assistant BangDeliv untuk layanan Antar Jemput. Keluarkan hanya JSON sesuai schema. command valid: "confirm", "reset_destination", "help", atau "none". Gunakan command "help" dengan intent "ride_order" saat pengguna menanyakan cara memakai BangBot atau cara membuat pesanan, misalnya "cara pesennya gimana" atau "ini suruh ngapain". Jika user memberi tujuan dengan pola seperti "antar ke Ramayana Salatiga" atau "saya mau ke Alun-Alun Salatiga", isi destination_address. intent harus "ride_order" atau "out_of_domain". Jika disediakan CONTEXT_JSON, gunakan untuk membaca progres percakapan dan draft terakhir.';
         $schema = [
             'type' => 'OBJECT',
             'properties' => [
@@ -163,7 +163,7 @@ class ChatbotGeminiService
      */
     private function generateJson(string $message, string $systemInstruction, array $schema, array $fallback, ?array $context = null): array
     {
-        $apiKey = (string) config('bangdeliv.chatbot.gemini.api_key', env('GEMINI_API_KEY', ''));
+        $apiKey = (string) config('bangdeliv.chatbot.gemini.api_key', '');
         $timeout = (int) config('bangdeliv.chatbot.gemini.timeout_seconds', 12);
         $models = config('bangdeliv.chatbot.gemini.models', [
             'gemini-3.1-flash-lite',
@@ -182,7 +182,7 @@ class ChatbotGeminiService
 
         if (is_array($context) && $context !== []) {
             $encodedContext = json_encode($context, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-            if (is_string($encodedContext) && $encodedContext !== '') {
+            if (is_string($encodedContext)) {
                 $userParts[] = ['text' => 'CONTEXT_JSON: '.$encodedContext];
             }
         }
@@ -374,6 +374,7 @@ class ChatbotGeminiService
             'menu_previous', 'menu_sebelumnya' => 'menu_previous',
             'search_menu', 'cari_menu' => 'search_menu',
             'recommend_food', 'rekomendasi_makanan', 'rekomendasi_menu' => 'recommend_food',
+            'help', 'bantuan', 'panduan' => 'help',
             'reset_destination', 'ubah tujuan', 'ganti tujuan', 'reset tujuan' => 'reset_destination',
             default => 'none',
         };
