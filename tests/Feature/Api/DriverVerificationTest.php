@@ -316,6 +316,8 @@ class DriverVerificationTest extends TestCase
 
     public function test_admin_can_approve_all_documents_and_activate_driver(): void
     {
+        Storage::fake('public');
+
         $admin = User::query()->create([
             'name' => 'Admin Verify',
             'email' => 'admin.verify@example.com',
@@ -344,10 +346,13 @@ class DriverVerificationTest extends TestCase
         ]));
 
         foreach (['ktp', 'sim', 'selfie'] as $type) {
+            $path = 'driver-documents/'.$driver->id.'/'.$type.'/example.jpg';
+            Storage::disk('public')->put($path, 'example');
+
             DriverDocument::query()->create([
                 'driver_id' => $driver->id,
                 'document_type' => $type,
-                'file_path' => 'driver-documents/'.$driver->id.'/'.$type.'/example.jpg',
+                'file_path' => $path,
                 'verification_status' => 'pending',
             ]);
         }
@@ -377,6 +382,49 @@ class DriverVerificationTest extends TestCase
             'verification_status' => 'approved',
             'verified_by' => $admin->id,
         ]);
+    }
+
+    public function test_driver_status_keeps_approved_document_audit_when_physical_files_are_missing(): void
+    {
+        Storage::fake('public');
+
+        $driverUser = User::query()->create([
+            'name' => 'Driver Audit Only',
+            'email' => 'driver.audit@example.com',
+            'phone' => '081299991112',
+            'password' => Hash::make('password123'),
+            'role' => 'driver',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+        $driver = Driver::query()->create($this->driverAttributes([
+            'user_id' => $driverUser->id,
+            'vehicle_plate' => 'B 2021 AUD',
+            'registration_status' => 'active',
+            'status' => 'available',
+        ]));
+
+        foreach (['ktp', 'sim', 'selfie'] as $type) {
+            DriverDocument::query()->create([
+                'driver_id' => $driver->id,
+                'document_type' => $type,
+                'file_path' => 'driver-documents/'.$driver->id.'/'.$type.'/deleted.jpg',
+                'verification_status' => 'approved',
+                'verified_at' => now()->subDay(),
+            ]);
+        }
+
+        Sanctum::actingAs($driverUser);
+
+        $this->getJson('/api/v1/driver/verification')
+            ->assertOk()
+            ->assertJsonPath('data.driver.registration_status', 'active')
+            ->assertJsonPath('data.documents.0.document_type', 'ktp')
+            ->assertJsonPath('data.documents.0.is_uploaded', true)
+            ->assertJsonPath('data.documents.0.file_path', 'driver-documents/'.$driver->id.'/ktp/deleted.jpg')
+            ->assertJsonPath('data.documents.0.file_url', null)
+            ->assertJsonPath('data.documents.0.file_exists', false)
+            ->assertJsonPath('data.documents.0.verification_status', 'approved');
     }
 
     public function test_pending_driver_is_blocked_from_active_driver_routes(): void

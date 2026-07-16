@@ -100,20 +100,25 @@ class PreservedProductionDataSeederTest extends TestCase
         $this->assertSame(0, DriverDocument::query()->count());
     }
 
-    public function test_it_fails_when_a_driver_document_file_is_missing(): void
+    public function test_it_restores_approved_document_audit_when_the_physical_file_is_missing(): void
     {
         PreservedProductionSnapshot::write(missingDocumentTypes: ['selfie']);
         $this->runSeeder(ProductionAdminSeeder::class);
 
-        try {
-            $this->runSeeder(PreservedProductionDataSeeder::class);
-            $this->fail('Seeder seharusnya menolak file dokumen yang hilang.');
-        } catch (RuntimeException $exception) {
-            $this->assertStringContainsString('File driver document tidak ditemukan', $exception->getMessage());
-        }
+        $this->runSeeder(PreservedProductionDataSeeder::class);
 
-        $this->assertSame(1, User::query()->count());
-        $this->assertSame(0, DriverDocument::query()->count());
+        $this->assertSame(3, DriverDocument::query()->count());
+        $this->assertDatabaseHas('driver_documents', [
+            'driver_id' => 1,
+            'document_type' => 'selfie',
+            'file_path' => 'driver-documents/1/selfie/preserved.jpg',
+            'verification_status' => 'approved',
+        ]);
+        Storage::disk('public')->assertMissing('driver-documents/1/selfie/preserved.jpg');
+        $this->assertDatabaseHas('drivers', [
+            'id' => 1,
+            'registration_status' => 'active',
+        ]);
     }
 
     /** @param class-string<Seeder> $seederClass */

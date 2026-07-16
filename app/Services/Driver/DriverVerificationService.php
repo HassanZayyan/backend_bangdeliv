@@ -298,6 +298,16 @@ class DriverVerificationService
                     throw new ApiException("Dokumen {$type} belum diunggah oleh driver.", 422);
                 }
 
+                if (
+                    empty($document->file_path)
+                    || ! Storage::disk('public')->exists((string) $document->file_path)
+                ) {
+                    throw new ApiException(
+                        "Keputusan dokumen {$type} tidak dapat diubah karena file fisiknya sudah tidak tersedia.",
+                        409
+                    );
+                }
+
                 $document->update([
                     'verification_status' => $status,
                     'rejection_reason' => $status === 'rejected' ? $reason : null,
@@ -350,21 +360,26 @@ class DriverVerificationService
                 throw new ApiException('Dokumen tidak ditemukan.', 404);
             }
 
-            if (! empty($document->file_path)) {
-                Storage::disk('public')->delete($document->file_path);
+            if ($document->verification_status !== 'approved') {
+                throw new ApiException(
+                    'File dokumen hanya dapat dihapus setelah dokumen berstatus approved.',
+                    409
+                );
             }
 
-            $document->delete();
-
-            $driver->load('driverDocuments');
-            $nextRegistrationStatus = $this->determineRegistrationStatus($driver->driverDocuments);
-
-            $updates = ['registration_status' => $nextRegistrationStatus];
-            if ($nextRegistrationStatus !== 'active') {
-                $updates['status'] = 'offline';
+            $filePath = trim((string) $document->file_path);
+            if ($filePath === '') {
+                return;
             }
 
-            $driver->update($updates);
+            $disk = Storage::disk('public');
+            if (! $disk->exists($filePath)) {
+                return;
+            }
+
+            if (! $disk->delete($filePath)) {
+                throw new ApiException('File dokumen gagal dihapus dari storage.', 500);
+            }
         });
 
         return $this->driverDetail($driverId);

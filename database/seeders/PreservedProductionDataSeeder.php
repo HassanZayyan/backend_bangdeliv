@@ -33,7 +33,6 @@ class PreservedProductionDataSeeder extends Seeder
 
         $snapshot = $this->loadSnapshot();
         $this->validateSnapshot($snapshot);
-        $this->validateDocumentFiles($snapshot['driver_documents']);
 
         $admin = User::query()
             ->where('role', 'admin')
@@ -207,6 +206,10 @@ class PreservedProductionDataSeeder extends Seeder
                 throw new RuntimeException("Driver document ID {$document['id']} memiliki document_type tidak valid.");
             }
 
+            if (trim((string) $document['file_path']) === '') {
+                throw new RuntimeException("Driver document ID {$document['id']} wajib memiliki file_path audit.");
+            }
+
             if ($document['verification_status'] !== 'approved') {
                 throw new RuntimeException("Driver document ID {$document['id']} harus berstatus approved.");
             }
@@ -217,19 +220,6 @@ class PreservedProductionDataSeeder extends Seeder
         sort($documentTypes);
         if ($documentTypes !== ['ktp', 'selfie', 'sim']) {
             throw new RuntimeException('Snapshot wajib memuat tepat satu dokumen KTP, SIM, dan selfie.');
-        }
-    }
-
-    /** @param list<array<string, mixed>> $documents */
-    private function validateDocumentFiles(array $documents): void
-    {
-        $disk = Storage::disk('public');
-
-        foreach ($documents as $document) {
-            $path = (string) $document['file_path'];
-            if ($path === '' || ! $disk->exists($path)) {
-                throw new RuntimeException("File driver document tidak ditemukan di public storage: {$path}");
-            }
         }
     }
 

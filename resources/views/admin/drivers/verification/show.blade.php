@@ -7,7 +7,10 @@
 @php
     $driver = $detail['driver'] ?? [];
     $documents = $detail['documents'] ?? [];
-    $uploadedDocuments = collect($documents)->where('is_uploaded', true)->values();
+    $reviewableDocuments = collect($documents)
+        ->where('is_uploaded', true)
+        ->where('file_exists', true)
+        ->values();
 @endphp
 
 @if(session('success'))
@@ -68,7 +71,7 @@
 <div class="panel">
         <div class="panel-header" style="display:flex; justify-content:space-between; align-items:center;">
             <div class="panel-title">Review Dokumen</div>
-            <button type="submit" form="review-form" class="btn btn-primary" {{ $uploadedDocuments->isEmpty() ? 'disabled' : '' }}>
+            <button type="submit" form="review-form" class="btn btn-primary" {{ $reviewableDocuments->isEmpty() ? 'disabled' : '' }}>
                 <i class='bx bx-save'></i> Simpan Keputusan
             </button>
         </div>
@@ -96,12 +99,12 @@
                                 <i class='bx bx-link-external'></i> Lihat Dokumen
                             </a>
                         @elseif($isUploaded)
-                            <div class="td-sub" style="color: var(--color-warning);">Dokumen ada di database, tetapi file fisik tidak ditemukan.</div>
+                            <div class="td-sub" style="color: var(--color-success);">File fisik telah dihapus; data verifikasi tetap tersimpan.</div>
                         @else
                             <div class="td-sub" style="color: var(--color-danger);">Dokumen belum diunggah oleh driver.</div>
                         @endif
 
-                        @if($isUploaded)
+                        @if($isUploaded && $fileExists)
                             <input type="hidden" form="review-form" name="documents[{{ $index }}][document_type]" value="{{ $docType }}">
 
                             <label class="td-sub" style="font-weight:600;">Keputusan Verifikasi</label>
@@ -116,14 +119,19 @@
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-top: 6px;">
                                 <div class="td-sub" style="font-size:12px;">Verified at: {{ !empty($document['verified_at']) ? \Illuminate\Support\Carbon::parse($document['verified_at'])->format('d M Y, H:i') : '-' }}</div>
 
-                                <form action="{{ route('admin.verification.documents.destroy', ['driverId' => $driver['id'], 'documentType' => $docType]) }}" method="POST" onsubmit="return confirm('Hapus dokumen {{ $docLabel }} ini?');">
-                                    @csrf
-                                    @method('DELETE')
-                                    <button type="submit" class="btn-action danger" title="Hapus Dokumen">
-                                        <i class='bx bx-trash'></i>
-                                    </button>
-                                </form>
+                                @if($status === 'approved')
+                                    <form action="{{ route('admin.verification.documents.destroy', ['driverId' => $driver['id'], 'documentType' => $docType]) }}" method="POST" onsubmit="return confirm('Hapus file fisik {{ $docLabel }}? Path dan data verifikasi approved tetap tersimpan.');">
+                                        @csrf
+                                        @method('DELETE')
+                                        <button type="submit" class="btn-action danger" title="Hapus File Dokumen">
+                                            <i class='bx bx-trash'></i>
+                                        </button>
+                                    </form>
+                                @endif
                             </div>
+                        @elseif($isUploaded)
+                            <div class="td-sub" style="font-size:12px;">Keputusan verifikasi dikunci: {{ ucfirst($status) }}.</div>
+                            <div class="td-sub" style="font-size:12px;">Verified at: {{ !empty($document['verified_at']) ? \Illuminate\Support\Carbon::parse($document['verified_at'])->format('d M Y, H:i') : '-' }}</div>
                         @endif
                     </div>
                 </div>

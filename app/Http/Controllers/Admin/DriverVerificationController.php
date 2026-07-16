@@ -79,7 +79,7 @@ class DriverVerificationController extends Controller
 
             return redirect()
                 ->route('admin.verification.show', ['driverId' => $driverId])
-                ->with('success', 'Dokumen berhasil dihapus.');
+                ->with('success', 'File dokumen berhasil dihapus. Data verifikasi tetap tersimpan.');
         } catch (ApiException $exception) {
             return redirect()
                 ->route('admin.verification.show', ['driverId' => $driverId])
