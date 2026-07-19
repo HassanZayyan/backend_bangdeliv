@@ -52,7 +52,7 @@
                 <tr>
                     <th>Profil Driver</th>
                     <th>Kendaraan</th>
-                    <th>Performa & Trip</th>
+                    <th>Performa & Perjalanan</th>
                     <th>Pendapatan & Potongan</th>
                     <th>Status Akun</th>
                     <th>Aksi</th>
@@ -61,7 +61,7 @@
             <tbody>
                 @forelse($drivers as $driver)
                     @php
-                        $status = $driver->admin_status ?? ['label' => 'Offline', 'class' => 'badge-info'];
+                        $status = $driver->admin_status ?? ['label' => 'Tidak Aktif', 'class' => 'badge-info'];
                         $avatarUrl = $driver->admin_avatar_url;
                         $income = $driver->admin_income_summary ?? [
                             'gross_income' => 0,
@@ -96,7 +96,7 @@
                             <span class="td-strong">{{ $driver->vehicle_plate }}</span>
                         </td>
                         <td data-label="Performa">
-                            <span class="td-strong">{{ $driver->orders_count ?? 0 }} order terkait</span>
+                            <span class="td-strong">{{ $driver->orders_count ?? 0 }} pesanan terkait</span>
                             <span class="td-sub" style="display:block;">Rating driver tidak digunakan</span>
                         </td>
                         <td data-label="Pendapatan">

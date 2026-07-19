@@ -13,7 +13,7 @@
 <div class="panel">
     <div class="panel-header" style="flex-direction: column; align-items: stretch; gap: 20px;">
         <div style="display: flex; justify-content: space-between; align-items: center;">
-            <div class="panel-title">Daftar Pengguna App (Customer)</div>
+            <div class="panel-title">Daftar Pelanggan</div>
             
             <div style="display: flex; gap: 10px;">
                 <form class="search-bar" style="width: 280px;" method="GET" action="{{ route('admin.customers.index') }}">
@@ -109,7 +109,7 @@
                                 <form
                                     method="POST"
                                     action="{{ route('admin.customers.blacklist', $customer) }}"
-                                    onsubmit="return confirm('{{ $isBlacklisted ? 'Keluarkan pelanggan ini dari blacklist?' : 'Masukkan pelanggan ini ke blacklist?' }}');"
+                                    onsubmit="return confirm('{{ $isBlacklisted ? 'Buka blokir untuk pelanggan ini?' : 'Blokir pelanggan ini?' }}');"
                                 >
                                     @csrf
                                     @method('PATCH')
@@ -119,8 +119,8 @@
                                     <button
                                         type="submit"
                                         class="btn-action {{ $isBlacklisted ? 'warning' : 'danger' }}"
-                                        title="{{ $isBlacklisted ? 'Buka blacklist' : 'Blacklist pelanggan' }}"
-                                        aria-label="{{ $isBlacklisted ? 'Buka blacklist ' : 'Blacklist ' }}{{ $customer->name }}"
+                                        title="{{ $isBlacklisted ? 'Buka blokir' : 'Blokir pelanggan' }}"
+                                        aria-label="{{ $isBlacklisted ? 'Buka blokir ' : 'Blokir ' }}{{ $customer->name }}"
                                     >
                                         <i class='bx {{ $isBlacklisted ? 'bx-user-check' : 'bx-block' }}' aria-hidden="true"></i>
                                     </button>

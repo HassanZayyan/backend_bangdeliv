@@ -1,5 +1,5 @@
 @props([
-    'title' => 'Edit Menu',
+    'title' => 'Ubah Menu',
 ])
 
 <div id="menu-edit-modal" style="position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:rgba(17,24,39,.5); z-index:1200; padding:16px;">

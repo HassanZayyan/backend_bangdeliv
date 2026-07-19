@@ -8,7 +8,7 @@
     <div class="panel-header">
         <div class="panel-title">Pengaturan Sistem</div>
         <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-            <span class="badge badge-info">Read-only</span>
+            <span class="badge badge-info">Hanya Bisa Dilihat</span>
             <span class="badge badge-warning">Dikelola sistem</span>
         </div>
     </div>
@@ -31,7 +31,7 @@
             <div class="settings-section-header">
                 <div>
                     <div class="settings-section-title">QRIS Pembayaran</div>
-                    <p class="settings-section-note">Gambar ini dipakai customer saat memilih pembayaran QRIS di tracking order.</p>
+                    <p class="settings-section-note">Gambar ini yang dilihat pelanggan saat memilih pembayaran QRIS di halaman pelacakan pesanan.</p>
                 </div>
                 <span class="badge {{ in_array(($qrisAsset['source'] ?? ''), ['uploaded', 'official'], true) ? 'badge-success' : 'badge-warning' }}">
                     {{ $qrisAsset['source_label'] ?? 'QRIS resmi' }}
@@ -46,18 +46,12 @@
                 <div class="qris-settings-content">
                     <div class="settings-list qris-meta-list">
                         <div class="settings-row">
-                            <span>URL publik</span>
-                            <strong>{{ route('payments.qris.show') }}</strong>
-                        </div>
-                        <div class="settings-row">
-                            <span>Lokasi aktif</span>
-                            <strong>{{ $qrisAsset['location_label'] ?? 'public/images/payments/qris-bangdeliv.jpeg' }}</strong>
-                        </div>
-                        <div class="settings-row">
                             <span>Terakhir diperbarui</span>
                             <strong>{{ $qrisAsset['updated_at_label'] ?? '-' }}</strong>
                         </div>
                     </div>
+
+                    <p class="settings-section-note">Klik gambar QRIS untuk melihatnya dalam ukuran penuh, persis seperti yang muncul di aplikasi customer.</p>
 
                     <form action="{{ route('admin.settings.qris.update') }}" method="POST" enctype="multipart/form-data" class="qris-upload-form">
                         @csrf
@@ -67,7 +61,7 @@
                             @error('qris_image')
                                 <div class="form-error">{{ $message }}</div>
                             @enderror
-                            <small class="form-help">Format JPG, PNG, atau WebP. Maksimal 5 MB. Upload baru akan menggantikan QRIS upload sebelumnya.</small>
+                            <small class="form-help">Format JPG, PNG, atau WebP. Maksimal 5 MB. Gambar baru akan menggantikan QRIS sebelumnya.</small>
                         </div>
 
                         <button type="submit" class="btn btn-primary">
@@ -83,11 +77,11 @@
             <div class="settings-section-title">Notifikasi Admin</div>
             <div class="settings-list settings-list-grid">
                 <div class="settings-row">
-                    <span>Driver pending</span>
+                    <span>Driver menunggu verifikasi</span>
                     <strong>{{ $adminNotificationSummary['pending_drivers'] ?? 0 }}</strong>
                 </div>
                 <div class="settings-row">
-                    <span>Bukti QRIS pending</span>
+                    <span>Bukti QRIS menunggu verifikasi</span>
                     <strong>{{ $adminNotificationSummary['pending_payment_proofs'] ?? 0 }}</strong>
                 </div>
                 <div class="settings-row">
@@ -109,8 +103,8 @@
                     <input id="admin_email" type="email" class="form-control" value="{{ Auth::user()->email ?? '-' }}" readonly>
                 </div>
                 <div class="form-group">
-                    <label for="admin_role">Role</label>
-                    <input id="admin_role" type="text" class="form-control" value="{{ ucfirst(Auth::user()->role ?? 'admin') }}" readonly>
+                    <label for="admin_role">Hak Akses</label>
+                    <input id="admin_role" type="text" class="form-control" value="{{ (Auth::user()->role ?? 'admin') === 'admin' ? 'Admin' : 'Super Admin' }}" readonly>
                 </div>
             </div>
         </div>

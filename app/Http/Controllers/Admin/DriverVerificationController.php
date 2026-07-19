@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Exceptions\ApiException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Api\AdminReviewDriverDocumentsRequest;
+use App\Services\Admin\AdminDriverStatusPresenter;
 use App\Services\Admin\AdminPagination;
 use App\Services\Driver\DriverVerificationService;
 use Illuminate\Http\RedirectResponse;
@@ -14,7 +15,10 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class DriverVerificationController extends Controller
 {
-    public function __construct(private readonly DriverVerificationService $service) {}
+    public function __construct(
+        private readonly DriverVerificationService $service,
+        private readonly AdminDriverStatusPresenter $statusPresenter,
+    ) {}
 
     public function index(Request $request): View
     {
@@ -40,6 +44,7 @@ class DriverVerificationController extends Controller
             'pendingCount' => $summaryCounts['pending'] ?? 0,
             'needsRevisionCount' => $summaryCounts['needs_revision'] ?? 0,
             'rejectedCount' => $summaryCounts['rejected'] ?? 0,
+            'statusPresenter' => $this->statusPresenter,
         ]);
     }
 
@@ -50,6 +55,7 @@ class DriverVerificationController extends Controller
 
             return view('admin.drivers.verification.show', [
                 'detail' => $detail,
+                'statusPresenter' => $this->statusPresenter,
             ]);
         } catch (ApiException $exception) {
             abort(404, $exception->getMessage());

@@ -1,7 +1,9 @@
 @extends('layouts.admin')
 
 @section('title', 'Edit Restoran - Admin Pelanggan 15')
-@section('page-title', 'Edit Mitra Restoran')
+@section('page-title', 'Ubah Restoran')
+
+@inject('merchantTypes', 'App\Services\Admin\AdminMerchantTypePresenter')
 
 @section('content')
 
@@ -52,12 +54,11 @@
                 </div>
 
                 <div class="form-group" style="margin-bottom:0;">
-                    <label>Tipe Merchant <span style="color:var(--color-danger);">*</span></label>
+                    <label>Jenis Tempat Usaha <span style="color:var(--color-danger);">*</span></label>
                     <select name="merchant_type" class="form-control" required>
-                        <option value="restaurant" @selected(old('merchant_type', $restaurant->merchant_type ?? 'restaurant') === 'restaurant')>Restoran</option>
-                        <option value="warung" @selected(old('merchant_type', $restaurant->merchant_type ?? 'restaurant') === 'warung')>Warung</option>
-                        <option value="convenience_store" @selected(old('merchant_type', $restaurant->merchant_type ?? 'restaurant') === 'convenience_store')>Minimarket</option>
-                        <option value="other" @selected(old('merchant_type', $restaurant->merchant_type ?? 'restaurant') === 'other')>Lainnya</option>
+                        @foreach($merchantTypes->options() as $value => $label)
+                            <option value="{{ $value }}" @selected(old('merchant_type', $restaurant->merchant_type ?? 'restaurant') === $value)>{{ $label }}</option>
+                        @endforeach
                     </select>
                     @error('merchant_type') <div style="color:var(--color-danger); font-size:12px; margin-top:4px;"><i class='bx bx-error-circle'></i> {{ $message }}</div> @enderror
                 </div>
@@ -124,13 +125,13 @@
             </div>
             <div style="display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:16px;">
                 <div class="form-group" style="margin-bottom:0;">
-                    <label>Latitude <span style="font-size:12px; font-weight:400; color:var(--text-muted);">(-90 s/d 90)</span> <span style="color:var(--color-danger);">*</span></label>
+                    <label>Latitude <span style="font-size:12px; font-weight:400; color:var(--text-muted);">(garis lintang, -90 s/d 90)</span> <span style="color:var(--color-danger);">*</span></label>
                     <input id="latitude" type="text" name="latitude" value="{{ old('latitude', $restaurant->latitude) }}" class="form-control" placeholder="Contoh: -7.33158552" required>
                     @error('latitude') <div style="color:var(--color-danger); font-size:12px; margin-top:4px;"><i class='bx bx-error-circle'></i> {{ $message }}</div> @enderror
                 </div>
 
                 <div class="form-group" style="margin-bottom:0;">
-                    <label>Longitude <span style="font-size:12px; font-weight:400; color:var(--text-muted);">(-180 s/d 180)</span> <span style="color:var(--color-danger);">*</span></label>
+                    <label>Longitude <span style="font-size:12px; font-weight:400; color:var(--text-muted);">(garis bujur, -180 s/d 180)</span> <span style="color:var(--color-danger);">*</span></label>
                     <input id="longitude" type="text" name="longitude" value="{{ old('longitude', $restaurant->longitude) }}" class="form-control" placeholder="Contoh: 110.50229678" required>
                     @error('longitude') <div style="color:var(--color-danger); font-size:12px; margin-top:4px;"><i class='bx bx-error-circle'></i> {{ $message }}</div> @enderror
                 </div>
@@ -140,10 +141,10 @@
                         <i class='bx bx-current-location'></i> Gunakan Lokasi Saat Ini
                     </button>
                     <button type="button" id="btn-swap-coordinates" class="btn" style="background:var(--bg-card); border:1px solid var(--border-color); font-size:13px;">
-                        <i class='bx bx-transfer'></i> Tukar Lat/Lng
+                        <i class='bx bx-transfer'></i> Tukar Posisi Koordinat
                     </button>
                     <span style="font-size:12px; color:var(--text-muted);">
-                        <i class='bx bx-info-circle'></i> Sistem akan auto normalisasi format koma dan deteksi jika koordinat tertukar.
+                        <i class='bx bx-info-circle'></i> Sistem merapikan format koma otomatis dan mendeteksi jika koordinatnya tertukar.
                     </span>
                 </div>
             </div>
@@ -155,7 +156,7 @@
                 Batal
             </a>
             <button type="submit" class="btn btn-primary">
-                <i class='bx bx-save'></i> Update Restoran
+                <i class='bx bx-save'></i> Simpan Perubahan
             </button>
         </div>
     </form>

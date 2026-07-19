@@ -17,7 +17,7 @@
 <div class="panel">
     <div class="panel-header" style="flex-direction: column; align-items: stretch; gap: 20px;">
         <div style="display: flex; justify-content: space-between; align-items: center;">
-            <div class="panel-title">Antrean Verifikasi Calon Mitra</div>
+            <div class="panel-title">Antrean Verifikasi Calon Driver</div>
             
             <div style="display: flex; gap: 10px;">
                 <form class="search-bar" style="width: 280px;" method="GET" action="{{ route('admin.verification') }}">
@@ -31,7 +31,7 @@
         <div class="tabs">
             <a href="{{ route('admin.verification', ['status' => 'pending', 'search' => $search]) }}" class="tab-btn {{ $statusFilter === 'pending' ? 'active' : '' }}" style="text-decoration:none;">Menunggu Verifikasi <span class="badge badge-warning" style="margin-left:5px;">{{ $pendingCount }}</span></a>
             <a href="{{ route('admin.verification', ['status' => 'needs_revision', 'search' => $search]) }}" class="tab-btn {{ $statusFilter === 'needs_revision' ? 'active' : '' }}" style="text-decoration:none;">Butuh Revisi Dokumen <span class="badge badge-danger" style="margin-left:5px;">{{ $needsRevisionCount }}</span></a>
-            <a href="{{ route('admin.verification', ['status' => 'rejected', 'search' => $search]) }}" class="tab-btn {{ $statusFilter === 'rejected' ? 'active' : '' }}" style="text-decoration:none;">Ditolak (Rejected) <span class="badge badge-danger" style="margin-left:5px;">{{ $rejectedCount }}</span></a>
+            <a href="{{ route('admin.verification', ['status' => 'rejected', 'search' => $search]) }}" class="tab-btn {{ $statusFilter === 'rejected' ? 'active' : '' }}" style="text-decoration:none;">Ditolak <span class="badge badge-danger" style="margin-left:5px;">{{ $rejectedCount }}</span></a>
             <a href="{{ route('admin.verification', ['status' => 'all', 'search' => $search]) }}" class="tab-btn {{ $statusFilter === 'all' ? 'active' : '' }}" style="text-decoration:none;">Semua</a>
         </div>
     </div>
@@ -40,7 +40,7 @@
         <table class="orders-table">
             <thead>
                 <tr>
-                    <th>Calon Mitra / KTP</th>
+                    <th>Calon Driver / KTP</th>
                     <th>Kendaraan</th>
                     <th>Status Dokumen</th>
                     <th>Waktu Pengajuan</th>
@@ -55,7 +55,7 @@
                         $initial = strtoupper(substr($driver['name'] ?? 'D', 0, 2));
                     @endphp
                     <tr>
-                        <td data-label="Calon Mitra" class="mobile-card-primary">
+                        <td data-label="Calon Driver" class="mobile-card-primary">
                             <div style="display: flex; align-items: center; gap: 12px;">
                                 <div class="driver-avatar" style="width: 45px; height: 45px; flex-shrink: 0;">{{ $initial }}</div>
                                 <div class="td-user">
@@ -66,17 +66,17 @@
                         </td>
                         <td data-label="Kendaraan">
                             <span class="td-strong">{{ $driver['vehicle_plate'] ?? '-' }}</span>
-                            <span class="td-sub" style="display:block;">Status Registrasi: {{ ucfirst($driver['registration_status'] ?? 'pending') }}</span>
+                            <span class="td-sub" style="display:block;">Status Pendaftaran: {{ $statusPresenter->registrationLabel($driver['registration_status'] ?? null) }}</span>
                         </td>
                         <td data-label="Status Dokumen">
                             <div style="display: flex; flex-direction: column; gap: 4px;">
                                 @foreach($documents as $doc)
                                     @php
                                         $status = $doc['verification_status'] ?? 'pending';
-                                        $badgeClass = $status === 'approved' ? 'badge-success' : ($status === 'rejected' ? 'badge-danger' : 'badge-warning');
+                                        $badgeClass = $statusPresenter->documentBadgeClass($status);
                                     @endphp
                                     <span class="badge {{ $badgeClass }}" style="font-size: 10px; width: fit-content;">
-                                        {{ strtoupper($doc['document_type'] ?? '-') }}: {{ ucfirst($status) }}
+                                        {{ $statusPresenter->documentTypeLabel($doc['document_type'] ?? null) }}: {{ $statusPresenter->documentStatusLabel($status) }}
                                     </span>
                                 @endforeach
                             </div>

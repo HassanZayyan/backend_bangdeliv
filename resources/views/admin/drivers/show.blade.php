@@ -11,7 +11,7 @@
 
         return rtrim(rtrim($formatted, '0'), ',').'%';
     };
-    $status = $driver->admin_status ?? ['label' => 'Offline', 'class' => 'badge-info'];
+    $status = $driver->admin_status ?? ['label' => 'Tidak Aktif', 'class' => 'badge-info'];
     $avatarUrl = $driver->admin_avatar_url;
 @endphp
 
@@ -85,7 +85,7 @@
                 </div>
                 <form method="GET" action="{{ route('admin.drivers.show', ['driver' => $driver->id]) }}" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
                     <select name="income_mode" class="form-control" aria-label="Mode potongan driver" style="height:36px; width:142px; padding:6px 10px;">
-                        <option value="system" @selected($selectedIncomeMode === 'system')>By Sistem</option>
+                        <option value="system" @selected($selectedIncomeMode === 'system')>Otomatis Sistem</option>
                         <option value="manual" @selected($selectedIncomeMode === 'manual')>Manual</option>
                     </select>
                     <input
@@ -137,7 +137,7 @@
             <thead>
                 <tr>
                     <th>Pesanan</th>
-                    <th>Customer</th>
+                    <th>Pelanggan</th>
                     <th>Layanan</th>
                     <th>Bruto</th>
                     <th>Potongan</th>
@@ -151,7 +151,7 @@
                             <span class="td-strong">#{{ $row['order_number'] }}</span>
                             <span class="td-sub">{{ $row['date']?->format('d M Y, H:i') ?? '-' }}</span>
                         </td>
-                        <td data-label="Customer">
+                        <td data-label="Pelanggan">
                             <span class="td-strong">{{ $row['customer_name'] }}</span>
                             <span class="td-sub">{{ $row['status_label'] }}</span>
                         </td>

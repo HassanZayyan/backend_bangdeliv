@@ -3,7 +3,6 @@
 namespace App\Services\Admin;
 
 use App\Enums\OrderStatusCode;
-use Illuminate\Support\Str;
 
 class AdminOrderStatusPresenter
 {
@@ -121,9 +120,9 @@ class AdminOrderStatusPresenter
         return [
             OrderStatusCode::Pending->value => ['label' => 'Menunggu Driver', 'class' => 'badge-warning'],
             OrderStatusCode::DriverAssigned->value => ['label' => 'Driver Ditugaskan', 'class' => 'badge-info'],
-            OrderStatusCode::ArrivedMerchant->value => ['label' => 'Tiba Merchant', 'class' => 'badge-info'],
-            OrderStatusCode::ArrivedPickup->value => ['label' => 'Tiba Pickup', 'class' => 'badge-info'],
-            OrderStatusCode::PickedUp->value => ['label' => 'Pickup', 'class' => 'badge-info'],
+            OrderStatusCode::ArrivedMerchant->value => ['label' => 'Tiba di Toko', 'class' => 'badge-info'],
+            OrderStatusCode::ArrivedPickup->value => ['label' => 'Tiba di Titik Jemput', 'class' => 'badge-info'],
+            OrderStatusCode::PickedUp->value => ['label' => 'Barang Diambil', 'class' => 'badge-info'],
             OrderStatusCode::OnTheWay->value => ['label' => 'Diantar', 'class' => 'badge-info'],
             OrderStatusCode::ArrivedDropoff->value => ['label' => 'Tiba Tujuan', 'class' => 'badge-info'],
             OrderStatusCode::Delivered->value => ['label' => 'Terkirim', 'class' => 'badge-success'],
@@ -140,8 +139,10 @@ class AdminOrderStatusPresenter
     {
         $statusCode = OrderStatusCode::normalize($statusCode);
 
+        // Sengaja tidak memakai Str::headline() atas kode mentah: hasilnya teks Inggris
+        // seperti "Arrived Merchant" yang bocor ke layar admin.
         return $this->badgeMap()[$statusCode] ?? [
-            'label' => Str::headline(strtolower($statusCode)),
+            'label' => 'Status Lain',
             'class' => 'badge-info',
         ];
     }

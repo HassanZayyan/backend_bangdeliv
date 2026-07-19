@@ -1,7 +1,9 @@
 @extends('layouts.admin')
 
 @section('title', 'Pesanan - Admin Pelanggan 15')
-@section('page-title', 'Monitoring Pesanan')
+@section('page-title', 'Pemantauan Pesanan')
+
+@inject('paymentLabels', 'App\Services\Admin\AdminPaymentProofStatusService')
 
 @section('content')
 @php
@@ -22,7 +24,7 @@
         <div class="toolbar-row">
             <div>
                 <div class="panel-title">Daftar Pesanan</div>
-                <div class="panel-description">Admin memantau status, driver, dan bukti QRIS tanpa mengubah lifecycle order.</div>
+                <div class="panel-description">Admin memantau status, driver, dan bukti QRIS tanpa mengubah jalannya pesanan.</div>
             </div>
 
             <form class="search-bar" method="GET" action="{{ route('admin.orders.index') }}">
@@ -59,7 +61,7 @@
             <thead>
                 <tr>
                     <th>Pesanan</th>
-                    <th>Customer</th>
+                    <th>Pelanggan</th>
                     <th>Layanan</th>
                     <th>Total & Pembayaran</th>
                     <th>Status</th>
@@ -71,9 +73,9 @@
                 @forelse($orders as $order)
                     @php
                         $serviceCode = $order->serviceType?->code ?? 'UNKNOWN';
-                        $serviceConfig = $serviceBadgeMap[$serviceCode] ?? ['label' => $serviceCode, 'class' => 'badge-info'];
+                        $serviceConfig = $serviceBadgeMap[$serviceCode] ?? ['label' => 'Layanan Lain', 'class' => 'badge-info'];
                         $statusCode = $order->statusRef?->code ?? 'UNKNOWN';
-                        $statusConfig = $statusMap[$statusCode] ?? ['label' => $statusCode, 'class' => 'badge-info'];
+                        $statusConfig = $statusMap[$statusCode] ?? ['label' => 'Status Lain', 'class' => 'badge-info'];
                         $payment = $order->payment;
                         $paymentMethod = strtoupper((string) ($payment?->payment_method ?? $order->payment_method ?? 'COD'));
                         $paymentStatus = strtoupper((string) ($payment?->payment_status ?? $order->payment_status ?? 'UNPAID'));
@@ -92,7 +94,7 @@
                             <span class="td-strong">#{{ $order->order_number }}</span>
                             <span class="td-sub">{{ $order->created_at?->format('d M Y, H:i') ?? '-' }}</span>
                         </td>
-                        <td data-label="Customer">
+                        <td data-label="Pelanggan">
                             <span class="td-strong">{{ $order->user?->name ?? '-' }}</span>
                             <span class="td-sub">{{ $order->user?->phone ?? '-' }}</span>
                         </td>
@@ -102,9 +104,9 @@
                         </td>
                         <td data-label="Total & Pembayaran">
                             <span class="td-price">Rp {{ number_format((float) $order->total_price, 0, ',', '.') }}</span>
-                            <span class="td-sub">{{ $paymentMethod }} - {{ $paymentStatus }}</span>
+                            <span class="td-sub">{{ $paymentLabels->paymentMethodLabel($paymentMethod) }} — {{ $paymentLabels->paymentStatusLabel($paymentStatus) }}</span>
                             @if($pendingProofCount > 0)
-                                <span class="badge badge-warning row-note">{{ $pendingProofCount }} bukti pending</span>
+                                <span class="badge badge-warning row-note">{{ $pendingProofCount }} bukti menunggu verifikasi</span>
                             @endif
                         </td>
                         <td data-label="Status">

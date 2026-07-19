@@ -53,7 +53,7 @@ class DriverVerificationWebTest extends TestCase
         $this->actingAs($admin)
             ->get(route('admin.verification.show', ['driverId' => $pendingDriver->id]))
             ->assertOk()
-            ->assertSee('Review Dokumen');
+            ->assertSee('Periksa Dokumen');
     }
 
     public function test_admin_can_submit_review_from_web_page(): void
@@ -201,7 +201,7 @@ class DriverVerificationWebTest extends TestCase
             ->get(route('admin.verification.show', ['driverId' => $driver->id]))
             ->assertOk()
             ->assertSee('File fisik telah dihapus; data verifikasi tetap tersimpan.')
-            ->assertSee('Keputusan verifikasi dikunci: Approved.')
+            ->assertSee('Keputusan verifikasi dikunci: Disetujui.')
             ->assertDontSee(route('admin.verification.documents.destroy', [
                 'driverId' => $driver->id,
                 'documentType' => 'ktp',

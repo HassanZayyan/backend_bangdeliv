@@ -29,13 +29,13 @@ class AdminOrderWebTest extends TestCase
             ->get(route('admin.settings'))
             ->assertOk()
             ->assertSee('Konfigurasi Tarif Ongkos Kirim')
-            ->assertSee('Read-only');
+            ->assertSee('Hanya Bisa Dilihat');
 
         $this->actingAs($admin)
             ->get(route('admin.orders.index'))
             ->assertOk()
             ->assertSee($order->order_number)
-            ->assertSee('Bukti QRIS pending')
+            ->assertSee('Bukti QRIS Menunggu Verifikasi')
             ->assertDontSee('Semua Layanan');
 
         $this->actingAs($admin)

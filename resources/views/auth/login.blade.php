@@ -1,6 +1,6 @@
 @extends('layouts.auth')
 
-@section('title', 'Login - Admin Pelanggan 15')
+@section('title', 'Masuk - Admin Pelanggan 15')
 
 @section('content')
 <div class="auth-shell">
@@ -18,7 +18,7 @@
     <section class="auth-card" aria-labelledby="login-heading">
         <div class="auth-logo">
             <span id="login-heading">Selamat Datang</span>
-            <small>Silakan login ke dashboard admin.</small>
+            <small>Silakan masuk ke halaman admin.</small>
         </div>
 
         <form action="{{ route('login') }}" method="POST">
@@ -44,7 +44,7 @@
                 @enderror
             </div>
 
-            <button type="submit" class="btn btn-primary btn-block">Login</button>
+            <button type="submit" class="btn btn-primary btn-block">Masuk</button>
         </form>
 
         <div class="auth-footnote">

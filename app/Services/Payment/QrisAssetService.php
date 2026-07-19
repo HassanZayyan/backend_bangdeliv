@@ -35,7 +35,7 @@ class QrisAssetService
         return [
             'url' => $url,
             'source' => $asset['source'],
-            'source_label' => $asset['source'] === 'uploaded' ? 'Upload admin' : 'QRIS resmi',
+            'source_label' => $asset['source'] === 'uploaded' ? 'Diunggah admin' : 'QRIS resmi',
             'location_label' => $asset['location_label'],
             'updated_at_label' => $this->formatTimestamp($version),
         ];

@@ -12,7 +12,7 @@
 
 @if($errors->any())
     <div class="panel" style="margin-bottom: 12px; padding: 12px 16px; color: var(--color-danger); font-weight: 600; border-left:4px solid var(--color-danger);">
-        <div style="margin-bottom:8px;"><i class='bx bx-error-circle'></i> Terdapat kesalahan pada input menu</div>
+        <div style="margin-bottom:8px;"><i class='bx bx-error-circle'></i> Terdapat kesalahan pada data menu yang diisi</div>
         <ul style="margin:0; padding-left:18px; color:var(--text-muted); font-weight:500; font-size:13px;">
             @foreach ($errors->all() as $error)
                 <li>{{ $error }}</li>
@@ -105,7 +105,7 @@
                                     <button
                                         type="button"
                                         class="btn-action detail js-edit-menu-btn"
-                                        title="Edit Menu"
+                                        title="Ubah Menu"
                                         data-update-url="{{ route('admin.restaurants.menus.update', [$restaurant, $menu]) }}"
                                         data-name="{{ $menu->name }}"
                                         data-price="{{ $menu->price === null ? '' : $menu->price }}"
@@ -133,5 +133,5 @@
     </div>
 </div>
 
-<x-menu-edit-modal title="Edit Menu" />
+<x-menu-edit-modal title="Ubah Menu" />
 @endsection

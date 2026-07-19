@@ -1489,6 +1489,15 @@ th {
     gap: 10px;
 }
 
+/* Search-bar di bawah ini memakai width:100%, jadi tanpa flex-shrink:0 ia akan
+   mengompres tombol di sebelahnya sampai teksnya membungkus dua baris.
+   Di bawah 760px aturan ini ditimpa width:100% !important, jadi tetap responsif. */
+.toolbar-row > .btn,
+.page-actions .btn {
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
 .badge-row,
 .pagination-controls {
     gap: 8px;

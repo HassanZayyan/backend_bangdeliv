@@ -197,7 +197,7 @@
                                     </span>
                                 </a>
                             @empty
-                                <div class="notification-empty">Tidak ada verifikasi pending.</div>
+                                <div class="notification-empty">Tidak ada yang menunggu verifikasi.</div>
                             @endforelse
                         </div>
                     </div>
@@ -283,7 +283,7 @@
             const items = Array.isArray(summary.items) ? summary.items : [];
             list.innerHTML = items.length
                 ? items.map(notificationItemTemplate).join('')
-                : '<div class="notification-empty">Tidak ada verifikasi pending.</div>';
+                : '<div class="notification-empty">Tidak ada yang menunggu verifikasi.</div>';
         }
     }
 

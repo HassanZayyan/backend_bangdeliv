@@ -91,7 +91,7 @@ class AdminNotificationService
         foreach ($pendingDrivers as $driver) {
             $items[] = [
                 'type' => 'driver',
-                'label' => 'Driver pending',
+                'label' => 'Driver Menunggu Verifikasi',
                 'title' => $driver->user?->name ?? 'Driver baru',
                 'description' => $driver->vehicle_plate
                     ? 'Dokumen menunggu verifikasi - '.$driver->vehicle_plate
@@ -104,9 +104,9 @@ class AdminNotificationService
         foreach ($pendingProofs->take(4) as $proof) {
             $items[] = [
                 'type' => 'payment',
-                'label' => 'Bukti QRIS pending',
+                'label' => 'Bukti QRIS Menunggu Verifikasi',
                 'title' => '#'.($proof->order?->order_number ?? $proof->order_id),
-                'description' => ($proof->order?->user?->name ?? 'Customer').' - Rp '.number_format((float) ($proof->order?->total_price ?? 0), 0, ',', '.'),
+                'description' => ($proof->order?->user?->name ?? 'Pelanggan').' - Rp '.number_format((float) ($proof->order?->total_price ?? 0), 0, ',', '.'),
                 'url' => $proof->order
                     ? route('admin.orders.show', ['order' => $proof->order_id, 'focus' => 'payment-proof'])
                     : route('admin.orders.index'),

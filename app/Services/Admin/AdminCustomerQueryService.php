@@ -61,10 +61,11 @@ class AdminCustomerQueryService
     private function statusFilters(): array
     {
         return [
+            // Kunci array dipakai sebagai nilai query string ?status=..., jangan diubah.
             'semua' => ['label' => 'Semua', 'badge_class' => null],
             'aktif' => ['label' => 'Aktif', 'badge_class' => 'badge-success'],
             'baru' => ['label' => 'Pelanggan Baru', 'badge_class' => 'badge-info'],
-            'blacklisted' => ['label' => 'Blacklisted', 'badge_class' => 'badge-danger'],
+            'blacklisted' => ['label' => 'Diblokir', 'badge_class' => 'badge-danger'],
         ];
     }
 
@@ -114,7 +115,7 @@ class AdminCustomerQueryService
     private function statusConfig(User $customer): array
     {
         if ((bool) $customer->is_blacklisted) {
-            return ['label' => 'Blacklisted', 'class' => 'badge-danger'];
+            return ['label' => 'Diblokir', 'class' => 'badge-danger'];
         }
 
         if ($customer->created_at?->isToday()) {

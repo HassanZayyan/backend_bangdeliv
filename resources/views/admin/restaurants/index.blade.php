@@ -1,7 +1,9 @@
 @extends('layouts.admin')
 
 @section('title', 'Restoran / Warung - Admin Pelanggan 15')
-@section('page-title', 'Mitra Restoran')
+@section('page-title', 'Restoran & Warung')
+
+@inject('merchantTypes', 'App\Services\Admin\AdminMerchantTypePresenter')
 
 @section('content')
 @if(session('success'))
@@ -14,13 +16,13 @@
     <div class="panel-header stack">
         <div class="toolbar-row">
             <div>
-                <div class="panel-title">Daftar Mitra Restoran & Warung</div>
-                <div class="panel-description">Kelola data merchant dan katalog menu.</div>
+                <div class="panel-title">Daftar Restoran & Warung</div>
+                <div class="panel-description">Kelola data restoran dan daftar menu.</div>
             </div>
 
             <div class="page-actions">
                 <a href="{{ route('admin.restaurants.create') }}" class="btn btn-primary" style="text-decoration:none;">
-                    <i class="bx bx-plus" aria-hidden="true"></i> Tambah Mitra
+                    <i class="bx bx-plus" aria-hidden="true"></i> Tambah Restoran
                 </a>
                 <form method="GET" action="{{ route('admin.restaurants.index') }}" class="search-bar">
                     <i class="bx bx-search" aria-hidden="true"></i>
@@ -71,11 +73,11 @@
                         </td>
                         <td data-label="Detail Menu">
                             <span class="td-strong">{{ $restaurant->menus_count }} Item Menu</span>
-                            <span class="td-sub" style="display:block;"><i class="bx bx-category" aria-hidden="true"></i> {{ ucfirst(str_replace('_', ' ', $restaurant->merchant_type)) }}</span>
+                            <span class="td-sub" style="display:block;"><i class="bx bx-category" aria-hidden="true"></i> {{ $merchantTypes->label($restaurant->merchant_type) }}</span>
                         </td>
                         <td data-label="Rating & Omset">
                             <span class="td-strong">{{ $restaurant->orders_count }} pesanan</span>
-                            <span class="td-sub" style="display:block;">Total order terkait merchant</span>
+                            <span class="td-sub" style="display:block;">Total pesanan di restoran ini</span>
                         </td>
                         <td class="td-action" data-label="Aksi">
                             <div style="display:flex; gap: 8px; justify-content:flex-end;">
@@ -104,6 +106,6 @@
         </table>
     </div>
 
-    <x-admin-pagination :paginator="$restaurants" label="mitra restoran" />
+    <x-admin-pagination :paginator="$restaurants" label="restoran" />
 </section>
 @endsection

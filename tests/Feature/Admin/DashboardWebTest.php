@@ -39,7 +39,7 @@ class DashboardWebTest extends TestCase
             ->actingAs($admin)
             ->get(route('admin.dashboard'))
             ->assertOk()
-            ->assertSee('GMV Bulan Ini')
+            ->assertSee('Total Transaksi Bulan Ini')
             ->assertSee('Rp 25.000');
     }
 

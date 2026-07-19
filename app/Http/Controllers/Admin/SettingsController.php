@@ -26,17 +26,17 @@ class SettingsController extends Controller
                     'note' => 'Biaya awal sebelum tarif jarak dihitung.',
                 ],
                 [
-                    'label' => 'Rate 0-10 km',
+                    'label' => 'Tarif 0-10 km',
                     'value' => 'Rp '.number_format((int) config('bangdeliv.delivery_rate_0_10_per_km', 2000), 0, ',', '.').'/km',
                     'note' => 'Dipakai untuk jarak pendek.',
                 ],
                 [
-                    'label' => 'Rate 10-25 km',
+                    'label' => 'Tarif 10-25 km',
                     'value' => 'Rp '.number_format((int) config('bangdeliv.delivery_rate_10_25_per_km', 2500), 0, ',', '.').'/km',
                     'note' => 'Dipakai untuk jarak menengah.',
                 ],
                 [
-                    'label' => 'Rate 25 km ke atas',
+                    'label' => 'Tarif 25 km ke atas',
                     'value' => 'Rp '.number_format((int) config('bangdeliv.delivery_rate_25_50_per_km', 3000), 0, ',', '.').'/km',
                     'note' => 'Dipakai untuk jarak jauh.',
                 ],

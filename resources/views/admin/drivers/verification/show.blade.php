@@ -50,16 +50,16 @@
             <div class="td-strong">{{ $driver['vehicle_plate'] ?? '-' }}</div>
         </div>
         <div>
-            <div class="td-sub">Status Registrasi</div>
+            <div class="td-sub">Status Pendaftaran</div>
             @php
                 $registrationStatus = $driver['registration_status'] ?? 'pending';
-                $registrationBadge = $registrationStatus === 'active' ? 'badge-success' : ($registrationStatus === 'rejected' ? 'badge-danger' : 'badge-warning');
+                $registrationBadge = $statusPresenter->registrationBadgeClass($registrationStatus);
             @endphp
-            <span class="badge {{ $registrationBadge }}">{{ ucfirst($registrationStatus) }}</span>
+            <span class="badge {{ $registrationBadge }}">{{ $statusPresenter->registrationLabel($registrationStatus) }}</span>
         </div>
         <div>
             <div class="td-sub">Status Operasional</div>
-            <div class="td-strong">{{ ucfirst($driver['status'] ?? 'offline') }}</div>
+            <div class="td-strong">{{ $statusPresenter->operationalLabel($driver['status'] ?? null) }}</div>
         </div>
     </div>
 </div>
@@ -70,7 +70,7 @@
 
 <div class="panel">
         <div class="panel-header" style="display:flex; justify-content:space-between; align-items:center;">
-            <div class="panel-title">Review Dokumen</div>
+            <div class="panel-title">Periksa Dokumen</div>
             <button type="submit" form="review-form" class="btn btn-primary" {{ $reviewableDocuments->isEmpty() ? 'disabled' : '' }}>
                 <i class='bx bx-save'></i> Simpan Keputusan
             </button>
@@ -80,17 +80,17 @@
             @foreach($documents as $index => $document)
                 @php
                     $docType = $document['document_type'] ?? '';
-                    $docLabel = strtoupper($docType);
+                    $docLabel = $statusPresenter->documentTypeLabel($docType);
                     $status = old("documents.$index.verification_status", $document['verification_status'] ?? 'pending');
                     $reason = old("documents.$index.rejection_reason", $document['rejection_reason'] ?? '');
-                    $badgeClass = $status === 'approved' ? 'badge-success' : ($status === 'rejected' ? 'badge-danger' : 'badge-warning');
+                    $badgeClass = $statusPresenter->documentBadgeClass($status);
                     $isUploaded = (bool) ($document['is_uploaded'] ?? false);
                     $fileExists = (bool) ($document['file_exists'] ?? false);
                 @endphp
                 <div class="panel" style="margin:0; border: 1px solid var(--border-color); overflow:hidden;">
                     <div style="padding: 12px 14px; border-bottom: 1px solid var(--border-color); display:flex; justify-content:space-between; align-items:center;">
                         <div style="font-weight:700;">{{ $docLabel }}</div>
-                        <span class="badge {{ $badgeClass }}">{{ ucfirst($status) }}</span>
+                        <span class="badge {{ $badgeClass }}">{{ $statusPresenter->documentStatusLabel($status) }}</span>
                     </div>
 
                     <div style="padding: 12px 14px; display:flex; flex-direction:column; gap:10px;">
@@ -109,18 +109,18 @@
 
                             <label class="td-sub" style="font-weight:600;">Keputusan Verifikasi</label>
                             <select form="review-form" name="documents[{{ $index }}][verification_status]" class="form-control" style="width:100%; padding:10px; border-radius:10px; border:1px solid var(--border-color); background:var(--bg-main); color:var(--text-main);">
-                                <option value="approved" {{ $status === 'approved' ? 'selected' : '' }}>Approved</option>
-                                <option value="rejected" {{ $status === 'rejected' ? 'selected' : '' }}>Rejected</option>
+                                <option value="approved" {{ $status === 'approved' ? 'selected' : '' }}>Disetujui</option>
+                                <option value="rejected" {{ $status === 'rejected' ? 'selected' : '' }}>Ditolak</option>
                             </select>
 
-                            <label class="td-sub" style="font-weight:600;">Alasan Penolakan (wajib jika rejected)</label>
+                            <label class="td-sub" style="font-weight:600;">Alasan Penolakan (wajib jika ditolak)</label>
                             <textarea form="review-form" name="documents[{{ $index }}][rejection_reason]" rows="3" class="form-control" style="width:100%; padding:10px; border-radius:10px; border:1px solid var(--border-color); background:var(--bg-main); color:var(--text-main);" placeholder="Contoh: Dokumen buram, data tidak terbaca.">{{ $reason }}</textarea>
 
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-top: 6px;">
-                                <div class="td-sub" style="font-size:12px;">Verified at: {{ !empty($document['verified_at']) ? \Illuminate\Support\Carbon::parse($document['verified_at'])->format('d M Y, H:i') : '-' }}</div>
+                                <div class="td-sub" style="font-size:12px;">Diverifikasi pada: {{ !empty($document['verified_at']) ? \Illuminate\Support\Carbon::parse($document['verified_at'])->format('d M Y, H:i') : '-' }}</div>
 
                                 @if($status === 'approved')
-                                    <form action="{{ route('admin.verification.documents.destroy', ['driverId' => $driver['id'], 'documentType' => $docType]) }}" method="POST" onsubmit="return confirm('Hapus file fisik {{ $docLabel }}? Path dan data verifikasi approved tetap tersimpan.');">
+                                    <form action="{{ route('admin.verification.documents.destroy', ['driverId' => $driver['id'], 'documentType' => $docType]) }}" method="POST" onsubmit="return confirm('Hapus file {{ $docLabel }}? Keputusan verifikasi yang sudah disetujui tetap tersimpan.');">
                                         @csrf
                                         @method('DELETE')
                                         <button type="submit" class="btn-action danger" title="Hapus File Dokumen">
@@ -130,8 +130,8 @@
                                 @endif
                             </div>
                         @elseif($isUploaded)
-                            <div class="td-sub" style="font-size:12px;">Keputusan verifikasi dikunci: {{ ucfirst($status) }}.</div>
-                            <div class="td-sub" style="font-size:12px;">Verified at: {{ !empty($document['verified_at']) ? \Illuminate\Support\Carbon::parse($document['verified_at'])->format('d M Y, H:i') : '-' }}</div>
+                            <div class="td-sub" style="font-size:12px;">Keputusan verifikasi dikunci: {{ $statusPresenter->documentStatusLabel($status) }}.</div>
+                            <div class="td-sub" style="font-size:12px;">Diverifikasi pada: {{ !empty($document['verified_at']) ? \Illuminate\Support\Carbon::parse($document['verified_at'])->format('d M Y, H:i') : '-' }}</div>
                         @endif
                     </div>
                 </div>

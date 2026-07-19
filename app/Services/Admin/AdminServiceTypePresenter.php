@@ -3,7 +3,6 @@
 namespace App\Services\Admin;
 
 use App\Enums\ServiceTypeCode;
-use Illuminate\Support\Str;
 
 class AdminServiceTypePresenter
 {
@@ -62,8 +61,10 @@ class AdminServiceTypePresenter
     {
         $serviceCode = ServiceTypeCode::normalize($serviceCode);
 
+        // Sengaja tidak memakai Str::headline() atas kode mentah: hasilnya teks Inggris
+        // seperti "Shopping" yang bocor ke layar admin.
         return $this->badgeMap()[$serviceCode] ?? [
-            'label' => Str::headline(strtolower($serviceCode)),
+            'label' => 'Layanan Lain',
             'class' => 'badge-info',
         ];
     }

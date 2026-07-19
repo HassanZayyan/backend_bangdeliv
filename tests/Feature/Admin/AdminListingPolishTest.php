@@ -112,7 +112,7 @@ class AdminListingPolishTest extends TestCase
             ->get(route('admin.drivers.show', ['driver' => $driver->id]))
             ->assertOk()
             ->assertSee('Gaji Driver')
-            ->assertSee('By Sistem')
+            ->assertSee('Otomatis Sistem')
             ->assertSee('Manual')
             ->assertSee('BD-ADMIN-FEE-001')
             ->assertSee('Rp 13.500')
@@ -156,7 +156,7 @@ class AdminListingPolishTest extends TestCase
             ->assertSee($customer->name)
             ->assertSee('js-customer-toggle', false)
             ->assertSee('Lihat pesanan pelanggan')
-            ->assertSee('Blacklist pelanggan')
+            ->assertSee('Blokir pelanggan')
             ->assertDontSee('>Lihat Pesanan<', false)
             ->assertDontSee('window.location.href', false);
     }
@@ -235,7 +235,7 @@ class AdminListingPolishTest extends TestCase
         $this->actingAs($admin)
             ->get(route('admin.restaurants.index'))
             ->assertOk()
-            ->assertSee('Menampilkan 1-5 dari 8 mitra restoran')
+            ->assertSee('Menampilkan 1-5 dari 8 restoran')
             ->assertSee('aria-label="Halaman berikutnya"', false)
             ->assertDontSee('Menampilkan 1-8 dari 8 mitra restoran');
     }

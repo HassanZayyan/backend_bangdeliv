@@ -3,6 +3,8 @@
 @section('title', 'Detail Pesanan - Admin Pelanggan 15')
 @section('page-title', 'Detail Pesanan')
 
+@inject('paymentLabels', 'App\Services\Admin\AdminPaymentProofStatusService')
+
 @section('content')
 @php
     $serviceCode = $order->serviceType?->code ?? 'UNKNOWN';
@@ -36,10 +38,10 @@
             </div>
             <div>
                 <span>Pembayaran</span>
-                <strong>{{ $paymentMethod }} - {{ $paymentStatus }}</strong>
+                <strong>{{ $paymentLabels->paymentMethodLabel($paymentMethod) }} — {{ $paymentLabels->paymentStatusLabel($paymentStatus) }}</strong>
             </div>
             <div>
-                <span>Customer</span>
+                <span>Pelanggan</span>
                 <strong>{{ $order->user?->name ?? '-' }}</strong>
                 <small>{{ $order->user?->phone ?? '-' }}</small>
             </div>
@@ -55,9 +57,9 @@
         <div class="panel-header">
             <div>
                 <div class="panel-title">Bukti QRIS</div>
-                <div class="panel-description">Admin hanya memverifikasi bukti yang dikirim customer.</div>
+                <div class="panel-description">Admin hanya memverifikasi bukti yang dikirim pelanggan.</div>
             </div>
-            <span class="badge {{ $paymentStatus === 'PAID' ? 'badge-success' : 'badge-warning' }}">{{ $paymentStatus }}</span>
+            <span class="badge {{ $paymentStatus === 'PAID' ? 'badge-success' : 'badge-warning' }}">{{ $paymentLabels->paymentStatusLabel($paymentStatus) }}</span>
         </div>
         <div class="proof-list">
             @forelse($paymentProofs as $proof)
@@ -82,7 +84,7 @@
                                 <span class="badge {{ $proofDecision['class'] }}">{{ $proofDecision['label'] }}</span>
                                 <small>{{ $proof->uploaded_at?->format('d M Y, H:i') ?? '-' }}</small>
                             </div>
-                            <strong class="proof-customer">{{ $proof->user?->name ?? 'Customer' }}</strong>
+                            <strong class="proof-customer">{{ $proof->user?->name ?? 'Pelanggan' }}</strong>
                             <p class="proof-note">{{ $proof->notes ?: 'Tidak ada catatan.' }}</p>
                             @if($proofDecision['decided_by'] || $proofDecision['decided_at'])
                                 <small>
@@ -117,7 +119,7 @@
                     </div>
                 </div>
             @empty
-                <div class="empty-state">Belum ada bukti QRIS dari customer.</div>
+                <div class="empty-state">Belum ada bukti QRIS dari pelanggan.</div>
             @endforelse
         </div>
     </section>
@@ -133,8 +135,8 @@
                 <table class="orders-table compact-table">
                     <thead>
                         <tr>
-                            <th>Item</th>
-                            <th>Qty</th>
+                            <th>Barang</th>
+                            <th>Jumlah</th>
                             <th>Harga</th>
                             <th>Subtotal</th>
                         </tr>
@@ -142,11 +144,11 @@
                     <tbody>
                         @forelse($order->items as $item)
                             <tr>
-                                <td data-label="Item" class="mobile-card-primary">
+                                <td data-label="Barang" class="mobile-card-primary">
                                     <span class="td-strong">{{ $item->menu_name ?? '-' }}</span>
                                     <span class="td-sub">{{ $item->notes ?? '-' }}</span>
                                 </td>
-                                <td data-label="Qty">{{ $item->quantity }}</td>
+                                <td data-label="Jumlah">{{ $item->quantity }}</td>
                                 <td data-label="Harga">Rp {{ number_format((float) $item->unit_price, 0, ',', '.') }}</td>
                                 <td data-label="Subtotal">Rp {{ number_format((float) $item->subtotal, 0, ',', '.') }}</td>
                             </tr>
@@ -188,7 +190,7 @@
                 <div class="timeline-item">
                     <span class="timeline-dot"></span>
                     <div>
-                        <strong>{{ strtoupper((string) $location->location_role) === 'PICKUP' ? 'Pickup' : 'Dropoff' }} {{ $location->label ? '- '.$location->label : '' }}</strong>
+                        <strong>{{ strtoupper((string) $location->location_role) === 'PICKUP' ? 'Titik Jemput' : 'Titik Antar' }} {{ $location->label ? '- '.$location->label : '' }}</strong>
                         <p>{{ $location->full_address }}</p>
                     </div>
                 </div>
@@ -201,13 +203,13 @@
 
 <section class="panel">
     <div class="panel-header">
-        <div class="panel-title">Timeline Status</div>
+        <div class="panel-title">Riwayat Status</div>
     </div>
     <div class="timeline-list horizontal">
         @forelse($statusHistories as $history)
             @php
                 $historyCode = $history->statusRef?->code ?? 'UNKNOWN';
-                $historyConfig = $statusMap[$historyCode] ?? ['label' => $historyCode, 'class' => 'badge-info'];
+                $historyConfig = $statusMap[$historyCode] ?? ['label' => 'Status Lain', 'class' => 'badge-info'];
             @endphp
             <div class="timeline-item">
                 <span class="timeline-dot"></span>

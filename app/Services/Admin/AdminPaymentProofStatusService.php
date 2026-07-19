@@ -30,6 +30,33 @@ class AdminPaymentProofStatusService
         ];
     }
 
+    /**
+     * Label tampilan untuk order_payments.payment_method.
+     * Nilai enum-nya tidak diubah karena dipakai API dan aplikasi Flutter.
+     */
+    public function paymentMethodLabel(?string $method): string
+    {
+        return match (strtoupper(trim((string) $method))) {
+            'COD' => 'Bayar di Tempat',
+            'TRANSFER' => 'Transfer Bank',
+            'QRIS' => 'QRIS',
+            default => 'Metode Lain',
+        };
+    }
+
+    /**
+     * Label tampilan untuk order_payments.payment_status.
+     */
+    public function paymentStatusLabel(?string $status): string
+    {
+        return match (strtoupper(trim((string) $status))) {
+            'PAID' => 'Lunas',
+            'PENDING' => 'Menunggu Verifikasi',
+            'UNPAID' => 'Belum Dibayar',
+            default => 'Belum Dibayar',
+        };
+    }
+
     public function constrainDecisionLogs(Builder|Relation $query): void
     {
         $query

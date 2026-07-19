@@ -3,13 +3,15 @@
 @section('title', 'Dashboard - Admin Pelanggan 15')
 @section('page-title', 'Dashboard Utama')
 
+@inject('driverStatuses', 'App\Services\Admin\AdminDriverStatusPresenter')
+
 @section('content')
 {{-- KPI Cards Row --}}
 <div class="stat-cards-wrapper">
-    <x-stat-card title="GMV Bulan Ini" value="Rp {{ number_format((float) $gmvMonth, 0, ',', '.') }}" icon="bx-money" color="primary" change="Data realtime" change-type="positive" />
-    <x-stat-card title="Total Pesanan (Bulan Ini)" value="{{ number_format($totalOrdersMonth, 0, ',', '.') }}" icon="bx-receipt" color="info" change="Data realtime" change-type="positive" />
-    <x-stat-card title="Pesanan Batal (Bulan Ini)" value="{{ number_format($cancelledOrdersMonth, 0, ',', '.') }}" icon="bx-x-circle" color="danger" change="Data realtime" change-type="negative" />
-    <x-stat-card title="Pengguna Baru (Bulan Ini)" value="{{ number_format($newUsersMonth, 0, ',', '.') }}" icon="bx-user-plus" color="success" change="Data realtime" change-type="positive" />
+    <x-stat-card title="Total Transaksi Bulan Ini" value="Rp {{ number_format((float) $gmvMonth, 0, ',', '.') }}" icon="bx-money" color="primary" change="Data terkini" change-type="positive" />
+    <x-stat-card title="Total Pesanan (Bulan Ini)" value="{{ number_format($totalOrdersMonth, 0, ',', '.') }}" icon="bx-receipt" color="info" change="Data terkini" change-type="positive" />
+    <x-stat-card title="Pesanan Batal (Bulan Ini)" value="{{ number_format($cancelledOrdersMonth, 0, ',', '.') }}" icon="bx-x-circle" color="danger" change="Data terkini" change-type="negative" />
+    <x-stat-card title="Pengguna Baru (Bulan Ini)" value="{{ number_format($newUsersMonth, 0, ',', '.') }}" icon="bx-user-plus" color="success" change="Data terkini" change-type="positive" />
 </div>
 
 {{-- Charts Row --}}
@@ -83,7 +85,7 @@
                         <div class="dashboard-progress-track">
                             <div class="dashboard-progress-fill" style="width:{{ $pct }}%; opacity:{{ 1-($i*0.12) }};"></div>
                         </div>
-                        <span class="dashboard-performance-count">{{ $resto->orders_count }} orders</span>
+                        <span class="dashboard-performance-count">{{ $resto->orders_count }} pesanan</span>
                     </div>
                 </div>
             </div>
@@ -106,9 +108,9 @@
                 <div class="dashboard-performance-content">
                     <div class="dashboard-performance-main">
                         <span class="dashboard-performance-name">{{ $driver->user->name ?? '-' }}</span>
-                        <span class="dashboard-performance-metric">{{ $driver->status }}</span>
+                        <span class="dashboard-performance-metric">{{ $driverStatuses->operationalLabel($driver->status) }}</span>
                     </div>
-                    <span class="dashboard-performance-count">{{ $driver->orders_count ?? 0 }} order terkait</span>
+                    <span class="dashboard-performance-count">{{ $driver->orders_count ?? 0 }} pesanan terkait</span>
                 </div>
             </div>
             @endforeach

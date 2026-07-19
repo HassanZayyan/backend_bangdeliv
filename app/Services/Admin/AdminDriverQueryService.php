@@ -138,11 +138,12 @@ class AdminDriverQueryService
     private function statusFilters(): array
     {
         return [
+            // Kunci array dipakai sebagai nilai query string ?status=..., jangan diubah.
             'semua' => ['label' => 'Semua', 'badge_class' => null],
             'aktif' => ['label' => 'Aktif (Online)', 'badge_class' => 'badge-success'],
-            'offline' => ['label' => 'Offline', 'badge_class' => 'badge-info'],
-            'suspended' => ['label' => 'Suspended', 'badge_class' => 'badge-danger'],
-            'pending' => ['label' => 'Pending Verifikasi', 'badge_class' => 'badge-warning'],
+            'offline' => ['label' => 'Tidak Aktif', 'badge_class' => 'badge-info'],
+            'suspended' => ['label' => 'Ditangguhkan', 'badge_class' => 'badge-danger'],
+            'pending' => ['label' => 'Menunggu Verifikasi', 'badge_class' => 'badge-warning'],
         ];
     }
 
@@ -212,18 +213,18 @@ class AdminDriverQueryService
     private function statusConfig(Driver $driver): array
     {
         if ($driver->registration_status === 'suspended') {
-            return ['label' => 'Suspended', 'class' => 'badge-danger'];
+            return ['label' => 'Ditangguhkan', 'class' => 'badge-danger'];
         }
 
         if ($driver->registration_status === 'pending') {
-            return ['label' => 'Pending Verifikasi', 'class' => 'badge-warning'];
+            return ['label' => 'Menunggu Verifikasi', 'class' => 'badge-warning'];
         }
 
         if ($driver->status === 'available') {
             return ['label' => 'Aktif (Online)', 'class' => 'badge-success'];
         }
 
-        return ['label' => 'Offline', 'class' => 'badge-info'];
+        return ['label' => 'Tidak Aktif', 'class' => 'badge-info'];
     }
 
     /**
