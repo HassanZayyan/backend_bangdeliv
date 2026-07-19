@@ -35,6 +35,9 @@ class ProductionAdminSeeder extends Seeder
             [
                 'name' => $name,
                 'phone' => $phone !== '' ? $phone : null,
+                // Admin di-seed langsung terverifikasi agar tidak terjebak
+                // layar OTP di environment baru.
+                'phone_verified_at' => $phone !== '' ? now() : null,
                 'password' => Hash::make($password),
                 'role' => 'admin',
                 'is_active' => true,

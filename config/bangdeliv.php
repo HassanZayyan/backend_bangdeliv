@@ -162,6 +162,35 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | WhatsApp Gateway (Fonnte)
+    |--------------------------------------------------------------------------
+    |
+    | Pengiriman OTP verifikasi nomor WhatsApp. Bila token kosong, service
+    | hanya menulis kode ke log (mode development) tanpa memanggil API.
+    |
+    */
+    'whatsapp' => [
+        'fonnte_token' => env('FONNTE_TOKEN'),
+        'fonnte_endpoint' => env('FONNTE_ENDPOINT', 'https://api.fonnte.com/send'),
+        'timeout_seconds' => (int) env('FONNTE_TIMEOUT_SECONDS', 10),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | OTP Verifikasi Nomor WhatsApp
+    |--------------------------------------------------------------------------
+    |
+    | Masa berlaku kode, jeda kirim ulang, dan batas percobaan salah.
+    |
+    */
+    'otp' => [
+        'ttl_minutes' => (int) env('OTP_TTL_MINUTES', 5),
+        'resend_cooldown_seconds' => (int) env('OTP_RESEND_COOLDOWN_SECONDS', 60),
+        'max_attempts' => (int) env('OTP_MAX_ATTEMPTS', 5),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Chatbot Rate Limit
     |--------------------------------------------------------------------------
     |

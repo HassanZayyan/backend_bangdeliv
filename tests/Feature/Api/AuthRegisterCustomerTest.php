@@ -30,6 +30,7 @@ class AuthRegisterCustomerTest extends TestCase
             ->assertJsonPath('data.auth_provider', 'password')
             ->assertJsonPath('data.has_password', true)
             ->assertJsonPath('data.requires_phone_completion', false)
+            ->assertJsonPath('data.requires_phone_verification', true)
             ->assertJsonPath('token_type', 'Bearer')
             ->assertJsonStructure(['access_token']);
 

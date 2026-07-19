@@ -28,6 +28,8 @@ class ApiRouteContractTest extends TestCase
             'auth password reset' => ['api.auth.password-reset', 'POST', 'api/auth/password/reset'],
             'auth google' => ['api.auth.google', 'POST', 'api/auth/google'],
             'auth register customer' => ['api.auth.register-customer', 'POST', 'api/auth/register/customer'],
+            'auth otp send' => ['api.auth.otp.send', 'POST', 'api/auth/otp/send'],
+            'auth otp verify' => ['api.auth.otp.verify', 'POST', 'api/auth/otp/verify'],
             'profile show' => ['api.user.show', 'GET', 'api/user'],
             'profile phone complete' => ['api.user.phone.complete', 'PATCH', 'api/user/phone'],
             'profile password create' => ['api.user.password.create', 'POST', 'api/user/password'],

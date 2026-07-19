@@ -25,6 +25,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/chatbot/sessions/{sessionId}', [ChatbotController::class, 'clearSession'])->name('api.chatbot.sessions.destroy');
     Route::post('/auth/logout', [AuthController::class, 'logout'])->name('api.auth.logout');
     Route::get('/user', [AuthController::class, 'me'])->name('api.user.show');
+    Route::post('/auth/otp/send', [AuthController::class, 'sendPhoneOtp'])->middleware('throttle:otp-send')->name('api.auth.otp.send');
+    Route::post('/auth/otp/verify', [AuthController::class, 'verifyPhoneOtp'])->middleware('throttle:otp-verify')->name('api.auth.otp.verify');
     Route::post('/user/upgrade-to-driver', [AuthController::class, 'upgradeToDriver'])->middleware('role:customer')->name('api.user.upgrade-to-driver');
     Route::put('/user', [AuthController::class, 'updateProfile'])->name('api.user.update');
     Route::patch('/user/phone', [AuthController::class, 'completePhone'])->name('api.user.phone.complete');

@@ -47,6 +47,27 @@ class AppServiceProvider extends ServiceProvider
             ];
         });
 
+        // Batas longgar sebagai pengaman; jeda kirim ulang sebenarnya
+        // ditegakkan controller lewat last_sent_at (hanya kirim yang sukses).
+        RateLimiter::for('otp-send', function (Request $request): array {
+            $identifier = $request->user()?->id
+                ? 'user:'.$request->user()->id
+                : 'ip:'.$request->ip();
+
+            return [
+                Limit::perMinute(3)->by($identifier),
+                Limit::perHour(10)->by($identifier),
+            ];
+        });
+
+        RateLimiter::for('otp-verify', function (Request $request): array {
+            $identifier = $request->user()?->id
+                ? 'user:'.$request->user()->id
+                : 'ip:'.$request->ip();
+
+            return [Limit::perMinute(10)->by($identifier)];
+        });
+
         RateLimiter::for('password-reset', function (Request $request): array {
             $email = strtolower(trim((string) $request->input('email', '')));
             $ip = (string) $request->ip();

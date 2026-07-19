@@ -97,4 +97,14 @@ class User extends Authenticatable
         return $this->hasMany(Order::class);
     }
 
+    public function phoneVerificationCode()
+    {
+        return $this->hasOne(PhoneVerificationCode::class);
+    }
+
+    public function requiresPhoneVerification(): bool
+    {
+        return trim((string) ($this->phone ?? '')) !== '' && $this->phone_verified_at === null;
+    }
+
 }

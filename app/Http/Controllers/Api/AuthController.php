@@ -9,8 +9,10 @@ use App\Http\Requests\Api\UpdateAddressRequest;
 use App\Http\Requests\Api\UpgradeToDriverRequest;
 use App\Http\Requests\Api\ValidateAddressRequest;
 use App\Models\OrderPayment;
+use App\Models\PhoneVerificationCode;
 use App\Models\User;
 use App\Services\Auth\GoogleIdTokenVerifier;
+use App\Services\Auth\WhatsAppOtpSender;
 use App\Services\Address\AddressService;
 use App\Services\Driver\DriverIncomeFeeCalculator;
 use App\Services\Driver\DriverOnboardingService;
@@ -459,6 +461,144 @@ class AuthController extends Controller
     }
 
     /**
+     * Kirim kode OTP verifikasi ke nomor WhatsApp user yang sedang login.
+     */
+    public function sendPhoneOtp(Request $request, WhatsAppOtpSender $sender)
+    {
+        $user = $request->user();
+        $phone = trim((string) ($user->phone ?? ''));
+
+        if ($phone === '') {
+            return response()->json([
+                'message' => 'Nomor WhatsApp belum diisi.',
+            ], 422);
+        }
+
+        if ($user->phone_verified_at !== null) {
+            return response()->json([
+                'message' => 'Nomor WhatsApp sudah terverifikasi.',
+                'data' => [
+                    'already_verified' => true,
+                    'resend_available_in' => 0,
+                ],
+            ]);
+        }
+
+        $cooldownSeconds = (int) config('bangdeliv.otp.resend_cooldown_seconds', 60);
+        $existing = PhoneVerificationCode::query()->where('user_id', $user->id)->first();
+
+        if ($existing && $existing->phone === $phone && $existing->last_sent_at !== null) {
+            $secondsSinceLastSend = $existing->last_sent_at->diffInSeconds(now());
+            if ($secondsSinceLastSend < $cooldownSeconds) {
+                $retryAfter = (int) ceil($cooldownSeconds - $secondsSinceLastSend);
+
+                return response()->json([
+                    'message' => "Tunggu {$retryAfter} detik sebelum meminta kode baru.",
+                    'retry_after_seconds' => $retryAfter,
+                ], 429);
+            }
+        }
+
+        $code = (string) random_int(100000, 999999);
+
+        // Kirim dulu, simpan belakangan: kegagalan gateway tidak boleh
+        // memulai cooldown sehingga user bisa langsung mencoba lagi.
+        if (! $sender->send($phone, $code)) {
+            return response()->json([
+                'message' => 'Gagal mengirim kode verifikasi WhatsApp. Coba lagi.',
+            ], 503);
+        }
+
+        PhoneVerificationCode::query()->updateOrCreate(
+            ['user_id' => $user->id],
+            [
+                'phone' => $phone,
+                'code_hash' => Hash::make($code),
+                'expires_at' => now()->addMinutes((int) config('bangdeliv.otp.ttl_minutes', 5)),
+                'attempts' => 0,
+                'last_sent_at' => now(),
+            ]
+        );
+
+        return response()->json([
+            'message' => 'Kode verifikasi telah dikirim ke WhatsApp Anda.',
+            'data' => [
+                'already_verified' => false,
+                'resend_available_in' => $cooldownSeconds,
+            ],
+        ]);
+    }
+
+    /**
+     * Verifikasi kode OTP nomor WhatsApp.
+     */
+    public function verifyPhoneOtp(Request $request)
+    {
+        $user = $request->user();
+
+        $validator = Validator::make(
+            ['code' => trim((string) $request->input('code', ''))],
+            ['code' => 'required|digits:6'],
+            [
+                'code.required' => 'Kode OTP wajib diisi.',
+                'code.digits' => 'Kode OTP harus 6 digit.',
+            ]
+        );
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        if ($user->phone_verified_at !== null) {
+            return response()->json([
+                'message' => 'Nomor WhatsApp sudah terverifikasi.',
+                'data' => $this->buildProfilePayload($user->fresh(), $request),
+            ]);
+        }
+
+        $record = PhoneVerificationCode::query()->where('user_id', $user->id)->first();
+        $currentPhone = trim((string) ($user->phone ?? ''));
+
+        if (! $record || $record->phone !== $currentPhone) {
+            return response()->json([
+                'message' => 'Kode OTP tidak ditemukan. Kirim ulang kode.',
+            ], 422);
+        }
+
+        if ($record->isExpired()) {
+            return response()->json([
+                'message' => 'Kode OTP kedaluwarsa. Kirim ulang kode.',
+            ], 422);
+        }
+
+        $maxAttempts = (int) config('bangdeliv.otp.max_attempts', 5);
+        if ($record->attempts >= $maxAttempts) {
+            return response()->json([
+                'message' => 'Terlalu banyak percobaan. Kirim ulang kode baru.',
+            ], 422);
+        }
+
+        if (! Hash::check($validator->validated()['code'], $record->code_hash)) {
+            $record->increment('attempts');
+            $remaining = max(0, $maxAttempts - ($record->attempts));
+
+            return response()->json([
+                'message' => $remaining > 0
+                    ? "Kode OTP salah. Sisa percobaan: {$remaining}."
+                    : 'Terlalu banyak percobaan. Kirim ulang kode baru.',
+            ], 422);
+        }
+
+        $user->update(['phone_verified_at' => now()]);
+        $record->delete();
+
+        return response()->json([
+            'message' => 'Nomor WhatsApp berhasil diverifikasi.',
+            'data' => $this->buildProfilePayload($user->fresh(), $request),
+        ]);
+    }
+
+    /**
      * Update current user password
      */
     public function changePassword(Request $request)
@@ -723,6 +863,7 @@ class AuthController extends Controller
             : 'password';
         $responseUserData['has_password'] = trim((string) ($user->password ?? '')) !== '';
         $responseUserData['requires_phone_completion'] = trim((string) ($user->phone ?? '')) === '';
+        $responseUserData['requires_phone_verification'] = $user->requiresPhoneVerification();
         $responseUserData['stats'] = [
             'total_orders' => $totalOrders,
             'total_paid' => $totalPaid,
