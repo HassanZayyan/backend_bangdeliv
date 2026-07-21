@@ -21,7 +21,7 @@ class ThesisDatasetSeeder extends Seeder
 {
     public const ADMIN_CREATED_AT = '2026-07-08 09:30:00';
 
-    public const ADMIN_UPDATED_AT = '2026-07-15 21:19:29';
+    public const ADMIN_UPDATED_AT = '2026-07-15 20:06:29';
 
     /**
      * Urutan tabel mengikuti dependensi foreign key.

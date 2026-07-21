@@ -11,67 +11,67 @@ return array (
     'changed_by_user_id' => '10',
     'note' => 'Order Antar Jemput dibuat oleh customer.',
     'metadata' => NULL,
-    'created_at' => '2026-07-15 09:45:10',
+    'created_at' => '2026-07-15 09:20:10',
   ),
   1 => 
   array (
     'id' => '2',
     'order_id' => '1',
     'status_id' => '2',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Order diterima oleh driver.',
-    'metadata' => '{"driver_snapshot": {"name": "Responden Lama 01", "phone": "081100000002", "user_id": 9, "driver_id": 2, "vehicle_type": "Motor Manual", "vehicle_brand": "Honda", "vehicle_model": "Supra X 125", "vehicle_plate": "H 1002 AA"}}',
-    'created_at' => '2026-07-15 09:45:23',
+    'metadata' => '{"driver_snapshot":{"name":"Driver 01","phone":"081100000001","user_id":2,"driver_id":1,"vehicle_type":"Motor Matic","vehicle_brand":"Honda","vehicle_model":"Vario 125 New","vehicle_plate":"H 1001 AA"}}',
+    'created_at' => '2026-07-15 09:20:23',
   ),
   2 => 
   array (
     'id' => '3',
     'order_id' => '1',
     'status_id' => '4',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Driver action ARRIVE_PICKUP',
     'metadata' => '{"action_code":"ARRIVE_PICKUP","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 09:48:27',
+    'created_at' => '2026-07-15 09:23:27',
   ),
   3 => 
   array (
     'id' => '4',
     'order_id' => '1',
     'status_id' => '6',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Driver action BOARD_PASSENGER',
     'metadata' => '{"action_code":"BOARD_PASSENGER","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 09:49:12',
+    'created_at' => '2026-07-15 09:24:12',
   ),
   4 => 
   array (
     'id' => '5',
     'order_id' => '1',
     'status_id' => '7',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Driver action ARRIVE_DROPOFF',
     'metadata' => '{"action_code":"ARRIVE_DROPOFF","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 10:14:09',
+    'created_at' => '2026-07-15 09:49:09',
   ),
   5 => 
   array (
     'id' => '6',
     'order_id' => '1',
     'status_id' => '8',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Driver action CONFIRM_DELIVERED',
     'metadata' => '{"action_code":"CONFIRM_DELIVERED","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 10:14:24',
+    'created_at' => '2026-07-15 09:49:24',
   ),
   6 => 
   array (
     'id' => '7',
     'order_id' => '1',
     'status_id' => '9',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Driver action COMPLETE_ORDER',
     'metadata' => '{"action_code":"COMPLETE_ORDER","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 10:15:09',
+    'created_at' => '2026-07-15 09:50:09',
   ),
   7 => 
   array (
@@ -81,7 +81,7 @@ return array (
     'changed_by_user_id' => '11',
     'note' => 'Order Nitip dibuat melalui chatbot.',
     'metadata' => NULL,
-    'created_at' => '2026-07-15 11:25:33',
+    'created_at' => '2026-07-15 10:55:33',
   ),
   8 => 
   array (
@@ -91,7 +91,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Order diterima oleh driver.',
     'metadata' => '{"driver_snapshot":{"name":"Responden Lama 01","phone":"081100000002","user_id":9,"driver_id":2,"vehicle_type":"Motor Manual","vehicle_brand":"Honda","vehicle_model":"Supra X 125","vehicle_plate":"H 1002 AA"}}',
-    'created_at' => '2026-07-15 11:25:43',
+    'created_at' => '2026-07-15 10:55:43',
   ),
   9 => 
   array (
@@ -101,7 +101,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver mulai memproses merchant Nitip.',
     'metadata' => '{"action_code":"MERCHANT_OPEN_CONFIRMED","pickup_location_id":3}',
-    'created_at' => '2026-07-15 11:30:45',
+    'created_at' => '2026-07-15 11:00:45',
   ),
   10 => 
   array (
@@ -111,7 +111,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action CONFIRM_PICKED_UP',
     'metadata' => '{"action_code":"CONFIRM_PICKED_UP","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 11:51:24',
+    'created_at' => '2026-07-15 11:21:24',
   ),
   11 => 
   array (
@@ -121,7 +121,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action START_DELIVERY',
     'metadata' => '{"action_code":"START_DELIVERY","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 11:51:25',
+    'created_at' => '2026-07-15 11:21:25',
   ),
   12 => 
   array (
@@ -131,7 +131,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action ARRIVE_DROPOFF',
     'metadata' => '{"action_code":"ARRIVE_DROPOFF","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 11:54:20',
+    'created_at' => '2026-07-15 11:24:20',
   ),
   13 => 
   array (
@@ -141,7 +141,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action CONFIRM_DELIVERED',
     'metadata' => '{"action_code":"CONFIRM_DELIVERED","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 11:54:35',
+    'created_at' => '2026-07-15 11:24:35',
   ),
   14 => 
   array (
@@ -151,7 +151,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action COMPLETE_ORDER',
     'metadata' => '{"action_code":"COMPLETE_ORDER","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 11:55:20',
+    'created_at' => '2026-07-15 11:25:20',
   ),
   15 => 
   array (
@@ -161,7 +161,7 @@ return array (
     'changed_by_user_id' => '3',
     'note' => 'Order Antar Jemput dibuat oleh customer.',
     'metadata' => NULL,
-    'created_at' => '2026-07-15 12:18:18',
+    'created_at' => '2026-07-15 11:56:18',
   ),
   16 => 
   array (
@@ -170,8 +170,8 @@ return array (
     'status_id' => '2',
     'changed_by_user_id' => '9',
     'note' => 'Order diterima oleh driver.',
-    'metadata' => '{"driver_snapshot": {"name": "Responden Lama 01", "phone": "081100000002", "user_id": 9, "driver_id": 2, "vehicle_type": "Motor Manual", "vehicle_brand": "Honda", "vehicle_model": "Supra X 125", "vehicle_plate": "H 1002 AA"}}',
-    'created_at' => '2026-07-15 12:18:54',
+    'metadata' => '{"driver_snapshot":{"name":"Responden Lama 01","phone":"081100000002","user_id":9,"driver_id":2,"vehicle_type":"Motor Manual","vehicle_brand":"Honda","vehicle_model":"Supra X 125","vehicle_plate":"H 1002 AA"}}',
+    'created_at' => '2026-07-15 11:56:54',
   ),
   17 => 
   array (
@@ -180,8 +180,8 @@ return array (
     'status_id' => '4',
     'changed_by_user_id' => '9',
     'note' => 'Driver action ARRIVE_PICKUP',
-    'metadata' => '{"action_code": "ARRIVE_PICKUP", "service_type": "RIDE"}',
-    'created_at' => '2026-07-15 12:25:40',
+    'metadata' => '{"action_code":"ARRIVE_PICKUP","service_type":"RIDE"}',
+    'created_at' => '2026-07-15 12:03:40',
   ),
   18 => 
   array (
@@ -191,7 +191,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action BOARD_PASSENGER',
     'metadata' => '{"action_code":"BOARD_PASSENGER","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 12:26:25',
+    'created_at' => '2026-07-15 12:04:25',
   ),
   19 => 
   array (
@@ -201,7 +201,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action ARRIVE_DROPOFF',
     'metadata' => '{"action_code":"ARRIVE_DROPOFF","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 12:39:27',
+    'created_at' => '2026-07-15 12:17:27',
   ),
   20 => 
   array (
@@ -211,7 +211,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action CONFIRM_DELIVERED',
     'metadata' => '{"action_code":"CONFIRM_DELIVERED","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 12:39:42',
+    'created_at' => '2026-07-15 12:17:42',
   ),
   21 => 
   array (
@@ -221,7 +221,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action COMPLETE_ORDER',
     'metadata' => '{"action_code":"COMPLETE_ORDER","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 12:42:30',
+    'created_at' => '2026-07-15 12:20:30',
   ),
   22 => 
   array (
@@ -231,7 +231,7 @@ return array (
     'changed_by_user_id' => '12',
     'note' => 'Order Antar Jemput dibuat oleh customer.',
     'metadata' => NULL,
-    'created_at' => '2026-07-15 12:44:39',
+    'created_at' => '2026-07-15 12:21:44',
   ),
   23 => 
   array (
@@ -241,7 +241,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Order diterima oleh driver.',
     'metadata' => '{"driver_snapshot":{"name":"Responden Lama 01","phone":"081100000002","user_id":9,"driver_id":2,"vehicle_type":"Motor Manual","vehicle_brand":"Honda","vehicle_model":"Supra X 125","vehicle_plate":"H 1002 AA"}}',
-    'created_at' => '2026-07-15 12:44:49',
+    'created_at' => '2026-07-15 12:21:54',
   ),
   24 => 
   array (
@@ -251,7 +251,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action ARRIVE_PICKUP',
     'metadata' => '{"action_code":"ARRIVE_PICKUP","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 12:48:00',
+    'created_at' => '2026-07-15 12:25:05',
   ),
   25 => 
   array (
@@ -261,7 +261,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action BOARD_PASSENGER',
     'metadata' => '{"action_code":"BOARD_PASSENGER","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 12:51:10',
+    'created_at' => '2026-07-15 12:28:15',
   ),
   26 => 
   array (
@@ -271,7 +271,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action ARRIVE_DROPOFF',
     'metadata' => '{"action_code":"ARRIVE_DROPOFF","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 13:05:09',
+    'created_at' => '2026-07-15 12:42:14',
   ),
   27 => 
   array (
@@ -281,7 +281,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action CONFIRM_DELIVERED',
     'metadata' => '{"action_code":"CONFIRM_DELIVERED","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 13:05:24',
+    'created_at' => '2026-07-15 12:42:29',
   ),
   28 => 
   array (
@@ -291,7 +291,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action COMPLETE_ORDER',
     'metadata' => '{"action_code":"COMPLETE_ORDER","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 13:06:54',
+    'created_at' => '2026-07-15 12:43:59',
   ),
   29 => 
   array (
@@ -301,7 +301,7 @@ return array (
     'changed_by_user_id' => '13',
     'note' => 'Order Antar Jemput dibuat oleh customer.',
     'metadata' => NULL,
-    'created_at' => '2026-07-15 14:13:53',
+    'created_at' => '2026-07-15 13:48:53',
   ),
   30 => 
   array (
@@ -310,8 +310,8 @@ return array (
     'status_id' => '2',
     'changed_by_user_id' => '9',
     'note' => 'Order diterima oleh driver.',
-    'metadata' => '{"driver_snapshot": {"name": "Responden Lama 01", "phone": "081100000002", "user_id": 9, "driver_id": 2, "vehicle_type": "Motor Manual", "vehicle_brand": "Honda", "vehicle_model": "Supra X 125", "vehicle_plate": "H 1002 AA"}}',
-    'created_at' => '2026-07-15 14:17:37',
+    'metadata' => '{"driver_snapshot":{"name":"Responden Lama 01","phone":"081100000002","user_id":9,"driver_id":2,"vehicle_type":"Motor Manual","vehicle_brand":"Honda","vehicle_model":"Supra X 125","vehicle_plate":"H 1002 AA"}}',
+    'created_at' => '2026-07-15 13:52:37',
   ),
   31 => 
   array (
@@ -321,7 +321,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action ARRIVE_PICKUP',
     'metadata' => '{"action_code":"ARRIVE_PICKUP","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 14:19:41',
+    'created_at' => '2026-07-15 13:54:41',
   ),
   32 => 
   array (
@@ -331,7 +331,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action BOARD_PASSENGER',
     'metadata' => '{"action_code":"BOARD_PASSENGER","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 14:20:26',
+    'created_at' => '2026-07-15 13:55:26',
   ),
   33 => 
   array (
@@ -341,7 +341,7 @@ return array (
     'changed_by_user_id' => '14',
     'note' => 'Order Nitip dibuat melalui chatbot.',
     'metadata' => NULL,
-    'created_at' => '2026-07-15 14:29:05',
+    'created_at' => '2026-07-15 13:59:36',
   ),
   34 => 
   array (
@@ -351,7 +351,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action ARRIVE_DROPOFF',
     'metadata' => '{"action_code":"ARRIVE_DROPOFF","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 14:32:20',
+    'created_at' => '2026-07-15 14:07:20',
   ),
   35 => 
   array (
@@ -361,7 +361,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action CONFIRM_DELIVERED',
     'metadata' => '{"action_code":"CONFIRM_DELIVERED","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 14:32:35',
+    'created_at' => '2026-07-15 14:07:35',
   ),
   36 => 
   array (
@@ -371,77 +371,77 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action COMPLETE_ORDER',
     'metadata' => '{"action_code":"COMPLETE_ORDER","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 14:33:20',
+    'created_at' => '2026-07-15 14:08:20',
   ),
   37 => 
   array (
     'id' => '38',
     'order_id' => '6',
     'status_id' => '2',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Order diterima oleh driver.',
-    'metadata' => '{"driver_snapshot":{"name":"Responden Lama 01","phone":"081100000002","user_id":9,"driver_id":2,"vehicle_type":"Motor Manual","vehicle_brand":"Honda","vehicle_model":"Supra X 125","vehicle_plate":"H 1002 AA"}}',
-    'created_at' => '2026-07-15 14:35:30',
+    'metadata' => '{"driver_snapshot":{"name":"Driver 01","phone":"081100000001","user_id":2,"driver_id":1,"vehicle_type":"Motor Matic","vehicle_brand":"Honda","vehicle_model":"Vario 125 New","vehicle_plate":"H 1001 AA"}}',
+    'created_at' => '2026-07-15 14:06:01',
   ),
   38 => 
   array (
     'id' => '39',
     'order_id' => '6',
     'status_id' => '3',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Driver mulai memproses merchant Nitip.',
     'metadata' => '{"action_code":"MERCHANT_OPEN_CONFIRMED","pickup_location_id":11}',
-    'created_at' => '2026-07-15 14:36:09',
+    'created_at' => '2026-07-15 14:06:40',
   ),
   39 => 
   array (
     'id' => '40',
     'order_id' => '6',
     'status_id' => '5',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Driver action CONFIRM_PICKED_UP',
     'metadata' => '{"action_code":"CONFIRM_PICKED_UP","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 14:45:33',
+    'created_at' => '2026-07-15 14:16:04',
   ),
   40 => 
   array (
     'id' => '41',
     'order_id' => '6',
     'status_id' => '6',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Driver action START_DELIVERY',
     'metadata' => '{"action_code":"START_DELIVERY","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 14:45:36',
+    'created_at' => '2026-07-15 14:16:07',
   ),
   41 => 
   array (
     'id' => '42',
     'order_id' => '6',
     'status_id' => '7',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Driver action ARRIVE_DROPOFF',
     'metadata' => '{"action_code":"ARRIVE_DROPOFF","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 14:46:47',
+    'created_at' => '2026-07-15 14:17:18',
   ),
   42 => 
   array (
     'id' => '43',
     'order_id' => '6',
     'status_id' => '8',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Driver action CONFIRM_DELIVERED',
     'metadata' => '{"action_code":"CONFIRM_DELIVERED","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 14:48:16',
+    'created_at' => '2026-07-15 14:18:47',
   ),
   43 => 
   array (
     'id' => '44',
     'order_id' => '6',
     'status_id' => '9',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Driver action COMPLETE_ORDER',
     'metadata' => '{"action_code":"COMPLETE_ORDER","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 14:49:19',
+    'created_at' => '2026-07-15 14:19:50',
   ),
   44 => 
   array (
@@ -451,7 +451,7 @@ return array (
     'changed_by_user_id' => '15',
     'note' => 'Order Nitip dibuat melalui chatbot.',
     'metadata' => NULL,
-    'created_at' => '2026-07-15 14:47:30',
+    'created_at' => '2026-07-15 14:25:30',
   ),
   45 => 
   array (
@@ -460,8 +460,8 @@ return array (
     'status_id' => '2',
     'changed_by_user_id' => '9',
     'note' => 'Order diterima oleh driver.',
-    'metadata' => '{"driver_snapshot": {"name": "Responden Lama 01", "phone": "081100000002", "user_id": 9, "driver_id": 2, "vehicle_type": "Motor Manual", "vehicle_brand": "Honda", "vehicle_model": "Supra X 125", "vehicle_plate": "H 1002 AA"}}',
-    'created_at' => '2026-07-15 14:51:22',
+    'metadata' => '{"driver_snapshot":{"name":"Responden Lama 01","phone":"081100000002","user_id":9,"driver_id":2,"vehicle_type":"Motor Manual","vehicle_brand":"Honda","vehicle_model":"Supra X 125","vehicle_plate":"H 1002 AA"}}',
+    'created_at' => '2026-07-15 14:29:22',
   ),
   46 => 
   array (
@@ -470,8 +470,8 @@ return array (
     'status_id' => '3',
     'changed_by_user_id' => '9',
     'note' => 'Driver mulai memproses merchant Nitip.',
-    'metadata' => '{"action_code": "MERCHANT_OPEN_CONFIRMED", "pickup_location_id": 13}',
-    'created_at' => '2026-07-15 14:53:30',
+    'metadata' => '{"action_code":"MERCHANT_OPEN_CONFIRMED","pickup_location_id":13}',
+    'created_at' => '2026-07-15 14:31:30',
   ),
   47 => 
   array (
@@ -481,7 +481,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action CONFIRM_PICKED_UP',
     'metadata' => '{"action_code":"CONFIRM_PICKED_UP","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 15:03:14',
+    'created_at' => '2026-07-15 14:41:14',
   ),
   48 => 
   array (
@@ -491,7 +491,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action START_DELIVERY',
     'metadata' => '{"action_code":"START_DELIVERY","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 15:03:18',
+    'created_at' => '2026-07-15 14:41:18',
   ),
   49 => 
   array (
@@ -501,7 +501,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action ARRIVE_DROPOFF',
     'metadata' => '{"action_code":"ARRIVE_DROPOFF","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 15:05:21',
+    'created_at' => '2026-07-15 14:43:21',
   ),
   50 => 
   array (
@@ -511,7 +511,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action CONFIRM_DELIVERED',
     'metadata' => '{"action_code":"CONFIRM_DELIVERED","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 15:05:36',
+    'created_at' => '2026-07-15 14:43:36',
   ),
   51 => 
   array (
@@ -521,7 +521,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action COMPLETE_ORDER',
     'metadata' => '{"action_code":"COMPLETE_ORDER","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 15:06:21',
+    'created_at' => '2026-07-15 14:44:21',
   ),
   52 => 
   array (
@@ -540,7 +540,7 @@ return array (
     'status_id' => '2',
     'changed_by_user_id' => '9',
     'note' => 'Order diterima oleh driver.',
-    'metadata' => '{"driver_snapshot": {"name": "Responden Lama 01", "phone": "081100000002", "user_id": 9, "driver_id": 2, "vehicle_type": "Motor Manual", "vehicle_brand": "Honda", "vehicle_model": "Supra X 125", "vehicle_plate": "H 1002 AA"}}',
+    'metadata' => '{"driver_snapshot":{"name":"Responden Lama 01","phone":"081100000002","user_id":9,"driver_id":2,"vehicle_type":"Motor Manual","vehicle_brand":"Honda","vehicle_model":"Supra X 125","vehicle_plate":"H 1002 AA"}}',
     'created_at' => '2026-07-15 17:32:33',
   ),
   54 => 
@@ -611,7 +611,7 @@ return array (
     'changed_by_user_id' => '16',
     'note' => 'Order Nitip dibuat melalui chatbot.',
     'metadata' => NULL,
-    'created_at' => '2026-07-15 18:28:39',
+    'created_at' => '2026-07-15 18:04:33',
   ),
   61 => 
   array (
@@ -621,7 +621,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Order diterima oleh driver.',
     'metadata' => '{"driver_snapshot":{"name":"Responden Lama 01","phone":"081100000002","user_id":9,"driver_id":2,"vehicle_type":"Motor Manual","vehicle_brand":"Honda","vehicle_model":"Supra X 125","vehicle_plate":"H 1002 AA"}}',
-    'created_at' => '2026-07-15 18:28:49',
+    'created_at' => '2026-07-15 18:04:43',
   ),
   62 => 
   array (
@@ -631,7 +631,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver mulai memproses merchant Nitip.',
     'metadata' => '{"action_code":"MERCHANT_OPEN_CONFIRMED","pickup_location_id":18}',
-    'created_at' => '2026-07-15 18:32:08',
+    'created_at' => '2026-07-15 18:08:02',
   ),
   63 => 
   array (
@@ -641,7 +641,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action CONFIRM_PICKED_UP',
     'metadata' => '{"action_code":"CONFIRM_PICKED_UP","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 18:43:05',
+    'created_at' => '2026-07-15 18:18:59',
   ),
   64 => 
   array (
@@ -651,7 +651,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action START_DELIVERY',
     'metadata' => '{"action_code":"START_DELIVERY","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 18:43:06',
+    'created_at' => '2026-07-15 18:19:00',
   ),
   65 => 
   array (
@@ -661,7 +661,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action ARRIVE_DROPOFF',
     'metadata' => '{"action_code":"ARRIVE_DROPOFF","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 18:45:12',
+    'created_at' => '2026-07-15 18:21:06',
   ),
   66 => 
   array (
@@ -671,7 +671,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action CONFIRM_DELIVERED',
     'metadata' => '{"action_code":"CONFIRM_DELIVERED","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 18:45:27',
+    'created_at' => '2026-07-15 18:21:21',
   ),
   67 => 
   array (
@@ -681,7 +681,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action COMPLETE_ORDER',
     'metadata' => '{"action_code":"COMPLETE_ORDER","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 18:46:34',
+    'created_at' => '2026-07-15 18:22:28',
   ),
   68 => 
   array (
@@ -691,77 +691,77 @@ return array (
     'changed_by_user_id' => '17',
     'note' => 'Order Nitip dibuat melalui chatbot.',
     'metadata' => NULL,
-    'created_at' => '2026-07-15 19:02:40',
+    'created_at' => '2026-07-15 18:36:40',
   ),
   69 => 
   array (
     'id' => '70',
     'order_id' => '10',
     'status_id' => '2',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Order diterima oleh driver.',
-    'metadata' => '{"driver_snapshot": {"name": "Responden Lama 01", "phone": "081100000002", "user_id": 9, "driver_id": 2, "vehicle_type": "Motor Manual", "vehicle_brand": "Honda", "vehicle_model": "Supra X 125", "vehicle_plate": "H 1002 AA"}}',
-    'created_at' => '2026-07-15 19:02:51',
+    'metadata' => '{"driver_snapshot":{"name":"Driver 01","phone":"081100000001","user_id":2,"driver_id":1,"vehicle_type":"Motor Matic","vehicle_brand":"Honda","vehicle_model":"Vario 125 New","vehicle_plate":"H 1001 AA"}}',
+    'created_at' => '2026-07-15 18:36:51',
   ),
   70 => 
   array (
     'id' => '71',
     'order_id' => '10',
     'status_id' => '3',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Driver mulai memproses merchant Nitip.',
-    'metadata' => '{"action_code": "MERCHANT_OPEN_CONFIRMED", "pickup_location_id": 20}',
-    'created_at' => '2026-07-15 19:03:32',
+    'metadata' => '{"action_code":"MERCHANT_OPEN_CONFIRMED","pickup_location_id":20}',
+    'created_at' => '2026-07-15 18:37:32',
   ),
   71 => 
   array (
     'id' => '72',
     'order_id' => '10',
     'status_id' => '5',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Driver action CONFIRM_PICKED_UP',
     'metadata' => '{"action_code":"CONFIRM_PICKED_UP","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 19:18:07',
+    'created_at' => '2026-07-15 18:52:07',
   ),
   72 => 
   array (
     'id' => '73',
     'order_id' => '10',
     'status_id' => '6',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Driver action START_DELIVERY',
     'metadata' => '{"action_code":"START_DELIVERY","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 19:18:19',
+    'created_at' => '2026-07-15 18:52:19',
   ),
   73 => 
   array (
     'id' => '74',
     'order_id' => '10',
     'status_id' => '7',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Driver action ARRIVE_DROPOFF',
     'metadata' => '{"action_code":"ARRIVE_DROPOFF","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 19:19:39',
+    'created_at' => '2026-07-15 18:53:39',
   ),
   74 => 
   array (
     'id' => '75',
     'order_id' => '10',
     'status_id' => '8',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Driver action CONFIRM_DELIVERED',
     'metadata' => '{"action_code":"CONFIRM_DELIVERED","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 19:19:54',
+    'created_at' => '2026-07-15 18:53:54',
   ),
   75 => 
   array (
     'id' => '76',
     'order_id' => '10',
     'status_id' => '9',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Driver action COMPLETE_ORDER',
     'metadata' => '{"action_code":"COMPLETE_ORDER","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 19:20:39',
+    'created_at' => '2026-07-15 18:54:39',
   ),
   76 => 
   array (
@@ -1301,57 +1301,57 @@ return array (
     'changed_by_user_id' => '22',
     'note' => 'Order Antar Jemput dibuat oleh customer.',
     'metadata' => NULL,
-    'created_at' => '2026-07-15 20:09:15',
+    'created_at' => '2026-07-15 20:02:24',
   ),
   130 => 
   array (
     'id' => '131',
     'order_id' => '20',
     'status_id' => '2',
-    'changed_by_user_id' => '2',
+    'changed_by_user_id' => '18',
     'note' => 'Order diterima oleh driver.',
-    'metadata' => '{"driver_snapshot":{"name":"Driver 01","phone":"081100000001","user_id":2,"driver_id":1,"vehicle_type":"Motor Matic","vehicle_brand":"Honda","vehicle_model":"Vario 125 New","vehicle_plate":"H 1001 AA"}}',
-    'created_at' => '2026-07-15 20:09:43',
+    'metadata' => '{"driver_snapshot":{"name":"Driver 03","phone":"081100000003","user_id":18,"driver_id":3,"vehicle_type":"Motor Matic","vehicle_brand":"Honda","vehicle_model":"Supra X","vehicle_plate":"H 1003 AA"}}',
+    'created_at' => '2026-07-15 20:02:52',
   ),
   131 => 
   array (
     'id' => '132',
     'order_id' => '20',
     'status_id' => '4',
-    'changed_by_user_id' => '2',
+    'changed_by_user_id' => '18',
     'note' => 'Driver action ARRIVE_PICKUP',
     'metadata' => '{"action_code":"ARRIVE_PICKUP","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 20:13:58',
+    'created_at' => '2026-07-15 20:07:07',
   ),
   132 => 
   array (
     'id' => '133',
     'order_id' => '20',
     'status_id' => '6',
-    'changed_by_user_id' => '2',
+    'changed_by_user_id' => '18',
     'note' => 'Driver action BOARD_PASSENGER',
     'metadata' => '{"action_code":"BOARD_PASSENGER","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 20:14:43',
+    'created_at' => '2026-07-15 20:07:52',
   ),
   133 => 
   array (
     'id' => '134',
     'order_id' => '20',
     'status_id' => '7',
-    'changed_by_user_id' => '2',
+    'changed_by_user_id' => '18',
     'note' => 'Driver action ARRIVE_DROPOFF',
     'metadata' => '{"action_code":"ARRIVE_DROPOFF","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 20:20:12',
+    'created_at' => '2026-07-15 20:13:21',
   ),
   134 => 
   array (
     'id' => '135',
     'order_id' => '20',
     'status_id' => '8',
-    'changed_by_user_id' => '2',
+    'changed_by_user_id' => '18',
     'note' => 'Driver action CONFIRM_DELIVERED',
     'metadata' => '{"action_code":"CONFIRM_DELIVERED","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 20:20:56',
+    'created_at' => '2026-07-15 20:14:05',
   ),
   135 => 
   array (
@@ -1378,10 +1378,10 @@ return array (
     'id' => '138',
     'order_id' => '20',
     'status_id' => '9',
-    'changed_by_user_id' => '2',
+    'changed_by_user_id' => '18',
     'note' => 'Driver action COMPLETE_ORDER',
     'metadata' => '{"action_code":"COMPLETE_ORDER","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 20:21:41',
+    'created_at' => '2026-07-15 20:14:50',
   ),
   138 => 
   array (
@@ -1391,77 +1391,77 @@ return array (
     'changed_by_user_id' => '22',
     'note' => 'Order kurir dibuat oleh customer melalui chatbot.',
     'metadata' => NULL,
-    'created_at' => '2026-07-15 20:22:37',
+    'created_at' => '2026-07-15 20:15:46',
   ),
   139 => 
   array (
     'id' => '140',
     'order_id' => '22',
     'status_id' => '2',
-    'changed_by_user_id' => '2',
+    'changed_by_user_id' => '18',
     'note' => 'Order diterima oleh driver.',
-    'metadata' => '{"driver_snapshot":{"name":"Driver 01","phone":"081100000001","user_id":2,"driver_id":1,"vehicle_type":"Motor Matic","vehicle_brand":"Honda","vehicle_model":"Vario 125 New","vehicle_plate":"H 1001 AA"}}',
-    'created_at' => '2026-07-15 20:22:59',
+    'metadata' => '{"driver_snapshot":{"name":"Driver 03","phone":"081100000003","user_id":18,"driver_id":3,"vehicle_type":"Motor Matic","vehicle_brand":"Honda","vehicle_model":"Supra X","vehicle_plate":"H 1003 AA"}}',
+    'created_at' => '2026-07-15 20:16:08',
   ),
   140 => 
   array (
     'id' => '141',
     'order_id' => '22',
     'status_id' => '4',
-    'changed_by_user_id' => '2',
+    'changed_by_user_id' => '18',
     'note' => 'Driver action ARRIVE_PICKUP',
     'metadata' => '{"action_code":"ARRIVE_PICKUP","service_type":"COURIER"}',
-    'created_at' => '2026-07-15 20:26:17',
+    'created_at' => '2026-07-15 20:19:26',
   ),
   141 => 
   array (
     'id' => '142',
     'order_id' => '22',
     'status_id' => '5',
-    'changed_by_user_id' => '2',
+    'changed_by_user_id' => '18',
     'note' => 'Driver action CONFIRM_PICKED_UP',
     'metadata' => '{"action_code":"CONFIRM_PICKED_UP","service_type":"COURIER"}',
-    'created_at' => '2026-07-15 20:27:47',
+    'created_at' => '2026-07-15 20:20:56',
   ),
   142 => 
   array (
     'id' => '143',
     'order_id' => '22',
     'status_id' => '6',
-    'changed_by_user_id' => '2',
+    'changed_by_user_id' => '18',
     'note' => 'Driver action START_DELIVERY',
     'metadata' => '{"action_code":"START_DELIVERY","service_type":"COURIER"}',
-    'created_at' => '2026-07-15 20:27:50',
+    'created_at' => '2026-07-15 20:20:59',
   ),
   143 => 
   array (
     'id' => '144',
     'order_id' => '22',
     'status_id' => '7',
-    'changed_by_user_id' => '2',
+    'changed_by_user_id' => '18',
     'note' => 'Driver action ARRIVE_DROPOFF',
     'metadata' => '{"action_code":"ARRIVE_DROPOFF","service_type":"COURIER"}',
-    'created_at' => '2026-07-15 20:31:41',
+    'created_at' => '2026-07-15 20:24:50',
   ),
   144 => 
   array (
     'id' => '145',
     'order_id' => '22',
     'status_id' => '8',
-    'changed_by_user_id' => '2',
+    'changed_by_user_id' => '18',
     'note' => 'Driver action CONFIRM_DELIVERED',
     'metadata' => '{"action_code":"CONFIRM_DELIVERED","service_type":"COURIER"}',
-    'created_at' => '2026-07-15 20:31:56',
+    'created_at' => '2026-07-15 20:25:05',
   ),
   145 => 
   array (
     'id' => '146',
     'order_id' => '22',
     'status_id' => '9',
-    'changed_by_user_id' => '2',
+    'changed_by_user_id' => '18',
     'note' => 'Driver action COMPLETE_ORDER',
     'metadata' => '{"action_code":"COMPLETE_ORDER","service_type":"COURIER"}',
-    'created_at' => '2026-07-15 20:32:41',
+    'created_at' => '2026-07-15 20:25:50',
   ),
   146 => 
   array (
@@ -1471,7 +1471,7 @@ return array (
     'changed_by_user_id' => '24',
     'note' => 'Order Antar Jemput dibuat oleh customer.',
     'metadata' => NULL,
-    'created_at' => '2026-07-16 13:58:55',
+    'created_at' => '2026-07-15 20:26:55',
   ),
   147 => 
   array (
@@ -1481,7 +1481,7 @@ return array (
     'changed_by_user_id' => '25',
     'note' => 'Order diterima oleh driver.',
     'metadata' => '{"driver_snapshot":{"name":"Driver 05","phone":"081100000005","user_id":25,"driver_id":5,"vehicle_type":"Motor Matic","vehicle_brand":"Honda","vehicle_model":"Vario 150","vehicle_plate":"H 1005 AA"}}',
-    'created_at' => '2026-07-16 13:59:29',
+    'created_at' => '2026-07-15 20:27:29',
   ),
   148 => 
   array (
@@ -1490,8 +1490,8 @@ return array (
     'status_id' => '4',
     'changed_by_user_id' => '25',
     'note' => 'Driver action ARRIVE_PICKUP',
-    'metadata' => '{"action_code": "ARRIVE_PICKUP", "service_type": "RIDE"}',
-    'created_at' => '2026-07-16 14:11:56',
+    'metadata' => '{"action_code":"ARRIVE_PICKUP","service_type":"RIDE"}',
+    'created_at' => '2026-07-15 20:31:29',
   ),
   149 => 
   array (
@@ -1501,7 +1501,7 @@ return array (
     'changed_by_user_id' => '25',
     'note' => 'Driver action BOARD_PASSENGER',
     'metadata' => '{"action_code":"BOARD_PASSENGER","service_type":"RIDE"}',
-    'created_at' => '2026-07-16 14:12:41',
+    'created_at' => '2026-07-15 20:32:14',
   ),
   150 => 
   array (
@@ -1511,7 +1511,7 @@ return array (
     'changed_by_user_id' => '25',
     'note' => 'Driver action ARRIVE_DROPOFF',
     'metadata' => '{"action_code":"ARRIVE_DROPOFF","service_type":"RIDE"}',
-    'created_at' => '2026-07-16 14:36:45',
+    'created_at' => '2026-07-15 20:36:56',
   ),
   151 => 
   array (
@@ -1521,7 +1521,7 @@ return array (
     'changed_by_user_id' => '25',
     'note' => 'Driver action CONFIRM_DELIVERED',
     'metadata' => '{"action_code":"CONFIRM_DELIVERED","service_type":"RIDE"}',
-    'created_at' => '2026-07-16 14:37:00',
+    'created_at' => '2026-07-15 20:37:11',
   ),
   152 => 
   array (
@@ -1531,7 +1531,7 @@ return array (
     'changed_by_user_id' => '25',
     'note' => 'Driver action COMPLETE_ORDER',
     'metadata' => '{"action_code":"COMPLETE_ORDER","service_type":"RIDE"}',
-    'created_at' => '2026-07-16 14:37:45',
+    'created_at' => '2026-07-15 20:37:56',
   ),
   153 => 
   array (
@@ -1568,9 +1568,9 @@ return array (
     'id' => '157',
     'order_id' => '25',
     'status_id' => '2',
-    'changed_by_user_id' => '18',
+    'changed_by_user_id' => '25',
     'note' => 'Order diterima oleh driver.',
-    'metadata' => '{"driver_snapshot":{"name":"Driver 03","phone":"081300000001","user_id":18,"driver_id":3,"vehicle_type":"Motor Matic","vehicle_brand":"Honda","vehicle_model":"Supra X","vehicle_plate":"H 1003 AA"}}',
+    'metadata' => '{"driver_snapshot":{"name":"Driver 05","phone":"081100000005","user_id":25,"driver_id":5,"vehicle_type":"Motor Matic","vehicle_brand":"Honda","vehicle_model":"Vario 150","vehicle_plate":"H 1005 AA"}}',
     'created_at' => '2026-07-16 19:56:28',
   ),
   157 => 
@@ -1578,7 +1578,7 @@ return array (
     'id' => '158',
     'order_id' => '25',
     'status_id' => '4',
-    'changed_by_user_id' => '18',
+    'changed_by_user_id' => '25',
     'note' => 'Driver action ARRIVE_PICKUP',
     'metadata' => '{"action_code":"ARRIVE_PICKUP","service_type":"RIDE"}',
     'created_at' => '2026-07-16 20:01:10',
@@ -1588,7 +1588,7 @@ return array (
     'id' => '159',
     'order_id' => '25',
     'status_id' => '6',
-    'changed_by_user_id' => '18',
+    'changed_by_user_id' => '25',
     'note' => 'Driver action BOARD_PASSENGER',
     'metadata' => '{"action_code":"BOARD_PASSENGER","service_type":"RIDE"}',
     'created_at' => '2026-07-16 20:01:55',
@@ -1598,7 +1598,7 @@ return array (
     'id' => '160',
     'order_id' => '25',
     'status_id' => '7',
-    'changed_by_user_id' => '18',
+    'changed_by_user_id' => '25',
     'note' => 'Driver action ARRIVE_DROPOFF',
     'metadata' => '{"action_code":"ARRIVE_DROPOFF","service_type":"RIDE"}',
     'created_at' => '2026-07-16 20:30:52',
@@ -1608,7 +1608,7 @@ return array (
     'id' => '161',
     'order_id' => '25',
     'status_id' => '8',
-    'changed_by_user_id' => '18',
+    'changed_by_user_id' => '25',
     'note' => 'Driver action CONFIRM_DELIVERED',
     'metadata' => '{"action_code":"CONFIRM_DELIVERED","service_type":"RIDE"}',
     'created_at' => '2026-07-16 20:31:07',
@@ -1618,7 +1618,7 @@ return array (
     'id' => '162',
     'order_id' => '25',
     'status_id' => '9',
-    'changed_by_user_id' => '18',
+    'changed_by_user_id' => '25',
     'note' => 'Driver action COMPLETE_ORDER',
     'metadata' => '{"action_code":"COMPLETE_ORDER","service_type":"RIDE"}',
     'created_at' => '2026-07-16 20:31:52',
@@ -1641,7 +1641,7 @@ return array (
     'changed_by_user_id' => '27',
     'note' => 'Order Nitip dibuat melalui chatbot.',
     'metadata' => NULL,
-    'created_at' => '2026-07-17 11:26:43',
+    'created_at' => '2026-07-17 09:00:43',
   ),
   164 => 
   array (
@@ -1650,8 +1650,8 @@ return array (
     'status_id' => '2',
     'changed_by_user_id' => '18',
     'note' => 'Order diterima oleh driver.',
-    'metadata' => '{"driver_snapshot": {"name": "Driver 03", "phone": "081300000001", "user_id": 18, "driver_id": 3, "vehicle_type": "Motor Matic", "vehicle_brand": "Honda", "vehicle_model": "Supra X", "vehicle_plate": "H 1003 AA"}}',
-    'created_at' => '2026-07-17 11:27:50',
+    'metadata' => '{"driver_snapshot":{"name":"Driver 03","phone":"081100000003","user_id":18,"driver_id":3,"vehicle_type":"Motor Matic","vehicle_brand":"Honda","vehicle_model":"Supra X","vehicle_plate":"H 1003 AA"}}',
+    'created_at' => '2026-07-17 09:01:50',
   ),
   165 => 
   array (
@@ -1660,8 +1660,8 @@ return array (
     'status_id' => '3',
     'changed_by_user_id' => '18',
     'note' => 'Driver mulai memproses merchant Nitip.',
-    'metadata' => '{"action_code": "MERCHANT_OPEN_CONFIRMED", "pickup_location_id": 67}',
-    'created_at' => '2026-07-17 11:27:58',
+    'metadata' => '{"action_code":"MERCHANT_OPEN_CONFIRMED","pickup_location_id":67}',
+    'created_at' => '2026-07-17 09:01:58',
   ),
   166 => 
   array (
@@ -1671,7 +1671,7 @@ return array (
     'changed_by_user_id' => '18',
     'note' => 'Driver action CONFIRM_PICKED_UP',
     'metadata' => '{"action_code":"CONFIRM_PICKED_UP","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-17 11:43:45',
+    'created_at' => '2026-07-17 09:17:45',
   ),
   167 => 
   array (
@@ -1681,7 +1681,7 @@ return array (
     'changed_by_user_id' => '18',
     'note' => 'Driver action START_DELIVERY',
     'metadata' => '{"action_code":"START_DELIVERY","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-17 11:43:47',
+    'created_at' => '2026-07-17 09:17:47',
   ),
   168 => 
   array (
@@ -1691,7 +1691,7 @@ return array (
     'changed_by_user_id' => '18',
     'note' => 'Driver action ARRIVE_DROPOFF',
     'metadata' => '{"action_code":"ARRIVE_DROPOFF","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-17 12:02:47',
+    'created_at' => '2026-07-17 09:36:47',
   ),
   169 => 
   array (
@@ -1701,7 +1701,7 @@ return array (
     'changed_by_user_id' => '18',
     'note' => 'Driver action CONFIRM_DELIVERED',
     'metadata' => '{"action_code":"CONFIRM_DELIVERED","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-17 12:03:02',
+    'created_at' => '2026-07-17 09:37:02',
   ),
   170 => 
   array (
@@ -1711,7 +1711,7 @@ return array (
     'changed_by_user_id' => '18',
     'note' => 'Driver action COMPLETE_ORDER',
     'metadata' => '{"action_code":"COMPLETE_ORDER","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-17 12:03:47',
+    'created_at' => '2026-07-17 09:37:47',
   ),
   171 => 
   array (
@@ -1721,7 +1721,7 @@ return array (
     'changed_by_user_id' => '28',
     'note' => 'Order Nitip dibuat melalui chatbot.',
     'metadata' => NULL,
-    'created_at' => '2026-07-17 12:08:00',
+    'created_at' => '2026-07-17 10:15:00',
   ),
   172 => 
   array (
@@ -1731,7 +1731,7 @@ return array (
     'changed_by_user_id' => '25',
     'note' => 'Order diterima oleh driver.',
     'metadata' => '{"driver_snapshot":{"name":"Driver 05","phone":"081100000005","user_id":25,"driver_id":5,"vehicle_type":"Motor Matic","vehicle_brand":"Honda","vehicle_model":"Vario 150","vehicle_plate":"H 1005 AA"}}',
-    'created_at' => '2026-07-17 12:09:40',
+    'created_at' => '2026-07-17 10:16:40',
   ),
   173 => 
   array (
@@ -1740,8 +1740,8 @@ return array (
     'status_id' => '3',
     'changed_by_user_id' => '25',
     'note' => 'Driver mulai memproses merchant Nitip.',
-    'metadata' => '{"action_code": "MERCHANT_OPEN_CONFIRMED", "pickup_location_id": 69}',
-    'created_at' => '2026-07-17 12:11:04',
+    'metadata' => '{"action_code":"MERCHANT_OPEN_CONFIRMED","pickup_location_id":69}',
+    'created_at' => '2026-07-17 10:18:04',
   ),
   174 => 
   array (
@@ -1751,7 +1751,7 @@ return array (
     'changed_by_user_id' => '25',
     'note' => 'Driver action CONFIRM_PICKED_UP',
     'metadata' => '{"action_code":"CONFIRM_PICKED_UP","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-17 12:36:17',
+    'created_at' => '2026-07-17 10:43:17',
   ),
   175 => 
   array (
@@ -1761,7 +1761,7 @@ return array (
     'changed_by_user_id' => '25',
     'note' => 'Driver action START_DELIVERY',
     'metadata' => '{"action_code":"START_DELIVERY","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-17 12:36:19',
+    'created_at' => '2026-07-17 10:43:19',
   ),
   176 => 
   array (
@@ -1771,7 +1771,7 @@ return array (
     'changed_by_user_id' => '25',
     'note' => 'Driver action ARRIVE_DROPOFF',
     'metadata' => '{"action_code":"ARRIVE_DROPOFF","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-17 12:45:09',
+    'created_at' => '2026-07-17 10:52:09',
   ),
   177 => 
   array (
@@ -1781,7 +1781,7 @@ return array (
     'changed_by_user_id' => '25',
     'note' => 'Driver action CONFIRM_DELIVERED',
     'metadata' => '{"action_code":"CONFIRM_DELIVERED","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-17 12:54:39',
+    'created_at' => '2026-07-17 11:01:39',
   ),
   178 => 
   array (
@@ -1791,6 +1791,6 @@ return array (
     'changed_by_user_id' => '25',
     'note' => 'Driver action COMPLETE_ORDER',
     'metadata' => '{"action_code":"COMPLETE_ORDER","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-17 12:55:24',
+    'created_at' => '2026-07-17 11:02:24',
   ),
 );

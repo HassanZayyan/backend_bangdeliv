@@ -9,9 +9,9 @@ return array (
     'order_id' => '4',
     'user_id' => '9',
     'last_read_message_id' => '2',
-    'read_at' => '2026-07-15 13:06:47',
-    'created_at' => '2026-07-15 13:06:46',
-    'updated_at' => '2026-07-15 13:06:47',
+    'read_at' => '2026-07-15 12:43:52',
+    'created_at' => '2026-07-15 12:43:51',
+    'updated_at' => '2026-07-15 12:43:52',
   ),
   1 => 
   array (
@@ -37,11 +37,11 @@ return array (
   array (
     'id' => '4',
     'order_id' => '10',
-    'user_id' => '9',
+    'user_id' => '2',
     'last_read_message_id' => '8',
-    'read_at' => '2026-07-15 19:03:29',
-    'created_at' => '2026-07-15 19:03:00',
-    'updated_at' => '2026-07-15 19:03:29',
+    'read_at' => '2026-07-15 18:37:29',
+    'created_at' => '2026-07-15 18:37:00',
+    'updated_at' => '2026-07-15 18:37:29',
   ),
   4 => 
   array (
@@ -49,9 +49,9 @@ return array (
     'order_id' => '10',
     'user_id' => '17',
     'last_read_message_id' => '8',
-    'read_at' => '2026-07-15 19:03:23',
-    'created_at' => '2026-07-15 19:03:06',
-    'updated_at' => '2026-07-15 19:03:23',
+    'read_at' => '2026-07-15 18:37:23',
+    'created_at' => '2026-07-15 18:37:06',
+    'updated_at' => '2026-07-15 18:37:23',
   ),
   5 => 
   array (
@@ -119,9 +119,9 @@ return array (
     'order_id' => '20',
     'user_id' => '22',
     'last_read_message_id' => '22',
-    'read_at' => '2026-07-15 20:14:03',
-    'created_at' => '2026-07-15 20:13:58',
-    'updated_at' => '2026-07-15 20:14:03',
+    'read_at' => '2026-07-15 20:07:12',
+    'created_at' => '2026-07-15 20:07:07',
+    'updated_at' => '2026-07-15 20:07:12',
   ),
   12 => 
   array (
@@ -129,9 +129,9 @@ return array (
     'order_id' => '23',
     'user_id' => '25',
     'last_read_message_id' => '24',
-    'read_at' => '2026-07-16 14:12:47',
-    'created_at' => '2026-07-16 14:00:04',
-    'updated_at' => '2026-07-16 14:12:47',
+    'read_at' => '2026-07-15 20:32:20',
+    'created_at' => '2026-07-15 20:28:04',
+    'updated_at' => '2026-07-15 20:32:20',
   ),
   13 => 
   array (
@@ -139,15 +139,15 @@ return array (
     'order_id' => '23',
     'user_id' => '24',
     'last_read_message_id' => '24',
-    'read_at' => '2026-07-16 14:11:36',
-    'created_at' => '2026-07-16 14:00:54',
-    'updated_at' => '2026-07-16 14:11:36',
+    'read_at' => '2026-07-15 20:39:36',
+    'created_at' => '2026-07-15 20:28:54',
+    'updated_at' => '2026-07-15 20:39:36',
   ),
   14 => 
   array (
     'id' => '15',
     'order_id' => '25',
-    'user_id' => '18',
+    'user_id' => '25',
     'last_read_message_id' => '27',
     'read_at' => '2026-07-16 20:04:09',
     'created_at' => '2026-07-16 20:02:25',
@@ -169,9 +169,9 @@ return array (
     'order_id' => '30',
     'user_id' => '18',
     'last_read_message_id' => '33',
-    'read_at' => '2026-07-17 11:35:24',
-    'created_at' => '2026-07-17 11:34:18',
-    'updated_at' => '2026-07-17 11:35:24',
+    'read_at' => '2026-07-17 09:09:24',
+    'created_at' => '2026-07-17 09:08:18',
+    'updated_at' => '2026-07-17 09:09:24',
   ),
   17 => 
   array (
@@ -179,8 +179,8 @@ return array (
     'order_id' => '30',
     'user_id' => '27',
     'last_read_message_id' => '33',
-    'read_at' => '2026-07-17 11:35:24',
-    'created_at' => '2026-07-17 11:34:33',
-    'updated_at' => '2026-07-17 11:35:24',
+    'read_at' => '2026-07-17 09:09:24',
+    'created_at' => '2026-07-17 09:08:33',
+    'updated_at' => '2026-07-17 09:09:24',
   ),
 );

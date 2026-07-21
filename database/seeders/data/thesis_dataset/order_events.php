@@ -9,10 +9,10 @@ return array (
     'order_id' => '1',
     'event_type' => 'PAYMENT_UPDATE',
     'trigger_type' => 'COD_PAYMENT_RECORDED_BY_DRIVER',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Pembayaran COD dicatat dari app driver.',
     'metadata' => '{"paid_amount":15000,"expected_amount":15000,"recorded_by_role":"driver"}',
-    'created_at' => '2026-07-15 10:14:27',
+    'created_at' => '2026-07-15 09:49:27',
   ),
   1 => 
   array (
@@ -20,10 +20,10 @@ return array (
     'order_id' => '1',
     'event_type' => 'PAYMENT_UPDATE',
     'trigger_type' => 'PAYMENT_UPDATE',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Pembayaran COD berhasil dicatat.',
     'metadata' => '{"paid_amount":15000,"payment_status":"paid"}',
-    'created_at' => '2026-07-15 10:14:27',
+    'created_at' => '2026-07-15 09:49:27',
   ),
   2 => 
   array (
@@ -33,8 +33,8 @@ return array (
     'trigger_type' => 'SHOPPING_MERCHANT_ARRIVAL_CHECKPOINT',
     'changed_by_user_id' => '9',
     'note' => 'Checkpoint perjalanan merchant Nitip.',
-    'metadata' => '{"origin":{"label":"Lokasi driver","latitude":-7.320,"longitude":110.470,"recorded_at":"2026-07-15T11:29:45+07:00"},"chain_id":"pickup:3","destination":{"label":"Belut Tiga Saudara","latitude":-7.318,"longitude":110.478,"pickup_location_id":3},"recorded_at":"2026-07-15T11:30:45+07:00","route_status":"OK","route_provider":"routes_api","distance_meters":1422,"chain_attempt_no":1,"duration_seconds":160,"pickup_location_id":3}',
-    'created_at' => '2026-07-15 11:30:45',
+    'metadata' => '{"origin":{"label":"Lokasi driver","latitude":-7.320,"longitude":110.470,"recorded_at":"2026-07-15T10:59:45+07:00"},"chain_id":"pickup:3","destination":{"label":"Belut Tiga Saudara","latitude":-7.318,"longitude":110.478,"pickup_location_id":3},"recorded_at":"2026-07-15T11:00:45+07:00","route_status":"OK","route_provider":"routes_api","distance_meters":1422,"chain_attempt_no":1,"duration_seconds":160,"pickup_location_id":3}',
+    'created_at' => '2026-07-15 11:00:45',
   ),
   3 => 
   array (
@@ -45,7 +45,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver mengonfirmasi merchant buka.',
     'metadata' => '{"fulfillment_status":"OPEN_CONFIRMED","pickup_location_id":3}',
-    'created_at' => '2026-07-15 11:30:45',
+    'created_at' => '2026-07-15 11:00:45',
   ),
   4 => 
   array (
@@ -56,7 +56,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver mencatat ketersediaan item merchant.',
     'metadata' => '{"item_ids":[1,2,3,4,5],"pickup_location_id":3,"has_unavailable_item":false}',
-    'created_at' => '2026-07-15 11:30:49',
+    'created_at' => '2026-07-15 11:00:49',
   ),
   5 => 
   array (
@@ -67,7 +67,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver memperbarui ketersediaan item Nitip.',
     'metadata' => '{"subtotal":53000,"service_fee":0,"total_price":58000,"recalculation_version":1,"failed_trip_compensation":0}',
-    'created_at' => '2026-07-15 11:30:49',
+    'created_at' => '2026-07-15 11:00:49',
   ),
   6 => 
   array (
@@ -78,7 +78,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver mengirim quote harga Nitip.',
     'metadata' => '{"amount":53000,"status":"PENDING_CUSTOMER","quoted_amount":53000,"pickup_location_id":3}',
-    'created_at' => '2026-07-15 11:34:57',
+    'created_at' => '2026-07-15 11:04:57',
   ),
   7 => 
   array (
@@ -89,7 +89,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver melanjutkan harga merchant tanpa respons customer.',
     'metadata' => '{"status":"APPROVED","quote_log_id":8,"quoted_amount":53000,"approved_amount":53000,"bypassed_by_driver":true,"pickup_location_id":3}',
-    'created_at' => '2026-07-15 11:35:42',
+    'created_at' => '2026-07-15 11:05:42',
   ),
   8 => 
   array (
@@ -100,7 +100,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Harga merchant dilanjutkan oleh driver tanpa respons customer.',
     'metadata' => '{"subtotal":53000,"service_fee":0,"total_price":58000,"recalculation_version":1,"failed_trip_compensation":0}',
-    'created_at' => '2026-07-15 11:35:42',
+    'created_at' => '2026-07-15 11:05:42',
   ),
   9 => 
   array (
@@ -111,7 +111,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver menyimpan checkout Nitip.',
     'metadata' => '{"subtotal":53000,"service_fee":0,"total_price":58000,"recalculation_version":1,"failed_trip_compensation":0}',
-    'created_at' => '2026-07-15 11:36:07',
+    'created_at' => '2026-07-15 11:06:07',
   ),
   10 => 
   array (
@@ -122,7 +122,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Pembayaran COD dicatat dari app driver.',
     'metadata' => '{"paid_amount":58000,"expected_amount":58000,"recorded_by_role":"driver"}',
-    'created_at' => '2026-07-15 11:54:39',
+    'created_at' => '2026-07-15 11:24:39',
   ),
   11 => 
   array (
@@ -133,7 +133,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Pembayaran COD berhasil dicatat.',
     'metadata' => '{"paid_amount":58000,"payment_status":"paid"}',
-    'created_at' => '2026-07-15 11:54:39',
+    'created_at' => '2026-07-15 11:24:39',
   ),
   12 => 
   array (
@@ -144,7 +144,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Pembayaran COD dicatat dari app driver.',
     'metadata' => '{"paid_amount":17000,"expected_amount":17000,"recorded_by_role":"driver"}',
-    'created_at' => '2026-07-15 12:42:15',
+    'created_at' => '2026-07-15 12:20:15',
   ),
   13 => 
   array (
@@ -155,7 +155,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Pembayaran COD berhasil dicatat.',
     'metadata' => '{"paid_amount":17000,"payment_status":"paid"}',
-    'created_at' => '2026-07-15 12:42:15',
+    'created_at' => '2026-07-15 12:20:15',
   ),
   14 => 
   array (
@@ -166,7 +166,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Pembayaran COD dicatat dari app driver.',
     'metadata' => '{"paid_amount":11000,"expected_amount":11000,"recorded_by_role":"driver"}',
-    'created_at' => '2026-07-15 13:06:51',
+    'created_at' => '2026-07-15 12:43:56',
   ),
   15 => 
   array (
@@ -177,7 +177,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Pembayaran COD berhasil dicatat.',
     'metadata' => '{"paid_amount":11000,"payment_status":"paid"}',
-    'created_at' => '2026-07-15 13:06:51',
+    'created_at' => '2026-07-15 12:43:56',
   ),
   16 => 
   array (
@@ -188,7 +188,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Pembayaran COD dicatat dari app driver.',
     'metadata' => '{"paid_amount":9000,"expected_amount":9000,"recorded_by_role":"driver"}',
-    'created_at' => '2026-07-15 14:33:00',
+    'created_at' => '2026-07-15 14:08:00',
   ),
   17 => 
   array (
@@ -199,7 +199,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Pembayaran COD berhasil dicatat.',
     'metadata' => '{"paid_amount":9000,"payment_status":"paid"}',
-    'created_at' => '2026-07-15 14:33:00',
+    'created_at' => '2026-07-15 14:08:00',
   ),
   18 => 
   array (
@@ -207,10 +207,10 @@ return array (
     'order_id' => '6',
     'event_type' => 'SHOPPING_ROUTE_CHECKPOINT',
     'trigger_type' => 'SHOPPING_MERCHANT_ARRIVAL_CHECKPOINT',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Checkpoint perjalanan merchant Nitip.',
-    'metadata' => '{"origin":{"label":"Lokasi driver","latitude":-7.320,"longitude":110.469,"recorded_at":"2026-07-15T14:36:22+07:00"},"chain_id":"pickup:11","destination":{"label":"Kedai El-Sha","latitude":-7.321,"longitude":110.468,"pickup_location_id":11},"recorded_at":"2026-07-15T14:36:30+07:00","route_status":"OK","route_provider":"routes_api","distance_meters":241,"chain_attempt_no":1,"duration_seconds":51,"pickup_location_id":11}',
-    'created_at' => '2026-07-15 14:36:30',
+    'metadata' => '{"origin":{"label":"Lokasi driver","latitude":-7.320,"longitude":110.469,"recorded_at":"2026-07-15T14:06:53+07:00"},"chain_id":"pickup:11","destination":{"label":"Kedai El-Sha","latitude":-7.321,"longitude":110.468,"pickup_location_id":11},"recorded_at":"2026-07-15T14:07:01+07:00","route_status":"OK","route_provider":"routes_api","distance_meters":241,"chain_attempt_no":1,"duration_seconds":51,"pickup_location_id":11}',
+    'created_at' => '2026-07-15 14:07:01',
   ),
   19 => 
   array (
@@ -218,10 +218,10 @@ return array (
     'order_id' => '6',
     'event_type' => 'SHOPPING_MERCHANT',
     'trigger_type' => 'MERCHANT_OPEN_CONFIRMED',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Driver mengonfirmasi merchant buka.',
     'metadata' => '{"fulfillment_status":"OPEN_CONFIRMED","pickup_location_id":11}',
-    'created_at' => '2026-07-15 14:36:30',
+    'created_at' => '2026-07-15 14:07:01',
   ),
   20 => 
   array (
@@ -229,10 +229,10 @@ return array (
     'order_id' => '6',
     'event_type' => 'SHOPPING_ITEM_AVAILABILITY',
     'trigger_type' => 'DRIVER_CONFIRMED_ITEM_AVAILABILITY',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Driver mencatat ketersediaan item merchant.',
     'metadata' => '{"item_ids":[6,7],"pickup_location_id":11,"has_unavailable_item":false}',
-    'created_at' => '2026-07-15 14:36:50',
+    'created_at' => '2026-07-15 14:07:21',
   ),
   21 => 
   array (
@@ -240,10 +240,10 @@ return array (
     'order_id' => '6',
     'event_type' => 'ITEM_UPDATE',
     'trigger_type' => 'ITEM_UPDATE',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Driver memperbarui ketersediaan item Nitip.',
     'metadata' => '{"subtotal":17000,"service_fee":0,"total_price":22000,"recalculation_version":1,"failed_trip_compensation":0}',
-    'created_at' => '2026-07-15 14:36:50',
+    'created_at' => '2026-07-15 14:07:21',
   ),
   22 => 
   array (
@@ -251,10 +251,10 @@ return array (
     'order_id' => '6',
     'event_type' => 'SHOPPING_NEGOTIATION',
     'trigger_type' => 'DRIVER_PRICE_QUOTED',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Driver mengirim quote harga Nitip.',
     'metadata' => '{"amount":17000,"status":"PENDING_CUSTOMER","quoted_amount":17000,"pickup_location_id":11}',
-    'created_at' => '2026-07-15 14:38:34',
+    'created_at' => '2026-07-15 14:09:05',
   ),
   23 => 
   array (
@@ -262,10 +262,10 @@ return array (
     'order_id' => '6',
     'event_type' => 'SHOPPING_NEGOTIATION',
     'trigger_type' => 'MERCHANT_PRICE_APPROVED_BY_DRIVER_BYPASS',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Driver melanjutkan harga merchant tanpa respons customer.',
     'metadata' => '{"status":"APPROVED","quote_log_id":27,"quoted_amount":17000,"approved_amount":17000,"bypassed_by_driver":true,"pickup_location_id":11}',
-    'created_at' => '2026-07-15 14:39:19',
+    'created_at' => '2026-07-15 14:09:50',
   ),
   24 => 
   array (
@@ -273,10 +273,10 @@ return array (
     'order_id' => '6',
     'event_type' => 'ITEM_UPDATE',
     'trigger_type' => 'ITEM_UPDATE',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Harga merchant dilanjutkan oleh driver tanpa respons customer.',
     'metadata' => '{"subtotal":17000,"service_fee":0,"total_price":22000,"recalculation_version":1,"failed_trip_compensation":0}',
-    'created_at' => '2026-07-15 14:39:19',
+    'created_at' => '2026-07-15 14:09:50',
   ),
   25 => 
   array (
@@ -284,10 +284,10 @@ return array (
     'order_id' => '6',
     'event_type' => 'ITEM_UPDATE',
     'trigger_type' => 'ITEM_UPDATE',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Driver menyimpan checkout Nitip.',
     'metadata' => '{"subtotal":17000,"service_fee":0,"total_price":22000,"recalculation_version":1,"failed_trip_compensation":0}',
-    'created_at' => '2026-07-15 14:39:24',
+    'created_at' => '2026-07-15 14:09:55',
   ),
   26 => 
   array (
@@ -295,10 +295,10 @@ return array (
     'order_id' => '6',
     'event_type' => 'PAYMENT_UPDATE',
     'trigger_type' => 'COD_PAYMENT_RECORDED_BY_DRIVER',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Pembayaran COD dicatat dari app driver.',
     'metadata' => '{"paid_amount":22000,"expected_amount":22000,"recorded_by_role":"driver"}',
-    'created_at' => '2026-07-15 14:48:18',
+    'created_at' => '2026-07-15 14:18:49',
   ),
   27 => 
   array (
@@ -306,10 +306,10 @@ return array (
     'order_id' => '6',
     'event_type' => 'PAYMENT_UPDATE',
     'trigger_type' => 'PAYMENT_UPDATE',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Pembayaran COD berhasil dicatat.',
     'metadata' => '{"paid_amount":22000,"payment_status":"paid"}',
-    'created_at' => '2026-07-15 14:48:18',
+    'created_at' => '2026-07-15 14:18:49',
   ),
   28 => 
   array (
@@ -319,8 +319,8 @@ return array (
     'trigger_type' => 'SHOPPING_MERCHANT_ARRIVAL_CHECKPOINT',
     'changed_by_user_id' => '9',
     'note' => 'Checkpoint perjalanan merchant Nitip.',
-    'metadata' => '{"origin": {"label": "Lokasi driver", "latitude": -7.321, "longitude": 110.475, "recorded_at": "2026-07-15T14:53:22+07:00"}, "chain_id": "pickup:13", "destination": {"label": "Tahu Campur Gemblong Dan Ketan Bu Arbain", "latitude": -7.321, "longitude": 110.474, "pickup_location_id": 13}, "recorded_at": "2026-07-15T14:53:30+07:00", "route_status": "OK", "route_provider": "routes_api", "distance_meters": 133, "chain_attempt_no": 1, "duration_seconds": 16, "pickup_location_id": 13}',
-    'created_at' => '2026-07-15 14:53:30',
+    'metadata' => '{"origin":{"label":"Lokasi driver","latitude":-7.321,"longitude":110.475,"recorded_at":"2026-07-15T14:31:22+07:00"},"chain_id":"pickup:13","destination":{"label":"Tahu Campur Gemblong Dan Ketan Bu Arbain","latitude":-7.321,"longitude":110.474,"pickup_location_id":13},"recorded_at":"2026-07-15T14:31:30+07:00","route_status":"OK","route_provider":"routes_api","distance_meters":133,"chain_attempt_no":1,"duration_seconds":16,"pickup_location_id":13}',
+    'created_at' => '2026-07-15 14:31:30',
   ),
   29 => 
   array (
@@ -330,8 +330,8 @@ return array (
     'trigger_type' => 'MERCHANT_OPEN_CONFIRMED',
     'changed_by_user_id' => '9',
     'note' => 'Driver mengonfirmasi merchant buka.',
-    'metadata' => '{"fulfillment_status": "OPEN_CONFIRMED", "pickup_location_id": 13}',
-    'created_at' => '2026-07-15 14:53:30',
+    'metadata' => '{"fulfillment_status":"OPEN_CONFIRMED","pickup_location_id":13}',
+    'created_at' => '2026-07-15 14:31:30',
   ),
   30 => 
   array (
@@ -341,8 +341,8 @@ return array (
     'trigger_type' => 'DRIVER_CONFIRMED_ITEM_AVAILABILITY',
     'changed_by_user_id' => '9',
     'note' => 'Driver mencatat ketersediaan item merchant.',
-    'metadata' => '{"item_ids": [8, 9], "pickup_location_id": 13, "has_unavailable_item": false}',
-    'created_at' => '2026-07-15 14:53:36',
+    'metadata' => '{"item_ids":[8,9],"pickup_location_id":13,"has_unavailable_item":false}',
+    'created_at' => '2026-07-15 14:31:36',
   ),
   31 => 
   array (
@@ -352,8 +352,8 @@ return array (
     'trigger_type' => 'ITEM_UPDATE',
     'changed_by_user_id' => '9',
     'note' => 'Driver memperbarui ketersediaan item Nitip.',
-    'metadata' => '{"subtotal": 0, "service_fee": 0, "total_price": 5000, "recalculation_version": 1, "failed_trip_compensation": 0}',
-    'created_at' => '2026-07-15 14:53:36',
+    'metadata' => '{"subtotal":0,"service_fee":0,"total_price":5000,"recalculation_version":1,"failed_trip_compensation":0}',
+    'created_at' => '2026-07-15 14:31:36',
   ),
   32 => 
   array (
@@ -363,8 +363,8 @@ return array (
     'trigger_type' => 'DRIVER_PRICE_QUOTED',
     'changed_by_user_id' => '9',
     'note' => 'Driver mengirim quote harga Nitip.',
-    'metadata' => '{"amount": 39000, "status": "PENDING_CUSTOMER", "quoted_amount": 39000, "pickup_location_id": 13}',
-    'created_at' => '2026-07-15 14:53:45',
+    'metadata' => '{"amount":39000,"status":"PENDING_CUSTOMER","quoted_amount":39000,"pickup_location_id":13}',
+    'created_at' => '2026-07-15 14:31:45',
   ),
   33 => 
   array (
@@ -375,7 +375,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver melanjutkan harga merchant tanpa respons customer.',
     'metadata' => '{"status":"APPROVED","quote_log_id":40,"quoted_amount":39000,"approved_amount":39000,"bypassed_by_driver":true,"pickup_location_id":13}',
-    'created_at' => '2026-07-15 14:54:30',
+    'created_at' => '2026-07-15 14:32:30',
   ),
   34 => 
   array (
@@ -386,7 +386,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Harga merchant dilanjutkan oleh driver tanpa respons customer.',
     'metadata' => '{"item_count":6,"trigger_type":"MERCHANT_PRICE_APPROVED_BY_DRIVER_BYPASS","price_changes":{"TOTAL_PRICE":{"new_amount":44000,"old_amount":5000,"delta_amount":39000}},"has_overweight_item":false,"recalculation_version":1,"failed_trip_compensation":0}',
-    'created_at' => '2026-07-15 14:54:30',
+    'created_at' => '2026-07-15 14:32:30',
   ),
   35 => 
   array (
@@ -397,7 +397,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Harga merchant dilanjutkan oleh driver tanpa respons customer.',
     'metadata' => '{"subtotal":39000,"service_fee":0,"total_price":44000,"recalculation_version":1,"failed_trip_compensation":0}',
-    'created_at' => '2026-07-15 14:54:30',
+    'created_at' => '2026-07-15 14:32:30',
   ),
   36 => 
   array (
@@ -408,7 +408,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver menyimpan checkout Nitip.',
     'metadata' => '{"subtotal":39000,"service_fee":0,"total_price":44000,"recalculation_version":2,"failed_trip_compensation":0}',
-    'created_at' => '2026-07-15 14:55:06',
+    'created_at' => '2026-07-15 14:33:06',
   ),
   37 => 
   array (
@@ -419,7 +419,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Pembayaran COD dicatat dari app driver.',
     'metadata' => '{"paid_amount":44000,"expected_amount":44000,"recorded_by_role":"driver"}',
-    'created_at' => '2026-07-15 15:06:07',
+    'created_at' => '2026-07-15 14:44:07',
   ),
   38 => 
   array (
@@ -430,7 +430,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Pembayaran COD berhasil dicatat.',
     'metadata' => '{"paid_amount":44000,"payment_status":"paid"}',
-    'created_at' => '2026-07-15 15:06:07',
+    'created_at' => '2026-07-15 14:44:07',
   ),
   39 => 
   array (
@@ -649,8 +649,8 @@ return array (
     'trigger_type' => 'SHOPPING_MERCHANT_ARRIVAL_CHECKPOINT',
     'changed_by_user_id' => '9',
     'note' => 'Checkpoint perjalanan merchant Nitip.',
-    'metadata' => '{"origin":{"label":"Lokasi driver","latitude":-7.320,"longitude":110.471,"recorded_at":"2026-07-15T18:32:02+07:00"},"chain_id":"pickup:18","destination":{"label":"Sate Ayam Cak Sabari","latitude":-7.320,"longitude":110.471,"pickup_location_id":18},"recorded_at":"2026-07-15T18:32:08+07:00","route_status":"OK","route_provider":"routes_api","distance_meters":116,"chain_attempt_no":1,"duration_seconds":47,"pickup_location_id":18}',
-    'created_at' => '2026-07-15 18:32:08',
+    'metadata' => '{"origin":{"label":"Lokasi driver","latitude":-7.320,"longitude":110.471,"recorded_at":"2026-07-15T18:07:56+07:00"},"chain_id":"pickup:18","destination":{"label":"Sate Ayam Cak Sabari","latitude":-7.320,"longitude":110.471,"pickup_location_id":18},"recorded_at":"2026-07-15T18:08:02+07:00","route_status":"OK","route_provider":"routes_api","distance_meters":116,"chain_attempt_no":1,"duration_seconds":47,"pickup_location_id":18}',
+    'created_at' => '2026-07-15 18:08:02',
   ),
   59 => 
   array (
@@ -661,7 +661,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver mengonfirmasi merchant buka.',
     'metadata' => '{"fulfillment_status":"OPEN_CONFIRMED","pickup_location_id":18}',
-    'created_at' => '2026-07-15 18:32:08',
+    'created_at' => '2026-07-15 18:08:02',
   ),
   60 => 
   array (
@@ -672,7 +672,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver mencatat ketersediaan item merchant.',
     'metadata' => '{"item_ids":[12],"pickup_location_id":18,"has_unavailable_item":false}',
-    'created_at' => '2026-07-15 18:32:11',
+    'created_at' => '2026-07-15 18:08:05',
   ),
   61 => 
   array (
@@ -683,7 +683,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver memperbarui ketersediaan item Nitip.',
     'metadata' => '{"subtotal":0,"service_fee":0,"total_price":5000,"recalculation_version":1,"failed_trip_compensation":0}',
-    'created_at' => '2026-07-15 18:32:11',
+    'created_at' => '2026-07-15 18:08:05',
   ),
   62 => 
   array (
@@ -694,7 +694,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver mengirim quote harga Nitip.',
     'metadata' => '{"amount":15000,"status":"PENDING_CUSTOMER","quoted_amount":15000,"pickup_location_id":18}',
-    'created_at' => '2026-07-15 18:32:18',
+    'created_at' => '2026-07-15 18:08:12',
   ),
   63 => 
   array (
@@ -705,7 +705,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver melanjutkan harga merchant tanpa respons customer.',
     'metadata' => '{"status":"APPROVED","quote_log_id":75,"quoted_amount":15000,"approved_amount":15000,"bypassed_by_driver":true,"pickup_location_id":18}',
-    'created_at' => '2026-07-15 18:33:03',
+    'created_at' => '2026-07-15 18:08:57',
   ),
   64 => 
   array (
@@ -716,7 +716,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Harga merchant dilanjutkan oleh driver tanpa respons customer.',
     'metadata' => '{"item_count":1,"trigger_type":"MERCHANT_PRICE_APPROVED_BY_DRIVER_BYPASS","price_changes":{"TOTAL_PRICE":{"new_amount":20000,"old_amount":5000,"delta_amount":15000}},"has_overweight_item":false,"recalculation_version":1,"failed_trip_compensation":0}',
-    'created_at' => '2026-07-15 18:33:03',
+    'created_at' => '2026-07-15 18:08:57',
   ),
   65 => 
   array (
@@ -727,7 +727,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Harga merchant dilanjutkan oleh driver tanpa respons customer.',
     'metadata' => '{"subtotal":15000,"service_fee":0,"total_price":20000,"recalculation_version":1,"failed_trip_compensation":0}',
-    'created_at' => '2026-07-15 18:33:03',
+    'created_at' => '2026-07-15 18:08:57',
   ),
   66 => 
   array (
@@ -738,7 +738,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver menyimpan checkout Nitip.',
     'metadata' => '{"subtotal":15000,"service_fee":0,"total_price":20000,"recalculation_version":2,"failed_trip_compensation":0}',
-    'created_at' => '2026-07-15 18:33:16',
+    'created_at' => '2026-07-15 18:09:10',
   ),
   67 => 
   array (
@@ -749,7 +749,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Pembayaran COD dicatat dari app driver.',
     'metadata' => '{"paid_amount":20000,"expected_amount":20000,"recorded_by_role":"driver"}',
-    'created_at' => '2026-07-15 18:45:30',
+    'created_at' => '2026-07-15 18:21:24',
   ),
   68 => 
   array (
@@ -760,7 +760,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Pembayaran COD berhasil dicatat.',
     'metadata' => '{"paid_amount":20000,"payment_status":"paid"}',
-    'created_at' => '2026-07-15 18:45:30',
+    'created_at' => '2026-07-15 18:21:24',
   ),
   69 => 
   array (
@@ -768,10 +768,10 @@ return array (
     'order_id' => '10',
     'event_type' => 'SHOPPING_ROUTE_CHECKPOINT',
     'trigger_type' => 'SHOPPING_MERCHANT_ARRIVAL_CHECKPOINT',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Checkpoint perjalanan merchant Nitip.',
-    'metadata' => '{"origin":{"label":"Lokasi driver","latitude":-7.320,"longitude":110.471,"recorded_at":"2026-07-15T19:03:20+07:00"},"chain_id":"pickup:20","destination":{"label":"Martabak Bangka Idola Cabang Krenceng","latitude":-7.321,"longitude":110.474,"pickup_location_id":20},"recorded_at":"2026-07-15T19:03:58+07:00","route_status":"OK","route_provider":"routes_api","distance_meters":399,"chain_attempt_no":1,"duration_seconds":74,"pickup_location_id":20}',
-    'created_at' => '2026-07-15 19:03:58',
+    'metadata' => '{"origin":{"label":"Lokasi driver","latitude":-7.320,"longitude":110.471,"recorded_at":"2026-07-15T18:37:20+07:00"},"chain_id":"pickup:20","destination":{"label":"Martabak Bangka Idola Cabang Krenceng","latitude":-7.321,"longitude":110.474,"pickup_location_id":20},"recorded_at":"2026-07-15T18:37:58+07:00","route_status":"OK","route_provider":"routes_api","distance_meters":399,"chain_attempt_no":1,"duration_seconds":74,"pickup_location_id":20}',
+    'created_at' => '2026-07-15 18:37:58',
   ),
   70 => 
   array (
@@ -779,10 +779,10 @@ return array (
     'order_id' => '10',
     'event_type' => 'SHOPPING_MERCHANT',
     'trigger_type' => 'MERCHANT_OPEN_CONFIRMED',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Driver mengonfirmasi merchant buka.',
     'metadata' => '{"fulfillment_status":"OPEN_CONFIRMED","pickup_location_id":20}',
-    'created_at' => '2026-07-15 19:03:58',
+    'created_at' => '2026-07-15 18:37:58',
   ),
   71 => 
   array (
@@ -790,10 +790,10 @@ return array (
     'order_id' => '10',
     'event_type' => 'SHOPPING_ITEM_AVAILABILITY',
     'trigger_type' => 'DRIVER_CONFIRMED_ITEM_AVAILABILITY',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Driver mencatat ketersediaan item merchant.',
     'metadata' => '{"item_ids":[13],"pickup_location_id":20,"has_unavailable_item":false}',
-    'created_at' => '2026-07-15 19:04:02',
+    'created_at' => '2026-07-15 18:38:02',
   ),
   72 => 
   array (
@@ -801,10 +801,10 @@ return array (
     'order_id' => '10',
     'event_type' => 'ITEM_UPDATE',
     'trigger_type' => 'ITEM_UPDATE',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Driver memperbarui ketersediaan item Nitip.',
     'metadata' => '{"subtotal":18000,"service_fee":0,"total_price":23000,"recalculation_version":1,"failed_trip_compensation":0}',
-    'created_at' => '2026-07-15 19:04:02',
+    'created_at' => '2026-07-15 18:38:02',
   ),
   73 => 
   array (
@@ -812,10 +812,10 @@ return array (
     'order_id' => '10',
     'event_type' => 'SHOPPING_NEGOTIATION',
     'trigger_type' => 'DRIVER_PRICE_QUOTED',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Driver mengirim quote harga Nitip.',
     'metadata' => '{"amount":18000,"status":"PENDING_CUSTOMER","quoted_amount":18000,"pickup_location_id":20}',
-    'created_at' => '2026-07-15 19:04:18',
+    'created_at' => '2026-07-15 18:38:18',
   ),
   74 => 
   array (
@@ -823,10 +823,10 @@ return array (
     'order_id' => '10',
     'event_type' => 'SHOPPING_NEGOTIATION',
     'trigger_type' => 'MERCHANT_PRICE_APPROVED_BY_DRIVER_BYPASS',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Driver melanjutkan harga merchant tanpa respons customer.',
     'metadata' => '{"status":"APPROVED","quote_log_id":88,"quoted_amount":18000,"approved_amount":18000,"bypassed_by_driver":true,"pickup_location_id":20}',
-    'created_at' => '2026-07-15 19:05:03',
+    'created_at' => '2026-07-15 18:39:03',
   ),
   75 => 
   array (
@@ -834,10 +834,10 @@ return array (
     'order_id' => '10',
     'event_type' => 'ITEM_UPDATE',
     'trigger_type' => 'ITEM_UPDATE',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Harga merchant dilanjutkan oleh driver tanpa respons customer.',
     'metadata' => '{"subtotal":18000,"service_fee":0,"total_price":23000,"recalculation_version":1,"failed_trip_compensation":0}',
-    'created_at' => '2026-07-15 19:05:03',
+    'created_at' => '2026-07-15 18:39:03',
   ),
   76 => 
   array (
@@ -845,10 +845,10 @@ return array (
     'order_id' => '10',
     'event_type' => 'ITEM_UPDATE',
     'trigger_type' => 'ITEM_UPDATE',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Driver menyimpan checkout Nitip.',
     'metadata' => '{"subtotal":18000,"service_fee":0,"total_price":23000,"recalculation_version":1,"failed_trip_compensation":0}',
-    'created_at' => '2026-07-15 19:09:18',
+    'created_at' => '2026-07-15 18:43:18',
   ),
   77 => 
   array (
@@ -856,10 +856,10 @@ return array (
     'order_id' => '10',
     'event_type' => 'PAYMENT_UPDATE',
     'trigger_type' => 'QRIS_PAYMENT_RECORDED_BY_DRIVER',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Driver mencatat pembayaran QRIS secara manual.',
     'metadata' => '{"paid_amount":23000,"expected_amount":23000,"recorded_by_role":"driver"}',
-    'created_at' => '2026-07-15 19:20:31',
+    'created_at' => '2026-07-15 18:54:31',
   ),
   78 => 
   array (
@@ -867,10 +867,10 @@ return array (
     'order_id' => '10',
     'event_type' => 'PAYMENT_UPDATE',
     'trigger_type' => 'PAYMENT_UPDATE',
-    'changed_by_user_id' => '9',
+    'changed_by_user_id' => '2',
     'note' => 'Pembayaran QRIS berhasil dicatat.',
     'metadata' => '{"paid_amount":23000,"payment_method":"TRANSFER","payment_status":"paid"}',
-    'created_at' => '2026-07-15 19:20:31',
+    'created_at' => '2026-07-15 18:54:31',
   ),
   79 => 
   array (
@@ -2055,10 +2055,10 @@ return array (
     'order_id' => '20',
     'event_type' => 'PAYMENT_UPDATE',
     'trigger_type' => 'COD_PAYMENT_RECORDED_BY_DRIVER',
-    'changed_by_user_id' => '2',
+    'changed_by_user_id' => '18',
     'note' => 'Pembayaran COD dicatat dari app driver.',
     'metadata' => '{"paid_amount":11000,"expected_amount":11000,"recorded_by_role":"driver"}',
-    'created_at' => '2026-07-15 20:21:14',
+    'created_at' => '2026-07-15 20:14:23',
   ),
   187 => 
   array (
@@ -2066,10 +2066,10 @@ return array (
     'order_id' => '20',
     'event_type' => 'PAYMENT_UPDATE',
     'trigger_type' => 'PAYMENT_UPDATE',
-    'changed_by_user_id' => '2',
+    'changed_by_user_id' => '18',
     'note' => 'Pembayaran COD berhasil dicatat.',
     'metadata' => '{"paid_amount":11000,"payment_status":"paid"}',
-    'created_at' => '2026-07-15 20:21:14',
+    'created_at' => '2026-07-15 20:14:23',
   ),
   188 => 
   array (
@@ -2077,10 +2077,10 @@ return array (
     'order_id' => '22',
     'event_type' => 'SYSTEM_EVENT',
     'trigger_type' => 'ORDER_PROOF_UPLOADED',
-    'changed_by_user_id' => '2',
+    'changed_by_user_id' => '18',
     'note' => 'Driver upload bukti pickup.',
     'metadata' => '{"proof_type":"pickup","evidence_type":"PICKUP_PHOTO","pickup_location_id":null}',
-    'created_at' => '2026-07-15 20:26:34',
+    'created_at' => '2026-07-15 20:19:43',
   ),
   189 => 
   array (
@@ -2088,10 +2088,10 @@ return array (
     'order_id' => '22',
     'event_type' => 'PAYMENT_UPDATE',
     'trigger_type' => 'COD_PAYMENT_RECORDED_BY_DRIVER',
-    'changed_by_user_id' => '2',
+    'changed_by_user_id' => '18',
     'note' => 'Pembayaran courier dicatat saat pickup dari app driver.',
     'metadata' => '{"paid_amount":9000,"expected_amount":9000,"recorded_by_role":"driver"}',
-    'created_at' => '2026-07-15 20:26:54',
+    'created_at' => '2026-07-15 20:20:03',
   ),
   190 => 
   array (
@@ -2099,10 +2099,10 @@ return array (
     'order_id' => '22',
     'event_type' => 'PAYMENT_UPDATE',
     'trigger_type' => 'PAYMENT_UPDATE',
-    'changed_by_user_id' => '2',
+    'changed_by_user_id' => '18',
     'note' => 'Pembayaran COD berhasil dicatat.',
     'metadata' => '{"paid_amount":9000,"payment_status":"paid"}',
-    'created_at' => '2026-07-15 20:26:54',
+    'created_at' => '2026-07-15 20:20:03',
   ),
   191 => 
   array (
@@ -2110,10 +2110,10 @@ return array (
     'order_id' => '22',
     'event_type' => 'SYSTEM_EVENT',
     'trigger_type' => 'ORDER_PROOF_UPLOADED',
-    'changed_by_user_id' => '2',
+    'changed_by_user_id' => '18',
     'note' => 'Driver upload bukti delivery.',
     'metadata' => '{"proof_type":"delivery","evidence_type":"DELIVERY_PHOTO","pickup_location_id":null}',
-    'created_at' => '2026-07-15 20:32:08',
+    'created_at' => '2026-07-15 20:25:17',
   ),
   192 => 
   array (
@@ -2124,7 +2124,7 @@ return array (
     'changed_by_user_id' => '25',
     'note' => 'Pembayaran COD dicatat dari app driver.',
     'metadata' => '{"paid_amount":7000,"expected_amount":7000,"recorded_by_role":"driver"}',
-    'created_at' => '2026-07-16 14:37:02',
+    'created_at' => '2026-07-15 20:37:13',
   ),
   193 => 
   array (
@@ -2135,7 +2135,7 @@ return array (
     'changed_by_user_id' => '25',
     'note' => 'Pembayaran COD berhasil dicatat.',
     'metadata' => '{"paid_amount":7000,"payment_status":"paid"}',
-    'created_at' => '2026-07-16 14:37:02',
+    'created_at' => '2026-07-15 20:37:13',
   ),
   194 => 
   array (
@@ -2143,7 +2143,7 @@ return array (
     'order_id' => '25',
     'event_type' => 'PAYMENT_UPDATE',
     'trigger_type' => 'COD_PAYMENT_RECORDED_BY_DRIVER',
-    'changed_by_user_id' => '18',
+    'changed_by_user_id' => '25',
     'note' => 'Pembayaran COD dicatat dari app driver.',
     'metadata' => '{"paid_amount":15000,"expected_amount":15000,"recorded_by_role":"driver"}',
     'created_at' => '2026-07-16 20:31:52',
@@ -2154,7 +2154,7 @@ return array (
     'order_id' => '25',
     'event_type' => 'PAYMENT_UPDATE',
     'trigger_type' => 'PAYMENT_UPDATE',
-    'changed_by_user_id' => '18',
+    'changed_by_user_id' => '25',
     'note' => 'Pembayaran COD berhasil dicatat.',
     'metadata' => '{"paid_amount":15000,"payment_status":"paid"}',
     'created_at' => '2026-07-16 20:31:52',
@@ -2178,8 +2178,8 @@ return array (
     'trigger_type' => 'SHOPPING_MERCHANT_ARRIVAL_CHECKPOINT',
     'changed_by_user_id' => '18',
     'note' => 'Checkpoint perjalanan merchant Nitip.',
-    'metadata' => '{"origin":{"label":"Lokasi driver","latitude":-7.276,"longitude":110.477,"recorded_at":"2026-07-17T11:33:48+07:00"},"chain_id":"pickup:67","destination":{"label":"Gecok JOGO ROSO TLOGO","latitude":-7.264,"longitude":110.486,"pickup_location_id":67},"recorded_at":"2026-07-17T11:33:52+07:00","route_status":"OK","route_provider":"routes_api","distance_meters":2648,"chain_attempt_no":1,"duration_seconds":402,"pickup_location_id":67}',
-    'created_at' => '2026-07-17 11:33:52',
+    'metadata' => '{"origin":{"label":"Lokasi driver","latitude":-7.276,"longitude":110.477,"recorded_at":"2026-07-17T09:07:48+07:00"},"chain_id":"pickup:67","destination":{"label":"Gecok JOGO ROSO TLOGO","latitude":-7.264,"longitude":110.486,"pickup_location_id":67},"recorded_at":"2026-07-17T09:07:52+07:00","route_status":"OK","route_provider":"routes_api","distance_meters":2648,"chain_attempt_no":1,"duration_seconds":402,"pickup_location_id":67}',
+    'created_at' => '2026-07-17 09:07:52',
   ),
   198 => 
   array (
@@ -2190,7 +2190,7 @@ return array (
     'changed_by_user_id' => '18',
     'note' => 'Driver mengonfirmasi merchant buka.',
     'metadata' => '{"fulfillment_status":"OPEN_CONFIRMED","pickup_location_id":67}',
-    'created_at' => '2026-07-17 11:33:52',
+    'created_at' => '2026-07-17 09:07:52',
   ),
   199 => 
   array (
@@ -2201,7 +2201,7 @@ return array (
     'changed_by_user_id' => '18',
     'note' => 'Driver mencatat ketersediaan item merchant.',
     'metadata' => '{"item_ids":[35,36,37],"pickup_location_id":67,"has_unavailable_item":true}',
-    'created_at' => '2026-07-17 11:34:01',
+    'created_at' => '2026-07-17 09:08:01',
   ),
   200 => 
   array (
@@ -2212,7 +2212,7 @@ return array (
     'changed_by_user_id' => '18',
     'note' => 'Driver memperbarui ketersediaan item. Harga Nitip perlu dikirim ulang.',
     'metadata' => '{"status":"NEEDS_REQUOTE","pickup_location_id":67}',
-    'created_at' => '2026-07-17 11:34:01',
+    'created_at' => '2026-07-17 09:08:01',
   ),
   201 => 
   array (
@@ -2223,7 +2223,7 @@ return array (
     'changed_by_user_id' => '18',
     'note' => 'Driver memperbarui ketersediaan item Nitip.',
     'metadata' => '{"item_count":2,"trigger_type":"DRIVER_RECEIPT_UPDATE","price_changes":{"TOTAL_PRICE":{"new_amount":105000,"old_amount":135000,"delta_amount":-30000}},"has_overweight_item":false,"recalculation_version":1,"failed_trip_compensation":0}',
-    'created_at' => '2026-07-17 11:34:01',
+    'created_at' => '2026-07-17 09:08:01',
   ),
   202 => 
   array (
@@ -2234,7 +2234,7 @@ return array (
     'changed_by_user_id' => '18',
     'note' => 'Driver memperbarui ketersediaan item Nitip.',
     'metadata' => '{"subtotal":70000,"service_fee":0,"total_price":105000,"recalculation_version":1,"failed_trip_compensation":0}',
-    'created_at' => '2026-07-17 11:34:01',
+    'created_at' => '2026-07-17 09:08:01',
   ),
   203 => 
   array (
@@ -2245,7 +2245,7 @@ return array (
     'changed_by_user_id' => '18',
     'note' => 'Driver mengganti item tidak tersedia pada toko/resto yang sama.',
     'metadata' => '{"items":[{"id":38,"name":"Tongseng Kambing","menu_id":null,"quantity":1,"item_source":"MANUAL"}],"old_items":[{"id":36,"name":"Gulai Sapi","quantity":1,"is_available":false}],"actor_role":"driver","idempotency_key":"30-67-1784262581121919-585662013","pickup_location_id":67,"payload_fingerprint":"a53f1bd9b3dfed19022557282ef32e57a9b7a8b2fb55852a65b442b7c3bd1449","fulfillment_status_after":"ITEMS_CONFIRMED","fulfillment_status_before":"ITEMS_PENDING_CUSTOMER"}',
-    'created_at' => '2026-07-17 11:35:35',
+    'created_at' => '2026-07-17 09:09:35',
   ),
   204 => 
   array (
@@ -2256,7 +2256,7 @@ return array (
     'changed_by_user_id' => '18',
     'note' => 'Driver mengganti item tidak tersedia. Harga toko/resto perlu dikirim ulang.',
     'metadata' => '{"status":"NEEDS_REQUOTE","actor_role":"driver","request_kind":"EDIT_UNAVAILABLE","request_log_id":288,"pickup_location_id":67}',
-    'created_at' => '2026-07-17 11:35:35',
+    'created_at' => '2026-07-17 09:09:35',
   ),
   205 => 
   array (
@@ -2267,7 +2267,7 @@ return array (
     'changed_by_user_id' => '18',
     'note' => 'Driver mengganti item tidak tersedia pada toko/resto yang sama.',
     'metadata' => '{"subtotal":70000,"service_fee":0,"total_price":105000,"recalculation_version":2,"failed_trip_compensation":0}',
-    'created_at' => '2026-07-17 11:35:35',
+    'created_at' => '2026-07-17 09:09:35',
   ),
   206 => 
   array (
@@ -2278,7 +2278,7 @@ return array (
     'changed_by_user_id' => '18',
     'note' => 'Driver mengirim quote harga Nitip.',
     'metadata' => '{"amount":105000,"status":"PENDING_CUSTOMER","quoted_amount":105000,"pickup_location_id":67}',
-    'created_at' => '2026-07-17 11:36:01',
+    'created_at' => '2026-07-17 09:10:01',
   ),
   207 => 
   array (
@@ -2289,7 +2289,7 @@ return array (
     'changed_by_user_id' => '18',
     'note' => 'Driver melanjutkan harga merchant tanpa respons customer.',
     'metadata' => '{"status":"APPROVED","quote_log_id":292,"quoted_amount":105000,"approved_amount":105000,"bypassed_by_driver":true,"pickup_location_id":67}',
-    'created_at' => '2026-07-17 11:36:46',
+    'created_at' => '2026-07-17 09:10:46',
   ),
   208 => 
   array (
@@ -2300,7 +2300,7 @@ return array (
     'changed_by_user_id' => '18',
     'note' => 'Harga merchant dilanjutkan oleh driver tanpa respons customer.',
     'metadata' => '{"item_count":3,"trigger_type":"MERCHANT_PRICE_APPROVED_BY_DRIVER_BYPASS","price_changes":{"TOTAL_PRICE":{"new_amount":140000,"old_amount":105000,"delta_amount":35000}},"has_overweight_item":false,"recalculation_version":2,"failed_trip_compensation":0}',
-    'created_at' => '2026-07-17 11:36:46',
+    'created_at' => '2026-07-17 09:10:46',
   ),
   209 => 
   array (
@@ -2311,7 +2311,7 @@ return array (
     'changed_by_user_id' => '18',
     'note' => 'Harga merchant dilanjutkan oleh driver tanpa respons customer.',
     'metadata' => '{"subtotal":105000,"service_fee":0,"total_price":140000,"recalculation_version":2,"failed_trip_compensation":0}',
-    'created_at' => '2026-07-17 11:36:46',
+    'created_at' => '2026-07-17 09:10:46',
   ),
   210 => 
   array (
@@ -2322,7 +2322,7 @@ return array (
     'changed_by_user_id' => '18',
     'note' => 'Driver menyimpan checkout Nitip.',
     'metadata' => '{"subtotal":105000,"service_fee":0,"total_price":140000,"recalculation_version":3,"failed_trip_compensation":0}',
-    'created_at' => '2026-07-17 11:37:01',
+    'created_at' => '2026-07-17 09:11:01',
   ),
   211 => 
   array (
@@ -2333,7 +2333,7 @@ return array (
     'changed_by_user_id' => '18',
     'note' => 'Pembayaran COD dicatat dari app driver.',
     'metadata' => '{"paid_amount":140000,"expected_amount":140000,"recorded_by_role":"driver"}',
-    'created_at' => '2026-07-17 12:03:04',
+    'created_at' => '2026-07-17 09:37:04',
   ),
   212 => 
   array (
@@ -2344,7 +2344,7 @@ return array (
     'changed_by_user_id' => '18',
     'note' => 'Pembayaran COD berhasil dicatat.',
     'metadata' => '{"paid_amount":140000,"payment_status":"paid"}',
-    'created_at' => '2026-07-17 12:03:04',
+    'created_at' => '2026-07-17 09:37:04',
   ),
   213 => 
   array (
@@ -2354,8 +2354,8 @@ return array (
     'trigger_type' => 'SHOPPING_MERCHANT_ARRIVAL_CHECKPOINT',
     'changed_by_user_id' => '25',
     'note' => 'Checkpoint perjalanan merchant Nitip.',
-    'metadata' => '{"origin":{"label":"Lokasi driver","latitude":-7.320,"longitude":110.471,"recorded_at":"2026-07-17T12:17:43+07:00"},"chain_id":"pickup:69","destination":{"label":"Baloeng Gajah","latitude":-7.297,"longitude":110.459,"pickup_location_id":69},"recorded_at":"2026-07-17T12:17:52+07:00","route_status":"OK","route_provider":"routes_api","distance_meters":3612,"chain_attempt_no":1,"duration_seconds":547,"pickup_location_id":69}',
-    'created_at' => '2026-07-17 12:17:52',
+    'metadata' => '{"origin":{"label":"Lokasi driver","latitude":-7.320,"longitude":110.471,"recorded_at":"2026-07-17T10:24:43+07:00"},"chain_id":"pickup:69","destination":{"label":"Baloeng Gajah","latitude":-7.297,"longitude":110.459,"pickup_location_id":69},"recorded_at":"2026-07-17T10:24:52+07:00","route_status":"OK","route_provider":"routes_api","distance_meters":3612,"chain_attempt_no":1,"duration_seconds":547,"pickup_location_id":69}',
+    'created_at' => '2026-07-17 10:24:52',
   ),
   214 => 
   array (
@@ -2366,7 +2366,7 @@ return array (
     'changed_by_user_id' => '25',
     'note' => 'Driver mengonfirmasi merchant buka.',
     'metadata' => '{"fulfillment_status":"OPEN_CONFIRMED","pickup_location_id":69}',
-    'created_at' => '2026-07-17 12:17:52',
+    'created_at' => '2026-07-17 10:24:52',
   ),
   215 => 
   array (
@@ -2377,7 +2377,7 @@ return array (
     'changed_by_user_id' => '25',
     'note' => 'Driver mencatat ketersediaan item merchant.',
     'metadata' => '{"item_ids":[39,40],"pickup_location_id":69,"has_unavailable_item":false}',
-    'created_at' => '2026-07-17 12:19:53',
+    'created_at' => '2026-07-17 10:26:53',
   ),
   216 => 
   array (
@@ -2388,7 +2388,7 @@ return array (
     'changed_by_user_id' => '25',
     'note' => 'Driver memperbarui ketersediaan item Nitip.',
     'metadata' => '{"subtotal":30000,"service_fee":0,"total_price":41000,"recalculation_version":1,"failed_trip_compensation":0}',
-    'created_at' => '2026-07-17 12:19:53',
+    'created_at' => '2026-07-17 10:26:53',
   ),
   217 => 
   array (
@@ -2399,7 +2399,7 @@ return array (
     'changed_by_user_id' => '25',
     'note' => 'Driver mengirim quote harga Nitip.',
     'metadata' => '{"amount":30000,"status":"PENDING_CUSTOMER","quoted_amount":30000,"pickup_location_id":69}',
-    'created_at' => '2026-07-17 12:20:39',
+    'created_at' => '2026-07-17 10:27:39',
   ),
   218 => 
   array (
@@ -2410,7 +2410,7 @@ return array (
     'changed_by_user_id' => '25',
     'note' => 'Driver melanjutkan harga merchant tanpa respons customer.',
     'metadata' => '{"status":"APPROVED","quote_log_id":305,"quoted_amount":30000,"approved_amount":30000,"bypassed_by_driver":true,"pickup_location_id":69}',
-    'created_at' => '2026-07-17 12:21:24',
+    'created_at' => '2026-07-17 10:28:24',
   ),
   219 => 
   array (
@@ -2421,7 +2421,7 @@ return array (
     'changed_by_user_id' => '25',
     'note' => 'Harga merchant dilanjutkan oleh driver tanpa respons customer.',
     'metadata' => '{"subtotal":30000,"service_fee":0,"total_price":41000,"recalculation_version":1,"failed_trip_compensation":0}',
-    'created_at' => '2026-07-17 12:21:24',
+    'created_at' => '2026-07-17 10:28:24',
   ),
   220 => 
   array (
@@ -2432,7 +2432,7 @@ return array (
     'changed_by_user_id' => '25',
     'note' => 'Driver menyimpan checkout Nitip.',
     'metadata' => '{"subtotal":30000,"service_fee":0,"total_price":41000,"recalculation_version":1,"failed_trip_compensation":0}',
-    'created_at' => '2026-07-17 12:21:41',
+    'created_at' => '2026-07-17 10:28:41',
   ),
   221 => 
   array (
@@ -2443,7 +2443,7 @@ return array (
     'changed_by_user_id' => '25',
     'note' => 'Pembayaran COD dicatat dari app driver.',
     'metadata' => '{"paid_amount":41000,"expected_amount":41000,"recorded_by_role":"driver"}',
-    'created_at' => '2026-07-17 12:54:40',
+    'created_at' => '2026-07-17 11:01:40',
   ),
   222 => 
   array (
@@ -2454,7 +2454,7 @@ return array (
     'changed_by_user_id' => '25',
     'note' => 'Pembayaran COD berhasil dicatat.',
     'metadata' => '{"paid_amount":41000,"payment_status":"paid"}',
-    'created_at' => '2026-07-17 12:54:40',
+    'created_at' => '2026-07-17 11:01:40',
   ),
   223 => 
   array (

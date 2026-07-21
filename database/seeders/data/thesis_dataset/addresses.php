@@ -70,8 +70,8 @@ return array (
     'latitude' => '-7.330',
     'longitude' => '110.462',
     'is_default' => '1',
-    'created_at' => '2026-07-15 09:44:00',
-    'updated_at' => '2026-07-15 09:44:00',
+    'created_at' => '2026-07-15 09:19:00',
+    'updated_at' => '2026-07-15 09:19:00',
   ),
   5 => 
   array (
@@ -84,8 +84,8 @@ return array (
     'latitude' => '-7.320',
     'longitude' => '110.469',
     'is_default' => '1',
-    'created_at' => '2026-07-15 11:23:08',
-    'updated_at' => '2026-07-15 11:23:08',
+    'created_at' => '2026-07-15 10:53:08',
+    'updated_at' => '2026-07-15 10:53:08',
   ),
   6 => 
   array (
@@ -98,8 +98,8 @@ return array (
     'latitude' => '-7.303',
     'longitude' => '110.484',
     'is_default' => '1',
-    'created_at' => '2026-07-15 12:43:04',
-    'updated_at' => '2026-07-15 12:43:04',
+    'created_at' => '2026-07-15 12:15:04',
+    'updated_at' => '2026-07-15 12:15:04',
   ),
   7 => 
   array (
@@ -112,8 +112,8 @@ return array (
     'latitude' => '-7.320',
     'longitude' => '110.470',
     'is_default' => '1',
-    'created_at' => '2026-07-15 14:12:19',
-    'updated_at' => '2026-07-15 14:12:19',
+    'created_at' => '2026-07-15 13:47:19',
+    'updated_at' => '2026-07-15 13:47:19',
   ),
   8 => 
   array (
@@ -126,8 +126,8 @@ return array (
     'latitude' => '-7.320',
     'longitude' => '110.470',
     'is_default' => '1',
-    'created_at' => '2026-07-15 14:21:17',
-    'updated_at' => '2026-07-15 14:21:42',
+    'created_at' => '2026-07-15 13:56:17',
+    'updated_at' => '2026-07-15 13:56:42',
   ),
   9 => 
   array (
@@ -140,8 +140,8 @@ return array (
     'latitude' => '-7.320',
     'longitude' => '110.470',
     'is_default' => '1',
-    'created_at' => '2026-07-15 14:45:11',
-    'updated_at' => '2026-07-15 14:45:11',
+    'created_at' => '2026-07-15 14:23:11',
+    'updated_at' => '2026-07-15 14:23:11',
   ),
   10 => 
   array (
@@ -154,8 +154,8 @@ return array (
     'latitude' => '-7.320',
     'longitude' => '110.471',
     'is_default' => '1',
-    'created_at' => '2026-07-15 18:22:22',
-    'updated_at' => '2026-07-15 18:22:22',
+    'created_at' => '2026-07-15 17:57:22',
+    'updated_at' => '2026-07-15 17:57:22',
   ),
   11 => 
   array (
@@ -168,8 +168,8 @@ return array (
     'latitude' => '-7.320',
     'longitude' => '110.471',
     'is_default' => '1',
-    'created_at' => '2026-07-15 18:59:59',
-    'updated_at' => '2026-07-15 18:59:59',
+    'created_at' => '2026-07-15 18:33:59',
+    'updated_at' => '2026-07-15 18:33:59',
   ),
   12 => 
   array (
@@ -224,8 +224,8 @@ return array (
     'latitude' => '-7.320',
     'longitude' => '110.463',
     'is_default' => '1',
-    'created_at' => '2026-07-16 13:57:03',
-    'updated_at' => '2026-07-16 13:57:41',
+    'created_at' => '2026-07-15 19:47:03',
+    'updated_at' => '2026-07-15 19:47:41',
   ),
   16 => 
   array (
@@ -238,8 +238,8 @@ return array (
     'latitude' => '-7.280',
     'longitude' => '110.416',
     'is_default' => '1',
-    'created_at' => '2026-07-17 11:24:30',
-    'updated_at' => '2026-07-17 11:24:30',
+    'created_at' => '2026-07-17 08:58:30',
+    'updated_at' => '2026-07-17 08:58:30',
   ),
   17 => 
   array (
@@ -252,7 +252,7 @@ return array (
     'latitude' => '-7.320',
     'longitude' => '110.471',
     'is_default' => '1',
-    'created_at' => '2026-07-17 12:06:53',
-    'updated_at' => '2026-07-17 12:06:53',
+    'created_at' => '2026-07-17 10:13:53',
+    'updated_at' => '2026-07-17 10:13:53',
   ),
 );

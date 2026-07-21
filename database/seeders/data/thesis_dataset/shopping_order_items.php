@@ -17,8 +17,8 @@ return array (
     'notes' => NULL,
     'metadata' => '{"source": "CHATBOT_MENU_MATCH", "price_status": "CONFIRMED", "restaurant_id": 4}',
     'is_available' => '1',
-    'created_at' => '2026-07-15 11:25:33',
-    'updated_at' => '2026-07-15 11:25:33',
+    'created_at' => '2026-07-15 10:55:33',
+    'updated_at' => '2026-07-15 10:55:33',
   ),
   1 => 
   array (
@@ -34,8 +34,8 @@ return array (
     'notes' => NULL,
     'metadata' => '{"source": "CHATBOT_MENU_MATCH", "price_status": "CONFIRMED", "restaurant_id": 4}',
     'is_available' => '1',
-    'created_at' => '2026-07-15 11:25:33',
-    'updated_at' => '2026-07-15 11:25:33',
+    'created_at' => '2026-07-15 10:55:33',
+    'updated_at' => '2026-07-15 10:55:33',
   ),
   2 => 
   array (
@@ -51,8 +51,8 @@ return array (
     'notes' => NULL,
     'metadata' => '{"source": "CHATBOT_MENU_MATCH", "price_status": "CONFIRMED", "restaurant_id": 4}',
     'is_available' => '1',
-    'created_at' => '2026-07-15 11:25:33',
-    'updated_at' => '2026-07-15 11:25:33',
+    'created_at' => '2026-07-15 10:55:33',
+    'updated_at' => '2026-07-15 10:55:33',
   ),
   3 => 
   array (
@@ -68,8 +68,8 @@ return array (
     'notes' => NULL,
     'metadata' => '{"source": "CHATBOT_MENU_MATCH", "price_status": "CONFIRMED", "restaurant_id": 4}',
     'is_available' => '1',
-    'created_at' => '2026-07-15 11:25:33',
-    'updated_at' => '2026-07-15 11:25:33',
+    'created_at' => '2026-07-15 10:55:33',
+    'updated_at' => '2026-07-15 10:55:33',
   ),
   4 => 
   array (
@@ -85,8 +85,8 @@ return array (
     'notes' => NULL,
     'metadata' => '{"source": "CHATBOT_MENU_MATCH", "price_status": "CONFIRMED", "restaurant_id": 4}',
     'is_available' => '1',
-    'created_at' => '2026-07-15 11:25:33',
-    'updated_at' => '2026-07-15 11:25:33',
+    'created_at' => '2026-07-15 10:55:33',
+    'updated_at' => '2026-07-15 10:55:33',
   ),
   5 => 
   array (
@@ -102,8 +102,8 @@ return array (
     'notes' => NULL,
     'metadata' => '{"source": "CHATBOT_MENU_MATCH", "price_status": "CONFIRMED", "restaurant_id": 31}',
     'is_available' => '1',
-    'created_at' => '2026-07-15 14:29:05',
-    'updated_at' => '2026-07-15 14:29:05',
+    'created_at' => '2026-07-15 13:59:36',
+    'updated_at' => '2026-07-15 13:59:36',
   ),
   6 => 
   array (
@@ -119,8 +119,8 @@ return array (
     'notes' => NULL,
     'metadata' => '{"source": "CHATBOT_MENU_MATCH", "price_status": "CONFIRMED", "restaurant_id": 31}',
     'is_available' => '1',
-    'created_at' => '2026-07-15 14:29:05',
-    'updated_at' => '2026-07-15 14:29:05',
+    'created_at' => '2026-07-15 13:59:36',
+    'updated_at' => '2026-07-15 13:59:36',
   ),
   7 => 
   array (
@@ -136,8 +136,8 @@ return array (
     'notes' => NULL,
     'metadata' => '{"source": "CHATBOT_MANUAL_CONTEXT", "price_status": "PENDING_DRIVER_INPUT", "restaurant_id": 2}',
     'is_available' => '1',
-    'created_at' => '2026-07-15 14:47:30',
-    'updated_at' => '2026-07-15 14:47:30',
+    'created_at' => '2026-07-15 14:25:30',
+    'updated_at' => '2026-07-15 14:25:30',
   ),
   8 => 
   array (
@@ -153,8 +153,8 @@ return array (
     'notes' => NULL,
     'metadata' => '{"source": "CHATBOT_MANUAL_CONTEXT", "price_status": "PENDING_DRIVER_INPUT", "restaurant_id": 2}',
     'is_available' => '1',
-    'created_at' => '2026-07-15 14:47:30',
-    'updated_at' => '2026-07-15 14:47:30',
+    'created_at' => '2026-07-15 14:25:30',
+    'updated_at' => '2026-07-15 14:25:30',
   ),
   9 => 
   array (
@@ -204,8 +204,8 @@ return array (
     'notes' => NULL,
     'metadata' => '{"source":"CHATBOT_MENU_MATCH_PENDING_PRICE","price_status":"PENDING_DRIVER_INPUT","restaurant_id":37,"catalog_menu_id":866}',
     'is_available' => '1',
-    'created_at' => '2026-07-15 18:28:39',
-    'updated_at' => '2026-07-15 18:28:39',
+    'created_at' => '2026-07-15 18:04:33',
+    'updated_at' => '2026-07-15 18:04:33',
   ),
   12 => 
   array (
@@ -221,8 +221,8 @@ return array (
     'notes' => NULL,
     'metadata' => '{"source": "CHATBOT_MENU_MATCH", "price_status": "CONFIRMED", "restaurant_id": 24}',
     'is_available' => '1',
-    'created_at' => '2026-07-15 19:02:40',
-    'updated_at' => '2026-07-15 19:02:40',
+    'created_at' => '2026-07-15 18:36:40',
+    'updated_at' => '2026-07-15 18:36:40',
   ),
   13 => 
   array (
@@ -459,8 +459,8 @@ return array (
     'notes' => NULL,
     'metadata' => '{"source": "CHATBOT_MENU_MATCH", "price_status": "CONFIRMED", "restaurant_id": 13}',
     'is_available' => '1',
-    'created_at' => '2026-07-17 11:26:43',
-    'updated_at' => '2026-07-17 11:26:43',
+    'created_at' => '2026-07-17 09:00:43',
+    'updated_at' => '2026-07-17 09:00:43',
   ),
   27 => 
   array (
@@ -476,8 +476,8 @@ return array (
     'notes' => NULL,
     'metadata' => '{"source": "CHATBOT_MENU_MATCH", "price_status": "CONFIRMED", "restaurant_id": 13}',
     'is_available' => '1',
-    'created_at' => '2026-07-17 11:26:43',
-    'updated_at' => '2026-07-17 11:26:43',
+    'created_at' => '2026-07-17 09:00:43',
+    'updated_at' => '2026-07-17 09:00:43',
   ),
   28 => 
   array (
@@ -493,8 +493,8 @@ return array (
     'notes' => NULL,
     'metadata' => '{"source": "CUSTOMER_MERCHANT_DB", "price_status": "PENDING_DRIVER_INPUT", "restaurant_id": 13}',
     'is_available' => '1',
-    'created_at' => '2026-07-17 11:35:35',
-    'updated_at' => '2026-07-17 11:35:35',
+    'created_at' => '2026-07-17 09:09:35',
+    'updated_at' => '2026-07-17 09:09:35',
   ),
   29 => 
   array (
@@ -510,8 +510,8 @@ return array (
     'notes' => NULL,
     'metadata' => '{"source": "CHATBOT_MENU_MATCH", "price_status": "CONFIRMED", "restaurant_id": 49}',
     'is_available' => '1',
-    'created_at' => '2026-07-17 12:08:00',
-    'updated_at' => '2026-07-17 12:08:00',
+    'created_at' => '2026-07-17 10:15:00',
+    'updated_at' => '2026-07-17 10:15:00',
   ),
   30 => 
   array (
@@ -527,7 +527,7 @@ return array (
     'notes' => NULL,
     'metadata' => '{"source": "CHATBOT_MENU_MATCH", "price_status": "CONFIRMED", "restaurant_id": 49}',
     'is_available' => '1',
-    'created_at' => '2026-07-17 12:08:00',
-    'updated_at' => '2026-07-17 12:08:00',
+    'created_at' => '2026-07-17 10:15:00',
+    'updated_at' => '2026-07-17 10:15:00',
   ),
 );

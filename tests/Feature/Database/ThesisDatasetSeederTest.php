@@ -68,7 +68,7 @@ class ThesisDatasetSeederTest extends TestCase
         $this->assertSame(ThesisDatasetSeeder::ADMIN_UPDATED_AT, $admin->updated_at?->format('Y-m-d H:i:s'));
     }
 
-    public function test_muhammad_faiz_is_a_verified_driver_with_two_orders(): void
+    public function test_muhammad_faiz_is_a_verified_driver_with_three_orders(): void
     {
         $this->seedAll();
 
@@ -86,10 +86,15 @@ class ThesisDatasetSeederTest extends TestCase
             'registration_status' => 'active',
             'status' => 'offline',
         ]);
+        $this->assertDatabaseHas('driver_documents', [
+            'driver_id' => 5,
+            'document_type' => 'ktp',
+            'verified_at' => '2026-07-15 20:06:29',
+        ]);
 
-        $this->assertSame(2, DB::table('orders')->where('driver_id', 5)->count());
+        $this->assertSame(3, DB::table('orders')->where('driver_id', 5)->count());
         $this->assertSame(
-            ['BD-160726-001', 'BD-170726-002'],
+            ['BD-150726-023', 'BD-160726-003', 'BD-170726-002'],
             DB::table('orders')->where('driver_id', 5)->orderBy('id')->pluck('order_number')->all()
         );
 
@@ -99,6 +104,28 @@ class ThesisDatasetSeederTest extends TestCase
             ->value('metadata');
         $this->assertStringContainsString('Driver 05', (string) $snapshot);
         $this->assertStringContainsString('H 1005 AA', (string) $snapshot);
+    }
+
+    public function test_orders_are_distributed_across_drivers(): void
+    {
+        $this->seedAll();
+
+        $counts = DB::table('orders')
+            ->whereNotNull('driver_id')
+            ->groupBy('driver_id')
+            ->selectRaw('driver_id, COUNT(*) as n')
+            ->pluck('n', 'driver_id')
+            ->map(fn ($n) => (int) $n)
+            ->all();
+
+        $this->assertSame(
+            [1 => 4, 2 => 7, 3 => 3, 4 => 5, 5 => 3],
+            $counts
+        );
+
+        // Kausalitas kuesioner: order Pelanggan 06 selesai sebelum ia mengisi form 09:55:03.
+        $order1DoneAt = (string) DB::table('orders')->where('id', 1)->value('updated_at');
+        $this->assertLessThan('2026-07-15 09:55:03', $order1DoneAt);
     }
 
     public function test_all_driver_documents_are_locked_approved_audits(): void
