@@ -525,7 +525,7 @@ return array (
     'phone' => '081100000005',
     'email_verified_at' => NULL,
     'phone_verified_at' => '2026-07-15 19:42:47',
-    'password' => '$2y$12$20XDbsnMSjLDAvU8YMwjJOqw5dLYJf3I0XUgobo8viXiQEYLux6/u',
+    'password' => '$2y$12$IlhNoWJlRUcvIn0PGLCvou3mQhP1qH/0Xx9UgqqI9mdV8N2GOxtWS',
     'role' => 'driver',
     'avatar' => NULL,
     'is_active' => '1',

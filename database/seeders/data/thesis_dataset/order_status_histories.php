@@ -1625,16 +1625,6 @@ return array (
   ),
   162 => 
   array (
-    'id' => '178',
-    'order_id' => '28',
-    'status_id' => '1',
-    'changed_by_user_id' => '8',
-    'note' => 'Order Nitip dibuat melalui chatbot.',
-    'metadata' => NULL,
-    'created_at' => '2026-07-16 19:31:01',
-  ),
-  163 => 
-  array (
     'id' => '187',
     'order_id' => '30',
     'status_id' => '1',
@@ -1643,7 +1633,7 @@ return array (
     'metadata' => NULL,
     'created_at' => '2026-07-17 09:00:43',
   ),
-  164 => 
+  163 => 
   array (
     'id' => '188',
     'order_id' => '30',
@@ -1653,7 +1643,7 @@ return array (
     'metadata' => '{"driver_snapshot":{"name":"Driver 03","phone":"081100000003","user_id":18,"driver_id":3,"vehicle_type":"Motor Matic","vehicle_brand":"Honda","vehicle_model":"Supra X","vehicle_plate":"H 1003 AA"}}',
     'created_at' => '2026-07-17 09:01:50',
   ),
-  165 => 
+  164 => 
   array (
     'id' => '189',
     'order_id' => '30',
@@ -1663,7 +1653,7 @@ return array (
     'metadata' => '{"action_code":"MERCHANT_OPEN_CONFIRMED","pickup_location_id":67}',
     'created_at' => '2026-07-17 09:01:58',
   ),
-  166 => 
+  165 => 
   array (
     'id' => '190',
     'order_id' => '30',
@@ -1673,7 +1663,7 @@ return array (
     'metadata' => '{"action_code":"CONFIRM_PICKED_UP","service_type":"SHOPPING"}',
     'created_at' => '2026-07-17 09:17:45',
   ),
-  167 => 
+  166 => 
   array (
     'id' => '191',
     'order_id' => '30',
@@ -1683,7 +1673,7 @@ return array (
     'metadata' => '{"action_code":"START_DELIVERY","service_type":"SHOPPING"}',
     'created_at' => '2026-07-17 09:17:47',
   ),
-  168 => 
+  167 => 
   array (
     'id' => '192',
     'order_id' => '30',
@@ -1693,7 +1683,7 @@ return array (
     'metadata' => '{"action_code":"ARRIVE_DROPOFF","service_type":"SHOPPING"}',
     'created_at' => '2026-07-17 09:36:47',
   ),
-  169 => 
+  168 => 
   array (
     'id' => '193',
     'order_id' => '30',
@@ -1703,7 +1693,7 @@ return array (
     'metadata' => '{"action_code":"CONFIRM_DELIVERED","service_type":"SHOPPING"}',
     'created_at' => '2026-07-17 09:37:02',
   ),
-  170 => 
+  169 => 
   array (
     'id' => '194',
     'order_id' => '30',
@@ -1713,7 +1703,7 @@ return array (
     'metadata' => '{"action_code":"COMPLETE_ORDER","service_type":"SHOPPING"}',
     'created_at' => '2026-07-17 09:37:47',
   ),
-  171 => 
+  170 => 
   array (
     'id' => '195',
     'order_id' => '31',
@@ -1723,7 +1713,7 @@ return array (
     'metadata' => NULL,
     'created_at' => '2026-07-17 10:15:00',
   ),
-  172 => 
+  171 => 
   array (
     'id' => '196',
     'order_id' => '31',
@@ -1733,7 +1723,7 @@ return array (
     'metadata' => '{"driver_snapshot":{"name":"Driver 05","phone":"081100000005","user_id":25,"driver_id":5,"vehicle_type":"Motor Matic","vehicle_brand":"Honda","vehicle_model":"Vario 150","vehicle_plate":"H 1005 AA"}}',
     'created_at' => '2026-07-17 10:16:40',
   ),
-  173 => 
+  172 => 
   array (
     'id' => '197',
     'order_id' => '31',
@@ -1743,7 +1733,7 @@ return array (
     'metadata' => '{"action_code":"MERCHANT_OPEN_CONFIRMED","pickup_location_id":69}',
     'created_at' => '2026-07-17 10:18:04',
   ),
-  174 => 
+  173 => 
   array (
     'id' => '198',
     'order_id' => '31',
@@ -1753,7 +1743,7 @@ return array (
     'metadata' => '{"action_code":"CONFIRM_PICKED_UP","service_type":"SHOPPING"}',
     'created_at' => '2026-07-17 10:43:17',
   ),
-  175 => 
+  174 => 
   array (
     'id' => '199',
     'order_id' => '31',
@@ -1763,7 +1753,7 @@ return array (
     'metadata' => '{"action_code":"START_DELIVERY","service_type":"SHOPPING"}',
     'created_at' => '2026-07-17 10:43:19',
   ),
-  176 => 
+  175 => 
   array (
     'id' => '200',
     'order_id' => '31',
@@ -1773,7 +1763,7 @@ return array (
     'metadata' => '{"action_code":"ARRIVE_DROPOFF","service_type":"SHOPPING"}',
     'created_at' => '2026-07-17 10:52:09',
   ),
-  177 => 
+  176 => 
   array (
     'id' => '201',
     'order_id' => '31',
@@ -1783,7 +1773,7 @@ return array (
     'metadata' => '{"action_code":"CONFIRM_DELIVERED","service_type":"SHOPPING"}',
     'created_at' => '2026-07-17 11:01:39',
   ),
-  178 => 
+  177 => 
   array (
     'id' => '202',
     'order_id' => '31',

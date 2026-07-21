@@ -355,20 +355,6 @@ return array (
   ),
   25 => 
   array (
-    'id' => '28',
-    'order_id' => '28',
-    'payment_method' => 'COD',
-    'payment_status' => 'PENDING',
-    'amount' => '90000.00',
-    'recorded_by_user_id' => NULL,
-    'driver_id' => NULL,
-    'paid_at' => NULL,
-    'metadata' => '{"source": "ORDER_CREATED"}',
-    'created_at' => '2026-07-16 19:31:01',
-    'updated_at' => '2026-07-16 19:31:01',
-  ),
-  26 => 
-  array (
     'id' => '30',
     'order_id' => '30',
     'payment_method' => 'COD',
@@ -381,7 +367,7 @@ return array (
     'created_at' => '2026-07-17 09:00:43',
     'updated_at' => '2026-07-17 09:37:04',
   ),
-  27 => 
+  26 => 
   array (
     'id' => '31',
     'order_id' => '31',

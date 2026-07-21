@@ -486,7 +486,7 @@ return array (
   24 => 
   array (
     'id' => '25',
-    'order_number' => 'BD-160726-003',
+    'order_number' => 'BD-160726-001',
     'user_id' => '8',
     'service_type_id' => '1',
     'driver_id' => '5',
@@ -504,26 +504,6 @@ return array (
     'updated_at' => '2026-07-16 20:31:52',
   ),
   25 => 
-  array (
-    'id' => '28',
-    'order_number' => 'BD-160726-006',
-    'user_id' => '8',
-    'service_type_id' => '3',
-    'driver_id' => NULL,
-    'assigned_at' => NULL,
-    'delivery_fee' => '55000.00',
-    'total_price' => '90000.00',
-    'delivery_fee_source' => 'system',
-    'route_snapshot' => '{"segments": [{"to_label": "Mie Gacoan Salatiga", "from_label": "Gecok JOGO ROSO TLOGO", "distance_km": 10.14, "distance_text": "10.14 km", "duration_text": "20 menit", "distance_meters": 10144, "duration_seconds": 1180}, {"to_label": "Titik Antar", "from_label": "Mie Gacoan Salatiga", "distance_km": 5.45, "distance_text": "5.45 km", "duration_text": "11 menit", "distance_meters": 5453, "duration_seconds": 639}], "distance_km": 15.6, "travel_mode": "TWO_WHEELER", "delivery_fee": 55000, "route_status": "OK", "distance_text": "15.60 km", "duration_text": "31 menit", "route_provider": "routes_api", "distance_meters": 15596, "duration_seconds": 1820, "encoded_polyline": "`yik@sejaTdApIZzBfDg@`@@fAPzBRZJPTXnAPV\\\\Tb@PxAf@fBh@^uBHMJCF?|Af@v@Nl@VtA|@r@n@RF`BNn@FzAXRNj@l@ZV\\\\Ft@FxAVtA^t@Hj@?p@Z^T`DuEp@u@`@Uf@MrAcCXm@\\\\mAVu@`@i@lAcAVc@f@wAJObCkAdFeBzAw@j@OZIVSTq@FeATa@JOXWfAu@|AwAXa@d@kArB}CPc@BYGi@SgADO\\\\I|@I`@?\\\\Db@?`@Cv@YbAi@n@QnBiANMt@UlBOf@BpADHAv@k@vA{@jB_Aj@EPANMxAkBb@}@TUx@]pAcA|AwAJSJo@Fo@F}ArAF`Cd@bARdFwALGPQNUhEeFbEiEfIwHf@]REZ?vCl@bBLbCHfHCtBG^BzBp@dA`@RBb@KJOHYd@[rBpANPHL\\\\hBLVXXTLl@PjDf@ZBr@Z`DjD\\\\ZnClB|BlBJJZh@|@dBpAbD|BrBDHrBrLzKgEpCmAxCwBnE}CvFcEpAsA`FuEzCyCtDcEbB`@lCt@j@JlEjA|B^zBaBfA_B~@y@bBiBxCwDfAiA`EyE^a@pAT~A\\\\rARl@@~@mB\\\\FfDz@jFjAh@FnAqGXmBz@L{@MYlBoApGt@\\\\JHAh@SjAg@lBOPK@oA[g@rBgAvE{@`DaAtDLt@wABoDA]?}BFiC?kAGgB]aCs@oCu@eAUoCs@g@MaAOQj@[hAg@pAk@fCQJsEl@s@POLKbBo@pGWjCgAvK_@jDMdAOvBIzBBnIFrArA`Lx@pGJpBCzFCLBp@ZrDB`Aj@lHfApLDzCDjIG~Bk@vF[pB_@nDc@pHWpGA|BD`@TpARxCCT", "routing_preference": "TRAFFIC_AWARE", "ordered_pickup_location_ids": [62, 61]}',
-    'cancelled_by' => NULL,
-    'cancellation_reason' => NULL,
-    'cancelled_at' => NULL,
-    'delivered_at' => NULL,
-    'status_id' => '1',
-    'created_at' => '2026-07-16 19:31:01',
-    'updated_at' => '2026-07-16 19:31:03',
-  ),
-  26 => 
   array (
     'id' => '30',
     'order_number' => 'BD-170726-001',
@@ -543,7 +523,7 @@ return array (
     'created_at' => '2026-07-17 09:00:43',
     'updated_at' => '2026-07-17 09:37:47',
   ),
-  27 => 
+  26 => 
   array (
     'id' => '31',
     'order_number' => 'BD-170726-002',

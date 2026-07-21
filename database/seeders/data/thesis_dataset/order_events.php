@@ -2161,17 +2161,6 @@ return array (
   ),
   196 => 
   array (
-    'id' => '242',
-    'order_id' => '28',
-    'event_type' => 'DRIVER_REJECT',
-    'trigger_type' => 'DRIVER_REJECT',
-    'changed_by_user_id' => NULL,
-    'note' => 'Order ditolak driver sebelum assignment.',
-    'metadata' => '[]',
-    'created_at' => '2026-07-16 19:31:46',
-  ),
-  197 => 
-  array (
     'id' => '282',
     'order_id' => '30',
     'event_type' => 'SHOPPING_ROUTE_CHECKPOINT',
@@ -2181,7 +2170,7 @@ return array (
     'metadata' => '{"origin":{"label":"Lokasi driver","latitude":-7.276,"longitude":110.477,"recorded_at":"2026-07-17T09:07:48+07:00"},"chain_id":"pickup:67","destination":{"label":"Gecok JOGO ROSO TLOGO","latitude":-7.264,"longitude":110.486,"pickup_location_id":67},"recorded_at":"2026-07-17T09:07:52+07:00","route_status":"OK","route_provider":"routes_api","distance_meters":2648,"chain_attempt_no":1,"duration_seconds":402,"pickup_location_id":67}',
     'created_at' => '2026-07-17 09:07:52',
   ),
-  198 => 
+  197 => 
   array (
     'id' => '283',
     'order_id' => '30',
@@ -2192,7 +2181,7 @@ return array (
     'metadata' => '{"fulfillment_status":"OPEN_CONFIRMED","pickup_location_id":67}',
     'created_at' => '2026-07-17 09:07:52',
   ),
-  199 => 
+  198 => 
   array (
     'id' => '284',
     'order_id' => '30',
@@ -2203,7 +2192,7 @@ return array (
     'metadata' => '{"item_ids":[35,36,37],"pickup_location_id":67,"has_unavailable_item":true}',
     'created_at' => '2026-07-17 09:08:01',
   ),
-  200 => 
+  199 => 
   array (
     'id' => '285',
     'order_id' => '30',
@@ -2214,7 +2203,7 @@ return array (
     'metadata' => '{"status":"NEEDS_REQUOTE","pickup_location_id":67}',
     'created_at' => '2026-07-17 09:08:01',
   ),
-  201 => 
+  200 => 
   array (
     'id' => '286',
     'order_id' => '30',
@@ -2225,7 +2214,7 @@ return array (
     'metadata' => '{"item_count":2,"trigger_type":"DRIVER_RECEIPT_UPDATE","price_changes":{"TOTAL_PRICE":{"new_amount":105000,"old_amount":135000,"delta_amount":-30000}},"has_overweight_item":false,"recalculation_version":1,"failed_trip_compensation":0}',
     'created_at' => '2026-07-17 09:08:01',
   ),
-  202 => 
+  201 => 
   array (
     'id' => '287',
     'order_id' => '30',
@@ -2236,7 +2225,7 @@ return array (
     'metadata' => '{"subtotal":70000,"service_fee":0,"total_price":105000,"recalculation_version":1,"failed_trip_compensation":0}',
     'created_at' => '2026-07-17 09:08:01',
   ),
-  203 => 
+  202 => 
   array (
     'id' => '288',
     'order_id' => '30',
@@ -2247,7 +2236,7 @@ return array (
     'metadata' => '{"items":[{"id":38,"name":"Tongseng Kambing","menu_id":null,"quantity":1,"item_source":"MANUAL"}],"old_items":[{"id":36,"name":"Gulai Sapi","quantity":1,"is_available":false}],"actor_role":"driver","idempotency_key":"30-67-1784262581121919-585662013","pickup_location_id":67,"payload_fingerprint":"a53f1bd9b3dfed19022557282ef32e57a9b7a8b2fb55852a65b442b7c3bd1449","fulfillment_status_after":"ITEMS_CONFIRMED","fulfillment_status_before":"ITEMS_PENDING_CUSTOMER"}',
     'created_at' => '2026-07-17 09:09:35',
   ),
-  204 => 
+  203 => 
   array (
     'id' => '289',
     'order_id' => '30',
@@ -2258,7 +2247,7 @@ return array (
     'metadata' => '{"status":"NEEDS_REQUOTE","actor_role":"driver","request_kind":"EDIT_UNAVAILABLE","request_log_id":288,"pickup_location_id":67}',
     'created_at' => '2026-07-17 09:09:35',
   ),
-  205 => 
+  204 => 
   array (
     'id' => '291',
     'order_id' => '30',
@@ -2269,7 +2258,7 @@ return array (
     'metadata' => '{"subtotal":70000,"service_fee":0,"total_price":105000,"recalculation_version":2,"failed_trip_compensation":0}',
     'created_at' => '2026-07-17 09:09:35',
   ),
-  206 => 
+  205 => 
   array (
     'id' => '292',
     'order_id' => '30',
@@ -2280,7 +2269,7 @@ return array (
     'metadata' => '{"amount":105000,"status":"PENDING_CUSTOMER","quoted_amount":105000,"pickup_location_id":67}',
     'created_at' => '2026-07-17 09:10:01',
   ),
-  207 => 
+  206 => 
   array (
     'id' => '293',
     'order_id' => '30',
@@ -2291,7 +2280,7 @@ return array (
     'metadata' => '{"status":"APPROVED","quote_log_id":292,"quoted_amount":105000,"approved_amount":105000,"bypassed_by_driver":true,"pickup_location_id":67}',
     'created_at' => '2026-07-17 09:10:46',
   ),
-  208 => 
+  207 => 
   array (
     'id' => '294',
     'order_id' => '30',
@@ -2302,7 +2291,7 @@ return array (
     'metadata' => '{"item_count":3,"trigger_type":"MERCHANT_PRICE_APPROVED_BY_DRIVER_BYPASS","price_changes":{"TOTAL_PRICE":{"new_amount":140000,"old_amount":105000,"delta_amount":35000}},"has_overweight_item":false,"recalculation_version":2,"failed_trip_compensation":0}',
     'created_at' => '2026-07-17 09:10:46',
   ),
-  209 => 
+  208 => 
   array (
     'id' => '295',
     'order_id' => '30',
@@ -2313,7 +2302,7 @@ return array (
     'metadata' => '{"subtotal":105000,"service_fee":0,"total_price":140000,"recalculation_version":2,"failed_trip_compensation":0}',
     'created_at' => '2026-07-17 09:10:46',
   ),
-  210 => 
+  209 => 
   array (
     'id' => '297',
     'order_id' => '30',
@@ -2324,7 +2313,7 @@ return array (
     'metadata' => '{"subtotal":105000,"service_fee":0,"total_price":140000,"recalculation_version":3,"failed_trip_compensation":0}',
     'created_at' => '2026-07-17 09:11:01',
   ),
-  211 => 
+  210 => 
   array (
     'id' => '298',
     'order_id' => '30',
@@ -2335,7 +2324,7 @@ return array (
     'metadata' => '{"paid_amount":140000,"expected_amount":140000,"recorded_by_role":"driver"}',
     'created_at' => '2026-07-17 09:37:04',
   ),
-  212 => 
+  211 => 
   array (
     'id' => '299',
     'order_id' => '30',
@@ -2346,7 +2335,7 @@ return array (
     'metadata' => '{"paid_amount":140000,"payment_status":"paid"}',
     'created_at' => '2026-07-17 09:37:04',
   ),
-  213 => 
+  212 => 
   array (
     'id' => '300',
     'order_id' => '31',
@@ -2357,7 +2346,7 @@ return array (
     'metadata' => '{"origin":{"label":"Lokasi driver","latitude":-7.320,"longitude":110.471,"recorded_at":"2026-07-17T10:24:43+07:00"},"chain_id":"pickup:69","destination":{"label":"Baloeng Gajah","latitude":-7.297,"longitude":110.459,"pickup_location_id":69},"recorded_at":"2026-07-17T10:24:52+07:00","route_status":"OK","route_provider":"routes_api","distance_meters":3612,"chain_attempt_no":1,"duration_seconds":547,"pickup_location_id":69}',
     'created_at' => '2026-07-17 10:24:52',
   ),
-  214 => 
+  213 => 
   array (
     'id' => '301',
     'order_id' => '31',
@@ -2368,7 +2357,7 @@ return array (
     'metadata' => '{"fulfillment_status":"OPEN_CONFIRMED","pickup_location_id":69}',
     'created_at' => '2026-07-17 10:24:52',
   ),
-  215 => 
+  214 => 
   array (
     'id' => '302',
     'order_id' => '31',
@@ -2379,7 +2368,7 @@ return array (
     'metadata' => '{"item_ids":[39,40],"pickup_location_id":69,"has_unavailable_item":false}',
     'created_at' => '2026-07-17 10:26:53',
   ),
-  216 => 
+  215 => 
   array (
     'id' => '304',
     'order_id' => '31',
@@ -2390,7 +2379,7 @@ return array (
     'metadata' => '{"subtotal":30000,"service_fee":0,"total_price":41000,"recalculation_version":1,"failed_trip_compensation":0}',
     'created_at' => '2026-07-17 10:26:53',
   ),
-  217 => 
+  216 => 
   array (
     'id' => '305',
     'order_id' => '31',
@@ -2401,7 +2390,7 @@ return array (
     'metadata' => '{"amount":30000,"status":"PENDING_CUSTOMER","quoted_amount":30000,"pickup_location_id":69}',
     'created_at' => '2026-07-17 10:27:39',
   ),
-  218 => 
+  217 => 
   array (
     'id' => '306',
     'order_id' => '31',
@@ -2412,7 +2401,7 @@ return array (
     'metadata' => '{"status":"APPROVED","quote_log_id":305,"quoted_amount":30000,"approved_amount":30000,"bypassed_by_driver":true,"pickup_location_id":69}',
     'created_at' => '2026-07-17 10:28:24',
   ),
-  219 => 
+  218 => 
   array (
     'id' => '308',
     'order_id' => '31',
@@ -2423,7 +2412,7 @@ return array (
     'metadata' => '{"subtotal":30000,"service_fee":0,"total_price":41000,"recalculation_version":1,"failed_trip_compensation":0}',
     'created_at' => '2026-07-17 10:28:24',
   ),
-  220 => 
+  219 => 
   array (
     'id' => '310',
     'order_id' => '31',
@@ -2434,7 +2423,7 @@ return array (
     'metadata' => '{"subtotal":30000,"service_fee":0,"total_price":41000,"recalculation_version":1,"failed_trip_compensation":0}',
     'created_at' => '2026-07-17 10:28:41',
   ),
-  221 => 
+  220 => 
   array (
     'id' => '311',
     'order_id' => '31',
@@ -2445,7 +2434,7 @@ return array (
     'metadata' => '{"paid_amount":41000,"expected_amount":41000,"recorded_by_role":"driver"}',
     'created_at' => '2026-07-17 11:01:40',
   ),
-  222 => 
+  221 => 
   array (
     'id' => '312',
     'order_id' => '31',
@@ -2455,16 +2444,5 @@ return array (
     'note' => 'Pembayaran COD berhasil dicatat.',
     'metadata' => '{"paid_amount":41000,"payment_status":"paid"}',
     'created_at' => '2026-07-17 11:01:40',
-  ),
-  223 => 
-  array (
-    'id' => '313',
-    'order_id' => '28',
-    'event_type' => 'DRIVER_REJECT',
-    'trigger_type' => 'DRIVER_REJECT',
-    'changed_by_user_id' => '18',
-    'note' => 'Order ditolak driver sebelum assignment.',
-    'metadata' => '[]',
-    'created_at' => '2026-07-17 19:52:43',
   ),
 );

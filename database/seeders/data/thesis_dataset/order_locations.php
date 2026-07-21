@@ -901,54 +901,6 @@ return array (
   ),
   56 => 
   array (
-    'id' => '61',
-    'order_id' => '28',
-    'restaurant_id' => NULL,
-    'location_role' => 'PICKUP',
-    'label' => 'Mie Gacoan Salatiga',
-    'full_address' => 'Kalicacing, Kec. Sidomukti, Kota Salatiga, Jawa Tengah 50724, Indonesia',
-    'latitude' => '-7.332',
-    'longitude' => '110.502',
-    'sequence_no' => '1',
-    'fulfillment_status' => 'PENDING',
-    'failed_attempt_count' => '0',
-    'created_at' => '2026-07-16 19:31:01',
-    'updated_at' => '2026-07-16 19:31:01',
-  ),
-  57 => 
-  array (
-    'id' => '62',
-    'order_id' => '28',
-    'restaurant_id' => '13',
-    'location_role' => 'PICKUP',
-    'label' => 'Gecok JOGO ROSO TLOGO',
-    'full_address' => 'Jl. Raya Tuntang-Beringin, Karangduren, Tlogo, Kec. Tuntang, Kabupaten Semarang, Jawa Tengah 50219',
-    'latitude' => '-7.264',
-    'longitude' => '110.486',
-    'sequence_no' => '2',
-    'fulfillment_status' => 'PENDING',
-    'failed_attempt_count' => '0',
-    'created_at' => '2026-07-16 19:31:01',
-    'updated_at' => '2026-07-16 19:31:01',
-  ),
-  58 => 
-  array (
-    'id' => '63',
-    'order_id' => '28',
-    'restaurant_id' => NULL,
-    'location_role' => 'DROPOFF',
-    'label' => 'Titik Antar',
-    'full_address' => 'Sraten, Kec. Tuntang, Kabupaten Semarang, Jawa Tengah, 50773',
-    'latitude' => '-7.320',
-    'longitude' => '110.464',
-    'sequence_no' => '3',
-    'fulfillment_status' => 'PENDING',
-    'failed_attempt_count' => '0',
-    'created_at' => '2026-07-16 19:31:01',
-    'updated_at' => '2026-07-16 19:31:01',
-  ),
-  59 => 
-  array (
     'id' => '67',
     'order_id' => '30',
     'restaurant_id' => '13',
@@ -963,7 +915,7 @@ return array (
     'created_at' => '2026-07-17 09:00:43',
     'updated_at' => '2026-07-17 09:11:01',
   ),
-  60 => 
+  57 => 
   array (
     'id' => '68',
     'order_id' => '30',
@@ -979,7 +931,7 @@ return array (
     'created_at' => '2026-07-17 09:00:43',
     'updated_at' => '2026-07-17 09:00:43',
   ),
-  61 => 
+  58 => 
   array (
     'id' => '69',
     'order_id' => '31',
@@ -995,7 +947,7 @@ return array (
     'created_at' => '2026-07-17 10:15:00',
     'updated_at' => '2026-07-17 10:28:41',
   ),
-  62 => 
+  59 => 
   array (
     'id' => '70',
     'order_id' => '31',

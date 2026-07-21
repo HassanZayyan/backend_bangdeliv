@@ -51,7 +51,7 @@ return array (
     'longitude' => '110.416',
     'location_updated_at' => '2026-07-17 10:05:00',
     'created_at' => '2026-07-15 19:55:36',
-    'updated_at' => '2026-07-17 19:53:00',
+    'updated_at' => '2026-07-17 10:05:00',
     'deleted_at' => NULL,
   ),
   3 => 

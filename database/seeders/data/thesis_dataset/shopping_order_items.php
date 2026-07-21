@@ -396,57 +396,6 @@ return array (
   ),
   23 => 
   array (
-    'id' => '28',
-    'order_id' => '28',
-    'menu_id' => NULL,
-    'pickup_location_id' => '61',
-    'item_source' => 'MANUAL',
-    'menu_name' => 'mie gacoan level 2',
-    'quantity' => '1',
-    'unit_price' => '0.00',
-    'subtotal' => '0.00',
-    'notes' => NULL,
-    'metadata' => '{"name": "Mie Gacoan Salatiga", "types": ["establishment", "food", "point_of_interest", "restaurant"], "source": "CHATBOT_MANUAL_CONTEXT", "address": "Kalicacing, Kec. Sidomukti, Kota Salatiga, Jawa Tengah 50724, Indonesia", "latitude": -7.332, "place_id": "ChIJPWjDQO15ei4RzRPckaGR1Fw", "longitude": 110.502, "price_status": "PENDING_DRIVER_INPUT"}',
-    'is_available' => '1',
-    'created_at' => '2026-07-16 19:31:01',
-    'updated_at' => '2026-07-16 19:31:01',
-  ),
-  24 => 
-  array (
-    'id' => '29',
-    'order_id' => '28',
-    'menu_id' => NULL,
-    'pickup_location_id' => '61',
-    'item_source' => 'MANUAL',
-    'menu_name' => 'udang keju',
-    'quantity' => '1',
-    'unit_price' => '0.00',
-    'subtotal' => '0.00',
-    'notes' => NULL,
-    'metadata' => '{"name": "Mie Gacoan Salatiga", "types": ["establishment", "food", "point_of_interest", "restaurant"], "source": "CHATBOT_MANUAL_CONTEXT", "address": "Kalicacing, Kec. Sidomukti, Kota Salatiga, Jawa Tengah 50724, Indonesia", "latitude": -7.332, "place_id": "ChIJPWjDQO15ei4RzRPckaGR1Fw", "longitude": 110.502, "price_status": "PENDING_DRIVER_INPUT"}',
-    'is_available' => '1',
-    'created_at' => '2026-07-16 19:31:01',
-    'updated_at' => '2026-07-16 19:31:01',
-  ),
-  25 => 
-  array (
-    'id' => '30',
-    'order_id' => '28',
-    'menu_id' => '214',
-    'pickup_location_id' => '62',
-    'item_source' => 'MENU_DB',
-    'menu_name' => 'Gecok Kambing',
-    'quantity' => '1',
-    'unit_price' => '35000.00',
-    'subtotal' => '35000.00',
-    'notes' => NULL,
-    'metadata' => '{"source": "CHATBOT_MENU_MATCH", "price_status": "CONFIRMED", "restaurant_id": 13}',
-    'is_available' => '1',
-    'created_at' => '2026-07-16 19:31:01',
-    'updated_at' => '2026-07-16 19:31:01',
-  ),
-  26 => 
-  array (
     'id' => '35',
     'order_id' => '30',
     'menu_id' => '214',
@@ -462,7 +411,7 @@ return array (
     'created_at' => '2026-07-17 09:00:43',
     'updated_at' => '2026-07-17 09:00:43',
   ),
-  27 => 
+  24 => 
   array (
     'id' => '37',
     'order_id' => '30',
@@ -479,7 +428,7 @@ return array (
     'created_at' => '2026-07-17 09:00:43',
     'updated_at' => '2026-07-17 09:00:43',
   ),
-  28 => 
+  25 => 
   array (
     'id' => '38',
     'order_id' => '30',
@@ -496,7 +445,7 @@ return array (
     'created_at' => '2026-07-17 09:09:35',
     'updated_at' => '2026-07-17 09:09:35',
   ),
-  29 => 
+  26 => 
   array (
     'id' => '39',
     'order_id' => '31',
@@ -513,7 +462,7 @@ return array (
     'created_at' => '2026-07-17 10:15:00',
     'updated_at' => '2026-07-17 10:15:00',
   ),
-  30 => 
+  27 => 
   array (
     'id' => '40',
     'order_id' => '31',
