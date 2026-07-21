@@ -30,7 +30,7 @@ done
 
 echo "Rebuilding database from the thesis dataset..."
 docker compose exec -T app php artisan migrate:fresh --seed --force
-docker compose exec -T app php artisan storage:link
+docker compose exec -T app php artisan storage:link --force
 
 echo "Refreshing config cache (keeping FCM credentials path intact)..."
 docker compose exec -T app sh -lc '
@@ -44,6 +44,7 @@ php artisan config:cache
 
 echo "Restarting runtime workers so queue + websocket use the fresh database..."
 docker compose restart app queue reverb
+docker compose restart nginx
 
 echo
 echo "Dataset summary:"
