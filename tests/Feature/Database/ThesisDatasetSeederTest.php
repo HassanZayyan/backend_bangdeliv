@@ -61,6 +61,11 @@ class ThesisDatasetSeederTest extends TestCase
         // Naufal Zayyan dihapus dari dataset.
         $this->assertDatabaseMissing('users', ['email' => 'naufalzayyan@gmail.com']);
         $this->assertDatabaseMissing('addresses', ['id' => 22]);
+
+        // Timestamp admin di-pin agar tidak menampilkan waktu fresh seed.
+        $admin = User::query()->where('role', 'admin')->firstOrFail();
+        $this->assertSame(ThesisDatasetSeeder::ADMIN_CREATED_AT, $admin->created_at?->format('Y-m-d H:i:s'));
+        $this->assertSame(ThesisDatasetSeeder::ADMIN_UPDATED_AT, $admin->updated_at?->format('Y-m-d H:i:s'));
     }
 
     public function test_muhammad_faiz_is_a_verified_driver_with_two_orders(): void

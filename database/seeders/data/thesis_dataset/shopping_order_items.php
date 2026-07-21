@@ -102,8 +102,8 @@ return array (
     'notes' => NULL,
     'metadata' => '{"source": "CHATBOT_MENU_MATCH", "price_status": "CONFIRMED", "restaurant_id": 31}',
     'is_available' => '1',
-    'created_at' => '2026-07-15 14:24:36',
-    'updated_at' => '2026-07-15 14:24:36',
+    'created_at' => '2026-07-15 14:29:05',
+    'updated_at' => '2026-07-15 14:29:05',
   ),
   6 => 
   array (
@@ -119,8 +119,8 @@ return array (
     'notes' => NULL,
     'metadata' => '{"source": "CHATBOT_MENU_MATCH", "price_status": "CONFIRMED", "restaurant_id": 31}',
     'is_available' => '1',
-    'created_at' => '2026-07-15 14:24:36',
-    'updated_at' => '2026-07-15 14:24:36',
+    'created_at' => '2026-07-15 14:29:05',
+    'updated_at' => '2026-07-15 14:29:05',
   ),
   7 => 
   array (
@@ -238,8 +238,8 @@ return array (
     'notes' => NULL,
     'metadata' => '{"source": "CHATBOT_MENU_MATCH", "price_status": "CONFIRMED", "restaurant_id": 29}',
     'is_available' => '1',
-    'created_at' => '2026-07-15 19:13:33',
-    'updated_at' => '2026-07-15 19:13:33',
+    'created_at' => '2026-07-15 18:43:33',
+    'updated_at' => '2026-07-15 18:43:33',
   ),
   14 => 
   array (
@@ -255,8 +255,8 @@ return array (
     'notes' => NULL,
     'metadata' => '{"source": "CHATBOT_MENU_MATCH", "price_status": "CONFIRMED", "restaurant_id": 29}',
     'is_available' => '1',
-    'created_at' => '2026-07-15 19:13:33',
-    'updated_at' => '2026-07-15 19:13:33',
+    'created_at' => '2026-07-15 18:43:33',
+    'updated_at' => '2026-07-15 18:43:33',
   ),
   15 => 
   array (
@@ -272,8 +272,8 @@ return array (
     'notes' => NULL,
     'metadata' => '{"name": "Mie Gacoan Salatiga", "types": ["establishment", "food", "point_of_interest", "restaurant"], "source": "CHATBOT_MANUAL_CONTEXT", "address": "Kalicacing, Kec. Sidomukti, Kota Salatiga, Jawa Tengah 50724, Indonesia", "latitude": -7.332, "place_id": "ChIJPWjDQO15ei4RzRPckaGR1Fw", "longitude": 110.502, "price_status": "PENDING_DRIVER_INPUT"}',
     'is_available' => '1',
-    'created_at' => '2026-07-15 19:13:33',
-    'updated_at' => '2026-07-15 19:13:33',
+    'created_at' => '2026-07-15 18:43:33',
+    'updated_at' => '2026-07-15 18:43:33',
   ),
   16 => 
   array (
@@ -289,8 +289,8 @@ return array (
     'notes' => NULL,
     'metadata' => '{"name": "Mie Gacoan Salatiga", "types": [], "source": "CUSTOMER_GOOGLE_PLACE", "address": "Kalicacing, Kec. Sidomukti, Kota Salatiga, Jawa Tengah 50724, Indonesia", "latitude": -7.332, "place_id": null, "longitude": 110.502, "price_status": "PENDING_DRIVER_INPUT"}',
     'is_available' => '1',
-    'created_at' => '2026-07-15 19:27:49',
-    'updated_at' => '2026-07-15 19:27:49',
+    'created_at' => '2026-07-15 19:10:53',
+    'updated_at' => '2026-07-15 19:10:53',
   ),
   17 => 
   array (
@@ -306,8 +306,8 @@ return array (
     'notes' => NULL,
     'metadata' => '{"source":"CHATBOT_MENU_MATCH_PENDING_PRICE","price_status":"PENDING_DRIVER_INPUT","restaurant_id":61,"catalog_menu_id":1270}',
     'is_available' => '1',
-    'created_at' => '2026-07-15 19:42:50',
-    'updated_at' => '2026-07-15 19:42:50',
+    'created_at' => '2026-07-15 19:33:59',
+    'updated_at' => '2026-07-15 19:33:59',
   ),
   18 => 
   array (
@@ -323,8 +323,8 @@ return array (
     'notes' => NULL,
     'metadata' => '{"source": "CHATBOT_MENU_MATCH", "price_status": "CONFIRMED", "restaurant_id": 12}',
     'is_available' => '1',
-    'created_at' => '2026-07-15 19:42:50',
-    'updated_at' => '2026-07-15 19:42:50',
+    'created_at' => '2026-07-15 19:33:59',
+    'updated_at' => '2026-07-15 19:33:59',
   ),
   19 => 
   array (
@@ -340,8 +340,8 @@ return array (
     'notes' => NULL,
     'metadata' => '{"source": "CUSTOMER_MERCHANT_DB", "price_status": "PENDING_DRIVER_INPUT", "restaurant_id": 61}',
     'is_available' => '1',
-    'created_at' => '2026-07-15 19:45:21',
-    'updated_at' => '2026-07-15 19:45:21',
+    'created_at' => '2026-07-15 19:36:30',
+    'updated_at' => '2026-07-15 19:36:30',
   ),
   20 => 
   array (
@@ -357,8 +357,8 @@ return array (
     'notes' => NULL,
     'metadata' => '{"source":"CHATBOT_MENU_MATCH_PENDING_PRICE","price_status":"PENDING_DRIVER_INPUT","restaurant_id":56,"catalog_menu_id":1242}',
     'is_available' => '1',
-    'created_at' => '2026-07-15 20:10:31',
-    'updated_at' => '2026-07-15 20:10:31',
+    'created_at' => '2026-07-15 20:01:59',
+    'updated_at' => '2026-07-15 20:01:59',
   ),
   21 => 
   array (
@@ -374,8 +374,8 @@ return array (
     'notes' => NULL,
     'metadata' => '{"source": "CHATBOT_MENU_MATCH", "price_status": "CONFIRMED", "restaurant_id": 51}',
     'is_available' => '1',
-    'created_at' => '2026-07-15 20:10:31',
-    'updated_at' => '2026-07-15 20:10:31',
+    'created_at' => '2026-07-15 20:01:59',
+    'updated_at' => '2026-07-15 20:01:59',
   ),
   22 => 
   array (
@@ -391,8 +391,8 @@ return array (
     'notes' => NULL,
     'metadata' => '{"name": "Soto Pak Biron", "types": ["establishment", "food", "point_of_interest", "restaurant"], "source": "CUSTOMER_GOOGLE_PLACE", "address": "Jl. Lkr. Sel. Salatiga, Pulutan, Kec. Sidorejo, Kota Salatiga, Jawa Tengah 50716", "latitude": -7.314, "place_id": "ChIJWdwCull4ei4R8z6KzX_HXkw", "longitude": 110.477, "price_status": "PENDING_DRIVER_INPUT", "replaced_from_pickup_location_id": 35}',
     'is_available' => '1',
-    'created_at' => '2026-07-15 20:14:51',
-    'updated_at' => '2026-07-15 20:14:51',
+    'created_at' => '2026-07-15 19:44:51',
+    'updated_at' => '2026-07-15 19:44:51',
   ),
   23 => 
   array (
@@ -493,8 +493,8 @@ return array (
     'notes' => NULL,
     'metadata' => '{"source": "CUSTOMER_MERCHANT_DB", "price_status": "PENDING_DRIVER_INPUT", "restaurant_id": 13}',
     'is_available' => '1',
-    'created_at' => '2026-07-17 11:34:55',
-    'updated_at' => '2026-07-17 11:34:55',
+    'created_at' => '2026-07-17 11:35:35',
+    'updated_at' => '2026-07-17 11:35:35',
   ),
   29 => 
   array (

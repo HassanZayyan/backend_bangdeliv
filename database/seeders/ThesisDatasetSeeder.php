@@ -19,6 +19,10 @@ use RuntimeException;
  */
 class ThesisDatasetSeeder extends Seeder
 {
+    public const ADMIN_CREATED_AT = '2026-07-08 09:30:00';
+
+    public const ADMIN_UPDATED_AT = '2026-07-15 21:19:29';
+
     /**
      * Urutan tabel mengikuti dependensi foreign key.
      *
@@ -81,6 +85,16 @@ class ThesisDatasetSeeder extends Seeder
 
                 $this->upsert($table, $rows);
             }
+
+            // Pin timestamp admin agar konsisten dengan cerita dataset
+            // (ProductionAdminSeeder membuatnya dengan created_at = waktu seeding;
+            // updated_at = aksi admin terakhir: verifikasi dokumen Driver 05).
+            DB::table('users')
+                ->where('id', $admin->id)
+                ->update([
+                    'created_at' => self::ADMIN_CREATED_AT,
+                    'updated_at' => self::ADMIN_UPDATED_AT,
+                ]);
         });
     }
 

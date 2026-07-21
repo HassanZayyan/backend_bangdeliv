@@ -31,7 +31,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action ARRIVE_PICKUP',
     'metadata' => '{"action_code":"ARRIVE_PICKUP","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 09:46:23',
+    'created_at' => '2026-07-15 09:48:27',
   ),
   3 => 
   array (
@@ -41,7 +41,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action BOARD_PASSENGER',
     'metadata' => '{"action_code":"BOARD_PASSENGER","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 09:46:53',
+    'created_at' => '2026-07-15 09:49:12',
   ),
   4 => 
   array (
@@ -51,7 +51,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action ARRIVE_DROPOFF',
     'metadata' => '{"action_code":"ARRIVE_DROPOFF","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 10:11:50',
+    'created_at' => '2026-07-15 10:14:09',
   ),
   5 => 
   array (
@@ -61,7 +61,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action CONFIRM_DELIVERED',
     'metadata' => '{"action_code":"CONFIRM_DELIVERED","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 10:12:00',
+    'created_at' => '2026-07-15 10:14:24',
   ),
   6 => 
   array (
@@ -71,7 +71,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action COMPLETE_ORDER',
     'metadata' => '{"action_code":"COMPLETE_ORDER","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 10:12:20',
+    'created_at' => '2026-07-15 10:15:09',
   ),
   7 => 
   array (
@@ -131,7 +131,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action ARRIVE_DROPOFF',
     'metadata' => '{"action_code":"ARRIVE_DROPOFF","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 11:54:00',
+    'created_at' => '2026-07-15 11:54:20',
   ),
   13 => 
   array (
@@ -141,7 +141,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action CONFIRM_DELIVERED',
     'metadata' => '{"action_code":"CONFIRM_DELIVERED","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 11:54:10',
+    'created_at' => '2026-07-15 11:54:35',
   ),
   14 => 
   array (
@@ -151,7 +151,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action COMPLETE_ORDER',
     'metadata' => '{"action_code":"COMPLETE_ORDER","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 11:54:30',
+    'created_at' => '2026-07-15 11:55:20',
   ),
   15 => 
   array (
@@ -191,7 +191,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action BOARD_PASSENGER',
     'metadata' => '{"action_code":"BOARD_PASSENGER","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 12:26:10',
+    'created_at' => '2026-07-15 12:26:25',
   ),
   19 => 
   array (
@@ -201,7 +201,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action ARRIVE_DROPOFF',
     'metadata' => '{"action_code":"ARRIVE_DROPOFF","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 12:39:12',
+    'created_at' => '2026-07-15 12:39:27',
   ),
   20 => 
   array (
@@ -211,7 +211,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action CONFIRM_DELIVERED',
     'metadata' => '{"action_code":"CONFIRM_DELIVERED","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 12:39:22',
+    'created_at' => '2026-07-15 12:39:42',
   ),
   21 => 
   array (
@@ -221,7 +221,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action COMPLETE_ORDER',
     'metadata' => '{"action_code":"COMPLETE_ORDER","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 12:42:10',
+    'created_at' => '2026-07-15 12:42:30',
   ),
   22 => 
   array (
@@ -251,7 +251,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action ARRIVE_PICKUP',
     'metadata' => '{"action_code":"ARRIVE_PICKUP","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 12:45:49',
+    'created_at' => '2026-07-15 12:48:00',
   ),
   25 => 
   array (
@@ -261,7 +261,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action BOARD_PASSENGER',
     'metadata' => '{"action_code":"BOARD_PASSENGER","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 12:48:59',
+    'created_at' => '2026-07-15 12:51:10',
   ),
   26 => 
   array (
@@ -271,7 +271,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action ARRIVE_DROPOFF',
     'metadata' => '{"action_code":"ARRIVE_DROPOFF","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 13:02:58',
+    'created_at' => '2026-07-15 13:05:09',
   ),
   27 => 
   array (
@@ -281,7 +281,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action CONFIRM_DELIVERED',
     'metadata' => '{"action_code":"CONFIRM_DELIVERED","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 13:03:08',
+    'created_at' => '2026-07-15 13:05:24',
   ),
   28 => 
   array (
@@ -291,7 +291,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action COMPLETE_ORDER',
     'metadata' => '{"action_code":"COMPLETE_ORDER","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 13:04:38',
+    'created_at' => '2026-07-15 13:06:54',
   ),
   29 => 
   array (
@@ -321,7 +321,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action ARRIVE_PICKUP',
     'metadata' => '{"action_code":"ARRIVE_PICKUP","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 14:18:37',
+    'created_at' => '2026-07-15 14:19:41',
   ),
   32 => 
   array (
@@ -331,7 +331,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action BOARD_PASSENGER',
     'metadata' => '{"action_code":"BOARD_PASSENGER","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 14:19:07',
+    'created_at' => '2026-07-15 14:20:26',
   ),
   33 => 
   array (
@@ -341,7 +341,7 @@ return array (
     'changed_by_user_id' => '14',
     'note' => 'Order Nitip dibuat melalui chatbot.',
     'metadata' => NULL,
-    'created_at' => '2026-07-15 14:24:36',
+    'created_at' => '2026-07-15 14:29:05',
   ),
   34 => 
   array (
@@ -351,7 +351,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action ARRIVE_DROPOFF',
     'metadata' => '{"action_code":"ARRIVE_DROPOFF","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 14:31:01',
+    'created_at' => '2026-07-15 14:32:20',
   ),
   35 => 
   array (
@@ -361,7 +361,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action CONFIRM_DELIVERED',
     'metadata' => '{"action_code":"CONFIRM_DELIVERED","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 14:31:11',
+    'created_at' => '2026-07-15 14:32:35',
   ),
   36 => 
   array (
@@ -371,7 +371,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action COMPLETE_ORDER',
     'metadata' => '{"action_code":"COMPLETE_ORDER","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 14:31:39',
+    'created_at' => '2026-07-15 14:33:20',
   ),
   37 => 
   array (
@@ -380,8 +380,8 @@ return array (
     'status_id' => '2',
     'changed_by_user_id' => '9',
     'note' => 'Order diterima oleh driver.',
-    'metadata' => '{"driver_snapshot": {"name": "Responden Lama 01", "phone": "081100000002", "user_id": 9, "driver_id": 2, "vehicle_type": "Motor Manual", "vehicle_brand": "Honda", "vehicle_model": "Supra X 125", "vehicle_plate": "H 1002 AA"}}',
-    'created_at' => '2026-07-15 14:31:01',
+    'metadata' => '{"driver_snapshot":{"name":"Responden Lama 01","phone":"081100000002","user_id":9,"driver_id":2,"vehicle_type":"Motor Manual","vehicle_brand":"Honda","vehicle_model":"Supra X 125","vehicle_plate":"H 1002 AA"}}',
+    'created_at' => '2026-07-15 14:35:30',
   ),
   38 => 
   array (
@@ -390,8 +390,8 @@ return array (
     'status_id' => '3',
     'changed_by_user_id' => '9',
     'note' => 'Driver mulai memproses merchant Nitip.',
-    'metadata' => '{"action_code": "MERCHANT_OPEN_CONFIRMED", "pickup_location_id": 11}',
-    'created_at' => '2026-07-15 14:31:40',
+    'metadata' => '{"action_code":"MERCHANT_OPEN_CONFIRMED","pickup_location_id":11}',
+    'created_at' => '2026-07-15 14:36:09',
   ),
   39 => 
   array (
@@ -401,7 +401,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action CONFIRM_PICKED_UP',
     'metadata' => '{"action_code":"CONFIRM_PICKED_UP","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 14:40:01',
+    'created_at' => '2026-07-15 14:45:33',
   ),
   40 => 
   array (
@@ -411,7 +411,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action START_DELIVERY',
     'metadata' => '{"action_code":"START_DELIVERY","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 14:40:04',
+    'created_at' => '2026-07-15 14:45:36',
   ),
   41 => 
   array (
@@ -421,7 +421,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action ARRIVE_DROPOFF',
     'metadata' => '{"action_code":"ARRIVE_DROPOFF","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 14:41:07',
+    'created_at' => '2026-07-15 14:46:47',
   ),
   42 => 
   array (
@@ -431,7 +431,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action CONFIRM_DELIVERED',
     'metadata' => '{"action_code":"CONFIRM_DELIVERED","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 14:42:36',
+    'created_at' => '2026-07-15 14:48:16',
   ),
   43 => 
   array (
@@ -441,7 +441,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action COMPLETE_ORDER',
     'metadata' => '{"action_code":"COMPLETE_ORDER","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 14:43:39',
+    'created_at' => '2026-07-15 14:49:19',
   ),
   44 => 
   array (
@@ -511,7 +511,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action CONFIRM_DELIVERED',
     'metadata' => '{"action_code":"CONFIRM_DELIVERED","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 15:05:31',
+    'created_at' => '2026-07-15 15:05:36',
   ),
   51 => 
   array (
@@ -521,7 +521,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action COMPLETE_ORDER',
     'metadata' => '{"action_code":"COMPLETE_ORDER","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 15:06:09',
+    'created_at' => '2026-07-15 15:06:21',
   ),
   52 => 
   array (
@@ -561,7 +561,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action CONFIRM_PICKED_UP',
     'metadata' => '{"action_code":"CONFIRM_PICKED_UP","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 17:55:20',
+    'created_at' => '2026-07-15 18:00:22',
   ),
   56 => 
   array (
@@ -571,7 +571,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action START_DELIVERY',
     'metadata' => '{"action_code":"START_DELIVERY","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 17:55:22',
+    'created_at' => '2026-07-15 18:00:24',
   ),
   57 => 
   array (
@@ -581,7 +581,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action ARRIVE_DROPOFF',
     'metadata' => '{"action_code":"ARRIVE_DROPOFF","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 17:57:10',
+    'created_at' => '2026-07-15 18:02:12',
   ),
   58 => 
   array (
@@ -591,7 +591,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action CONFIRM_DELIVERED',
     'metadata' => '{"action_code":"CONFIRM_DELIVERED","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 17:57:20',
+    'created_at' => '2026-07-15 18:02:27',
   ),
   59 => 
   array (
@@ -601,7 +601,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action COMPLETE_ORDER',
     'metadata' => '{"action_code":"COMPLETE_ORDER","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 17:57:47',
+    'created_at' => '2026-07-15 18:03:12',
   ),
   60 => 
   array (
@@ -671,7 +671,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action CONFIRM_DELIVERED',
     'metadata' => '{"action_code":"CONFIRM_DELIVERED","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 18:45:22',
+    'created_at' => '2026-07-15 18:45:27',
   ),
   67 => 
   array (
@@ -681,7 +681,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action COMPLETE_ORDER',
     'metadata' => '{"action_code":"COMPLETE_ORDER","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 18:46:29',
+    'created_at' => '2026-07-15 18:46:34',
   ),
   68 => 
   array (
@@ -721,7 +721,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action CONFIRM_PICKED_UP',
     'metadata' => '{"action_code":"CONFIRM_PICKED_UP","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 19:18:00',
+    'created_at' => '2026-07-15 19:18:07',
   ),
   72 => 
   array (
@@ -731,7 +731,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action START_DELIVERY',
     'metadata' => '{"action_code":"START_DELIVERY","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 19:18:12',
+    'created_at' => '2026-07-15 19:18:19',
   ),
   73 => 
   array (
@@ -741,7 +741,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action ARRIVE_DROPOFF',
     'metadata' => '{"action_code":"ARRIVE_DROPOFF","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 19:19:32',
+    'created_at' => '2026-07-15 19:19:39',
   ),
   74 => 
   array (
@@ -751,7 +751,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action CONFIRM_DELIVERED',
     'metadata' => '{"action_code":"CONFIRM_DELIVERED","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 19:19:42',
+    'created_at' => '2026-07-15 19:19:54',
   ),
   75 => 
   array (
@@ -761,7 +761,7 @@ return array (
     'changed_by_user_id' => '9',
     'note' => 'Driver action COMPLETE_ORDER',
     'metadata' => '{"action_code":"COMPLETE_ORDER","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 19:20:22',
+    'created_at' => '2026-07-15 19:20:39',
   ),
   76 => 
   array (
@@ -771,7 +771,7 @@ return array (
     'changed_by_user_id' => '19',
     'note' => 'Order Antar Jemput dibuat oleh customer.',
     'metadata' => NULL,
-    'created_at' => '2026-07-15 18:18:09',
+    'created_at' => '2026-07-15 17:48:09',
   ),
   77 => 
   array (
@@ -781,7 +781,7 @@ return array (
     'changed_by_user_id' => '19',
     'note' => 'Order kurir dibuat oleh customer melalui chatbot.',
     'metadata' => NULL,
-    'created_at' => '2026-07-15 18:23:13',
+    'created_at' => '2026-07-15 17:53:13',
   ),
   78 => 
   array (
@@ -791,7 +791,7 @@ return array (
     'changed_by_user_id' => '19',
     'note' => 'Pesanan tidak jadi',
     'metadata' => '{"cancellation_penalty":0}',
-    'created_at' => '2026-07-15 18:24:09',
+    'created_at' => '2026-07-15 17:54:09',
   ),
   79 => 
   array (
@@ -801,7 +801,7 @@ return array (
     'changed_by_user_id' => '20',
     'note' => 'Order diterima oleh driver.',
     'metadata' => '{"driver_snapshot":{"name":"Driver 04","phone":"081100000004","user_id":20,"driver_id":4,"vehicle_type":"Motor Matic","vehicle_brand":"Honda","vehicle_model":"Beat Street","vehicle_plate":"H 1004 AA"}}',
-    'created_at' => '2026-07-15 18:50:17',
+    'created_at' => '2026-07-15 18:20:17',
   ),
   80 => 
   array (
@@ -811,7 +811,7 @@ return array (
     'changed_by_user_id' => '20',
     'note' => 'Driver action ARRIVE_PICKUP',
     'metadata' => '{"action_code":"ARRIVE_PICKUP","service_type":"COURIER"}',
-    'created_at' => '2026-07-15 18:51:17',
+    'created_at' => '2026-07-15 18:22:21',
   ),
   81 => 
   array (
@@ -821,7 +821,7 @@ return array (
     'changed_by_user_id' => '20',
     'note' => 'Driver action CONFIRM_PICKED_UP',
     'metadata' => '{"action_code":"CONFIRM_PICKED_UP","service_type":"COURIER"}',
-    'created_at' => '2026-07-15 18:51:53',
+    'created_at' => '2026-07-15 18:23:51',
   ),
   82 => 
   array (
@@ -831,7 +831,7 @@ return array (
     'changed_by_user_id' => '20',
     'note' => 'Driver action START_DELIVERY',
     'metadata' => '{"action_code":"START_DELIVERY","service_type":"COURIER"}',
-    'created_at' => '2026-07-15 18:51:58',
+    'created_at' => '2026-07-15 18:23:56',
   ),
   83 => 
   array (
@@ -841,7 +841,7 @@ return array (
     'changed_by_user_id' => '20',
     'note' => 'Driver action ARRIVE_DROPOFF',
     'metadata' => '{"action_code":"ARRIVE_DROPOFF","service_type":"COURIER"}',
-    'created_at' => '2026-07-15 18:54:44',
+    'created_at' => '2026-07-15 18:27:03',
   ),
   84 => 
   array (
@@ -851,7 +851,7 @@ return array (
     'changed_by_user_id' => '20',
     'note' => 'Driver action CONFIRM_DELIVERED',
     'metadata' => '{"action_code":"CONFIRM_DELIVERED","service_type":"COURIER"}',
-    'created_at' => '2026-07-15 18:54:54',
+    'created_at' => '2026-07-15 18:27:18',
   ),
   85 => 
   array (
@@ -861,7 +861,7 @@ return array (
     'changed_by_user_id' => '20',
     'note' => 'Driver action COMPLETE_ORDER',
     'metadata' => '{"action_code":"COMPLETE_ORDER","service_type":"COURIER"}',
-    'created_at' => '2026-07-15 18:55:14',
+    'created_at' => '2026-07-15 18:28:03',
   ),
   86 => 
   array (
@@ -871,7 +871,7 @@ return array (
     'changed_by_user_id' => '19',
     'note' => 'Order Antar Jemput dibuat oleh customer.',
     'metadata' => NULL,
-    'created_at' => '2026-07-15 18:56:33',
+    'created_at' => '2026-07-15 18:30:01',
   ),
   87 => 
   array (
@@ -881,7 +881,7 @@ return array (
     'changed_by_user_id' => '20',
     'note' => 'Order diterima oleh driver.',
     'metadata' => '{"driver_snapshot":{"name":"Driver 04","phone":"081100000004","user_id":20,"driver_id":4,"vehicle_type":"Motor Matic","vehicle_brand":"Honda","vehicle_model":"Beat Street","vehicle_plate":"H 1004 AA"}}',
-    'created_at' => '2026-07-15 18:56:57',
+    'created_at' => '2026-07-15 18:30:25',
   ),
   88 => 
   array (
@@ -891,7 +891,7 @@ return array (
     'changed_by_user_id' => '20',
     'note' => 'Driver action ARRIVE_PICKUP',
     'metadata' => '{"action_code":"ARRIVE_PICKUP","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 18:58:02',
+    'created_at' => '2026-07-15 18:34:43',
   ),
   89 => 
   array (
@@ -901,7 +901,7 @@ return array (
     'changed_by_user_id' => '20',
     'note' => 'Driver action BOARD_PASSENGER',
     'metadata' => '{"action_code":"BOARD_PASSENGER","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 18:58:32',
+    'created_at' => '2026-07-15 18:35:28',
   ),
   90 => 
   array (
@@ -911,7 +911,7 @@ return array (
     'changed_by_user_id' => '20',
     'note' => 'Driver action ARRIVE_DROPOFF',
     'metadata' => '{"action_code":"ARRIVE_DROPOFF","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 19:00:48',
+    'created_at' => '2026-07-15 18:38:01',
   ),
   91 => 
   array (
@@ -921,7 +921,7 @@ return array (
     'changed_by_user_id' => '20',
     'note' => 'Driver action CONFIRM_DELIVERED',
     'metadata' => '{"action_code":"CONFIRM_DELIVERED","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 19:00:58',
+    'created_at' => '2026-07-15 18:38:16',
   ),
   92 => 
   array (
@@ -931,7 +931,7 @@ return array (
     'changed_by_user_id' => '20',
     'note' => 'Driver action COMPLETE_ORDER',
     'metadata' => '{"action_code":"COMPLETE_ORDER","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 19:01:18',
+    'created_at' => '2026-07-15 18:39:01',
   ),
   93 => 
   array (
@@ -941,7 +941,7 @@ return array (
     'changed_by_user_id' => '14',
     'note' => 'Order Nitip dibuat melalui chatbot.',
     'metadata' => NULL,
-    'created_at' => '2026-07-15 19:13:33',
+    'created_at' => '2026-07-15 18:43:33',
   ),
   94 => 
   array (
@@ -951,7 +951,7 @@ return array (
     'changed_by_user_id' => '20',
     'note' => 'Order diterima oleh driver.',
     'metadata' => '{"driver_snapshot":{"name":"Driver 04","phone":"081100000004","user_id":20,"driver_id":4,"vehicle_type":"Motor Matic","vehicle_brand":"Honda","vehicle_model":"Beat Street","vehicle_plate":"H 1004 AA"}}',
-    'created_at' => '2026-07-15 19:14:15',
+    'created_at' => '2026-07-15 18:44:15',
   ),
   95 => 
   array (
@@ -961,7 +961,7 @@ return array (
     'changed_by_user_id' => '20',
     'note' => 'Driver menandai merchant tutup dan mulai memproses order Nitip.',
     'metadata' => '{"action_code":"MERCHANT_CLOSED_CONFIRMED","pickup_location_id":30}',
-    'created_at' => '2026-07-15 19:15:04',
+    'created_at' => '2026-07-15 18:45:04',
   ),
   96 => 
   array (
@@ -971,7 +971,7 @@ return array (
     'changed_by_user_id' => '20',
     'note' => 'Driver action CONFIRM_PICKED_UP',
     'metadata' => '{"action_code":"CONFIRM_PICKED_UP","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 19:34:31',
+    'created_at' => '2026-07-15 19:21:03',
   ),
   97 => 
   array (
@@ -981,7 +981,7 @@ return array (
     'changed_by_user_id' => '20',
     'note' => 'Driver action START_DELIVERY',
     'metadata' => '{"action_code":"START_DELIVERY","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 19:34:36',
+    'created_at' => '2026-07-15 19:21:08',
   ),
   98 => 
   array (
@@ -991,7 +991,7 @@ return array (
     'changed_by_user_id' => '20',
     'note' => 'Driver action ARRIVE_DROPOFF',
     'metadata' => '{"action_code":"ARRIVE_DROPOFF","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 19:37:44',
+    'created_at' => '2026-07-15 19:31:02',
   ),
   99 => 
   array (
@@ -1001,7 +1001,7 @@ return array (
     'changed_by_user_id' => '20',
     'note' => 'Driver action CONFIRM_DELIVERED',
     'metadata' => '{"action_code":"CONFIRM_DELIVERED","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 19:37:54',
+    'created_at' => '2026-07-15 19:31:17',
   ),
   100 => 
   array (
@@ -1011,7 +1011,7 @@ return array (
     'changed_by_user_id' => '20',
     'note' => 'Driver action COMPLETE_ORDER',
     'metadata' => '{"action_code":"COMPLETE_ORDER","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 19:38:14',
+    'created_at' => '2026-07-15 19:32:02',
   ),
   101 => 
   array (
@@ -1021,7 +1021,7 @@ return array (
     'changed_by_user_id' => '15',
     'note' => 'Order Nitip dibuat melalui chatbot.',
     'metadata' => NULL,
-    'created_at' => '2026-07-15 19:42:50',
+    'created_at' => '2026-07-15 19:33:59',
   ),
   102 => 
   array (
@@ -1031,7 +1031,7 @@ return array (
     'changed_by_user_id' => '20',
     'note' => 'Order diterima oleh driver.',
     'metadata' => '{"driver_snapshot":{"name":"Driver 04","phone":"081100000004","user_id":20,"driver_id":4,"vehicle_type":"Motor Matic","vehicle_brand":"Honda","vehicle_model":"Beat Street","vehicle_plate":"H 1004 AA"}}',
-    'created_at' => '2026-07-15 19:43:23',
+    'created_at' => '2026-07-15 19:34:32',
   ),
   103 => 
   array (
@@ -1041,7 +1041,7 @@ return array (
     'changed_by_user_id' => '20',
     'note' => 'Driver mulai memproses merchant Nitip.',
     'metadata' => '{"action_code":"MERCHANT_OPEN_CONFIRMED","pickup_location_id":32}',
-    'created_at' => '2026-07-15 19:43:38',
+    'created_at' => '2026-07-15 19:34:47',
   ),
   104 => 
   array (
@@ -1051,7 +1051,7 @@ return array (
     'changed_by_user_id' => '20',
     'note' => 'Driver action CONFIRM_PICKED_UP',
     'metadata' => '{"action_code":"CONFIRM_PICKED_UP","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 19:57:43',
+    'created_at' => '2026-07-15 19:58:17',
   ),
   105 => 
   array (
@@ -1061,7 +1061,7 @@ return array (
     'changed_by_user_id' => '20',
     'note' => 'Driver action START_DELIVERY',
     'metadata' => '{"action_code":"START_DELIVERY","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 19:57:49',
+    'created_at' => '2026-07-15 19:58:23',
   ),
   106 => 
   array (
@@ -1071,7 +1071,7 @@ return array (
     'changed_by_user_id' => '20',
     'note' => 'Driver action ARRIVE_DROPOFF',
     'metadata' => '{"action_code":"ARRIVE_DROPOFF","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 19:58:38',
+    'created_at' => '2026-07-15 19:59:18',
   ),
   107 => 
   array (
@@ -1081,7 +1081,7 @@ return array (
     'changed_by_user_id' => '20',
     'note' => 'Driver action CONFIRM_DELIVERED',
     'metadata' => '{"action_code":"CONFIRM_DELIVERED","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 19:58:48',
+    'created_at' => '2026-07-15 19:59:33',
   ),
   108 => 
   array (
@@ -1091,7 +1091,7 @@ return array (
     'changed_by_user_id' => '20',
     'note' => 'Driver action COMPLETE_ORDER',
     'metadata' => '{"action_code":"COMPLETE_ORDER","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 20:00:02',
+    'created_at' => '2026-07-15 20:00:47',
   ),
   109 => 
   array (
@@ -1101,7 +1101,7 @@ return array (
     'changed_by_user_id' => '23',
     'note' => 'Order Nitip dibuat melalui chatbot.',
     'metadata' => NULL,
-    'created_at' => '2026-07-15 20:03:42',
+    'created_at' => '2026-07-15 19:33:42',
   ),
   110 => 
   array (
@@ -1111,7 +1111,7 @@ return array (
     'changed_by_user_id' => '2',
     'note' => 'Order diterima oleh driver.',
     'metadata' => '{"driver_snapshot":{"name":"Driver 01","phone":"081100000001","user_id":2,"driver_id":1,"vehicle_type":"Motor Matic","vehicle_brand":"Honda","vehicle_model":"Vario 125 New","vehicle_plate":"H 1001 AA"}}',
-    'created_at' => '2026-07-15 20:04:25',
+    'created_at' => '2026-07-15 19:34:25',
   ),
   111 => 
   array (
@@ -1121,7 +1121,7 @@ return array (
     'changed_by_user_id' => '2',
     'note' => 'Driver mulai memproses merchant Nitip.',
     'metadata' => '{"action_code":"MERCHANT_OPEN_CONFIRMED","pickup_location_id":35}',
-    'created_at' => '2026-07-15 20:10:30',
+    'created_at' => '2026-07-15 19:40:30',
   ),
   112 => 
   array (
@@ -1131,7 +1131,7 @@ return array (
     'changed_by_user_id' => '23',
     'note' => 'Order Nitip dibuat melalui chatbot.',
     'metadata' => NULL,
-    'created_at' => '2026-07-15 20:10:31',
+    'created_at' => '2026-07-15 20:01:59',
   ),
   113 => 
   array (
@@ -1141,7 +1141,7 @@ return array (
     'changed_by_user_id' => '20',
     'note' => 'Order diterima oleh driver.',
     'metadata' => '{"driver_snapshot":{"name":"Driver 04","phone":"081100000004","user_id":20,"driver_id":4,"vehicle_type":"Motor Matic","vehicle_brand":"Honda","vehicle_model":"Beat Street","vehicle_plate":"H 1004 AA"}}',
-    'created_at' => '2026-07-15 20:11:32',
+    'created_at' => '2026-07-15 20:03:00',
   ),
   114 => 
   array (
@@ -1151,7 +1151,7 @@ return array (
     'changed_by_user_id' => '20',
     'note' => 'Driver mulai memproses merchant Nitip.',
     'metadata' => '{"action_code":"MERCHANT_OPEN_CONFIRMED","pickup_location_id":37}',
-    'created_at' => '2026-07-15 20:11:39',
+    'created_at' => '2026-07-15 20:03:07',
   ),
   115 => 
   array (
@@ -1161,7 +1161,7 @@ return array (
     'changed_by_user_id' => '20',
     'note' => 'Driver action CONFIRM_PICKED_UP',
     'metadata' => '{"action_code":"CONFIRM_PICKED_UP","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 20:23:08',
+    'created_at' => '2026-07-15 20:25:08',
   ),
   116 => 
   array (
@@ -1171,7 +1171,7 @@ return array (
     'changed_by_user_id' => '20',
     'note' => 'Driver action START_DELIVERY',
     'metadata' => '{"action_code":"START_DELIVERY","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 20:23:11',
+    'created_at' => '2026-07-15 20:25:11',
   ),
   117 => 
   array (
@@ -1181,7 +1181,7 @@ return array (
     'changed_by_user_id' => '20',
     'note' => 'Driver action ARRIVE_DROPOFF',
     'metadata' => '{"action_code":"ARRIVE_DROPOFF","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 20:24:58',
+    'created_at' => '2026-07-15 20:26:58',
   ),
   118 => 
   array (
@@ -1191,7 +1191,7 @@ return array (
     'changed_by_user_id' => '20',
     'note' => 'Driver action CONFIRM_DELIVERED',
     'metadata' => '{"action_code":"CONFIRM_DELIVERED","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 20:25:08',
+    'created_at' => '2026-07-15 20:27:13',
   ),
   119 => 
   array (
@@ -1201,7 +1201,7 @@ return array (
     'changed_by_user_id' => '20',
     'note' => 'Driver action COMPLETE_ORDER',
     'metadata' => '{"action_code":"COMPLETE_ORDER","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 20:25:28',
+    'created_at' => '2026-07-15 20:27:58',
   ),
   120 => 
   array (
@@ -1211,7 +1211,7 @@ return array (
     'changed_by_user_id' => '2',
     'note' => 'Driver action CONFIRM_PICKED_UP',
     'metadata' => '{"action_code":"CONFIRM_PICKED_UP","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 20:23:32',
+    'created_at' => '2026-07-15 20:00:53',
   ),
   121 => 
   array (
@@ -1221,7 +1221,7 @@ return array (
     'changed_by_user_id' => '2',
     'note' => 'Driver action START_DELIVERY',
     'metadata' => '{"action_code":"START_DELIVERY","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 20:24:07',
+    'created_at' => '2026-07-15 20:01:28',
   ),
   122 => 
   array (
@@ -1231,7 +1231,7 @@ return array (
     'changed_by_user_id' => '2',
     'note' => 'Driver action ARRIVE_DROPOFF',
     'metadata' => '{"action_code":"ARRIVE_DROPOFF","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 20:28:06',
+    'created_at' => '2026-07-15 20:05:57',
   ),
   123 => 
   array (
@@ -1241,7 +1241,7 @@ return array (
     'changed_by_user_id' => '2',
     'note' => 'Driver action CONFIRM_DELIVERED',
     'metadata' => '{"action_code":"CONFIRM_DELIVERED","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 20:28:16',
+    'created_at' => '2026-07-15 20:06:12',
   ),
   124 => 
   array (
@@ -1251,7 +1251,7 @@ return array (
     'changed_by_user_id' => '2',
     'note' => 'Driver action COMPLETE_ORDER',
     'metadata' => '{"action_code":"COMPLETE_ORDER","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-15 20:29:49',
+    'created_at' => '2026-07-15 20:07:45',
   ),
   125 => 
   array (
@@ -1261,7 +1261,7 @@ return array (
     'changed_by_user_id' => '23',
     'note' => 'Order Antar Jemput dibuat oleh customer.',
     'metadata' => NULL,
-    'created_at' => '2026-07-15 20:24:54',
+    'created_at' => '2026-07-15 19:54:54',
   ),
   126 => 
   array (
@@ -1271,7 +1271,7 @@ return array (
     'changed_by_user_id' => '23',
     'note' => 'Terlalu lama',
     'metadata' => '{"cancellation_penalty":0}',
-    'created_at' => '2026-07-15 20:27:07',
+    'created_at' => '2026-07-15 19:57:07',
   ),
   127 => 
   array (
@@ -1281,7 +1281,7 @@ return array (
     'changed_by_user_id' => '23',
     'note' => 'Order kurir dibuat oleh customer melalui chatbot.',
     'metadata' => NULL,
-    'created_at' => '2026-07-15 20:29:42',
+    'created_at' => '2026-07-15 19:59:42',
   ),
   128 => 
   array (
@@ -1291,7 +1291,7 @@ return array (
     'changed_by_user_id' => '23',
     'note' => 'Alamat salah',
     'metadata' => '{"cancellation_penalty":0}',
-    'created_at' => '2026-07-15 20:31:54',
+    'created_at' => '2026-07-15 20:01:54',
   ),
   129 => 
   array (
@@ -1301,7 +1301,7 @@ return array (
     'changed_by_user_id' => '22',
     'note' => 'Order Antar Jemput dibuat oleh customer.',
     'metadata' => NULL,
-    'created_at' => '2026-07-15 20:32:24',
+    'created_at' => '2026-07-15 20:09:15',
   ),
   130 => 
   array (
@@ -1311,7 +1311,7 @@ return array (
     'changed_by_user_id' => '2',
     'note' => 'Order diterima oleh driver.',
     'metadata' => '{"driver_snapshot":{"name":"Driver 01","phone":"081100000001","user_id":2,"driver_id":1,"vehicle_type":"Motor Matic","vehicle_brand":"Honda","vehicle_model":"Vario 125 New","vehicle_plate":"H 1001 AA"}}',
-    'created_at' => '2026-07-15 20:32:52',
+    'created_at' => '2026-07-15 20:09:43',
   ),
   131 => 
   array (
@@ -1321,7 +1321,7 @@ return array (
     'changed_by_user_id' => '2',
     'note' => 'Driver action ARRIVE_PICKUP',
     'metadata' => '{"action_code":"ARRIVE_PICKUP","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 20:33:52',
+    'created_at' => '2026-07-15 20:13:58',
   ),
   132 => 
   array (
@@ -1331,7 +1331,7 @@ return array (
     'changed_by_user_id' => '2',
     'note' => 'Driver action BOARD_PASSENGER',
     'metadata' => '{"action_code":"BOARD_PASSENGER","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 20:34:22',
+    'created_at' => '2026-07-15 20:14:43',
   ),
   133 => 
   array (
@@ -1341,7 +1341,7 @@ return array (
     'changed_by_user_id' => '2',
     'note' => 'Driver action ARRIVE_DROPOFF',
     'metadata' => '{"action_code":"ARRIVE_DROPOFF","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 20:39:14',
+    'created_at' => '2026-07-15 20:20:12',
   ),
   134 => 
   array (
@@ -1351,7 +1351,7 @@ return array (
     'changed_by_user_id' => '2',
     'note' => 'Driver action CONFIRM_DELIVERED',
     'metadata' => '{"action_code":"CONFIRM_DELIVERED","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 20:39:58',
+    'created_at' => '2026-07-15 20:20:56',
   ),
   135 => 
   array (
@@ -1361,7 +1361,7 @@ return array (
     'changed_by_user_id' => '23',
     'note' => 'Order Antar Jemput dibuat oleh customer.',
     'metadata' => NULL,
-    'created_at' => '2026-07-15 20:34:31',
+    'created_at' => '2026-07-15 20:04:31',
   ),
   136 => 
   array (
@@ -1371,7 +1371,7 @@ return array (
     'changed_by_user_id' => '23',
     'note' => 'Berubah pikiran',
     'metadata' => '{"cancellation_penalty":0}',
-    'created_at' => '2026-07-15 20:34:44',
+    'created_at' => '2026-07-15 20:04:44',
   ),
   137 => 
   array (
@@ -1381,7 +1381,7 @@ return array (
     'changed_by_user_id' => '2',
     'note' => 'Driver action COMPLETE_ORDER',
     'metadata' => '{"action_code":"COMPLETE_ORDER","service_type":"RIDE"}',
-    'created_at' => '2026-07-15 20:40:37',
+    'created_at' => '2026-07-15 20:21:41',
   ),
   138 => 
   array (
@@ -1391,7 +1391,7 @@ return array (
     'changed_by_user_id' => '22',
     'note' => 'Order kurir dibuat oleh customer melalui chatbot.',
     'metadata' => NULL,
-    'created_at' => '2026-07-15 20:39:43',
+    'created_at' => '2026-07-15 20:22:37',
   ),
   139 => 
   array (
@@ -1401,7 +1401,7 @@ return array (
     'changed_by_user_id' => '2',
     'note' => 'Order diterima oleh driver.',
     'metadata' => '{"driver_snapshot":{"name":"Driver 01","phone":"081100000001","user_id":2,"driver_id":1,"vehicle_type":"Motor Matic","vehicle_brand":"Honda","vehicle_model":"Vario 125 New","vehicle_plate":"H 1001 AA"}}',
-    'created_at' => '2026-07-15 20:40:05',
+    'created_at' => '2026-07-15 20:22:59',
   ),
   140 => 
   array (
@@ -1411,7 +1411,7 @@ return array (
     'changed_by_user_id' => '2',
     'note' => 'Driver action ARRIVE_PICKUP',
     'metadata' => '{"action_code":"ARRIVE_PICKUP","service_type":"COURIER"}',
-    'created_at' => '2026-07-15 20:41:05',
+    'created_at' => '2026-07-15 20:26:17',
   ),
   141 => 
   array (
@@ -1421,7 +1421,7 @@ return array (
     'changed_by_user_id' => '2',
     'note' => 'Driver action CONFIRM_PICKED_UP',
     'metadata' => '{"action_code":"CONFIRM_PICKED_UP","service_type":"COURIER"}',
-    'created_at' => '2026-07-15 20:41:49',
+    'created_at' => '2026-07-15 20:27:47',
   ),
   142 => 
   array (
@@ -1431,7 +1431,7 @@ return array (
     'changed_by_user_id' => '2',
     'note' => 'Driver action START_DELIVERY',
     'metadata' => '{"action_code":"START_DELIVERY","service_type":"COURIER"}',
-    'created_at' => '2026-07-15 20:41:52',
+    'created_at' => '2026-07-15 20:27:50',
   ),
   143 => 
   array (
@@ -1441,7 +1441,7 @@ return array (
     'changed_by_user_id' => '2',
     'note' => 'Driver action ARRIVE_DROPOFF',
     'metadata' => '{"action_code":"ARRIVE_DROPOFF","service_type":"COURIER"}',
-    'created_at' => '2026-07-15 20:45:18',
+    'created_at' => '2026-07-15 20:31:41',
   ),
   144 => 
   array (
@@ -1451,7 +1451,7 @@ return array (
     'changed_by_user_id' => '2',
     'note' => 'Driver action CONFIRM_DELIVERED',
     'metadata' => '{"action_code":"CONFIRM_DELIVERED","service_type":"COURIER"}',
-    'created_at' => '2026-07-15 20:45:28',
+    'created_at' => '2026-07-15 20:31:56',
   ),
   145 => 
   array (
@@ -1461,7 +1461,7 @@ return array (
     'changed_by_user_id' => '2',
     'note' => 'Driver action COMPLETE_ORDER',
     'metadata' => '{"action_code":"COMPLETE_ORDER","service_type":"COURIER"}',
-    'created_at' => '2026-07-15 20:45:48',
+    'created_at' => '2026-07-15 20:32:41',
   ),
   146 => 
   array (
@@ -1501,7 +1501,7 @@ return array (
     'changed_by_user_id' => '25',
     'note' => 'Driver action BOARD_PASSENGER',
     'metadata' => '{"action_code":"BOARD_PASSENGER","service_type":"RIDE"}',
-    'created_at' => '2026-07-16 14:12:26',
+    'created_at' => '2026-07-16 14:12:41',
   ),
   150 => 
   array (
@@ -1511,7 +1511,7 @@ return array (
     'changed_by_user_id' => '25',
     'note' => 'Driver action ARRIVE_DROPOFF',
     'metadata' => '{"action_code":"ARRIVE_DROPOFF","service_type":"RIDE"}',
-    'created_at' => '2026-07-16 14:36:30',
+    'created_at' => '2026-07-16 14:36:45',
   ),
   151 => 
   array (
@@ -1521,7 +1521,7 @@ return array (
     'changed_by_user_id' => '25',
     'note' => 'Driver action CONFIRM_DELIVERED',
     'metadata' => '{"action_code":"CONFIRM_DELIVERED","service_type":"RIDE"}',
-    'created_at' => '2026-07-16 14:36:40',
+    'created_at' => '2026-07-16 14:37:00',
   ),
   152 => 
   array (
@@ -1531,7 +1531,7 @@ return array (
     'changed_by_user_id' => '25',
     'note' => 'Driver action COMPLETE_ORDER',
     'metadata' => '{"action_code":"COMPLETE_ORDER","service_type":"RIDE"}',
-    'created_at' => '2026-07-16 14:37:00',
+    'created_at' => '2026-07-16 14:37:45',
   ),
   153 => 
   array (
@@ -1581,7 +1581,7 @@ return array (
     'changed_by_user_id' => '18',
     'note' => 'Driver action ARRIVE_PICKUP',
     'metadata' => '{"action_code":"ARRIVE_PICKUP","service_type":"RIDE"}',
-    'created_at' => '2026-07-16 19:57:28',
+    'created_at' => '2026-07-16 20:01:10',
   ),
   158 => 
   array (
@@ -1591,7 +1591,7 @@ return array (
     'changed_by_user_id' => '18',
     'note' => 'Driver action BOARD_PASSENGER',
     'metadata' => '{"action_code":"BOARD_PASSENGER","service_type":"RIDE"}',
-    'created_at' => '2026-07-16 19:57:58',
+    'created_at' => '2026-07-16 20:01:55',
   ),
   159 => 
   array (
@@ -1601,7 +1601,7 @@ return array (
     'changed_by_user_id' => '18',
     'note' => 'Driver action ARRIVE_DROPOFF',
     'metadata' => '{"action_code":"ARRIVE_DROPOFF","service_type":"RIDE"}',
-    'created_at' => '2026-07-16 20:26:55',
+    'created_at' => '2026-07-16 20:30:52',
   ),
   160 => 
   array (
@@ -1611,7 +1611,7 @@ return array (
     'changed_by_user_id' => '18',
     'note' => 'Driver action CONFIRM_DELIVERED',
     'metadata' => '{"action_code":"CONFIRM_DELIVERED","service_type":"RIDE"}',
-    'created_at' => '2026-07-16 20:27:05',
+    'created_at' => '2026-07-16 20:31:07',
   ),
   161 => 
   array (
@@ -1621,7 +1621,7 @@ return array (
     'changed_by_user_id' => '18',
     'note' => 'Driver action COMPLETE_ORDER',
     'metadata' => '{"action_code":"COMPLETE_ORDER","service_type":"RIDE"}',
-    'created_at' => '2026-07-16 20:27:25',
+    'created_at' => '2026-07-16 20:31:52',
   ),
   162 => 
   array (
@@ -1671,7 +1671,7 @@ return array (
     'changed_by_user_id' => '18',
     'note' => 'Driver action CONFIRM_PICKED_UP',
     'metadata' => '{"action_code":"CONFIRM_PICKED_UP","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-17 11:42:25',
+    'created_at' => '2026-07-17 11:43:45',
   ),
   167 => 
   array (
@@ -1681,7 +1681,7 @@ return array (
     'changed_by_user_id' => '18',
     'note' => 'Driver action START_DELIVERY',
     'metadata' => '{"action_code":"START_DELIVERY","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-17 11:42:27',
+    'created_at' => '2026-07-17 11:43:47',
   ),
   168 => 
   array (
@@ -1691,7 +1691,7 @@ return array (
     'changed_by_user_id' => '18',
     'note' => 'Driver action ARRIVE_DROPOFF',
     'metadata' => '{"action_code":"ARRIVE_DROPOFF","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-17 11:59:21',
+    'created_at' => '2026-07-17 12:02:47',
   ),
   169 => 
   array (
@@ -1701,7 +1701,7 @@ return array (
     'changed_by_user_id' => '18',
     'note' => 'Driver action CONFIRM_DELIVERED',
     'metadata' => '{"action_code":"CONFIRM_DELIVERED","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-17 11:59:31',
+    'created_at' => '2026-07-17 12:03:02',
   ),
   170 => 
   array (
@@ -1711,7 +1711,7 @@ return array (
     'changed_by_user_id' => '18',
     'note' => 'Driver action COMPLETE_ORDER',
     'metadata' => '{"action_code":"COMPLETE_ORDER","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-17 12:00:10',
+    'created_at' => '2026-07-17 12:03:47',
   ),
   171 => 
   array (
@@ -1751,7 +1751,7 @@ return array (
     'changed_by_user_id' => '25',
     'note' => 'Driver action CONFIRM_PICKED_UP',
     'metadata' => '{"action_code":"CONFIRM_PICKED_UP","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-17 12:35:23',
+    'created_at' => '2026-07-17 12:36:17',
   ),
   175 => 
   array (
@@ -1761,7 +1761,7 @@ return array (
     'changed_by_user_id' => '25',
     'note' => 'Driver action START_DELIVERY',
     'metadata' => '{"action_code":"START_DELIVERY","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-17 12:35:25',
+    'created_at' => '2026-07-17 12:36:19',
   ),
   176 => 
   array (
@@ -1771,7 +1771,7 @@ return array (
     'changed_by_user_id' => '25',
     'note' => 'Driver action ARRIVE_DROPOFF',
     'metadata' => '{"action_code":"ARRIVE_DROPOFF","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-17 12:43:16',
+    'created_at' => '2026-07-17 12:45:09',
   ),
   177 => 
   array (
@@ -1781,7 +1781,7 @@ return array (
     'changed_by_user_id' => '25',
     'note' => 'Driver action CONFIRM_DELIVERED',
     'metadata' => '{"action_code":"CONFIRM_DELIVERED","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-17 12:52:46',
+    'created_at' => '2026-07-17 12:54:39',
   ),
   178 => 
   array (
@@ -1791,6 +1791,6 @@ return array (
     'changed_by_user_id' => '25',
     'note' => 'Driver action COMPLETE_ORDER',
     'metadata' => '{"action_code":"COMPLETE_ORDER","service_type":"SHOPPING"}',
-    'created_at' => '2026-07-17 12:53:06',
+    'created_at' => '2026-07-17 12:55:24',
   ),
 );

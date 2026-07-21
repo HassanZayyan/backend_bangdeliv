@@ -12,10 +12,10 @@ return array (
     'amount' => '15000.00',
     'recorded_by_user_id' => '9',
     'driver_id' => '2',
-    'paid_at' => '2026-07-15 10:12:03',
+    'paid_at' => '2026-07-15 10:14:27',
     'metadata' => '{"extra": null, "source": "DRIVER_COLLECTION", "recorded_by_role": "driver"}',
     'created_at' => '2026-07-15 09:45:10',
-    'updated_at' => '2026-07-15 10:12:03',
+    'updated_at' => '2026-07-15 10:14:27',
   ),
   1 => 
   array (
@@ -26,10 +26,10 @@ return array (
     'amount' => '58000.00',
     'recorded_by_user_id' => '9',
     'driver_id' => '2',
-    'paid_at' => '2026-07-15 11:54:14',
+    'paid_at' => '2026-07-15 11:54:39',
     'metadata' => '{"extra":null,"source":"DRIVER_COLLECTION","recorded_by_role":"driver"}',
     'created_at' => '2026-07-15 11:25:33',
-    'updated_at' => '2026-07-15 11:54:14',
+    'updated_at' => '2026-07-15 11:54:39',
   ),
   2 => 
   array (
@@ -40,10 +40,10 @@ return array (
     'amount' => '17000.00',
     'recorded_by_user_id' => '9',
     'driver_id' => '2',
-    'paid_at' => '2026-07-15 12:41:55',
+    'paid_at' => '2026-07-15 12:42:15',
     'metadata' => '{"extra": null, "source": "DRIVER_COLLECTION", "recorded_by_role": "driver"}',
     'created_at' => '2026-07-15 12:18:18',
-    'updated_at' => '2026-07-15 12:41:55',
+    'updated_at' => '2026-07-15 12:42:15',
   ),
   3 => 
   array (
@@ -54,10 +54,10 @@ return array (
     'amount' => '11000.00',
     'recorded_by_user_id' => '9',
     'driver_id' => '2',
-    'paid_at' => '2026-07-15 13:04:35',
+    'paid_at' => '2026-07-15 13:06:51',
     'metadata' => '{"extra":null,"source":"DRIVER_COLLECTION","recorded_by_role":"driver"}',
     'created_at' => '2026-07-15 12:44:39',
-    'updated_at' => '2026-07-15 13:04:35',
+    'updated_at' => '2026-07-15 13:06:51',
   ),
   4 => 
   array (
@@ -68,10 +68,10 @@ return array (
     'amount' => '9000.00',
     'recorded_by_user_id' => '9',
     'driver_id' => '2',
-    'paid_at' => '2026-07-15 14:31:36',
+    'paid_at' => '2026-07-15 14:33:00',
     'metadata' => '{"extra": null, "source": "DRIVER_COLLECTION", "recorded_by_role": "driver"}',
     'created_at' => '2026-07-15 14:13:53',
-    'updated_at' => '2026-07-15 14:31:36',
+    'updated_at' => '2026-07-15 14:33:00',
   ),
   5 => 
   array (
@@ -82,10 +82,10 @@ return array (
     'amount' => '22000.00',
     'recorded_by_user_id' => '9',
     'driver_id' => '2',
-    'paid_at' => '2026-07-15 14:42:38',
+    'paid_at' => '2026-07-15 14:48:18',
     'metadata' => '{"extra": null, "source": "DRIVER_COLLECTION", "recorded_by_role": "driver"}',
-    'created_at' => '2026-07-15 14:24:36',
-    'updated_at' => '2026-07-15 14:42:38',
+    'created_at' => '2026-07-15 14:29:05',
+    'updated_at' => '2026-07-15 14:48:18',
   ),
   6 => 
   array (
@@ -96,10 +96,10 @@ return array (
     'amount' => '44000.00',
     'recorded_by_user_id' => '9',
     'driver_id' => '2',
-    'paid_at' => '2026-07-15 15:06:02',
+    'paid_at' => '2026-07-15 15:06:07',
     'metadata' => '{"extra": null, "source": "DRIVER_COLLECTION", "recorded_by_role": "driver"}',
     'created_at' => '2026-07-15 14:47:30',
-    'updated_at' => '2026-07-15 15:06:02',
+    'updated_at' => '2026-07-15 15:06:07',
   ),
   7 => 
   array (
@@ -110,10 +110,10 @@ return array (
     'amount' => '33000.00',
     'recorded_by_user_id' => '9',
     'driver_id' => '2',
-    'paid_at' => '2026-07-15 17:57:35',
+    'paid_at' => '2026-07-15 18:02:42',
     'metadata' => '{"extra": null, "source": "DRIVER_COLLECTION", "recorded_by_role": "driver"}',
     'created_at' => '2026-07-15 17:32:20',
-    'updated_at' => '2026-07-15 17:57:35',
+    'updated_at' => '2026-07-15 18:02:42',
   ),
   8 => 
   array (
@@ -124,10 +124,10 @@ return array (
     'amount' => '20000.00',
     'recorded_by_user_id' => '9',
     'driver_id' => '2',
-    'paid_at' => '2026-07-15 18:45:25',
+    'paid_at' => '2026-07-15 18:45:30',
     'metadata' => '{"extra": null, "source": "DRIVER_COLLECTION", "recorded_by_role": "driver"}',
     'created_at' => '2026-07-15 18:28:39',
-    'updated_at' => '2026-07-15 18:45:25',
+    'updated_at' => '2026-07-15 18:45:30',
   ),
   9 => 
   array (
@@ -138,10 +138,10 @@ return array (
     'amount' => '23000.00',
     'recorded_by_user_id' => '9',
     'driver_id' => '2',
-    'paid_at' => '2026-07-15 19:20:19',
+    'paid_at' => '2026-07-15 19:20:31',
     'metadata' => '{"source": "DRIVER_QRIS_CONFIRMATION", "expected_amount": 23000, "recorded_by_role": "driver"}',
     'created_at' => '2026-07-15 19:02:40',
-    'updated_at' => '2026-07-15 19:20:19',
+    'updated_at' => '2026-07-15 19:20:31',
   ),
   10 => 
   array (
@@ -154,8 +154,8 @@ return array (
     'driver_id' => NULL,
     'paid_at' => NULL,
     'metadata' => '{"source": "ORDER_CREATED"}',
-    'created_at' => '2026-07-15 18:18:09',
-    'updated_at' => '2026-07-15 18:18:09',
+    'created_at' => '2026-07-15 17:48:09',
+    'updated_at' => '2026-07-15 17:48:09',
   ),
   11 => 
   array (
@@ -166,10 +166,10 @@ return array (
     'amount' => '5000.00',
     'recorded_by_user_id' => '20',
     'driver_id' => '4',
-    'paid_at' => '2026-07-15 18:51:49',
+    'paid_at' => '2026-07-15 18:22:53',
     'metadata' => '{"extra":null,"source":"DRIVER_COLLECTION","recorded_by_role":"driver"}',
-    'created_at' => '2026-07-15 18:23:13',
-    'updated_at' => '2026-07-15 18:51:49',
+    'created_at' => '2026-07-15 17:53:13',
+    'updated_at' => '2026-07-15 18:22:53',
   ),
   12 => 
   array (
@@ -180,10 +180,10 @@ return array (
     'amount' => '5000.00',
     'recorded_by_user_id' => '20',
     'driver_id' => '4',
-    'paid_at' => '2026-07-15 19:01:12',
+    'paid_at' => '2026-07-15 18:38:30',
     'metadata' => '{"extra": null, "source": "DRIVER_COLLECTION", "recorded_by_role": "driver"}',
-    'created_at' => '2026-07-15 18:56:33',
-    'updated_at' => '2026-07-15 19:01:12',
+    'created_at' => '2026-07-15 18:30:01',
+    'updated_at' => '2026-07-15 18:38:30',
   ),
   13 => 
   array (
@@ -194,10 +194,10 @@ return array (
     'amount' => '81500.00',
     'recorded_by_user_id' => '20',
     'driver_id' => '4',
-    'paid_at' => '2026-07-15 19:37:59',
+    'paid_at' => '2026-07-15 19:31:22',
     'metadata' => '{"extra": null, "source": "DRIVER_COLLECTION", "recorded_by_role": "driver"}',
-    'created_at' => '2026-07-15 19:13:33',
-    'updated_at' => '2026-07-15 19:37:59',
+    'created_at' => '2026-07-15 18:43:33',
+    'updated_at' => '2026-07-15 19:31:22',
   ),
   14 => 
   array (
@@ -208,10 +208,10 @@ return array (
     'amount' => '37000.00',
     'recorded_by_user_id' => '20',
     'driver_id' => '4',
-    'paid_at' => '2026-07-15 19:59:58',
+    'paid_at' => '2026-07-15 20:00:43',
     'metadata' => '{"extra":null,"source":"DRIVER_COLLECTION","recorded_by_role":"driver"}',
-    'created_at' => '2026-07-15 19:42:50',
-    'updated_at' => '2026-07-15 19:59:58',
+    'created_at' => '2026-07-15 19:33:59',
+    'updated_at' => '2026-07-15 20:00:43',
   ),
   15 => 
   array (
@@ -222,10 +222,10 @@ return array (
     'amount' => '29000.00',
     'recorded_by_user_id' => '2',
     'driver_id' => '1',
-    'paid_at' => '2026-07-15 20:29:44',
+    'paid_at' => '2026-07-15 20:07:40',
     'metadata' => '{"extra":null,"source":"DRIVER_COLLECTION","recorded_by_role":"driver"}',
-    'created_at' => '2026-07-15 20:03:42',
-    'updated_at' => '2026-07-15 20:29:44',
+    'created_at' => '2026-07-15 19:33:42',
+    'updated_at' => '2026-07-15 20:07:40',
   ),
   16 => 
   array (
@@ -236,10 +236,10 @@ return array (
     'amount' => '32000.00',
     'recorded_by_user_id' => '20',
     'driver_id' => '4',
-    'paid_at' => '2026-07-15 20:25:13',
+    'paid_at' => '2026-07-15 20:27:18',
     'metadata' => '{"extra": null, "source": "DRIVER_COLLECTION", "recorded_by_role": "driver"}',
-    'created_at' => '2026-07-15 20:10:31',
-    'updated_at' => '2026-07-15 20:25:13',
+    'created_at' => '2026-07-15 20:01:59',
+    'updated_at' => '2026-07-15 20:27:18',
   ),
   17 => 
   array (
@@ -252,8 +252,8 @@ return array (
     'driver_id' => NULL,
     'paid_at' => NULL,
     'metadata' => '{"source": "ORDER_CREATED"}',
-    'created_at' => '2026-07-15 20:24:54',
-    'updated_at' => '2026-07-15 20:24:54',
+    'created_at' => '2026-07-15 19:54:54',
+    'updated_at' => '2026-07-15 19:54:54',
   ),
   18 => 
   array (
@@ -266,8 +266,8 @@ return array (
     'driver_id' => NULL,
     'paid_at' => NULL,
     'metadata' => '{"source": "ORDER_CREATED"}',
-    'created_at' => '2026-07-15 20:29:42',
-    'updated_at' => '2026-07-15 20:29:42',
+    'created_at' => '2026-07-15 19:59:42',
+    'updated_at' => '2026-07-15 19:59:42',
   ),
   19 => 
   array (
@@ -278,10 +278,10 @@ return array (
     'amount' => '11000.00',
     'recorded_by_user_id' => '2',
     'driver_id' => '1',
-    'paid_at' => '2026-07-15 20:40:16',
+    'paid_at' => '2026-07-15 20:21:14',
     'metadata' => '{"extra": null, "source": "DRIVER_COLLECTION", "recorded_by_role": "driver"}',
-    'created_at' => '2026-07-15 20:32:24',
-    'updated_at' => '2026-07-15 20:40:16',
+    'created_at' => '2026-07-15 20:09:15',
+    'updated_at' => '2026-07-15 20:21:14',
   ),
   20 => 
   array (
@@ -294,8 +294,8 @@ return array (
     'driver_id' => NULL,
     'paid_at' => NULL,
     'metadata' => '{"source": "ORDER_CREATED"}',
-    'created_at' => '2026-07-15 20:34:31',
-    'updated_at' => '2026-07-15 20:34:31',
+    'created_at' => '2026-07-15 20:04:31',
+    'updated_at' => '2026-07-15 20:04:31',
   ),
   21 => 
   array (
@@ -306,10 +306,10 @@ return array (
     'amount' => '9000.00',
     'recorded_by_user_id' => '2',
     'driver_id' => '1',
-    'paid_at' => '2026-07-15 20:41:42',
+    'paid_at' => '2026-07-15 20:26:54',
     'metadata' => '{"extra": null, "source": "COURIER_PICKUP_COLLECTION", "recorded_by_role": "driver"}',
-    'created_at' => '2026-07-15 20:39:43',
-    'updated_at' => '2026-07-15 20:41:42',
+    'created_at' => '2026-07-15 20:22:37',
+    'updated_at' => '2026-07-15 20:26:54',
   ),
   22 => 
   array (
@@ -320,10 +320,10 @@ return array (
     'amount' => '7000.00',
     'recorded_by_user_id' => '25',
     'driver_id' => '5',
-    'paid_at' => '2026-07-16 14:36:42',
+    'paid_at' => '2026-07-16 14:37:02',
     'metadata' => '{"extra": null, "source": "DRIVER_COLLECTION", "recorded_by_role": "driver"}',
     'created_at' => '2026-07-16 13:58:55',
-    'updated_at' => '2026-07-16 14:36:42',
+    'updated_at' => '2026-07-16 14:37:02',
   ),
   23 => 
   array (
@@ -348,10 +348,10 @@ return array (
     'amount' => '15000.00',
     'recorded_by_user_id' => '18',
     'driver_id' => '3',
-    'paid_at' => '2026-07-16 20:27:25',
+    'paid_at' => '2026-07-16 20:31:52',
     'metadata' => '{"extra": null, "source": "DRIVER_COLLECTION", "recorded_by_role": "driver"}',
     'created_at' => '2026-07-16 19:41:49',
-    'updated_at' => '2026-07-16 20:27:25',
+    'updated_at' => '2026-07-16 20:31:52',
   ),
   25 => 
   array (
@@ -376,10 +376,10 @@ return array (
     'amount' => '140000.00',
     'recorded_by_user_id' => '18',
     'driver_id' => '3',
-    'paid_at' => '2026-07-17 11:59:33',
+    'paid_at' => '2026-07-17 12:03:04',
     'metadata' => '{"extra": null, "source": "DRIVER_COLLECTION", "recorded_by_role": "driver"}',
     'created_at' => '2026-07-17 11:26:43',
-    'updated_at' => '2026-07-17 11:59:33',
+    'updated_at' => '2026-07-17 12:03:04',
   ),
   27 => 
   array (
@@ -390,9 +390,9 @@ return array (
     'amount' => '41000.00',
     'recorded_by_user_id' => '25',
     'driver_id' => '5',
-    'paid_at' => '2026-07-17 12:52:47',
+    'paid_at' => '2026-07-17 12:54:40',
     'metadata' => '{"extra": null, "source": "DRIVER_COLLECTION", "recorded_by_role": "driver"}',
     'created_at' => '2026-07-17 12:08:00',
-    'updated_at' => '2026-07-17 12:52:47',
+    'updated_at' => '2026-07-17 12:54:40',
   ),
 );
