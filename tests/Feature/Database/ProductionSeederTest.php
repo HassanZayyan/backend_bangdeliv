@@ -16,21 +16,16 @@ use Database\Seeders\UserSeeder;
 use Illuminate\Database\Seeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Storage;
 use InvalidArgumentException;
-use Tests\Support\PreservedProductionSnapshot;
 use Tests\TestCase;
 
 class ProductionSeederTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_database_seeder_in_production_restores_preserved_accounts_and_official_catalog(): void
+    public function test_database_seeder_in_production_restores_the_thesis_dataset_and_official_catalog(): void
     {
         $this->useProductionEnvironment();
-        Storage::fake('local');
-        Storage::fake('public');
-        PreservedProductionSnapshot::write();
 
         config()->set('bangdeliv.production_admin', [
             'email' => 'owner@bangdeliv.com',
@@ -41,10 +36,10 @@ class ProductionSeederTest extends TestCase
 
         $this->runSeeder(DatabaseSeeder::class);
 
-        $this->assertSame(7, User::query()->count());
-        $this->assertSame(4, Address::query()->count());
-        $this->assertSame(1, Driver::query()->count());
-        $this->assertSame(3, DriverDocument::query()->count());
+        $this->assertSame(29, User::query()->count());
+        $this->assertSame(18, Address::query()->count());
+        $this->assertSame(5, Driver::query()->count());
+        $this->assertSame(15, DriverDocument::query()->count());
 
         $admin = User::query()->where('email', 'owner@bangdeliv.com')->firstOrFail();
         $this->assertSame('Owner BangDeliv', $admin->name);
@@ -68,7 +63,12 @@ class ProductionSeederTest extends TestCase
             'registration_status' => 'active',
             'status' => 'offline',
         ]);
-        $this->assertDatabaseMissing('drivers', ['id' => 2]);
+        $this->assertDatabaseHas('drivers', [
+            'id' => 5,
+            'user_id' => 25,
+            'vehicle_plate' => 'H 1005 AA',
+            'registration_status' => 'active',
+        ]);
 
         foreach (['ktp', 'sim', 'selfie'] as $type) {
             $this->assertDatabaseHas('driver_documents', [
@@ -78,8 +78,6 @@ class ProductionSeederTest extends TestCase
                 'verified_by' => $admin->id,
             ]);
         }
-
-        $this->assertDatabaseMissing('driver_documents', ['driver_id' => 2]);
 
         foreach ($this->demoEmails() as $email) {
             $this->assertDatabaseMissing('users', ['email' => $email]);

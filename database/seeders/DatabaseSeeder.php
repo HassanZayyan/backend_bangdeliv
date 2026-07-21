@@ -17,8 +17,8 @@ class DatabaseSeeder extends Seeder
         if (app()->isProduction()) {
             $this->call([
                 ProductionAdminSeeder::class,
-                PreservedProductionDataSeeder::class,
                 RestaurantMenuSeeder::class,
+                ThesisDatasetSeeder::class,
             ]);
 
             return;
@@ -27,11 +27,9 @@ class DatabaseSeeder extends Seeder
         $this->call([
             CleanupDemoStorageSeeder::class,
             UserSeeder::class,
-            CustomerSeeder::class,
-            DriverSeeder::class,
-            AccessAccountSeeder::class,
             RestaurantMenuSeeder::class,
-            OrderSeeder::class,
+            ThesisDatasetSeeder::class,
+            AccessAccountSeeder::class,
         ]);
     }
 }

@@ -17,7 +17,8 @@ class UserSeeder extends Seeder
             return;
         }
 
-        // Buat akun admin
+        // Buat akun admin (customer demo tidak dibuat lagi — dataset skripsi
+        // lewat ThesisDatasetSeeder sudah memuat customer sungguhan).
         User::updateOrCreate(
             ['email' => 'admin@bangdeliv.com'], // Cek berdasarkan email
             [
@@ -25,18 +26,6 @@ class UserSeeder extends Seeder
                 'phone' => '081234567890',
                 'password' => Hash::make('password123'),
                 'role' => 'admin',
-                'is_active' => true,
-            ]
-        );
-
-        // Buat akun customer untuk testing
-        User::updateOrCreate(
-            ['email' => 'customer@bangdeliv.com'],
-            [
-                'name' => 'Testing Customer',
-                'phone' => '081111111111',
-                'password' => Hash::make('password123'),
-                'role' => 'customer',
                 'is_active' => true,
             ]
         );

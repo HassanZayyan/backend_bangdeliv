@@ -5,6 +5,7 @@ namespace Database\Seeders;
 use App\Models\Menu;
 use App\Models\Restaurant;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
 
 class RestaurantMenuSeeder extends Seeder
 {
@@ -45,9 +46,56 @@ class RestaurantMenuSeeder extends Seeder
         $this->deleteDummyRestaurants();
         $this->deleteRemovedOfficialRestaurants();
 
+        $menuRows = [];
+        $menuId = 0;
+        $now = now();
+
         foreach ($restaurants as $restoData) {
             $restaurant = $this->upsertRestaurant($restoData);
-            $this->replaceMenus($restaurant, $restoData['menus'] ?? []);
+
+            foreach (array_values($restoData['menus'] ?? []) as $index => $menu) {
+                $menuId++;
+                $price = $menu['price'] ?? null;
+
+                $menuRows[] = [
+                    'id' => $menuId,
+                    'restaurant_id' => $restaurant->id,
+                    'name' => (string) $menu['name'],
+                    'price' => $price === null ? null : (float) $price,
+                    'image' => null,
+                    'is_available' => true,
+                    'sort_order' => $index + 1,
+                    'deleted_at' => null,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+            }
+        }
+
+        $this->syncMenus($menuRows);
+    }
+
+    /**
+     * Menu di-upsert dengan id deterministik (urutan restoran + urutan menu di
+     * data file), sehingga id menu yang sama tidak berubah antar seeding dan
+     * referensi shopping_order_items.menu_id tidak menjadi NULL. Jangan
+     * menyisipkan menu baru di tengah daftar — tambahkan di akhir daftar menu
+     * restoran paling akhir agar penomoran lama tetap stabil.
+     *
+     * @param  array<int, array<string, mixed>>  $menuRows
+     */
+    private function syncMenus(array $menuRows): void
+    {
+        DB::table('menus')
+            ->whereNotIn('id', array_column($menuRows, 'id'))
+            ->delete();
+
+        foreach (array_chunk($menuRows, 500) as $chunk) {
+            DB::table('menus')->upsert(
+                $chunk,
+                ['id'],
+                ['restaurant_id', 'name', 'price', 'image', 'is_available', 'sort_order', 'deleted_at', 'updated_at']
+            );
         }
     }
 
@@ -132,26 +180,4 @@ class RestaurantMenuSeeder extends Seeder
         return $restaurant;
     }
 
-    /**
-     * @param  array<int, array{name: string, price: int|float|null}>  $menus
-     */
-    private function replaceMenus(Restaurant $restaurant, array $menus): void
-    {
-        Menu::withTrashed()
-            ->where('restaurant_id', $restaurant->id)
-            ->forceDelete();
-
-        foreach (array_values($menus) as $index => $menu) {
-            $price = $menu['price'] ?? null;
-
-            Menu::query()->create([
-                'restaurant_id' => $restaurant->id,
-                'name' => (string) $menu['name'],
-                'price' => $price === null ? null : (float) $price,
-                'image' => null,
-                'is_available' => true,
-                'sort_order' => $index + 1,
-            ]);
-        }
-    }
 }
