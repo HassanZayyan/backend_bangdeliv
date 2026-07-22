@@ -1240,6 +1240,203 @@ class ChatbotCourierFlowTest extends TestCase
             ->assertJsonPath('data.courier.dropoff_address', 'Lapangan Pancasila Salatiga');
     }
 
+    public function test_chatbot_kurir_anter_phrase_keeps_destination_out_of_package(): void
+    {
+        $this->fakeGeocoding();
+
+        $user = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+            'phone' => '089555555551',
+        ]);
+
+        $this->createDefaultAddress($user);
+
+        $token = $user->createToken('test-chatbot')->plainTextToken;
+
+        $response = $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/process', [
+                'message' => 'mau anter paket produk ke formulatrix salatiga',
+                'service_type' => 'kurir',
+                'session_id' => 'sess-kurir-anter-paket',
+            ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('status', 'success')
+            ->assertJsonPath('data.intent', 'courier_order')
+            ->assertJsonPath('data.validation.is_valid_order', true)
+            ->assertJsonPath('data.courier.package_description', 'paket produk');
+
+        $package = (string) $response->json('data.courier.package_description');
+        $dropoff = (string) $response->json('data.courier.dropoff_address');
+
+        $this->assertStringContainsString('Formulatrix', $dropoff);
+        $this->assertStringNotContainsString('formulatrix', strtolower($package));
+        $this->assertStringNotContainsString(' ke ', strtolower($package));
+    }
+
+    public function test_chatbot_kurir_anterin_keeps_item_modifier_and_extracts_destination(): void
+    {
+        $this->fakeGeocoding();
+
+        $user = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+            'phone' => '089555555552',
+        ]);
+
+        $this->createDefaultAddress($user);
+
+        $token = $user->createToken('test-chatbot')->plainTextToken;
+        $sessionId = 'sess-kurir-anterin-modifier';
+
+        $response = $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/process', [
+                'message' => 'Anterin laptop ROG temen gue ke formulatrix salatiga',
+                'service_type' => 'kurir',
+                'session_id' => $sessionId,
+            ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('status', 'success')
+            ->assertJsonPath('data.validation.is_valid_order', true)
+            ->assertJsonPath('data.courier.ready_to_confirm', true)
+            ->assertJsonPath('data.courier.package_description', 'laptop ROG temen gue');
+
+        $dropoff = (string) $response->json('data.courier.dropoff_address');
+        $this->assertStringContainsString('Formulatrix', $dropoff);
+
+        $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/process', [
+                'message' => 'COD',
+                'service_type' => 'kurir',
+                'session_id' => $sessionId,
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.courier.payment_method', 'COD');
+
+        $driverUser = User::factory()->create([
+            'role' => 'driver',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+        Driver::query()->create($this->driverAttributes([
+            'user_id' => $driverUser->id,
+            'vehicle_plate' => 'H 5678 ROG',
+            'registration_status' => 'active',
+            'status' => 'available',
+        ]));
+        Event::fake([DriverOrderAvailable::class]);
+
+        $confirmResponse = $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/process', [
+                'message' => 'Konfirmasi',
+                'service_type' => 'kurir',
+                'session_id' => $sessionId,
+            ]);
+
+        $confirmResponse
+            ->assertOk()
+            ->assertJsonPath('data.order.created', true);
+
+        $orderId = (int) $confirmResponse->json('data.order.id');
+        $this->assertGreaterThan(0, $orderId);
+        $this->assertDatabaseHas('courier_order_details', [
+            'order_id' => $orderId,
+            'package_description' => 'laptop ROG temen gue',
+        ]);
+    }
+
+    public function test_chatbot_kurir_colloquial_verbs_extract_package_and_destination(): void
+    {
+        $this->fakeGeocoding();
+
+        $user = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+            'phone' => '089555555553',
+        ]);
+
+        $this->createDefaultAddress($user);
+
+        $token = $user->createToken('test-chatbot')->plainTextToken;
+
+        $cases = [
+            'anterkan dokumen ke polines' => 'dokumen',
+            'antarin kunci ke polines' => 'kunci',
+            'kirimin charger ke polines' => 'charger',
+            'bawain kacamata ke polines' => 'kacamata',
+        ];
+
+        $index = 0;
+        foreach ($cases as $message => $expectedPackage) {
+            $index++;
+
+            $response = $this
+                ->withHeader('Authorization', 'Bearer '.$token)
+                ->postJson('/api/chatbot/process', [
+                    'message' => $message,
+                    'service_type' => 'kurir',
+                    'session_id' => 'sess-kurir-colloquial-'.$index,
+                ]);
+
+            $response
+                ->assertOk()
+                ->assertJsonPath('status', 'success')
+                ->assertJsonPath('data.validation.is_valid_order', true)
+                ->assertJsonPath('data.courier.package_description', $expectedPackage);
+
+            $dropoff = (string) $response->json('data.courier.dropoff_address');
+            $this->assertStringContainsString('Tembalang', $dropoff, 'Dropoff mismatch for message: '.$message);
+        }
+    }
+
+    public function test_chatbot_kurir_ambil_barang_di_lokasi_splits_item_from_pickup(): void
+    {
+        $this->fakeGeocoding();
+
+        $user = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+            'phone' => '089555555554',
+        ]);
+
+        $this->createDefaultAddress($user);
+
+        $token = $user->createToken('test-chatbot')->plainTextToken;
+
+        $response = $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/process', [
+                'message' => 'ambil dokumen di simpang lima, kirim ke polines',
+                'service_type' => 'kurir',
+                'session_id' => 'sess-kurir-ambil-split',
+            ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('status', 'success')
+            ->assertJsonPath('data.validation.is_valid_order', true)
+            ->assertJsonPath('data.courier.package_description', 'dokumen');
+
+        $pickup = (string) $response->json('data.courier.pickup_address');
+        $dropoff = (string) $response->json('data.courier.dropoff_address');
+
+        $this->assertStringContainsString('Simpang Lima', $pickup);
+        $this->assertStringNotContainsStringIgnoringCase('dokumen', $pickup);
+        $this->assertStringContainsString('Tembalang', $dropoff);
+    }
+
     /**
      * @param  array<string, mixed>  $overrides
      */
@@ -1351,6 +1548,21 @@ class ChatbotCourierFlowTest extends TestCase
                         'status' => 'OK',
                         'results' => [[
                             'formatted_address' => 'Erha Setiabudi Tembalang, Jl. Setiabudi, Kota Semarang, Jawa Tengah 50263, Indonesia',
+                            'geometry' => [
+                                'location' => [
+                                    'lat' => -7.052301,
+                                    'lng' => 110.435601,
+                                ],
+                            ],
+                        ]],
+                    ], 200);
+                }
+
+                if (str_contains($address, 'formulatrix')) {
+                    return Http::response([
+                        'status' => 'OK',
+                        'results' => [[
+                            'formatted_address' => 'Formulatrix New Building (PT. Promanufacture Indonesia), Jl. Soekarno Hatta No.14, Cebongan, Kec. Argomulyo, Kota Salatiga, Jawa Tengah 50736, Indonesia',
                             'geometry' => [
                                 'location' => [
                                     'lat' => -7.052301,

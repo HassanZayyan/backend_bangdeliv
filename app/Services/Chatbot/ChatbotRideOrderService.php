@@ -13,6 +13,7 @@ use App\Services\Maps\GoogleMapsGeocodingService;
 use App\Services\Order\OrderPaymentService;
 use App\Services\Order\RideOrderService;
 use App\Services\Pricing\DeliveryPricingService;
+use App\Support\GeoDistance;
 
 class ChatbotRideOrderService
 {
@@ -716,8 +717,7 @@ class ChatbotRideOrderService
      */
     private function hasCoordinatePair(array $source, string $prefix): bool
     {
-        return $this->nullableCoordinate($source[$prefix.'_latitude'] ?? null) !== null
-            && $this->nullableCoordinate($source[$prefix.'_longitude'] ?? null) !== null;
+        return ChatbotTransportSupport::hasCoordinatePair($source, $prefix);
     }
 
     private function routePointsAreTooClose(
@@ -726,7 +726,7 @@ class ChatbotRideOrderService
         float $destinationLatitude,
         float $destinationLongitude
     ): bool {
-        return $this->roughDistanceMeters(
+        return GeoDistance::meters(
             $originLatitude,
             $originLongitude,
             $destinationLatitude,
@@ -734,48 +734,19 @@ class ChatbotRideOrderService
         ) < self::MINIMUM_ROUTE_DISTANCE_METERS;
     }
 
-    private function roughDistanceMeters(
-        float $originLatitude,
-        float $originLongitude,
-        float $destinationLatitude,
-        float $destinationLongitude
-    ): float {
-        $earthRadiusMeters = 6371000.0;
-        $originLatitudeRad = deg2rad($originLatitude);
-        $destinationLatitudeRad = deg2rad($destinationLatitude);
-        $deltaLatitudeRad = deg2rad($destinationLatitude - $originLatitude);
-        $deltaLongitudeRad = deg2rad($destinationLongitude - $originLongitude);
-
-        $haversine = sin($deltaLatitudeRad / 2) ** 2
-            + cos($originLatitudeRad) * cos($destinationLatitudeRad) * sin($deltaLongitudeRad / 2) ** 2;
-        $safeHaversine = min(1.0, max(0.0, $haversine));
-
-        return $earthRadiusMeters * 2 * atan2(sqrt($safeHaversine), sqrt(1 - $safeHaversine));
-    }
-
     private function normalizeWhitespace(string $text): string
     {
-        return trim((string) preg_replace('/\s+/', ' ', $text));
+        return ChatbotTransportSupport::normalizeWhitespace($text);
     }
 
     private function normalizeOptionalString(mixed $value): ?string
     {
-        if (! is_string($value)) {
-            return null;
-        }
-
-        $normalized = trim($value);
-
-        return $normalized === '' ? null : $normalized;
+        return ChatbotTransportSupport::normalizeOptionalString($value);
     }
 
     private function nullableCoordinate(mixed $value): ?float
     {
-        if (! is_numeric($value)) {
-            return null;
-        }
-
-        return (float) $value;
+        return ChatbotTransportSupport::nullableCoordinate($value);
     }
 
     private function resolveCommand(string $normalizedMessage, ?array $nluPayload): ?string
@@ -1085,37 +1056,12 @@ class ChatbotRideOrderService
     private function extractPaymentMethod(string $message): ?string
     {
         $normalized = strtolower($this->normalizeCommandToken($message));
-        if (preg_match('/\b(?:transfer|tf|bank|qris|non tunai|nontunai)\b/u', $normalized) === 1) {
-            return OrderPaymentService::METHOD_TRANSFER;
-        }
 
-        if (preg_match('/\b(?:cod|cash|tunai)\b/u', $normalized) === 1) {
-            return OrderPaymentService::METHOD_COD;
-        }
-
-        return null;
+        return ChatbotTransportSupport::paymentMethodFromNormalizedText($normalized);
     }
 
     private function isPaymentMethodOnlyMessage(string $message, ?string $paymentMethod): bool
     {
-        if ($paymentMethod === null) {
-            return false;
-        }
-
-        $normalized = strtolower(trim((string) preg_replace('/[^\p{L}\p{N}\s]+/u', ' ', $message)));
-        $normalized = $this->normalizeWhitespace($normalized);
-
-        return in_array($normalized, [
-            'cod',
-            'cash',
-            'tunai',
-            'transfer',
-            'tf',
-            'bank',
-            'qris',
-            'non tunai',
-            'nontunai',
-        ], true);
+        return ChatbotTransportSupport::isPaymentMethodOnlyMessage($message, $paymentMethod);
     }
-
 }

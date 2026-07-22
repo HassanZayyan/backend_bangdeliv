@@ -2478,6 +2478,90 @@ class ChatbotShoppingFlowTest extends TestCase
         $this->assertSame([], $parsed['payload']['items']);
     }
 
+    public function test_chatbot_shopping_qris_payment_only_message_sets_transfer_method(): void
+    {
+        Config::set('bangdeliv.google_maps_api_key', 'test-key');
+
+        $customer = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        Address::query()->create([
+            'user_id' => $customer->id,
+            'label' => 'Rumah',
+            'recipient_name' => 'Customer Test',
+            'phone' => '081200000021',
+            'full_address' => 'Jl. Customer No. 21',
+            'latitude' => -7.003,
+            'longitude' => 110.403,
+            'is_default' => true,
+        ]);
+
+        $restaurant = Restaurant::query()->create([
+            'name' => 'Ayam Geprek Transfer',
+            'slug' => 'ayam-geprek-transfer-test',
+            'merchant_type' => 'restaurant',
+            'address' => 'Jl. Merchant No. 21',
+            'latitude' => -7.001,
+            'longitude' => 110.401,
+            'phone' => '081200000022',
+        ]);
+
+        Menu::query()->create([
+            'restaurant_id' => $restaurant->id,
+            'name' => 'Paket Geprek Original',
+            'price' => 22000,
+            'is_available' => true,
+            'sort_order' => 1,
+        ]);
+
+        Sanctum::actingAs($customer);
+
+        $paymentTokens = ['QRIS', 'tf', 'non tunai'];
+        foreach ($paymentTokens as $index => $paymentToken) {
+            $this->fakeGeminiAndDistance([
+                'intent' => 'shopping_order',
+                'command' => 'none',
+                'merchant' => 'Ayam Geprek Transfer',
+                'resto' => 'Ayam Geprek Transfer',
+                'items' => [
+                    ['name' => 'Paket Geprek Original', 'menu' => 'Paket Geprek Original', 'quantity' => 1, 'qty' => 1],
+                ],
+            ]);
+
+            $sessionId = 'shopping-transfer-token-'.$index;
+            $this->postJson('/api/chatbot/process', [
+                'session_id' => $sessionId,
+                'service_type' => 'nitip',
+                'message' => 'titip 1 paket geprek original dari Ayam Geprek Transfer',
+            ])
+                ->assertOk()
+                ->assertJsonPath('data.shopping.ready_to_confirm', true);
+
+            $paymentResponse = $this->postJson('/api/chatbot/process', [
+                'session_id' => $sessionId,
+                'service_type' => 'nitip',
+                'message' => $paymentToken,
+            ]);
+
+            $paymentResponse->assertOk()
+                ->assertJsonPath('data.shopping.payment_method', 'TRANSFER')
+                ->assertJsonPath('model_used', 'deterministic-payment');
+            $this->assertContains(
+                'CONFIRM_DRAFT',
+                $paymentResponse->json('data.validation.next_actions'),
+                'CONFIRM_DRAFT missing after payment token: '.$paymentToken
+            );
+            $this->assertStringContainsString(
+                'Metode pembayaran: QRIS.',
+                (string) $paymentResponse->json('data.assistant_text'),
+                'Assistant text mismatch for payment token: '.$paymentToken
+            );
+        }
+    }
+
     /**
      * @return array<string, int>
      */

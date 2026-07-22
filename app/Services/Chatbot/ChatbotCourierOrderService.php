@@ -18,6 +18,7 @@ use App\Services\Maps\GoogleMapsGeocodingService;
 use App\Services\Order\OrderNumberGenerator;
 use App\Services\Order\OrderPaymentService;
 use App\Services\Pricing\DeliveryPricingService;
+use App\Support\GeoDistance;
 use Illuminate\Support\Facades\DB;
 
 class ChatbotCourierOrderService
@@ -120,8 +121,8 @@ class ChatbotCourierOrderService
         $incomingSeed = $this->isPaymentMethodOnlyMessage($normalizedMessage, $paymentMethod)
             ? ['payment_method' => $paymentMethod]
             : $this->mergeCourierDraftSeed(
-                $this->buildDraftSeedFromNlu($nluPayload) ?? [],
-                $this->extractCourierPayload($normalizedMessage)
+                $this->extractCourierPayload($normalizedMessage),
+                $this->buildDraftSeedFromNlu($nluPayload) ?? []
             );
 
         if (
@@ -717,12 +718,14 @@ class ChatbotCourierOrderService
 
         $pickupAddress ??= $this->extractPermissiveAddressByPatterns($message, [
             '/\blokasi\s+ambil\s+(.+?)(?=(?:\s*,\s*|\.|\s+(?:tujuan|kirim|antar|drop\s*off|isi\s+paket|paket(?:nya)?|barang(?:nya)?|catatan)\b|$))/iu',
-            '/\b(?:ambil(?:kan)?|pickup|pick\s*up|jemput(?:\s*barang)?)\s*(?:di|dari|lokasi)?\s*[:\-]?\s*(.+?)(?=(?:\s*,\s*|\.|\s+(?:tujuan|kirim|antar|drop\s*off|isi\s+paket|paket(?:nya)?|barang(?:nya)?|catatan)\b|$))/iu',
+            // "ambil <barang> di <lokasi>" — alamat dimulai setelah di/dari eksplisit, barang opsional di tengah.
+            '/\b(?:ambil(?:in|kan)?|pickup|pick\s*up|jemput(?:\s*barang)?)\s+(?:[^,\.]+?\s+)?(?:di|dari)\s+(.+?)(?=(?:\s*,\s*|\.|\s+(?:tujuan|kirim|antar|drop\s*off|isi\s+paket|paket(?:nya)?|barang(?:nya)?|catatan)\b|$))/iu',
+            '/\b(?:ambil(?:in|kan)?|pickup|pick\s*up|jemput(?:\s*barang)?)\s*(?:di|dari|lokasi)?\s*[:\-]?\s*(.+?)(?=(?:\s*,\s*|\.|\s+(?:tujuan|kirim|antar|drop\s*off|isi\s+paket|paket(?:nya)?|barang(?:nya)?|catatan)\b|$))/iu',
         ]);
 
         $dropoffAddress ??= $this->extractPermissiveAddressByPatterns($message, [
             '/\btujuan\s+(?:kirim|antar(?:kan)?)?\s*(?:ke|di)?\s*[:\-]?\s*(.+?)(?=(?:\s*,\s*|\.|\s+(?:isi\s+paket|paket(?:nya)?|barang(?:nya)?|catatan)\b|$))/iu',
-            '/\b(?:kirim(?:kan)?|antar(?:kan)?|drop\s*off)\s+ke\s+(.+?)(?=(?:\s*,\s*|\.|\s+(?:isi\s+paket|paket(?:nya)?|barang(?:nya)?|catatan)\b|$))/iu',
+            '/\b(?:kirim(?:in|kan)?|antar(?:in|kan)?|anter(?:in|kan)?|bawa(?:in|kan)?|drop\s*off)\s+ke\s+(.+?)(?=(?:\s*,\s*|\.|\s+(?:isi\s+paket|paket(?:nya)?|barang(?:nya)?|catatan)\b|$))/iu',
         ]);
 
         $dropoffAddress ??= $this->extractPermissiveAddressByPatterns($message, [
@@ -730,8 +733,11 @@ class ChatbotCourierOrderService
         ]);
 
         $packageDescription = $this->extractByPatterns($message, [
-            '/\b(?:isi\s+paket|deskripsi\s+paket|paket(?:nya)?|barang(?:nya)?)\s*[:\-]?\s*(.+)$/iu',
-            '/\b(?:kirim(?:kan)?|antar(?:kan)?)\s+(.+?)\s+\b(?:dari|ke)\b/iu',
+            // Barang = objek setelah verba kirim/antar (termasuk imbuhan seperti "ROG temen gue"),
+            // berhenti sebelum ke/dari agar lokasi tidak ikut terbawa.
+            '/\b(?:kirim(?:in|kan)?|antar(?:in|kan)?|anter(?:in|kan)?|bawa(?:in|kan)?)\s+(?!(?:ke|dari)\b)([^,\.]+?)\s+\b(?:ke|dari)\b/iu',
+            '/\b(?:ambil(?:in|kan)?|jemput)\s+(?!(?:di|dari|ke)\b)([^,\.]+?)\s+\bdi\b/iu',
+            '/\b(?:isi\s+paket|deskripsi\s+paket|paket(?:nya)?|barang(?:nya)?)\s*[:\-]?\s*(.+?)(?=\s+\b(?:ke|dari)\b|\s*[,\.\n]|$)/iu',
         ]);
 
         $packageKeywordPattern = implode('|', array_map(
@@ -945,9 +951,11 @@ class ChatbotCourierOrderService
 
     private function normalizeWhitespace(string $text): string
     {
-        return trim((string) preg_replace('/\s+/', ' ', $text));
+        return ChatbotTransportSupport::normalizeWhitespace($text);
     }
 
+    // Berbeda dari ChatbotTransportSupport::normalizeOptionalString: versi kurir
+    // juga meng-collapse spasi internal (dipakai saat merge draft seed).
     private function normalizeOptionalString(mixed $value): ?string
     {
         if (! is_string($value)) {
@@ -1126,6 +1134,15 @@ class ChatbotCourierOrderService
         $packageDescription = $this->sanitizeAddressFragment(isset($nluPayload['package_description']) ? (string) $nluPayload['package_description'] : null);
         $paymentMethod = ChatbotTransportSupport::normalizePaymentMethodOrNull($nluPayload['payment_method'] ?? null);
 
+        if ($packageDescription !== null && $dropoffAddress !== null) {
+            $stripped = preg_replace(
+                '/\s+(?:ke|dari)\s+'.preg_quote($dropoffAddress, '/').'\s*$/iu',
+                '',
+                $packageDescription
+            );
+            $packageDescription = $this->sanitizeAddressFragment($stripped);
+        }
+
         if (
             $pickupAddress === null &&
             $dropoffAddress === null &&
@@ -1278,8 +1295,7 @@ class ChatbotCourierOrderService
      */
     private function hasCoordinatePair(array $source, string $prefix): bool
     {
-        return $this->nullableCoordinate($source[$prefix.'_latitude'] ?? null) !== null
-            && $this->nullableCoordinate($source[$prefix.'_longitude'] ?? null) !== null;
+        return ChatbotTransportSupport::hasCoordinatePair($source, $prefix);
     }
 
     private function assertRoutePointsSeparated(
@@ -1307,7 +1323,7 @@ class ChatbotCourierOrderService
         float $destinationLatitude,
         float $destinationLongitude
     ): bool {
-        return $this->roughDistanceMeters(
+        return GeoDistance::meters(
             $originLatitude,
             $originLongitude,
             $destinationLatitude,
@@ -1315,32 +1331,9 @@ class ChatbotCourierOrderService
         ) < self::MINIMUM_ROUTE_DISTANCE_METERS;
     }
 
-    private function roughDistanceMeters(
-        float $originLatitude,
-        float $originLongitude,
-        float $destinationLatitude,
-        float $destinationLongitude
-    ): float {
-        $earthRadiusMeters = 6371000.0;
-        $originLatitudeRad = deg2rad($originLatitude);
-        $destinationLatitudeRad = deg2rad($destinationLatitude);
-        $deltaLatitudeRad = deg2rad($destinationLatitude - $originLatitude);
-        $deltaLongitudeRad = deg2rad($destinationLongitude - $originLongitude);
-
-        $haversine = sin($deltaLatitudeRad / 2) ** 2
-            + cos($originLatitudeRad) * cos($destinationLatitudeRad) * sin($deltaLongitudeRad / 2) ** 2;
-        $safeHaversine = min(1.0, max(0.0, $haversine));
-
-        return $earthRadiusMeters * 2 * atan2(sqrt($safeHaversine), sqrt(1 - $safeHaversine));
-    }
-
     private function nullableCoordinate(mixed $value): ?float
     {
-        if (! is_numeric($value)) {
-            return null;
-        }
-
-        return (float) $value;
+        return ChatbotTransportSupport::nullableCoordinate($value);
     }
 
     /**
@@ -1518,36 +1511,12 @@ class ChatbotCourierOrderService
     private function extractPaymentMethod(string $message): ?string
     {
         $normalized = strtolower($this->normalizeWhitespace((string) preg_replace('/[^\p{L}\p{N}\s]+/u', '', $message)));
-        if (preg_match('/\b(?:transfer|tf|bank|qris|non tunai|nontunai)\b/u', $normalized) === 1) {
-            return OrderPaymentService::METHOD_TRANSFER;
-        }
 
-        if (preg_match('/\b(?:cod|cash|tunai)\b/u', $normalized) === 1) {
-            return OrderPaymentService::METHOD_COD;
-        }
-
-        return null;
+        return ChatbotTransportSupport::paymentMethodFromNormalizedText($normalized);
     }
 
     private function isPaymentMethodOnlyMessage(string $message, ?string $paymentMethod): bool
     {
-        if ($paymentMethod === null) {
-            return false;
-        }
-
-        $normalized = strtolower(trim((string) preg_replace('/[^\p{L}\p{N}\s]+/u', ' ', $message)));
-        $normalized = $this->normalizeWhitespace($normalized);
-
-        return in_array($normalized, [
-            'cod',
-            'cash',
-            'tunai',
-            'transfer',
-            'tf',
-            'bank',
-            'qris',
-            'non tunai',
-            'nontunai',
-        ], true);
+        return ChatbotTransportSupport::isPaymentMethodOnlyMessage($message, $paymentMethod);
     }
 }

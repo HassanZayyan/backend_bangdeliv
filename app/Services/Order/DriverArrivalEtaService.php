@@ -40,8 +40,8 @@ class DriverArrivalEtaService
             return null;
         }
 
-        $driverLatitude = $this->coordinateOrNull($driver->latitude, min: -90, max: 90);
-        $driverLongitude = $this->coordinateOrNull($driver->longitude, min: -180, max: 180);
+        $driverLatitude = $this->targetResolver->coordinateOrNull($driver->latitude, min: -90, max: 90);
+        $driverLongitude = $this->targetResolver->coordinateOrNull($driver->longitude, min: -180, max: 180);
         if ($driverLatitude === null || $driverLongitude === null) {
             return null;
         }
@@ -180,20 +180,6 @@ class DriverArrivalEtaService
         $freshMinutes = max(1, (int) config('bangdeliv.dispatch.fresh_location_minutes', 10));
 
         return $updatedAt->greaterThanOrEqualTo(now()->subMinutes($freshMinutes));
-    }
-
-    private function coordinateOrNull(mixed $value, float $min, float $max): ?float
-    {
-        if ($value === null || $value === '') {
-            return null;
-        }
-
-        $coordinate = (float) $value;
-        if ($coordinate < $min || $coordinate > $max) {
-            return null;
-        }
-
-        return $coordinate;
     }
 
     /**

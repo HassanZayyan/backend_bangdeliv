@@ -94,7 +94,7 @@ class OrderEtaTargetResolver
         ];
     }
 
-    private function coordinateOrNull(mixed $value, float $min, float $max): ?float
+    public function coordinateOrNull(mixed $value, float $min, float $max): ?float
     {
         if ($value === null || $value === '') {
             return null;

@@ -2127,57 +2127,23 @@ class ChatbotShoppingOrderService
     {
         $normalized = strtolower(trim((string) preg_replace('/[^\p{L}\p{N}\s]+/u', ' ', $message)));
         $normalized = $this->normalizeWhitespace($normalized);
-        if (preg_match('/\b(?:transfer|tf|bank|qris|non tunai|nontunai)\b/u', $normalized) === 1) {
-            return OrderPaymentService::METHOD_TRANSFER;
-        }
 
-        if (preg_match('/\b(?:cod|cash|tunai)\b/u', $normalized) === 1) {
-            return OrderPaymentService::METHOD_COD;
-        }
-
-        return null;
+        return ChatbotTransportSupport::paymentMethodFromNormalizedText($normalized);
     }
 
     private function normalizePaymentMethodOrNull(mixed $value): ?string
     {
-        $normalized = strtoupper(trim((string) ($value ?? '')));
-        if ($normalized === OrderPaymentService::METHOD_TRANSFER) {
-            return OrderPaymentService::METHOD_TRANSFER;
-        }
-        if ($normalized === OrderPaymentService::METHOD_COD) {
-            return OrderPaymentService::METHOD_COD;
-        }
-
-        return null;
+        return ChatbotTransportSupport::normalizePaymentMethodOrNull($value);
     }
 
     private function paymentMethodLabel(mixed $value): string
     {
-        return $this->normalizePaymentMethodOrNull($value) === OrderPaymentService::METHOD_TRANSFER
-            ? 'QRIS'
-            : 'COD';
+        return ChatbotTransportSupport::paymentMethodLabel($value);
     }
 
     private function isPaymentMethodOnlyMessage(string $message, ?string $paymentMethod): bool
     {
-        if ($paymentMethod === null) {
-            return false;
-        }
-
-        $normalized = strtolower(trim((string) preg_replace('/[^\p{L}\p{N}\s]+/u', ' ', $message)));
-        $normalized = $this->normalizeWhitespace($normalized);
-
-        return in_array($normalized, [
-            'cod',
-            'cash',
-            'tunai',
-            'transfer',
-            'tf',
-            'bank',
-            'qris',
-            'non tunai',
-            'nontunai',
-        ], true);
+        return ChatbotTransportSupport::isPaymentMethodOnlyMessage($message, $paymentMethod);
     }
 
     private function resolveServiceTypeId(): int
@@ -2202,22 +2168,16 @@ class ChatbotShoppingOrderService
 
     private function normalizeWhitespace(string $value): string
     {
-        return trim((string) preg_replace('/\s+/', ' ', $value));
+        return ChatbotTransportSupport::normalizeWhitespace($value);
     }
 
     private function normalizeOptionalString(mixed $value): ?string
     {
-        if (! is_string($value)) {
-            return null;
-        }
-
-        $normalized = trim($value);
-
-        return $normalized === '' ? null : $normalized;
+        return ChatbotTransportSupport::normalizeOptionalString($value);
     }
 
     private function nullableCoordinate(mixed $value): ?float
     {
-        return is_numeric($value) ? (float) $value : null;
+        return ChatbotTransportSupport::nullableCoordinate($value);
     }
 }
