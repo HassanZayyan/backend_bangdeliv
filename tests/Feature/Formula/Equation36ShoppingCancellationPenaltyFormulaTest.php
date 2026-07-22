@@ -85,7 +85,7 @@ class Equation36ShoppingCancellationPenaltyFormulaTest extends TestCase
         $this->assertSame(33333.33, $service->calculateCancellationPenalty($order));
     }
 
-    public function test_chargeable_failed_trip_compensation_precedes_the_standard_penalty_base(): void
+    public function test_penalty_always_uses_registered_delivery_fee_base(): void
     {
         $service = app(ShoppingPricingService::class);
         $order = $this->createShoppingOrder(12000);
@@ -95,8 +95,12 @@ class Equation36ShoppingCancellationPenaltyFormulaTest extends TestCase
         ]);
 
         $this->assertSame(40000.0, $service->calculateCancellationPenaltyFromBase(80000));
+
+        // Kompensasi perjalanan gagal tetap dihitung, tetapi tidak lagi
+        // mendahului penalti. Keduanya dibandingkan lewat max(P, C) pada
+        // Persamaan (5), sehingga penalti memakai basis ongkir terdaftar.
         $this->assertSame(6000.0, $service->chargeableFailedTripCompensationAmount($order));
-        $this->assertSame(6000.0, $service->calculateCancellationPenalty($order));
+        $this->assertSame(40000.0, $service->calculateCancellationPenalty($order));
     }
 
     public function test_negative_penalty_base_is_normalized_to_zero(): void

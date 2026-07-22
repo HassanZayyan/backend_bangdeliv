@@ -915,7 +915,8 @@ final class DriverOrderWorkflowService
     {
         return match ($statusCode) {
             'COMPLETED' => 'Selesai',
-            'CANCELLED', 'CANCELLED_WITH_FEE' => 'Dibatalkan',
+            'CANCELLED' => 'Dibatalkan',
+            'CANCELLED_WITH_FEE' => 'Dibatalkan (Berbiaya)',
             default => $fallbackDisplayName ?: $statusCode,
         };
     }

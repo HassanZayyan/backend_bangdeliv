@@ -281,14 +281,14 @@ class ShoppingPricingService
             return round((float) $manualPricing['cancellation_penalty'], 2);
         }
 
-        $failedTripCompensation = $this->chargeableFailedTripCompensationAmount($order);
-        if ($failedTripCompensation > 0) {
-            return $failedTripCompensation;
-        }
-
         $threshold = self::CANCELLATION_FAILED_ATTEMPT_THRESHOLD;
         $percent = self::CANCELLATION_PENALTY_PERCENT;
 
+        // Penalti selalu memakai basis ongkir terdaftar (Bp). Kompensasi
+        // perjalanan gagal tidak lagi mendahului di sini; keduanya dibandingkan
+        // lewat max(P, C) pada mode penaltyOnly (Persamaan 5), sehingga
+        // pembatalan menagih separuh ongkir yang disepakati -- atau separuh
+        // biaya rute gagal bila rute itu ternyata lebih panjang.
         if ($this->failedAttemptCount($order) < $threshold || $percent <= 0) {
             return 0.0;
         }

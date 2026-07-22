@@ -128,6 +128,22 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Verifikasi Perjalanan Gagal Nitip
+    |--------------------------------------------------------------------------
+    |
+    | Kegagalan merchant hanya diakumulasi ke kompensasi perjalanan gagal bila
+    | driver benar-benar berada di lokasi: posisinya dalam radius berikut dan
+    | lokasi GPS-nya masih segar. Keduanya konfigurabel agar kompensasi dapat
+    | diperagakan tanpa harus berada di titik merchant.
+    |
+    */
+    'failed_trip' => [
+        'verification_radius_meters' => env('FAILED_TRIP_VERIFICATION_RADIUS_METERS', 200),
+        'driver_location_fresh_minutes' => env('FAILED_TRIP_DRIVER_LOCATION_FRESH_MINUTES', 5),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Pelanggan 15 Service Area
     |--------------------------------------------------------------------------
     |

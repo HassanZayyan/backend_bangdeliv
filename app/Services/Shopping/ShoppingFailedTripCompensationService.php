@@ -15,7 +15,9 @@ class ShoppingFailedTripCompensationService
 {
     private const COMPENSATION_PERCENT = 50.0;
 
-    private const DRIVER_LOCATION_FRESH_MINUTES = 5;
+    private const DEFAULT_VERIFICATION_RADIUS_METERS = 200;
+
+    private const DEFAULT_DRIVER_LOCATION_FRESH_MINUTES = 5;
 
     public function __construct(
         private readonly ShoppingReplacementProjectionService $projection,
@@ -166,13 +168,13 @@ class ShoppingFailedTripCompensationService
         ];
     }
 
-    public function isDriverWithinMerchantRadius(Order $order, OrderLocation $pickup, int $meters = 200): bool
+    public function isDriverWithinMerchantRadius(Order $order, OrderLocation $pickup, ?int $meters = null): bool
     {
         $driver = Driver::query()->find($order->driver_id);
         if (! $driver || $driver->latitude === null || $driver->longitude === null || $driver->location_updated_at === null) {
             return false;
         }
-        if ($driver->location_updated_at->lt(now()->subMinutes(self::DRIVER_LOCATION_FRESH_MINUTES))) {
+        if ($driver->location_updated_at->lt(now()->subMinutes($this->driverLocationFreshMinutes()))) {
             return false;
         }
 
@@ -181,7 +183,26 @@ class ShoppingFailedTripCompensationService
             (float) $driver->longitude,
             (float) $pickup->latitude,
             (float) $pickup->longitude,
-        ) <= max(1, $meters);
+        ) <= max(1, $meters ?? $this->verificationRadiusMeters());
+    }
+
+    /**
+     * Radius kehadiran driver agar kegagalan dihitung untuk kompensasi.
+     */
+    public function verificationRadiusMeters(): int
+    {
+        return max(1, (int) config(
+            'bangdeliv.failed_trip.verification_radius_meters',
+            self::DEFAULT_VERIFICATION_RADIUS_METERS
+        ));
+    }
+
+    private function driverLocationFreshMinutes(): int
+    {
+        return max(1, (int) config(
+            'bangdeliv.failed_trip.driver_location_fresh_minutes',
+            self::DEFAULT_DRIVER_LOCATION_FRESH_MINUTES
+        ));
     }
 
     private function recordCompensationSnapshot(Order $order, ?int $actorId): void
@@ -251,7 +272,7 @@ class ShoppingFailedTripCompensationService
             $driver
             && $driver->latitude !== null
             && $driver->longitude !== null
-            && $driver->location_updated_at?->gte(now()->subMinutes(self::DRIVER_LOCATION_FRESH_MINUTES))
+            && $driver->location_updated_at?->gte(now()->subMinutes($this->driverLocationFreshMinutes()))
         ) {
             return [
                 'label' => 'Lokasi driver',
