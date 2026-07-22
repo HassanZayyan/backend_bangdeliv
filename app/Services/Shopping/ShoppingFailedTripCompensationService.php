@@ -19,6 +19,15 @@ class ShoppingFailedTripCompensationService
 
     private const DEFAULT_DRIVER_LOCATION_FRESH_MINUTES = 5;
 
+    /** Segmen berawal dari merchant sebelumnya -- perpindahan yang terbuang. */
+    public const ORIGIN_TYPE_MERCHANT = 'MERCHANT';
+
+    /** Segmen berawal dari posisi driver -- perjalanan menuju merchant pertama. */
+    public const ORIGIN_TYPE_DRIVER = 'DRIVER';
+
+    /** Titik awal tidak diketahui, mis. lokasi driver basi saat checkpoint. */
+    public const ORIGIN_TYPE_UNKNOWN = 'UNKNOWN';
+
     public function __construct(
         private readonly ShoppingReplacementProjectionService $projection,
         private readonly GoogleMapsDistanceMatrixService $maps,
@@ -53,6 +62,7 @@ class ShoppingFailedTripCompensationService
                 'chain_id' => $pickupProjection['chain_id'],
                 'chain_attempt_no' => $pickupProjection['chain_attempt_no'],
                 'origin' => $origin,
+                'origin_type' => $this->originType($origin),
                 'destination' => $destination,
                 ...$route,
                 'recorded_at' => now()->toIso8601String(),
@@ -79,6 +89,14 @@ class ShoppingFailedTripCompensationService
         $checkpointMetadata = is_array($checkpointMetadataRaw) ? $checkpointMetadataRaw : [];
         $pickupProjection = $this->projection->forPickup($order, (int) $pickup->id);
         $diagnostics = $this->verificationDiagnostics($order, $pickup);
+        $distanceMeters = max(0, (int) ($checkpointMetadata['distance_meters'] ?? 0));
+        $originType = (string) ($checkpointMetadata['origin_type'] ?? self::ORIGIN_TYPE_UNKNOWN);
+        // Perjalanan driver menuju merchant PERTAMA tidak dikompensasi: biaya
+        // dasar sudah mencakupnya, sama seperti pada order yang berhasil. Yang
+        // diganti hanya perpindahan antar-merchant yang terbuang. Tanpa aturan
+        // ini, driver yang kebetulan jauh dari merchant membuat tagihan
+        // pembatalan membengkak melampaui ongkir order itu sendiri.
+        $compensableDistanceMeters = $originType === self::ORIGIN_TYPE_MERCHANT ? $distanceMeters : 0;
         $event = OrderLog::query()->create([
             'order_id' => $order->id,
             'event_type' => ShoppingReplacementProjectionService::FAILED_TRIP_EVENT,
@@ -91,7 +109,9 @@ class ShoppingFailedTripCompensationService
                 'chain_attempt_no' => $pickupProjection['chain_attempt_no'],
                 'source' => strtoupper($source),
                 'checkpoint_event_id' => (int) $checkpoint->id,
-                'distance_meters' => max(0, (int) ($checkpointMetadata['distance_meters'] ?? 0)),
+                'distance_meters' => $distanceMeters,
+                'compensable_distance_meters' => $compensableDistanceMeters,
+                'origin_type' => $originType,
                 'route_provider' => $checkpointMetadata['route_provider'] ?? 'fallback',
                 'route_status' => $checkpointMetadata['route_status'] ?? 'ESTIMATION_FALLBACK',
                 'verified_for_compensation' => $verifiedForCompensation,
@@ -341,6 +361,23 @@ class ShoppingFailedTripCompensationService
             ->orderByDesc('id')
             ->get()
             ->first(fn (OrderLog $event): bool => (int) data_get($event->metadata, 'pickup_location_id', 0) === $pickupLocationId);
+    }
+
+    /**
+     * Titik awal segmen berasal dari merchant sebelumnya bila checkpoint
+     * terdahulu ada; selain itu dari posisi driver, atau tidak diketahui.
+     *
+     * @param  array<string, mixed>|null  $origin
+     */
+    private function originType(?array $origin): string
+    {
+        if (! is_array($origin)) {
+            return self::ORIGIN_TYPE_UNKNOWN;
+        }
+
+        return isset($origin['pickup_location_id'])
+            ? self::ORIGIN_TYPE_MERCHANT
+            : self::ORIGIN_TYPE_DRIVER;
     }
 
     /** @return array<string, mixed>|null */

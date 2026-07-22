@@ -315,8 +315,19 @@ class ShoppingPricingService
 
     public function cancellationDriverFeeAmount(Order $order): float
     {
-        return $this->storedCancellationPenaltyAmount($order)
-            ?? $this->calculateCancellationPenalty($order);
+        $stored = $this->storedCancellationPenaltyAmount($order);
+        if ($stored !== null) {
+            return $stored;
+        }
+
+        // Customer ditagih max(P, C) pada mode penaltyOnly (Persamaan 5), jadi
+        // driver menerima nominal yang sama. Sebelumnya driver hanya dibayar P
+        // sehingga saat kompensasi perjalanan gagal menang, selisihnya tidak
+        // pernah sampai ke pihak yang menempuh perjalanan itu.
+        return max(
+            $this->calculateCancellationPenalty($order),
+            $this->chargeableFailedTripCompensationAmount($order),
+        );
     }
 
     public function cancellationFailedAttemptThreshold(int $serviceTypeId): int

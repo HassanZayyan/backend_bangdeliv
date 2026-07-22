@@ -119,7 +119,11 @@ class ShoppingReplacementProjectionService
             $failedByChain[$chainId][$pickupId] = true;
             if (($metadata['verified_for_compensation'] ?? false) === true) {
                 $verifiedFailedPickupIds[$pickupId] = true;
-                $verifiedDistanceMeters += max(0, (int) ($metadata['distance_meters'] ?? 0));
+                // Order lama belum punya compensable_distance_meters; untuk itu
+                // jarak penuh tetap dipakai agar angkanya tidak berubah surut.
+                $verifiedDistanceMeters += max(0, (int) (
+                    $metadata['compensable_distance_meters'] ?? $metadata['distance_meters'] ?? 0
+                ));
             }
         }
 
