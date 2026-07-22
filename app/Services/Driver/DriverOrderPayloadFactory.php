@@ -144,6 +144,7 @@ class DriverOrderPayloadFactory
             'pricing_snapshot' => $pricingSnapshot,
             'fee_breakdown' => $this->feeBreakdown($order, $pricingSnapshot),
             'proofs' => $proofs,
+            'proof_capabilities' => $this->proofCapabilities($order, $statusCode),
             'payment_proof_feedback' => $paymentProofFeedback,
             'total_price' => round((float) $order->total_price, 2),
             'item_count' => $itemCount,
@@ -305,6 +306,43 @@ class DriverOrderPayloadFactory
     private function canonicalProofType(string $evidenceType): string
     {
         return ProofType::fromEvidenceType($evidenceType);
+    }
+
+    /**
+     * Kapabilitas unggah bukti foto per tipe pada status order saat ini.
+     *
+     * Menjadi satu-satunya sumber aturan supaya aplikasi driver tidak perlu
+     * menduplikasi pemetaan status -> bukti yang diizinkan.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    private function proofCapabilities(Order $order, string $statusCode): array
+    {
+        $serviceCode = (string) ($order->serviceType->code ?? '');
+        $capabilities = [];
+
+        $types = [
+            ProofType::Pickup->value,
+            ProofType::Delivery->value,
+            ProofType::Receipt->value,
+            ProofType::StoreClosed->value,
+        ];
+
+        foreach ($types as $type) {
+            if (! $this->proofPolicyService->supportsDriverProofType($serviceCode, $type)) {
+                continue;
+            }
+
+            $canUpload = $this->proofPolicyService->isDriverProofAllowedForStatus($serviceCode, $type, $statusCode);
+            $capabilities[$type] = [
+                'can_upload' => $canUpload,
+                'locked_reason' => $canUpload
+                    ? null
+                    : $this->proofPolicyService->proofNotAllowedYetMessage($type),
+            ];
+        }
+
+        return $capabilities;
     }
 
     /**

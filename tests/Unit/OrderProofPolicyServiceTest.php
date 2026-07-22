@@ -45,4 +45,63 @@ class OrderProofPolicyServiceTest extends TestCase
 
         $policy->normalizeProofType('unknown-proof');
     }
+
+    public function test_courier_pickup_proof_is_locked_before_driver_arrives_at_pickup(): void
+    {
+        $policy = new OrderProofPolicyService;
+        $courier = ServiceTypeCode::Courier->value;
+        $pickup = ProofType::Pickup->value;
+
+        $this->assertFalse($policy->isDriverProofAllowedForStatus($courier, $pickup, 'PENDING'));
+        $this->assertFalse($policy->isDriverProofAllowedForStatus($courier, $pickup, 'DRIVER_ASSIGNED'));
+
+        $this->assertTrue($policy->isDriverProofAllowedForStatus($courier, $pickup, 'ARRIVED_PICKUP'));
+        $this->assertTrue($policy->isDriverProofAllowedForStatus($courier, $pickup, 'PICKED_UP'));
+        $this->assertTrue($policy->isDriverProofAllowedForStatus($courier, $pickup, 'ON_THE_WAY'));
+        $this->assertTrue($policy->isDriverProofAllowedForStatus($courier, $pickup, 'DELIVERED'));
+    }
+
+    public function test_courier_delivery_proof_is_locked_before_driver_arrives_at_dropoff(): void
+    {
+        $policy = new OrderProofPolicyService;
+        $courier = ServiceTypeCode::Courier->value;
+        $delivery = ProofType::Delivery->value;
+
+        $this->assertFalse($policy->isDriverProofAllowedForStatus($courier, $delivery, 'DRIVER_ASSIGNED'));
+        $this->assertFalse($policy->isDriverProofAllowedForStatus($courier, $delivery, 'ARRIVED_PICKUP'));
+        $this->assertFalse($policy->isDriverProofAllowedForStatus($courier, $delivery, 'ON_THE_WAY'));
+
+        $this->assertTrue($policy->isDriverProofAllowedForStatus($courier, $delivery, 'ARRIVED_DROPOFF'));
+        $this->assertTrue($policy->isDriverProofAllowedForStatus($courier, $delivery, 'DELIVERED'));
+        $this->assertTrue($policy->isDriverProofAllowedForStatus($courier, $delivery, 'COMPLETED'));
+    }
+
+    public function test_non_courier_proofs_keep_unrestricted_status(): void
+    {
+        $policy = new OrderProofPolicyService;
+
+        $this->assertSame([], $policy->allowedStatusesForDriverProof(
+            ServiceTypeCode::Shopping->value,
+            ProofType::Receipt->value,
+        ));
+        $this->assertTrue($policy->isDriverProofAllowedForStatus(
+            ServiceTypeCode::Shopping->value,
+            ProofType::Receipt->value,
+            'DRIVER_ASSIGNED',
+        ));
+    }
+
+    public function test_locked_reason_mentions_the_required_driver_action(): void
+    {
+        $policy = new OrderProofPolicyService;
+
+        $this->assertStringContainsString(
+            'Tiba di Titik Pickup',
+            $policy->proofNotAllowedYetMessage(ProofType::Pickup->value),
+        );
+        $this->assertStringContainsString(
+            'Tiba di Tujuan',
+            $policy->proofNotAllowedYetMessage(ProofType::Delivery->value),
+        );
+    }
 }

@@ -376,6 +376,66 @@ class AuthRegisterCustomerTest extends TestCase
             ->assertJsonValidationErrors(['email', 'phone', 'new_password']);
     }
 
+    public function test_login_reports_unregistered_email_distinctly(): void
+    {
+        $response = $this->postJson('/api/auth/login', [
+            'email' => 'belum.terdaftar@example.com',
+            'password' => 'passwordApaSaja123',
+        ]);
+
+        $response->assertUnauthorized()
+            ->assertJsonPath('message', 'Email tidak terdaftar.')
+            ->assertJsonPath('error_code', 'email_not_registered');
+    }
+
+    public function test_login_reports_wrong_password_distinctly(): void
+    {
+        User::query()->create([
+            'name' => 'Login Salah Password',
+            'email' => 'salah.password@example.com',
+            'phone' => '081234560031',
+            'password' => Hash::make('passwordBenar123'),
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        $response = $this->postJson('/api/auth/login', [
+            'email' => 'salah.password@example.com',
+            'password' => 'passwordKeliru123',
+        ]);
+
+        $response->assertUnauthorized()
+            ->assertJsonPath('message', 'Email atau password salah.')
+            ->assertJsonPath('error_code', 'invalid_credentials');
+    }
+
+    public function test_login_guides_google_only_account_to_google_button(): void
+    {
+        User::query()->create([
+            'name' => 'Akun Google',
+            'email' => 'akun.google@example.com',
+            'phone' => '081234560032',
+            'password' => null,
+            'google_sub' => 'google-sub-akun-google',
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        $response = $this->postJson('/api/auth/login', [
+            'email' => 'akun.google@example.com',
+            'password' => 'passwordApaSaja123',
+        ]);
+
+        $response->assertUnauthorized()
+            ->assertJsonPath(
+                'message',
+                'Akun ini terdaftar lewat Google. Gunakan tombol Masuk dengan Google.'
+            )
+            ->assertJsonPath('error_code', 'google_account_without_password');
+    }
+
     private function mockGoogleVerifier(array $identity): void
     {
         $this->mock(GoogleIdTokenVerifier::class, function ($mock) use ($identity): void {

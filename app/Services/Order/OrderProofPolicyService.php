@@ -2,12 +2,65 @@
 
 namespace App\Services\Order;
 
+use App\Enums\OrderStatusCode;
 use App\Enums\ProofType;
 use App\Enums\ServiceTypeCode;
 use App\Exceptions\ApiException;
 
 class OrderProofPolicyService
 {
+    /**
+     * Status order yang mengizinkan driver mengunggah bukti foto.
+     *
+     * Kurir: bukti pengambilan baru masuk akal setelah driver tiba di titik
+     * jemput, dan bukti diterima setelah driver tiba di tujuan. Layanan lain
+     * belum dibatasi status (array kosong = tanpa batasan).
+     *
+     * @return array<int, string>
+     */
+    public function allowedStatusesForDriverProof(string $serviceCode, string $type): array
+    {
+        if (ServiceTypeCode::normalize($serviceCode) !== ServiceTypeCode::Courier->value) {
+            return [];
+        }
+
+        return match ($type) {
+            ProofType::Pickup->value => [
+                OrderStatusCode::ArrivedPickup->value,
+                OrderStatusCode::PickedUp->value,
+                OrderStatusCode::OnTheWay->value,
+                OrderStatusCode::ArrivedDropoff->value,
+                OrderStatusCode::Delivered->value,
+                OrderStatusCode::Completed->value,
+            ],
+            ProofType::Delivery->value => [
+                OrderStatusCode::ArrivedDropoff->value,
+                OrderStatusCode::Delivered->value,
+                OrderStatusCode::Completed->value,
+            ],
+            default => [],
+        };
+    }
+
+    public function isDriverProofAllowedForStatus(string $serviceCode, string $type, string $statusCode): bool
+    {
+        $allowed = $this->allowedStatusesForDriverProof($serviceCode, $type);
+        if ($allowed === []) {
+            return true;
+        }
+
+        return in_array(OrderStatusCode::normalize($statusCode), $allowed, true);
+    }
+
+    public function proofNotAllowedYetMessage(string $type): string
+    {
+        return match ($type) {
+            ProofType::Pickup->value => 'Bukti pengambilan bisa diunggah setelah kamu menekan "Tiba di Titik Pickup".',
+            ProofType::Delivery->value => 'Bukti diterima bisa diunggah setelah kamu menekan "Tiba di Tujuan".',
+            default => 'Bukti foto belum bisa diunggah pada status order saat ini.',
+        };
+    }
+
     public function supportsDriverProofType(string $serviceCode, string $type): bool
     {
         return match (ServiceTypeCode::normalize($serviceCode)) {

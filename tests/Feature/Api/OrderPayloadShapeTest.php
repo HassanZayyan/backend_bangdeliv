@@ -176,6 +176,7 @@ class OrderPayloadShapeTest extends TestCase
                 'pickup_longitude',
                 'pricing',
                 'pricing_snapshot',
+                'proof_capabilities',
                 'proofs',
                 'route',
                 'service_type_code',

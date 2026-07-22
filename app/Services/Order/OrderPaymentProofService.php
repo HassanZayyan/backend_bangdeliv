@@ -129,6 +129,14 @@ final class OrderPaymentProofService
                 throw new ApiException($this->unsupportedProofMessage($type, $serviceCode), 422);
             }
 
+            $statusCode = (string) ($order->statusRef->code ?? '');
+            if (
+                $this->isLifecycleProofType($type) &&
+                ! $this->proofPolicyService->isDriverProofAllowedForStatus($serviceCode, $type, $statusCode)
+            ) {
+                throw new ApiException($this->proofPolicyService->proofNotAllowedYetMessage($type), 422);
+            }
+
             $evidenceType = $this->evidenceTypeForProof($type);
             $this->orderEvidenceService->storeAndRecordDriverEvidence(
                 $order,

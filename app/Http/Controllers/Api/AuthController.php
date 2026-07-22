@@ -11,9 +11,9 @@ use App\Http\Requests\Api\ValidateAddressRequest;
 use App\Models\OrderPayment;
 use App\Models\PhoneVerificationCode;
 use App\Models\User;
+use App\Services\Address\AddressService;
 use App\Services\Auth\GoogleIdTokenVerifier;
 use App\Services\Auth\WhatsAppOtpSender;
-use App\Services\Address\AddressService;
 use App\Services\Driver\DriverIncomeFeeCalculator;
 use App\Services\Driver\DriverOnboardingService;
 use Illuminate\Http\Exceptions\HttpResponseException;
@@ -128,12 +128,26 @@ class AuthController extends Controller
 
         $user = User::where('email', $payload['email'])->first();
 
-        if (
-            ! $user ||
-            trim((string) ($user->password ?? '')) === '' ||
-            ! Hash::check($payload['password'], (string) $user->password)
-        ) {
-            return response()->json(['message' => 'Kredensial tidak valid.'], 401);
+        if (! $user) {
+            return response()->json([
+                'message' => 'Email tidak terdaftar.',
+                'error_code' => 'email_not_registered',
+            ], 401);
+        }
+
+        // Akun hasil Google Sign-In belum punya password lokal.
+        if (trim((string) ($user->password ?? '')) === '') {
+            return response()->json([
+                'message' => 'Akun ini terdaftar lewat Google. Gunakan tombol Masuk dengan Google.',
+                'error_code' => 'google_account_without_password',
+            ], 401);
+        }
+
+        if (! Hash::check($payload['password'], (string) $user->password)) {
+            return response()->json([
+                'message' => 'Email atau password salah.',
+                'error_code' => 'invalid_credentials',
+            ], 401);
         }
 
         $user = $user->fresh();
