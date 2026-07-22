@@ -392,7 +392,11 @@ class ShoppingMerchantReplacementService
             throw new ApiException('Titik antar order belum tersedia.', 422);
         }
 
-        return $this->routeService->calculateForPoints($pickupPoints, [
+        // Optimasi urutan waypoint, sama seperti rute nyata (applyRouteToOrder).
+        // Kandidat pengganti bisa jadi lebih dekat customer daripada merchant
+        // tersisa; tanpa optimasi, urutan naif memaksa rute bolak-balik yang
+        // meng-over-estimate ongkir, lalu ongkir itu dikunci dan ditagihkan.
+        return $this->routeService->calculateOptimizedForPoints($pickupPoints, [
             'label' => (string) $dropoff->label,
             'latitude' => (float) $dropoff->latitude,
             'longitude' => (float) $dropoff->longitude,

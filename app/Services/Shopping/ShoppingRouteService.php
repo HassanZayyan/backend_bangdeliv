@@ -262,6 +262,23 @@ class ShoppingRouteService
         $pickupPoints = $pickups->map(fn (OrderLocation $location): array => $this->pointFromLocation($location))->all();
         $dropoffPoint = $this->pointFromLocation($dropoff);
 
+        return $this->calculateOptimizedForPoints($pickupPoints, $dropoffPoint);
+    }
+
+    /**
+     * Rute untuk sekumpulan titik eksplisit dengan urutan waypoint yang
+     * dioptimasi -- persis jalur yang dipakai calculateForOrder(). Preview
+     * ganti-resto WAJIB memakai ini, bukan calculateForPoints() mentah, agar
+     * ongkir preview = ongkir rute nyata. Sebelumnya preview memakai urutan
+     * naif (kandidat ditaruh terakhir) sehingga meng-over-estimate jarak,
+     * lalu ongkir naif itu dikunci dan menimpa rute optimal yang benar.
+     *
+     * @param  array<int, array<string, mixed>>  $pickupPoints
+     * @param  array<string, mixed>  $dropoffPoint
+     * @return array<string, mixed>
+     */
+    public function calculateOptimizedForPoints(array $pickupPoints, array $dropoffPoint): array
+    {
         $this->assertShoppingPointsWithinServiceArea($pickupPoints, $dropoffPoint);
 
         if ((bool) config('bangdeliv.routes.optimize_shopping_waypoints', true) && count($pickupPoints) > 1) {
@@ -282,7 +299,6 @@ class ShoppingRouteService
                 return $route;
             } catch (ApiException $exception) {
                 Log::warning('Optimized shopping route failed; falling back to sequential route.', [
-                    'order_id' => $order->id,
                     'message' => $exception->getMessage(),
                 ]);
             }
