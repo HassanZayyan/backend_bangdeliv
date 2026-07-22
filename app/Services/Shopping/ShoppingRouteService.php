@@ -153,27 +153,44 @@ class ShoppingRouteService
             ? round((float) $preservedDeliveryFee, 2)
             : null;
         $deliveryFeeLock = $this->deliveryFeeLockResolver->resolve($order);
-        $lockedDeliveryFee = $preservedDeliveryFee ?? ((bool) $deliveryFeeLock['is_locked']
-            ? (float) $deliveryFeeLock['amount']
-            : null);
+        // Kunci ongkir NYATA hasil edit manual driver / negosiasi, dipisahkan
+        // dari nilai carry-over ($preservedDeliveryFee) yang cuma dibawa terus
+        // sebagai basis penalti. Keduanya sempat bercampur; pemisahan ini yang
+        // memungkinkan ongkir carry-over dinolkan tanpa ikut menghapus
+        // kesepakatan ongkir manual driver.
+        $manualLockedFee = ((bool) $deliveryFeeLock['is_locked']
+            && is_numeric($deliveryFeeLock['amount'])
+            && (float) $deliveryFeeLock['amount'] > 0)
+            ? round((float) $deliveryFeeLock['amount'], 2)
+            : null;
+        $lockedDeliveryFee = $preservedDeliveryFee ?? $manualLockedFee;
         $deliveryFeeLockSource = $preservedDeliveryFee !== null
             ? ($preservedDeliveryFeeSource ?: 'PRESERVED_DELIVERY_FEE')
             : $deliveryFeeLock['source'];
 
         if ($this->activePickupLocations($order)->isEmpty()) {
+            // Tidak ada merchant aktif berarti tidak ada rute pengantaran, jadi
+            // O(x) pada Persamaan (1) tak terdefinisi -- bukan Rp0 yang berarti
+            // "gratis", melainkan "belum ada". Ongkir dinolkan (kecuali dikunci
+            // manual driver) supaya tagihan tidak lagi memamerkan ongkir
+            // carry-over untuk pengantaran yang tak akan pernah terjadi. Basis
+            // penalti tetap aman: tersimpan terpisah di event
+            // penalty_base_delivery_fee yang penyaringnya hanya menerima > 0.
+            $emptyRouteFee = round($manualLockedFee ?? 0.0, 2);
+            $order->update(['delivery_fee' => $emptyRouteFee]);
             $this->storeRouteSnapshot($order, [
                 'distance_meters' => null,
                 'distance_km' => null,
                 'distance_text' => null,
                 'duration_seconds' => null,
                 'duration_text' => null,
-                'delivery_fee' => round($lockedDeliveryFee ?? (float) $order->delivery_fee, 2),
+                'delivery_fee' => $emptyRouteFee,
                 'segments' => [],
                 'ordered_pickup_location_ids' => [],
                 'encoded_polyline' => null,
                 'route_provider' => 'none',
                 'route_status' => 'NO_ACTIVE_PICKUPS',
-                ...($lockedDeliveryFee !== null ? [
+                ...($manualLockedFee !== null ? [
                     'delivery_fee_locked' => true,
                     'delivery_fee_lock_source' => $deliveryFeeLockSource,
                 ] : []),
