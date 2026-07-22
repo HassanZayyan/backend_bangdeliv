@@ -113,9 +113,11 @@ class DriverOrderPayloadFactory
 
         $pricingSnapshot = $this->pricingSnapshot($order);
         $deliveryFee = round((float) $order->delivery_fee, 2);
-        $driverFee = $serviceCode === ServiceTypeCode::Shopping->value && $statusCode === 'CANCELLED_WITH_FEE'
-            ? $this->shoppingPricingService->cancellationDriverFeeAmount($order)
-            : $deliveryFee;
+        // Pendapatan driver dihitung lewat kalkulator terpusat, bukan disalin
+        // ulang di sini. Salinan sebelumnya hanya mengenal ongkir dan penalti
+        // pembatalan, sehingga kompensasi perjalanan gagal Nitip hilang dan
+        // detail pesanan berbeda dengan kartu riwayat untuk order yang sama.
+        $driverFee = $this->driverIncomeFeeCalculator->grossIncomeForOrder($order);
         $incomeBreakdown = $this->driverIncomeFeeCalculator->breakdown($driverFee);
 
         $payload = [

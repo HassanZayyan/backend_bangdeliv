@@ -10,6 +10,7 @@ use App\Models\OrderStatus;
 use App\Models\ServiceType;
 use App\Models\User;
 use App\Services\Driver\DriverIncomeFeeCalculator;
+use App\Services\Driver\DriverOrderPayloadFactory;
 use App\Services\Maps\GoogleMapsDistanceMatrixService;
 use App\Services\Pricing\ShoppingPricingService;
 use App\Services\Shopping\ShoppingFailedTripCompensationService;
@@ -109,6 +110,30 @@ class ShoppingFailedTripCompensationFieldReplicationTest extends TestCase
         $this->assertSame(14850.0, $breakdown['net_income']);
 
         unset($driver, $pickups);
+    }
+
+    public function test_order_detail_payload_reports_the_same_income_as_the_history_card(): void
+    {
+        [$order] = $this->replicateOrder35(driverStaysAtHome: false);
+
+        $order = Order::query()
+            ->with(app(DriverOrderPayloadFactory::class)->relations())
+            ->findOrFail($order->id);
+
+        $payload = app(DriverOrderPayloadFactory::class)->serialize($order);
+
+        // Regresi: detail pesanan dulu menyalin logika pendapatan dan hanya
+        // mengenal ongkir, sehingga menampilkan Rp11.000 / Rp9.900 sementara
+        // kartu riwayat untuk order yang sama menampilkan Rp16.500 / Rp14.850.
+        $this->assertSame(16500.0, $payload['driver_income_gross']);
+        $this->assertSame(1650.0, $payload['driver_admin_fee']);
+        $this->assertSame(14850.0, $payload['driver_income_net']);
+        $this->assertSame(11000.0, $payload['delivery_fee'], 'ongkir tetap terpisah dari kompensasi');
+        $this->assertSame(
+            app(DriverIncomeFeeCalculator::class)->grossIncomeForOrder($order),
+            $payload['driver_income_gross'],
+            'detail dan riwayat wajib memakai kalkulator yang sama'
+        );
     }
 
     public function test_field_position_thirty_kilometres_away_records_why_it_was_rejected(): void
