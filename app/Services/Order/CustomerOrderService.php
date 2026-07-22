@@ -15,6 +15,7 @@ use App\Services\Admin\AdminNotificationService;
 use App\Services\Driver\DriverOrderLifecycleService;
 use App\Services\Driver\DriverOrderRealtimeService;
 use App\Services\Notification\PaymentProofReminderNotificationService;
+use App\Services\Notification\ShoppingMerchantFailurePushNotificationService;
 use App\Services\Pricing\ShoppingPricingService;
 use App\Services\Shopping\ShoppingFailedTripCompensationService;
 use App\Services\Shopping\ShoppingPickupLocationService;
@@ -29,6 +30,7 @@ final class CustomerOrderService
 {
     public function __construct(
         private readonly PaymentProofReminderNotificationService $paymentProofReminderNotificationService,
+        private readonly ShoppingMerchantFailurePushNotificationService $shoppingMerchantFailurePushNotificationService,
         private readonly ShoppingPricingService $shoppingPricingService,
         private readonly ShoppingRouteService $shoppingRouteService,
         private readonly DriverOrderLifecycleService $driverOrderLifecycleService,
@@ -341,7 +343,9 @@ final class CustomerOrderService
             throw new ApiException('Hanya driver atau admin yang dapat mencatat failed attempt.', 403);
         }
 
-        $order = DB::transaction(function () use ($actor, $orderId, $normalizedFailureType, $reason, $pickupLocationId, $merchantClosedPhoto, &$statusChangeEventPayload): Order {
+        $merchantClosedNotification = null;
+
+        $order = DB::transaction(function () use ($actor, $orderId, $normalizedFailureType, $reason, $pickupLocationId, $merchantClosedPhoto, &$statusChangeEventPayload, &$merchantClosedNotification): Order {
             $order = Order::query()
                 ->with(['statusRef', 'serviceType', 'orderLocations', 'items', 'shoppingReceipt'])
                 ->lockForUpdate()
@@ -431,7 +435,7 @@ final class CustomerOrderService
                 $verifiedForCompensation = $normalizedFailureType === 'PICKUP'
                     && $evidence !== null
                     && $this->shoppingFailedTripCompensationService->isDriverWithinMerchantRadius($order, $pickup);
-                $this->shoppingFailedTripCompensationService->recordFailure(
+                $failedTripEvent = $this->shoppingFailedTripCompensationService->recordFailure(
                     $order,
                     $pickup,
                     (int) $actor->id,
@@ -496,13 +500,31 @@ final class CustomerOrderService
                 ],
             ]);
 
+            // Notifikasi harga generik dibungkam di sini: peristiwanya sudah
+            // dikabarkan lewat satu notifikasi yang memuat nama resto sekaligus
+            // total barunya, jadi customer tidak menerima dua pesan beruntun.
             $recalculated = $this->shoppingPricingService->recalculate(
                 $order->refresh()->load(['items', 'statusRef', 'serviceType', 'shoppingReceipt']),
                 $actor->id,
                 'SHOPPING_FAILED_ATTEMPT',
                 false,
-                $reason
+                $reason,
+                notifyTotalChanged: $pickup === null,
             );
+
+            if ($pickup !== null && isset($failedTripEvent)) {
+                $chainAfterFailure = $this->shoppingReplacementProjectionService->forPickup(
+                    $recalculated,
+                    (int) $pickup->id
+                );
+                $merchantClosedNotification = [
+                    'pickup_location_id' => (int) $pickup->id,
+                    'new_total_price' => round((float) $recalculated->total_price, 2),
+                    'remaining_attempts' => max(0, (int) $chainAfterFailure['chain_failed_attempt_limit']
+                        - (int) $chainAfterFailure['chain_failed_attempt_count']),
+                    'event_id' => (int) $failedTripEvent->id,
+                ];
+            }
 
             // Replacement is exposed in ARRIVED_MERCHANT. Transition before
             // the early return that keeps the failed chain open for a direct
@@ -549,6 +571,17 @@ final class CustomerOrderService
 
         $this->orderRealtimeNotifier->broadcastOrderStatusChanged($statusChangeEventPayload);
         $this->orderRealtimeNotifier->sendOrderStatusPushNotification($order, $statusChangeEventPayload);
+
+        if (is_array($merchantClosedNotification)) {
+            $this->shoppingMerchantFailurePushNotificationService->sendMerchantClosed(
+                $order,
+                $merchantClosedNotification['pickup_location_id'],
+                $merchantClosedNotification['new_total_price'],
+                $merchantClosedNotification['remaining_attempts'],
+                $merchantClosedNotification['event_id'],
+            );
+        }
+
         $this->paymentProofReminderNotificationService->scheduleForBlockingPaymentStatus($order->refresh());
 
         return $order;

@@ -9,6 +9,9 @@ use Kreait\Firebase\Messaging\Notification;
 
 class OrderPricingPushNotificationService
 {
+    /** Status akhir yang notifikasinya sudah ditangani jalur status order. */
+    public const CANCELLED_STATUS_CODES = ['CANCELLED', 'CANCELLED_WITH_FEE'];
+
     public function __construct(private readonly UserPushNotificationSender $sender) {}
 
     public function sendPriceChanged(
@@ -186,6 +189,13 @@ class OrderPricingPushNotificationService
 
         $statusCode = strtoupper((string) ($order->statusRef?->code ?? ''));
         if ($statusCode === '' || $statusCode === 'PENDING') {
+            return false;
+        }
+
+        // Pembatalan bukan perubahan harga: OrderStatusPushNotificationService
+        // sudah mengabarkannya, dan pada mode penaltyOnly ongkir sengaja
+        // dinolkan sehingga notifikasi harga malah melaporkan Rp0.
+        if (in_array($statusCode, self::CANCELLED_STATUS_CODES, true)) {
             return false;
         }
 

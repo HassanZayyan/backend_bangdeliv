@@ -252,6 +252,9 @@ class ShoppingPricingService
 
         $this->broadcastContentUpdatedAfterCommit((int) $freshOrder->id, $triggerType, [
             ...$pricing,
+            // Dikirim eksplisit supaya klien tidak perlu menebak dari nama
+            // trigger apakah order sudah berakhir batal.
+            'status_code' => strtoupper((string) ($freshOrder->statusRef?->code ?? '')),
             'price_event_id' => (int) $event->id,
             'old_total_price' => round((float) ($oldAmounts['TOTAL_PRICE'] ?? 0), 2),
             'new_total_price' => round((float) ($newAmounts['TOTAL_PRICE'] ?? 0), 2),

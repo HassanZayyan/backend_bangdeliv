@@ -13,6 +13,7 @@ use App\Models\OrderPayment;
 use App\Models\OrderStatus;
 use App\Models\ServiceType;
 use App\Models\User;
+use App\Services\Notification\OrderPricingPushNotificationService;
 use App\Services\Notification\PaymentProofReminderNotificationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
@@ -141,6 +142,73 @@ class OrderPricingPushNotificationTest extends TestCase
         ])->assertOk()
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.shopping_negotiation.status', 'APPROVED');
+    }
+
+    public function test_merchant_closed_sends_one_push_with_store_name_and_new_total(): void
+    {
+        [$driverUser, , $customer, $order] = $this->createAssignedOrder('SHOPPING', 'ARRIVED_MERCHANT');
+        $this->createToken($customer, 'customer-merchant-closed-token');
+        $this->createToken($driverUser, 'driver-merchant-closed-token');
+        $pickup = $order->orderLocations()->where('location_role', 'PICKUP')->firstOrFail();
+        $pickup->update(['label' => 'Warung Geprek Mbak Nur']);
+
+        // Tepat SATU push, dan hanya ke customer. Notifikasi harga generik
+        // "Total order diperbarui" sengaja tidak ikut terkirim.
+        $messaging = Mockery::mock(Messaging::class);
+        $messaging
+            ->shouldReceive('sendMulticast')
+            ->once()
+            ->withArgs(function ($message, $tokens) use ($order, $pickup): bool {
+                $payload = json_decode(json_encode($message), true);
+
+                return $tokens === ['customer-merchant-closed-token']
+                    && $payload['notification']['title'] === 'Resto tutup'
+                    && str_contains($payload['notification']['body'], 'Warung Geprek Mbak Nur tutup')
+                    && str_contains($payload['notification']['body'], 'Total kini Rp')
+                    && str_contains($payload['notification']['body'], 'sisa 2 percobaan')
+                    && $payload['data']['type'] === 'shopping_merchant_failed'
+                    && $payload['data']['order_id'] === (string) $order->id
+                    && $payload['data']['recipient_role'] === 'customer'
+                    && $payload['data']['merchant_name'] === 'Warung Geprek Mbak Nur'
+                    && $payload['data']['remaining_attempts'] === '2'
+                    && $payload['data']['focus'] === 'shopping_price'
+                    && $payload['data']['pickup_location_id'] === (string) $pickup->id
+                    && $payload['data']['route'] === "/orders/{$order->id}/track?focus=shopping_price&pickup_location_id={$pickup->id}"
+                    && $payload['android']['notification']['channel_id'] === 'bangdeliv_order_status_high';
+            })
+            ->andReturn($this->successfulReport(['customer-merchant-closed-token']));
+        $this->app->instance(Messaging::class, $messaging);
+
+        Sanctum::actingAs($driverUser);
+
+        $this->postJson('/api/v1/orders/'.$order->id.'/attempt-failed', [
+            'failure_type' => 'PICKUP',
+            'reason' => 'Tempat tutup/order batal saat driver tiba.',
+            'pickup_location_id' => $pickup->id,
+        ])->assertOk();
+    }
+
+    public function test_cancelled_with_fee_order_does_not_send_a_price_push(): void
+    {
+        [$driverUser, , $customer, $order] = $this->createAssignedOrder('SHOPPING', 'CANCELLED_WITH_FEE', 0);
+        $this->createToken($customer, 'customer-cancel-silence-token');
+
+        // Notifikasi status order sudah mengabarkan pembatalannya. Notifikasi
+        // harga di sini dulu melaporkan "Ongkir sekarang Rp 0" karena ongkir
+        // sengaja dinolkan pada mode penaltyOnly.
+        $messaging = Mockery::mock(Messaging::class);
+        $messaging->shouldNotReceive('sendMulticast');
+        $this->app->instance(Messaging::class, $messaging);
+
+        $sent = app(OrderPricingPushNotificationService::class)->sendOrderTotalChanged(
+            $order->refresh(),
+            (int) $driverUser->id,
+            'DRIVER_CANCEL_WITH_FEE',
+            40500.0,
+            15000.0,
+        );
+
+        $this->assertFalse($sent);
     }
 
     public function test_driver_delivery_fee_quote_sends_customer_push(): void
