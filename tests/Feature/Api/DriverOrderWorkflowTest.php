@@ -564,13 +564,13 @@ class DriverOrderWorkflowTest extends TestCase
             ->assertJsonPath('data.incoming_orders.0.dispatch.distance_bucket', 'NEAR')
             ->assertJsonPath('data.incoming_orders.0.dispatch.priority_rank', 1)
             ->assertJsonPath('data.incoming_orders.0.dispatch.distance_target_role', 'customer_pickup')
-            ->assertJsonPath('data.incoming_orders.0.dispatch.distance_target_label', 'titik jemput')
+            ->assertJsonPath('data.incoming_orders.0.dispatch.distance_target_label', 'customer')
             ->assertJsonPath('data.incoming_orders.0.dispatch.location_fresh', true);
 
         $this->assertSame((string) $farOrder->id, (string) $response->json('data.incoming_orders.1.id'));
         $this->assertIsNumeric($response->json('data.incoming_orders.0.dispatch.distance_to_pickup_km'));
         $this->assertIsNumeric($response->json('data.incoming_orders.0.dispatch.distance_to_customer_km'));
-        $this->assertStringContainsString('dari titik jemput', (string) $response->json('data.incoming_orders.0.dispatch.distance_label'));
+        $this->assertStringContainsString('dari customer', (string) $response->json('data.incoming_orders.0.dispatch.distance_label'));
         $this->assertLessThan(
             $response->json('data.incoming_orders.1.dispatch.distance_to_pickup_km'),
             $response->json('data.incoming_orders.0.dispatch.distance_to_pickup_km')
@@ -606,8 +606,8 @@ class DriverOrderWorkflowTest extends TestCase
             $metadata = $factory->forDriver($order->fresh(['serviceType', 'orderLocations']), $driver);
 
             $this->assertSame('customer_pickup', $metadata['distance_target_role']);
-            $this->assertSame('titik jemput', $metadata['distance_target_label']);
-            $this->assertStringContainsString('dari titik jemput', (string) $metadata['distance_label']);
+            $this->assertSame('customer', $metadata['distance_target_label']);
+            $this->assertStringContainsString('dari customer', (string) $metadata['distance_label']);
             $this->assertLessThan(1, (float) $metadata['distance_to_pickup_km']);
         }
     }

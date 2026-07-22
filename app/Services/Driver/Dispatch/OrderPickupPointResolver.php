@@ -9,7 +9,7 @@ class OrderPickupPointResolver
 {
     private const CUSTOMER_PICKUP_ROLE = 'customer_pickup';
 
-    private const CUSTOMER_PICKUP_LABEL = 'titik jemput';
+    private const CUSTOMER_PICKUP_LABEL = 'customer';
 
     /**
      * @return array{address: string, latitude: float|null, longitude: float|null, target_role: string, target_label: string}

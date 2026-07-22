@@ -47,7 +47,7 @@ class DriverDispatchMetadataFactory
             'distance_label' => $this->distanceLabel($kilometers),
             'distance_bucket' => $this->bucketForKilometers($kilometers)->value,
             'distance_target_role' => $target['target_role'] ?? 'customer_pickup',
-            'distance_target_label' => $target['target_label'] ?? 'titik jemput',
+            'distance_target_label' => $target['target_label'] ?? 'customer',
             'distance_target_address' => $target['address'] ?? null,
             'location_fresh' => true,
         ];
@@ -67,7 +67,7 @@ class DriverDispatchMetadataFactory
             'distance_label' => 'Jarak belum tersedia',
             'distance_bucket' => DriverDistanceBucket::Unknown->value,
             'distance_target_role' => $target['target_role'] ?? 'customer_pickup',
-            'distance_target_label' => $target['target_label'] ?? 'titik jemput',
+            'distance_target_label' => $target['target_label'] ?? 'customer',
             'distance_target_address' => $target['address'] ?? null,
             'location_fresh' => $locationFresh,
         ];
@@ -104,6 +104,10 @@ class DriverDispatchMetadataFactory
     {
         $precision = $kilometers < 10 ? 1 : 0;
 
-        return number_format($kilometers, $precision, ',', '.').' km dari titik jemput';
+        // Titik yang diukur selalu posisi customer: titik antar untuk Nitip,
+        // titik jemput penumpang untuk antar-jemput, alamat pengirim untuk
+        // kurir. Menyebutnya "titik jemput" membuat driver Nitip mengira
+        // jarak itu menuju merchant.
+        return number_format($kilometers, $precision, ',', '.').' km dari customer';
     }
 }
