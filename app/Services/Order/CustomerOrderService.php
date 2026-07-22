@@ -524,7 +524,14 @@ final class CustomerOrderService
                 if ($hasReplacementOption || $this->shoppingNegotiationOrchestrator->hasCommittedShoppingMerchant($recalculated)) {
                     return $recalculated;
                 }
-                $withFee = $this->shoppingFailedTripCompensationService->summary($recalculated)['eligible'];
+                // Semua merchant gagal/tutup: tagih penalti pembatalan sesuai
+                // nominal terpusat, yang sudah mendahulukan manual pricing ->
+                // kompensasi trip gagal -> aturan 50% (>=3 percobaan gagal).
+                // Sebelumnya hanya kompensasi trip yang dicek, sehingga order
+                // yang sudah 3x gagal batal tanpa fee dan tidak bisa
+                // diselesaikan driver. Nilai > 0 juga menjamin
+                // cancelShoppingOrderWithOptionalFee() tidak melempar 409.
+                $withFee = $this->shoppingPricingService->calculateCancellationPenalty($recalculated) > 0;
 
                 return $this->shoppingNegotiationOrchestrator->cancelShoppingOrderWithOptionalFee(
                     $actor,
