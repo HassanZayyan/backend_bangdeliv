@@ -78,6 +78,7 @@ class ShoppingFailedTripCompensationService
         $checkpointMetadataRaw = $checkpoint->getAttribute('metadata');
         $checkpointMetadata = is_array($checkpointMetadataRaw) ? $checkpointMetadataRaw : [];
         $pickupProjection = $this->projection->forPickup($order, (int) $pickup->id);
+        $diagnostics = $this->verificationDiagnostics($order, $pickup);
         $event = OrderLog::query()->create([
             'order_id' => $order->id,
             'event_type' => ShoppingReplacementProjectionService::FAILED_TRIP_EVENT,
@@ -94,6 +95,12 @@ class ShoppingFailedTripCompensationService
                 'route_provider' => $checkpointMetadata['route_provider'] ?? 'fallback',
                 'route_status' => $checkpointMetadata['route_status'] ?? 'ESTIMATION_FALLBACK',
                 'verified_for_compensation' => $verifiedForCompensation,
+                'verification' => $diagnostics + [
+                    'has_evidence' => $evidenceId !== null,
+                    'unverified_reason' => $verifiedForCompensation
+                        ? null
+                        : $this->unverifiedReason($diagnostics, $evidenceId),
+                ],
                 'evidence_id' => $evidenceId,
                 'failed_at' => now()->toIso8601String(),
             ],
@@ -170,20 +177,89 @@ class ShoppingFailedTripCompensationService
 
     public function isDriverWithinMerchantRadius(Order $order, OrderLocation $pickup, ?int $meters = null): bool
     {
+        return $this->verificationDiagnostics($order, $pickup, $meters)['within_radius'];
+    }
+
+    /**
+     * Fakta mentah di balik keputusan verifikasi kehadiran driver. Dipakai
+     * untuk keputusannya sendiri sekaligus disimpan ke metadata event, supaya
+     * kegagalan verifikasi bisa ditelusuri tanpa menebak: jarak sebenarnya,
+     * radius yang berlaku, dan umur titik GPS terakhir.
+     *
+     * @return array{
+     *   within_radius: bool,
+     *   radius_meters: int,
+     *   location_fresh_minutes: int,
+     *   has_driver_location: bool,
+     *   driver_location_is_fresh: bool,
+     *   driver_location_age_seconds: int|null,
+     *   driver_distance_meters: int|null
+     * }
+     */
+    public function verificationDiagnostics(Order $order, OrderLocation $pickup, ?int $meters = null): array
+    {
+        $radiusMeters = max(1, $meters ?? $this->verificationRadiusMeters());
+        $freshMinutes = $this->driverLocationFreshMinutes();
+
         $driver = Driver::query()->find($order->driver_id);
-        if (! $driver || $driver->latitude === null || $driver->longitude === null || $driver->location_updated_at === null) {
-            return false;
-        }
-        if ($driver->location_updated_at->lt(now()->subMinutes($this->driverLocationFreshMinutes()))) {
-            return false;
+        $hasLocation = $driver
+            && $driver->latitude !== null
+            && $driver->longitude !== null
+            && $driver->location_updated_at !== null;
+
+        if (! $hasLocation) {
+            return [
+                'within_radius' => false,
+                'radius_meters' => $radiusMeters,
+                'location_fresh_minutes' => $freshMinutes,
+                'has_driver_location' => false,
+                'driver_location_is_fresh' => false,
+                'driver_location_age_seconds' => null,
+                'driver_distance_meters' => null,
+            ];
         }
 
-        return GeoDistance::meters(
+        $isFresh = $driver->location_updated_at->gte(now()->subMinutes($freshMinutes));
+        $distanceMeters = GeoDistance::roundedMeters(
             (float) $driver->latitude,
             (float) $driver->longitude,
             (float) $pickup->latitude,
             (float) $pickup->longitude,
-        ) <= max(1, $meters ?? $this->verificationRadiusMeters());
+        );
+
+        return [
+            'within_radius' => $isFresh && $distanceMeters <= $radiusMeters,
+            'radius_meters' => $radiusMeters,
+            'location_fresh_minutes' => $freshMinutes,
+            'has_driver_location' => true,
+            'driver_location_is_fresh' => $isFresh,
+            'driver_location_age_seconds' => (int) abs(now()->diffInSeconds($driver->location_updated_at)),
+            'driver_distance_meters' => $distanceMeters,
+        ];
+    }
+
+    /**
+     * Alasan utama sebuah kegagalan tidak dihitung untuk kompensasi. Urutannya
+     * mendahulukan penyebab geografis karena itu yang paling sering terjadi dan
+     * paling sulit ditebak dari luar.
+     *
+     * @param  array<string, mixed>  $diagnostics
+     */
+    private function unverifiedReason(array $diagnostics, ?int $evidenceId): string
+    {
+        if (($diagnostics['has_driver_location'] ?? false) !== true) {
+            return 'NO_DRIVER_LOCATION';
+        }
+
+        if (($diagnostics['driver_location_is_fresh'] ?? false) !== true) {
+            return 'STALE_DRIVER_LOCATION';
+        }
+
+        if (($diagnostics['within_radius'] ?? false) !== true) {
+            return 'OUTSIDE_RADIUS';
+        }
+
+        return $evidenceId === null ? 'NO_EVIDENCE' : 'FAILURE_TYPE_NOT_ELIGIBLE';
     }
 
     /**
@@ -208,6 +284,7 @@ class ShoppingFailedTripCompensationService
     private function recordCompensationSnapshot(Order $order, ?int $actorId): void
     {
         $summary = $this->summary($order);
+        $failedTripCount = (int) $this->projection->snapshot($order)['order_failed_trip_count'];
         $latest = OrderLog::query()
             ->where('order_id', $order->id)
             ->where('event_type', ShoppingReplacementProjectionService::COMPENSATION_EVENT)
@@ -215,8 +292,13 @@ class ShoppingFailedTripCompensationService
             ->first();
         $latestMetadataRaw = $latest instanceof OrderLog ? $latest->getAttribute('metadata') : null;
         $latestMetadata = is_array($latestMetadataRaw) ? $latestMetadataRaw : [];
+        // Jumlah kegagalan total ikut dibandingkan supaya kegagalan baru yang
+        // tidak terverifikasi tetap menerbitkan event. Tanpa ini justru kasus
+        // yang paling perlu terlihat -- kegagalan menumpuk tapi kompensasi
+        // tetap nol -- yang paling sunyi di riwayat order.
         if (
             (int) ($latestMetadata['verified_failed_trip_count'] ?? -1) === (int) $summary['verified_failed_trip_count']
+            && (int) ($latestMetadata['failed_trip_count'] ?? -1) === $failedTripCount
             && abs((float) ($latestMetadata['amount'] ?? -1) - (float) $summary['amount']) < 0.01
         ) {
             return;
@@ -229,8 +311,15 @@ class ShoppingFailedTripCompensationService
             'changed_by_user_id' => $actorId,
             'note' => (bool) $summary['eligible']
                 ? 'Kompensasi perjalanan gagal diperbarui.'
-                : 'Perjalanan gagal dicatat; kompensasi belum mencapai batas.',
-            'metadata' => $summary + ['updated_at' => now()->toIso8601String()],
+                : sprintf(
+                    'Perjalanan gagal dicatat; %d dari %d kegagalan terverifikasi, kompensasi belum mencapai batas.',
+                    (int) $summary['verified_failed_trip_count'],
+                    $failedTripCount,
+                ),
+            'metadata' => $summary + [
+                'failed_trip_count' => $failedTripCount,
+                'updated_at' => now()->toIso8601String(),
+            ],
         ]);
     }
 
