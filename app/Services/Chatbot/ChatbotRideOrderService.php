@@ -37,6 +37,28 @@ class ChatbotRideOrderService
         'reset tujuan',
     ];
 
+    /**
+     * Sebutan jemput yang mengacu ke alamat profil (bukan lokasi baru untuk digeocode).
+     *
+     * @var array<int, string>
+     */
+    private array $pickupProfileAliases = [
+        'rumah',
+        'rumahku',
+        'rumah saya',
+        'di rumah',
+        'di rumahku',
+        'di rumah saya',
+        'kantor',
+        'kantorku',
+        'kantor saya',
+        'di kantor',
+        'alamat saya',
+        'alamat rumah',
+        'alamat kantor',
+        'lokasi saya',
+    ];
+
     public function __construct(
         private readonly RideOrderService $rideOrderService,
         private readonly GoogleMapsGeocodingService $geocodingService,
@@ -422,6 +444,28 @@ class ChatbotRideOrderService
                 ? (int) $draftSeed['pickup_address_id']
                 : null;
             $usedDefaultPickup = $pickupAddressId !== null && (bool) ($draftSeed['used_default_pickup'] ?? false);
+        } elseif ($pickupRaw !== null && ! $this->isProfilePickupAlias($pickupRaw)) {
+            try {
+                $resolvedPickup = $this->geocodingService->resolvePlace($pickupRaw);
+            } catch (ApiException $exception) {
+                if ($exception->status() !== 422) {
+                    throw $exception;
+                }
+
+                $resolvedPickup = null;
+            }
+
+            if ($resolvedPickup === null) {
+                $reasons[] = 'Lokasi jemput tidak ditemukan di peta. Gunakan alamat yang lebih spesifik.';
+                $missingFields[] = 'pickup_address';
+                $nextActions[] = 'OPEN_MAP_PICKER_PICKUP';
+            } else {
+                $pickupAddress = $resolvedPickup['formatted_address'];
+                $pickupLatitude = $resolvedPickup['latitude'];
+                $pickupLongitude = $resolvedPickup['longitude'];
+                $pickupAddressId = null;
+                $usedDefaultPickup = false;
+            }
         } elseif ($defaultPickupAddress === null) {
             $reasons[] = 'Lokasi jemput di profil belum tersedia. Isi Alamat Saya terlebih dahulu.';
             $missingFields[] = 'pickup_address';
@@ -584,7 +628,11 @@ class ChatbotRideOrderService
         $destination = $this->normalizeOptionalString($nluPayload['destination_address'] ?? null);
         $destination ??= $this->extractDestinationFromMessage($message);
 
+        $pickup = $this->normalizeOptionalString($nluPayload['pickup_address'] ?? null);
+        $pickup ??= $this->extractPickupFromMessage($message);
+
         return [
+            'pickup_address' => $pickup,
             'destination_address' => $destination,
             'payment_method' => $paymentMethod,
         ];
@@ -900,6 +948,41 @@ class ChatbotRideOrderService
         }
 
         return null;
+    }
+
+    private function extractPickupFromMessage(string $message): ?string
+    {
+        $stop = '(?=\s*,|\s+\b(?:antar|anter|antarkan|anterin|menuju|tujuan|ke)\b|$)';
+        $patterns = [
+            // "jemput saya/aku/... di/dari <X>"
+            '/\bjemput(?:in|kan)?\s+(?:saya|aku|gue|gua|ku|kami|kita)\s+(?:di|dari)\s+(.+?)'.$stop.'/iu',
+            // "jemput di/dari <X>" (tanpa kata ganti)
+            '/\bjemput(?:in|kan)?\s+(?:di|dari)\s+(.+?)'.$stop.'/iu',
+            // pola perjalanan "dari <X> ke ..."
+            '/\bdari\s+(.+?)\s+\bke\b/iu',
+        ];
+
+        foreach ($patterns as $pattern) {
+            if (preg_match($pattern, $message, $match) !== 1) {
+                continue;
+            }
+
+            $candidate = $this->normalizeOptionalString($match[1] ?? null);
+            if ($candidate === null || strlen($candidate) < 3) {
+                continue;
+            }
+
+            return $candidate;
+        }
+
+        return null;
+    }
+
+    private function isProfilePickupAlias(string $value): bool
+    {
+        $normalized = strtolower($this->normalizeWhitespace($value));
+
+        return in_array($normalized, $this->pickupProfileAliases, true);
     }
 
     /**

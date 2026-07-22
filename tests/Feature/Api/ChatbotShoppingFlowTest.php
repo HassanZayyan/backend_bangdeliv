@@ -2657,6 +2657,110 @@ class ChatbotShoppingFlowTest extends TestCase
     /**
      * @param  array<string, mixed>  $geminiPayload
      */
+    public function test_chatbot_shopping_lihat_menu_registered_resto_returns_menu_selector_signal(): void
+    {
+        $customer = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        Address::query()->create([
+            'user_id' => $customer->id,
+            'label' => 'Rumah',
+            'recipient_name' => 'Customer Test',
+            'phone' => '081200000201',
+            'full_address' => 'Jl. Customer No. 201',
+            'latitude' => -7.003,
+            'longitude' => 110.403,
+            'is_default' => true,
+        ]);
+
+        $restaurant = Restaurant::query()->create([
+            'name' => 'Nasgor Gajah',
+            'slug' => 'nasgor-gajah-lihat-menu-test',
+            'merchant_type' => 'warung',
+            'address' => 'Jl. Nasgor No. 1',
+            'latitude' => -7.004,
+            'longitude' => 110.404,
+            'phone' => '081200000202',
+        ]);
+
+        Menu::query()->create([
+            'restaurant_id' => $restaurant->id,
+            'name' => 'Nasi Goreng Spesial',
+            'price' => 15000,
+            'is_available' => true,
+            'sort_order' => 1,
+        ]);
+
+        // Fast-path menangani show_menu; fake HTTP mencegah request nyata.
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'show_menu',
+        ]);
+
+        Sanctum::actingAs($customer);
+
+        $response = $this->postJson('/api/chatbot/process', [
+            'session_id' => 'shopping-lihat-menu-session',
+            'service_type' => 'nitip',
+            'message' => 'Lihat menu Nasgor Gajah',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.menu_selector.merchant_id', $restaurant->id)
+            ->assertJsonPath('data.menu_selector.merchant_name', 'Nasgor Gajah')
+            ->assertJsonPath('data.menu_selector.mode', 'select');
+
+        // Resto terdaftar dijadikan tempat aktif di draft.
+        $this->assertSame(
+            $restaurant->id,
+            (int) $response->json('data.shopping.stops.0.merchant.id')
+        );
+
+        $this->assertStringContainsString(
+            'menu Nasgor Gajah',
+            (string) $response->json('data.assistant_text')
+        );
+    }
+
+    public function test_chatbot_shopping_lihat_menu_unregistered_resto_has_no_menu_selector(): void
+    {
+        $customer = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        Address::query()->create([
+            'user_id' => $customer->id,
+            'label' => 'Rumah',
+            'recipient_name' => 'Customer Test',
+            'phone' => '081200000203',
+            'full_address' => 'Jl. Customer No. 203',
+            'latitude' => -7.003,
+            'longitude' => 110.403,
+            'is_default' => true,
+        ]);
+
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'show_menu',
+        ]);
+
+        Sanctum::actingAs($customer);
+
+        $response = $this->postJson('/api/chatbot/process', [
+            'session_id' => 'shopping-lihat-menu-unknown-session',
+            'service_type' => 'nitip',
+            'message' => 'Lihat menu Restoran Tidak Terdaftar XYZ',
+        ]);
+
+        $response->assertOk();
+        $this->assertNull($response->json('data.menu_selector'));
+    }
+
     private function fakeGeminiAndDistance(array $geminiPayload, int $distanceMeters = 2500): void
     {
         Http::fake([

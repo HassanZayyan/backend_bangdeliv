@@ -65,6 +65,20 @@ class ChatbotShoppingOrderService
         }
 
         $latestSeed = $this->resolveLatestDraftSeed($user, $sessionId);
+
+        if ($command === 'show_menu') {
+            $menuSelectorPayload = $this->buildShowMenuSelectorPayload(
+                $user,
+                $sessionId,
+                $message,
+                $nluPayload,
+                $latestSeed,
+            );
+            if ($menuSelectorPayload !== null) {
+                return $menuSelectorPayload;
+            }
+        }
+
         if ($this->shoppingAssistantService->supports($command)) {
             $payload = $this->buildDraftPayload($user, $latestSeed);
             $payload['assistant_text'] = $this->shoppingAssistantService->assistantText(
@@ -1224,6 +1238,62 @@ class ChatbotShoppingOrderService
             ->first();
 
         return $merchant instanceof Restaurant ? ShoppingMerchantCandidate::fromRestaurant($merchant) : null;
+    }
+
+    /**
+     * "Lihat menu <resto>" untuk resto terdaftar: jadikan resto tempat aktif di
+     * draft lalu kirim sinyal agar frontend membuka menu selector interaktif.
+     * Mengembalikan null jika nama resto tidak ada / tidak terdaftar sehingga
+     * perilaku assistant lama (arahkan pilih tempat) tetap dipakai.
+     *
+     * @param  array<string, mixed>|null  $nluPayload
+     * @param  array<string, mixed>  $latestSeed
+     * @return array<string, mixed>|null
+     */
+    private function buildShowMenuSelectorPayload(
+        User $user,
+        string $sessionId,
+        string $message,
+        ?array $nluPayload,
+        array $latestSeed,
+    ): ?array {
+        $merchantName = $this->extractShowMenuMerchantName($message)
+            ?? $this->normalizeOptionalString($nluPayload['merchant'] ?? ($nluPayload['resto'] ?? null));
+        if ($merchantName === null) {
+            return null;
+        }
+
+        $candidate = $this->resolveMerchantCandidate(['merchant_name' => $merchantName]);
+        if ($candidate === null || ! $candidate->restaurant instanceof Restaurant) {
+            return null;
+        }
+
+        $this->draftStore->forgetShoppingAssistantState($user, $sessionId);
+        $incomingSeed = $this->draftSeedFromCandidate($candidate);
+        $incomingSeed['merchant_mode'] = 'select';
+        $draftSeed = $this->mergeDraftSeed($latestSeed, $incomingSeed);
+
+        $payload = $this->buildDraftPayload($user, $draftSeed);
+        $payload['menu_selector'] = [
+            'merchant_id' => (int) $candidate->restaurant->id,
+            'merchant_name' => $candidate->name,
+            'mode' => 'select',
+        ];
+        $payload['assistant_text'] = 'Ini menu '.$candidate->name
+            .'. Pilih item yang ingin dibeli lewat daftar di bawah, atau ketik langsung nama item beserta jumlahnya.';
+
+        return $payload;
+    }
+
+    private function extractShowMenuMerchantName(string $message): ?string
+    {
+        $normalized = $this->normalizeWhitespace($message);
+        $pattern = '/\b(?:tampilkan|lihat|cek|buka|bukakan)\s+(?:daftar\s+)?menu(?:nya)?\s+(?:di\s+|dari\s+|resto\s+|toko\s+|warung\s+)?(.+)$/iu';
+        if (preg_match($pattern, $normalized, $match) === 1) {
+            return $this->normalizeOptionalString($match[1] ?? null);
+        }
+
+        return null;
     }
 
     /**

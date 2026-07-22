@@ -78,7 +78,8 @@ final class ChatbotPromptLibrary
             'Gunakan command "help" dengan intent "ride_order" saat pengguna menanyakan cara memakai BangBot atau cara membuat pesanan, misalnya "cara pesennya gimana" atau "ini suruh ngapain".',
             'Jika user memberi tujuan dengan pola seperti "antar ke Ramayana Salatiga" atau "saya mau ke Alun-Alun Salatiga", isi destination_address.',
             'Kata kerja santai seperti "anter", "anterin", "gas ke", dan "otw ke" juga berarti minta diantar ke tujuan.',
-            'Jika user hanya menyebut lokasi jemput tanpa tujuan, jangan isi destination_address; taruh informasi jemput di notes.',
+            'Jika user menyebut lokasi jemput dengan pola seperti "jemput saya di <lokasi>" atau "dari <lokasi> ke <tujuan>", isi pickup_address dengan lokasi jemput tersebut. Jangan taruh lokasi jemput di notes.',
+            'Sebutan jemput yang mengacu ke alamat tersimpan seperti "rumah" atau "kantor" boleh diisi apa adanya ke pickup_address.',
             'Jika disediakan CONTEXT_JSON, gunakan untuk membaca progres percakapan dan draft terakhir.',
         ];
 
@@ -199,6 +200,7 @@ final class ChatbotPromptLibrary
                     'output' => [
                         'intent' => 'ride_order',
                         'command' => 'none',
+                        'pickup_address' => null,
                         'destination_address' => 'stasiun',
                         'notes' => null,
                     ],
@@ -208,7 +210,18 @@ final class ChatbotPromptLibrary
                     'output' => [
                         'intent' => 'ride_order',
                         'command' => 'none',
+                        'pickup_address' => null,
                         'destination_address' => 'Alun-Alun Salatiga',
+                        'notes' => null,
+                    ],
+                ],
+                [
+                    'input' => 'Jemput saya di Kopi Kenangan Tembalang, antar ke Alun-Alun Semarang',
+                    'output' => [
+                        'intent' => 'ride_order',
+                        'command' => 'none',
+                        'pickup_address' => 'Kopi Kenangan Tembalang',
+                        'destination_address' => 'Alun-Alun Semarang',
                         'notes' => null,
                     ],
                 ],
@@ -217,8 +230,9 @@ final class ChatbotPromptLibrary
                     'output' => [
                         'intent' => 'ride_order',
                         'command' => 'none',
+                        'pickup_address' => 'kos',
                         'destination_address' => null,
-                        'notes' => 'jemput di kos',
+                        'notes' => null,
                     ],
                 ],
             ],

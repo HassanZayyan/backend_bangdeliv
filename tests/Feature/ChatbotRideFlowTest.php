@@ -867,6 +867,94 @@ class ChatbotRideFlowTest extends TestCase
         $this->assertDatabaseCount('orders', 0);
     }
 
+    public function test_chatbot_ride_uses_typed_pickup_instead_of_default_address(): void
+    {
+        $user = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+            'phone' => '089900000201',
+        ]);
+
+        // Default saved address (would previously be used as pickup).
+        $this->createDefaultAddress($user);
+
+        $token = $user->createToken('test-chatbot-ride-typed-pickup')->plainTextToken;
+
+        Http::fake([
+            // Gemini omits pickup_address (null) — regex fallback must extract it.
+            'https://generativelanguage.googleapis.com/*' => Http::response([
+                'candidates' => [[
+                    'content' => [
+                        'parts' => [[
+                            'text' => '{"intent":"ride_order","command":"none","pickup_address":null,"destination_address":"Alun-Alun Semarang","notes":null}',
+                        ]],
+                    ],
+                ]],
+            ], 200),
+            'https://maps.googleapis.com/maps/api/geocode/*' => function ($request) {
+                $queryString = parse_url($request->url(), PHP_URL_QUERY) ?? '';
+                parse_str($queryString, $query);
+                $address = strtolower(trim((string) ($query['address'] ?? '')));
+
+                if (str_contains($address, 'ramayana')) {
+                    return Http::response([
+                        'status' => 'OK',
+                        'results' => [[
+                            'formatted_address' => 'Ramayana Salatiga, Jl. Jenderal Sudirman, Kota Salatiga, Jawa Tengah, Indonesia',
+                            'geometry' => ['location' => ['lat' => -7.328900, 'lng' => 110.500100]],
+                        ]],
+                    ], 200);
+                }
+
+                if (str_contains($address, 'alun') || str_contains($address, 'semarang')) {
+                    return Http::response([
+                        'status' => 'OK',
+                        'results' => [[
+                            'formatted_address' => 'Alun-Alun Masjid Agung Kota Semarang, Jawa Tengah, Indonesia',
+                            'geometry' => ['location' => ['lat' => -7.005145, 'lng' => 110.438125]],
+                        ]],
+                    ], 200);
+                }
+
+                return Http::response(['status' => 'ZERO_RESULTS', 'results' => []], 200);
+            },
+            'https://maps.googleapis.com/maps/api/distancematrix/*' => Http::response([
+                'status' => 'OK',
+                'rows' => [[
+                    'elements' => [[
+                        'status' => 'OK',
+                        'distance' => ['text' => '1.3 km', 'value' => 1300],
+                        'duration' => ['text' => '7 mins', 'value' => 420],
+                    ]],
+                ]],
+            ], 200),
+        ]);
+
+        $response = $this
+            ->withHeader('Authorization', 'Bearer '.$token)
+            ->postJson('/api/chatbot/process', [
+                'message' => 'Jemput saya di Ramayana Salatiga, antar ke Alun-Alun Semarang',
+                'service_type' => 'antar_jemput',
+                'session_id' => 'sess-ride-typed-pickup',
+            ]);
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('data.intent', 'ride_order')
+            ->assertJsonPath('data.validation.is_valid_order', true)
+            ->assertJsonPath('data.ride.ready_to_confirm', true)
+            ->assertJsonPath('data.ride.pickup_address', 'Ramayana Salatiga, Jl. Jenderal Sudirman, Kota Salatiga, Jawa Tengah, Indonesia')
+            ->assertJsonPath('data.ride.pickup_latitude', -7.3289)
+            ->assertJsonPath('data.ride.destination_address', 'Alun-Alun Masjid Agung Kota Semarang, Jawa Tengah, Indonesia');
+
+        // Pickup must reflect the typed location, NOT the default saved address.
+        $this->assertNotSame(
+            'Jl. Melati No. 3, Semarang',
+            $response->json('data.ride.pickup_address')
+        );
+    }
+
     private function fakeGeminiAndGeocoding(): void
     {
         Http::fake([

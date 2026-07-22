@@ -131,6 +131,7 @@ class ChatbotGeminiService
             'properties' => [
                 'intent' => ['type' => 'STRING'],
                 'command' => ['type' => 'STRING'],
+                'pickup_address' => ['type' => 'STRING', 'nullable' => true],
                 'destination_address' => ['type' => 'STRING', 'nullable' => true],
                 'notes' => ['type' => 'STRING', 'nullable' => true],
             ],
@@ -140,6 +141,7 @@ class ChatbotGeminiService
         $parsed = $this->generateJson($message, $systemInstruction, $schema, [
             'intent' => 'ride_order',
             'command' => 'none',
+            'pickup_address' => null,
             'destination_address' => null,
             'notes' => null,
         ], $context);
@@ -340,6 +342,7 @@ class ChatbotGeminiService
         return [
             'intent' => $intent,
             'command' => $this->normalizeCommand($payload['command'] ?? null),
+            'pickup_address' => $this->normalizeOptionalString($payload['pickup_address'] ?? null),
             'destination_address' => $this->normalizeOptionalString($payload['destination_address'] ?? null),
             'notes' => $this->normalizeOptionalString($payload['notes'] ?? null),
         ];

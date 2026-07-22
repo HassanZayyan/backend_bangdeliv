@@ -37,7 +37,7 @@ class ChatbotPromptLibraryTest extends TestCase
         $requiredKeys = [
             'nitip' => ['intent', 'command', 'items'],
             'kurir' => ['intent', 'command', 'package_description', 'dropoff_address'],
-            'antar_jemput' => ['intent', 'command', 'destination_address', 'notes'],
+            'antar_jemput' => ['intent', 'command', 'pickup_address', 'destination_address', 'notes'],
         ];
         $validIntents = [
             'nitip' => 'shopping_order',
@@ -92,7 +92,7 @@ class ChatbotPromptLibraryTest extends TestCase
         $this->assertStringContainsString('operation', $instruction);
     }
 
-    public function test_ride_examples_map_pickup_only_message_to_notes(): void
+    public function test_ride_examples_map_pickup_message_to_pickup_address(): void
     {
         $examples = ChatbotPromptLibrary::examplesFor('antar_jemput');
         $pickupExample = null;
@@ -103,7 +103,23 @@ class ChatbotPromptLibraryTest extends TestCase
         }
 
         $this->assertNotNull($pickupExample);
+        $this->assertSame('kos', $pickupExample['output']['pickup_address']);
         $this->assertNull($pickupExample['output']['destination_address']);
-        $this->assertSame('jemput di kos', $pickupExample['output']['notes']);
+        $this->assertNull($pickupExample['output']['notes']);
+    }
+
+    public function test_ride_examples_capture_both_pickup_and_destination(): void
+    {
+        $examples = ChatbotPromptLibrary::examplesFor('antar_jemput');
+        $combined = null;
+        foreach ($examples as $example) {
+            if (str_starts_with($example['input'], 'Jemput saya di Kopi Kenangan')) {
+                $combined = $example;
+            }
+        }
+
+        $this->assertNotNull($combined);
+        $this->assertSame('Kopi Kenangan Tembalang', $combined['output']['pickup_address']);
+        $this->assertSame('Alun-Alun Semarang', $combined['output']['destination_address']);
     }
 }
