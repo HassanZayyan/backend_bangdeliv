@@ -1761,6 +1761,178 @@ class DriverOrderRevisionEndpointsTest extends TestCase
             ->assertJsonPath('errors.code', 'STATE_CHANGED');
     }
 
+    public function test_customer_far_replacement_is_held_for_driver_approval(): void
+    {
+        [, $driver] = $this->createDriver();
+        [$order, $pickup, $replacement] = $this->setUpMerchantReplacementScenario($driver);
+        // Radius kecil membuat merchant pengganti (±1 km) dianggap "jauh".
+        config()->set('bangdeliv.shopping.merchant_replacement_approval_radius_km', 0.5);
+
+        Sanctum::actingAs($order->user);
+        $payload = [
+            'expected_version' => 0,
+            'merchant_id' => $replacement->id,
+            'items' => [['item_source' => 'MANUAL', 'menu_name' => 'Ayam pengganti', 'quantity' => 1]],
+        ];
+
+        $this->withHeader('Idempotency-Key', 'far-replace-1')
+            ->postJson('/api/v1/orders/'.$order->id.'/shopping-stops/'.$pickup->id.'/replace', $payload)
+            ->assertStatus(202)
+            ->assertJsonPath('data.status', 'PENDING_DRIVER_APPROVAL')
+            ->assertJsonPath('success', true);
+
+        // Proposal tercatat PENDING, replacement belum dieksekusi.
+        $pendingEvent = OrderLog::query()
+            ->where('order_id', $order->id)
+            ->where('event_type', ShoppingReplacementProjectionService::REPLACEMENT_PENDING_EVENT)
+            ->firstOrFail();
+        $this->assertSame('PENDING', strtoupper((string) data_get($pendingEvent->metadata, 'status')));
+        $this->assertSame(0, OrderLog::query()
+            ->where('order_id', $order->id)
+            ->where('event_type', ShoppingReplacementProjectionService::REPLACEMENT_EVENT)
+            ->count());
+        $this->assertDatabaseHas('order_locations', ['id' => $pickup->id, 'fulfillment_status' => 'ITEMS_PENDING_CUSTOMER']);
+
+        // Projection memblok penggantian lain selama menunggu persetujuan.
+        $snapshot = app(ShoppingReplacementProjectionService::class)->snapshot($order->refresh());
+        $this->assertFalse($snapshot['pickups'][$pickup->id]['can_replace_merchant']);
+        $this->assertSame('PENDING', data_get($snapshot['pickups'][$pickup->id], 'pending_replacement_approval.status'));
+    }
+
+    public function test_driver_approves_far_replacement_and_it_commits(): void
+    {
+        [$driverUser, $driver] = $this->createDriver();
+        [$order, $pickup, $replacement] = $this->setUpMerchantReplacementScenario($driver);
+        config()->set('bangdeliv.shopping.merchant_replacement_approval_radius_km', 0.5);
+
+        Sanctum::actingAs($order->user);
+        $payload = [
+            'expected_version' => 0,
+            'merchant_id' => $replacement->id,
+            'items' => [['item_source' => 'MANUAL', 'menu_name' => 'Ayam pengganti', 'quantity' => 1]],
+        ];
+        $approvalEventId = (int) $this->withHeader('Idempotency-Key', 'far-replace-1')
+            ->postJson('/api/v1/orders/'.$order->id.'/shopping-stops/'.$pickup->id.'/replace', $payload)
+            ->assertStatus(202)
+            ->json('data.approval_event_id');
+
+        Sanctum::actingAs($driverUser);
+        $this->withHeader('Idempotency-Key', 'far-approve-1')
+            ->postJson('/api/v1/driver/orders/'.$order->id.'/shopping-stops/'.$pickup->id.'/replacement-approval/approve', [
+                'approval_event_id' => $approvalEventId,
+            ])
+            ->assertOk()
+            ->assertJsonPath('success', true);
+
+        // Replacement benar-benar dieksekusi + proposal ditandai APPROVED.
+        $this->assertDatabaseHas('order_locations', ['id' => $pickup->id, 'fulfillment_status' => 'REPLACED']);
+        $this->assertSame(1, OrderLog::query()
+            ->where('order_id', $order->id)
+            ->where('event_type', ShoppingReplacementProjectionService::REPLACEMENT_EVENT)
+            ->count());
+        $pendingEvent = OrderLog::query()
+            ->where('order_id', $order->id)
+            ->where('event_type', ShoppingReplacementProjectionService::REPLACEMENT_PENDING_EVENT)
+            ->firstOrFail();
+        $this->assertSame('APPROVED', strtoupper((string) data_get($pendingEvent->metadata, 'status')));
+    }
+
+    public function test_driver_rejects_far_replacement_returns_to_decision_state(): void
+    {
+        [$driverUser, $driver] = $this->createDriver();
+        [$order, $pickup, $replacement] = $this->setUpMerchantReplacementScenario($driver);
+        config()->set('bangdeliv.shopping.merchant_replacement_approval_radius_km', 0.5);
+
+        Sanctum::actingAs($order->user);
+        $payload = [
+            'expected_version' => 0,
+            'merchant_id' => $replacement->id,
+            'items' => [['item_source' => 'MANUAL', 'menu_name' => 'Ayam pengganti', 'quantity' => 1]],
+        ];
+        $approvalEventId = (int) $this->withHeader('Idempotency-Key', 'far-replace-1')
+            ->postJson('/api/v1/orders/'.$order->id.'/shopping-stops/'.$pickup->id.'/replace', $payload)
+            ->assertStatus(202)
+            ->json('data.approval_event_id');
+
+        Sanctum::actingAs($driverUser);
+        $this->postJson('/api/v1/driver/orders/'.$order->id.'/shopping-stops/'.$pickup->id.'/replacement-approval/reject', [
+            'approval_event_id' => $approvalEventId,
+            'reason' => 'Terlalu jauh dari rute.',
+        ])->assertOk()->assertJsonPath('success', true);
+
+        // Tidak ada replacement, toko lama tetap di state keputusan customer,
+        // dan penggantian bisa dicoba lagi (kuota belum terpakai).
+        $this->assertSame(0, OrderLog::query()
+            ->where('order_id', $order->id)
+            ->where('event_type', ShoppingReplacementProjectionService::REPLACEMENT_EVENT)
+            ->count());
+        $this->assertDatabaseHas('order_locations', ['id' => $pickup->id, 'fulfillment_status' => 'ITEMS_PENDING_CUSTOMER']);
+        $pendingEvent = OrderLog::query()
+            ->where('order_id', $order->id)
+            ->where('event_type', ShoppingReplacementProjectionService::REPLACEMENT_PENDING_EVENT)
+            ->firstOrFail();
+        $this->assertSame('REJECTED', strtoupper((string) data_get($pendingEvent->metadata, 'status')));
+
+        $snapshot = app(ShoppingReplacementProjectionService::class)->snapshot($order->refresh());
+        $this->assertTrue($snapshot['pickups'][$pickup->id]['can_replace_merchant']);
+        $this->assertNull(data_get($snapshot['pickups'][$pickup->id], 'pending_replacement_approval'));
+    }
+
+    /**
+     * @return array{0: Order, 1: OrderLocation, 2: Restaurant}
+     */
+    private function setUpMerchantReplacementScenario(Driver $driver): array
+    {
+        $order = $this->createAssignedOrder($driver, 'SHOPPING', 'ARRIVED_MERCHANT', 5000);
+        $pickup = $order->orderLocations()->create([
+            'location_role' => 'PICKUP',
+            'label' => 'Merchant Lama',
+            'full_address' => 'Jl. Merchant Lama',
+            'latitude' => -7.001,
+            'longitude' => 110.401,
+            'sequence_no' => 1,
+            'fulfillment_status' => 'ITEMS_PENDING_CUSTOMER',
+        ]);
+        $order->orderLocations()->create([
+            'location_role' => 'DROPOFF',
+            'label' => 'Customer',
+            'full_address' => 'Jl. Customer',
+            'latitude' => -7.015,
+            'longitude' => 110.415,
+            'sequence_no' => 2,
+        ]);
+        OrderItem::query()->create([
+            'order_id' => $order->id,
+            'pickup_location_id' => $pickup->id,
+            'item_source' => 'MANUAL',
+            'menu_name' => 'Ayam lama',
+            'quantity' => 1,
+            'unit_price' => 0,
+            'subtotal' => 0,
+            'is_available' => false,
+        ]);
+        $replacement = Restaurant::query()->create([
+            'name' => 'Merchant Pengganti',
+            'slug' => 'merchant-pengganti-'.uniqid(),
+            'merchant_type' => 'restaurant',
+            'address' => 'Jl. Merchant Pengganti',
+            'latitude' => -7.008,
+            'longitude' => 110.408,
+        ]);
+        config()->set('bangdeliv.google_maps_api_key', 'test-key');
+        Http::fake([
+            '*' => Http::response([
+                'routes' => [[
+                    'distanceMeters' => 3500,
+                    'duration' => '600s',
+                    'polyline' => ['encodedPolyline' => 'encoded'],
+                ]],
+            ]),
+        ]);
+
+        return [$order, $pickup, $replacement];
+    }
+
     public function test_third_failure_abandons_only_its_replacement_chain_projection(): void
     {
         [, $driver] = $this->createDriver();

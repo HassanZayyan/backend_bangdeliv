@@ -10,6 +10,7 @@ use App\Http\Requests\Api\CancelOrderRequest;
 use App\Http\Requests\Api\CreateRideOrderRequest;
 use App\Http\Requests\Api\RecordCodPaymentRequest;
 use App\Http\Requests\Api\RecordFailedAttemptRequest;
+use App\Http\Requests\Api\ShoppingMerchantReplacementApprovalActionRequest;
 use App\Http\Requests\Api\ShoppingMerchantReplacementRequest;
 use App\Http\Requests\Api\UpdateDriverShoppingItemsRequest;
 use App\Http\Requests\Api\UpdateShoppingOrderItemRequest;
@@ -285,7 +286,7 @@ class OrderController extends Controller
         int $pickupLocationId,
     ): JsonResponse {
         try {
-            $this->shoppingMerchantReplacementService->commit(
+            $result = $this->shoppingMerchantReplacementService->commit(
                 $request->user(),
                 $orderId,
                 $pickupLocationId,
@@ -293,6 +294,19 @@ class OrderController extends Controller
                 (string) $request->header('Idempotency-Key', ''),
                 false,
             );
+
+            if (($result['status'] ?? '') === 'PENDING_DRIVER_APPROVAL') {
+                return $this->success(
+                    [
+                        'status' => 'PENDING_DRIVER_APPROVAL',
+                        'approval_event_id' => $result['approval_event_id'] ?? null,
+                        'distance_km' => $result['distance_km'] ?? null,
+                        'order' => $this->orderService->customerOrderDetail($request->user(), $orderId),
+                    ],
+                    'Toko/resto pengganti terlalu jauh. Menunggu persetujuan driver.',
+                    202,
+                );
+            }
 
             return $this->success(
                 $this->orderService->customerOrderDetail($request->user(), $orderId),
@@ -341,6 +355,51 @@ class OrderController extends Controller
             return $this->success(
                 $this->orderService->driverOrderDetail($request->user(), $orderId),
                 'Merchant Nitip berhasil diganti.',
+            );
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
+    public function approveShoppingMerchantReplacementByDriver(
+        ShoppingMerchantReplacementApprovalActionRequest $request,
+        int $orderId,
+        int $pickupLocationId,
+    ): JsonResponse {
+        try {
+            $this->shoppingMerchantReplacementService->approveByDriver(
+                $request->user(),
+                $orderId,
+                $pickupLocationId,
+                $request->validated(),
+                (string) $request->header('Idempotency-Key', ''),
+            );
+
+            return $this->success(
+                $this->orderService->driverOrderDetail($request->user(), $orderId),
+                'Penggantian toko/resto disetujui.',
+            );
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
+    public function rejectShoppingMerchantReplacementByDriver(
+        ShoppingMerchantReplacementApprovalActionRequest $request,
+        int $orderId,
+        int $pickupLocationId,
+    ): JsonResponse {
+        try {
+            $this->shoppingMerchantReplacementService->rejectByDriver(
+                $request->user(),
+                $orderId,
+                $pickupLocationId,
+                $request->validated(),
+            );
+
+            return $this->success(
+                $this->orderService->driverOrderDetail($request->user(), $orderId),
+                'Penggantian toko/resto ditolak.',
             );
         } catch (ApiException $exception) {
             return $this->error($exception->getMessage(), $exception->status(), $exception->errors());

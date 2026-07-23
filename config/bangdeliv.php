@@ -119,6 +119,22 @@ return [
     | delivery_fee = base_fee + (billed_km × rate_per_km)
     |
     */
+    /*
+    |--------------------------------------------------------------------------
+    | Nitip Merchant Replacement
+    |--------------------------------------------------------------------------
+    |
+    | Batas radius (km) penggantian toko/resto oleh CUSTOMER yang masih boleh
+    | diterapkan langsung. Bila resto pengganti lebih jauh dari radius ini
+    | (diukur garis lurus dari resto yang tutup), penggantian harus disetujui
+    | driver dulu supaya driver tidak dipaksa menempuh jarak jauh tanpa suara.
+    | Penggantian oleh driver sendiri tetap otomatis.
+    |
+    */
+    'shopping' => [
+        'merchant_replacement_approval_radius_km' => (float) env('SHOPPING_MERCHANT_REPLACEMENT_APPROVAL_RADIUS_KM', 5),
+    ],
+
     'base_delivery_fee' => env('BASE_DELIVERY_FEE', 5000),         // Rp 5.000
     'delivery_rate_per_km' => env('DELIVERY_RATE_PER_KM', 2000),      // Legacy fallback
     'delivery_rate_0_10_per_km' => env('DELIVERY_RATE_0_10_PER_KM', 2000),

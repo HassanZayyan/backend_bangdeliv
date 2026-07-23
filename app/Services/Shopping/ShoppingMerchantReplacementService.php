@@ -12,6 +12,7 @@ use App\Models\OrderLog;
 use App\Models\User;
 use App\Services\Maps\GooglePlaceDetailsService;
 use App\Services\Notification\ShoppingItemAvailabilityPushNotificationService;
+use App\Services\Notification\ShoppingMerchantReplacementApprovalNotificationService;
 use App\Services\Order\DeliveryFeeNegotiationService;
 use App\Services\Pricing\ShoppingPricingService;
 use Illuminate\Support\Facades\DB;
@@ -28,6 +29,7 @@ class ShoppingMerchantReplacementService
         private readonly GooglePlaceDetailsService $placeDetails,
         private readonly DeliveryFeeNegotiationService $deliveryFeeNegotiation,
         private readonly ShoppingItemAvailabilityPushNotificationService $availabilityNotifications,
+        private readonly ShoppingMerchantReplacementApprovalNotificationService $approvalNotifications,
     ) {}
 
     /** @param array<string, mixed> $payload @return array<string, mixed> */
@@ -65,7 +67,7 @@ class ShoppingMerchantReplacementService
         ];
     }
 
-    /** @param array<string, mixed> $payload @return array<string, mixed> */
+    /** @param array<string, mixed> $payload @param array<string, mixed> $options @return array<string, mixed> */
     public function commit(
         User $actor,
         int $orderId,
@@ -73,10 +75,23 @@ class ShoppingMerchantReplacementService
         array $payload,
         string $idempotencyKey,
         bool $asDriver,
+        array $options = [],
     ): array {
         $idempotencyKey = trim($idempotencyKey);
         if ($idempotencyKey === '' || mb_strlen($idempotencyKey) > 100) {
             throw new ApiException('Idempotency-Key wajib diisi dan maksimal 100 karakter.', 422);
+        }
+
+        // Gerbang persetujuan: penggantian oleh CUSTOMER ke resto yang jauh
+        // (> radius dari resto lama) ditahan dulu untuk disetujui driver, bukan
+        // langsung dieksekusi. Eksekusi hasil-approval driver memakai
+        // bypass_approval agar tidak masuk gerbang lagi.
+        $bypassApproval = (bool) ($options['bypass_approval'] ?? false);
+        if (! $asDriver && ! $bypassApproval) {
+            $gate = $this->evaluateApprovalGate($actor, $orderId, $pickupLocationId, $payload, $idempotencyKey);
+            if ($gate !== null) {
+                return $gate;
+            }
         }
 
         $result = DB::transaction(function () use ($actor, $orderId, $pickupLocationId, $payload, $idempotencyKey, $asDriver): array {
@@ -226,17 +241,292 @@ class ShoppingMerchantReplacementService
             ];
         }, attempts: 3);
 
-        if ($asDriver && $result['idempotent_replay'] === false) {
-            $this->availabilityNotifications->sendMerchantReplaced(
-                Order::query()->findOrFail((int) $result['order_id']),
-                $pickupLocationId,
-                $result['old_merchant_name'],
-                $result['new_merchant_name'],
-                (int) $result['replacement_event_id'],
-            );
+        if ($result['idempotent_replay'] === false) {
+            if ($asDriver) {
+                $this->availabilityNotifications->sendMerchantReplaced(
+                    Order::query()->findOrFail((int) $result['order_id']),
+                    $pickupLocationId,
+                    $result['old_merchant_name'],
+                    $result['new_merchant_name'],
+                    (int) $result['replacement_event_id'],
+                );
+            } elseif (! $bypassApproval) {
+                // Penggantian customer dalam radius: driver tidak dimintai
+                // persetujuan, tapi tetap wajib diberi tahu tujuannya berubah.
+                $this->approvalNotifications->sendMerchantChangedNotice(
+                    Order::query()->findOrFail((int) $result['order_id']),
+                    $result['old_merchant_name'],
+                    $result['new_merchant_name'],
+                );
+            }
         }
 
         return $result;
+    }
+
+    /**
+     * Bila penggantian oleh customer melewati radius, tahan sebagai proposal
+     * yang menunggu persetujuan driver dan kembalikan status PENDING. Bila masih
+     * dalam radius, kembalikan null agar commit berjalan seperti biasa.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>|null
+     */
+    private function evaluateApprovalGate(User $actor, int $orderId, int $pickupLocationId, array $payload, string $idempotencyKey): ?array
+    {
+        $order = Order::query()
+            ->with(['statusRef', 'serviceType', 'orderLocations.restaurant', 'items', 'shoppingReceipt', 'driver'])
+            ->find($orderId);
+        $this->assertParticipant($actor, $order, false);
+
+        // Replay dari replacement yang SUDAH ter-commit (Idempotency-Key sama)
+        // tidak boleh masuk gerbang -- biarkan commit menangani replay-nya,
+        // sebab assertReplaceable akan gagal (state sudah berubah).
+        if ($this->idempotencyEvent($order, $idempotencyKey) instanceof OrderLog) {
+            return null;
+        }
+
+        $pickup = $this->pickupLocations->pickupById($order, $pickupLocationId);
+
+        // Retry submit yang sama (Idempotency-Key sama) mengembalikan proposal
+        // yang sudah ada -- dicek sebelum assertReplaceable karena membuat
+        // proposal menaikkan state_version, sehingga expected_version lama tak
+        // lagi cocok.
+        $existing = $this->pendingApprovalEvent($order, (int) $pickup->id);
+        if ($existing instanceof OrderLog
+            && strtoupper((string) data_get($existing->metadata, 'status')) === 'PENDING'
+            && (string) data_get($existing->metadata, 'idempotency_key') === $idempotencyKey) {
+            return $this->pendingGateResult($order, $pickup, $existing, (float) data_get($existing->metadata, 'distance_km', 0));
+        }
+
+        $pickupProjection = $this->assertReplaceable($order, $pickup, (int) $payload['expected_version']);
+        $candidatePayload = $this->verifiedCandidatePayload($payload);
+        $candidate = $this->candidateResolver->resolve($order, $candidatePayload);
+        $this->assertCandidateIsNew($order, $pickup, $candidate);
+
+        $distanceKm = $this->haversineKm(
+            (float) $pickup->latitude,
+            (float) $pickup->longitude,
+            $candidate->latitude,
+            $candidate->longitude,
+        );
+        if ($distanceKm <= $this->approvalRadiusKm()) {
+            return null;
+        }
+
+        $items = $this->normalizeItems($candidate, $payload['items'] ?? []);
+        $fingerprint = $this->fingerprint($candidatePayload, $items);
+
+        $event = OrderLog::query()->create([
+            'order_id' => $order->id,
+            'event_type' => ShoppingReplacementProjectionService::REPLACEMENT_PENDING_EVENT,
+            'trigger_type' => 'CUSTOMER_REQUESTED_MERCHANT_REPLACEMENT_APPROVAL',
+            'changed_by_user_id' => $actor->id,
+            'note' => 'Customer meminta ganti toko/resto ke lokasi jauh; menunggu persetujuan driver.',
+            'metadata' => [
+                'status' => 'PENDING',
+                'requested_by' => 'customer',
+                'chain_id' => $pickupProjection['chain_id'],
+                'source_pickup_location_id' => (int) $pickup->id,
+                'pickup_location_id' => (int) $pickup->id,
+                'distance_km' => round($distanceKm, 2),
+                'radius_km' => $this->approvalRadiusKm(),
+                'old_merchant' => $this->merchantSnapshot($pickup),
+                'merchant' => $this->candidateSnapshot($candidate),
+                'items' => $items,
+                'idempotency_key' => $idempotencyKey,
+                'payload_fingerprint' => $fingerprint,
+                'request_payload' => $payload,
+            ],
+        ]);
+
+        $this->approvalNotifications->sendMerchantChangeApprovalRequest(
+            $order,
+            $this->pickupMerchantName($pickup),
+            $candidate->name,
+            round($distanceKm, 2),
+            (int) $event->id,
+        );
+
+        return $this->pendingGateResult($order, $pickup, $event, $distanceKm);
+    }
+
+    /**
+     * Driver menyetujui proposal penggantian yang tertahan: proposal ditandai
+     * APPROVED lalu commit dijalankan dengan identitas customer (bypass gerbang).
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    public function approveByDriver(User $actor, int $orderId, int $pickupLocationId, array $payload, string $idempotencyKey): array
+    {
+        $idempotencyKey = trim($idempotencyKey);
+        if ($idempotencyKey === '' || mb_strlen($idempotencyKey) > 100) {
+            throw new ApiException('Idempotency-Key wajib diisi dan maksimal 100 karakter.', 422);
+        }
+
+        $execution = DB::transaction(function () use ($actor, $orderId, $pickupLocationId, $payload, $idempotencyKey): array {
+            $order = Order::query()
+                ->with(['statusRef', 'serviceType', 'orderLocations.restaurant', 'items', 'shoppingReceipt', 'driver', 'user'])
+                ->lockForUpdate()
+                ->find($orderId);
+            $this->assertParticipant($actor, $order, true);
+
+            $event = $this->pendingApprovalEvent($order, $pickupLocationId);
+            $this->assertPendingApprovalActionable($event, $pickupLocationId, (int) ($payload['approval_event_id'] ?? 0));
+
+            $customer = $order->user;
+            if (! $customer instanceof User) {
+                throw new ApiException('Customer order tidak ditemukan.', 422);
+            }
+
+            $metadata = is_array($event->metadata) ? $event->metadata : [];
+            $requestPayload = is_array($metadata['request_payload'] ?? null) ? $metadata['request_payload'] : [];
+            $storedKey = (string) ($metadata['idempotency_key'] ?? '');
+
+            // Tandai APPROVED dulu agar projection tak lagi memblok penggantian,
+            // lalu selaraskan expected_version ke state terkini sebelum commit.
+            $event->update(['metadata' => [
+                ...$metadata,
+                'status' => 'APPROVED',
+                'resolved_by_user_id' => (int) $actor->id,
+                'resolved_role' => 'driver',
+            ]]);
+            $requestPayload['expected_version'] = (int) $this->projection->forPickup($order, $pickupLocationId)['state_version'];
+
+            $result = $this->commit(
+                $customer,
+                (int) $order->id,
+                $pickupLocationId,
+                $requestPayload,
+                $storedKey !== '' ? $storedKey : $idempotencyKey,
+                false,
+                ['bypass_approval' => true],
+            );
+
+            return [
+                'result' => $result,
+                'old_merchant_name' => (string) data_get($metadata, 'old_merchant.name', 'Toko/resto'),
+                'new_merchant_name' => (string) data_get($metadata, 'merchant.name', 'Toko/resto'),
+            ];
+        }, attempts: 3);
+
+        $this->approvalNotifications->sendMerchantChangeApprovalResult(
+            Order::query()->with('user')->findOrFail($orderId),
+            true,
+            $execution['old_merchant_name'],
+            $execution['new_merchant_name'],
+        );
+
+        return $execution['result'];
+    }
+
+    /**
+     * Driver menolak proposal: proposal ditandai REJECTED, toko lama tetap di
+     * state keputusan (customer bisa pilih opsi lain), tidak ada pembatalan.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    public function rejectByDriver(User $actor, int $orderId, int $pickupLocationId, array $payload): array
+    {
+        $rejection = DB::transaction(function () use ($actor, $orderId, $pickupLocationId, $payload): array {
+            $order = Order::query()
+                ->with(['statusRef', 'serviceType', 'orderLocations.restaurant', 'driver', 'user'])
+                ->lockForUpdate()
+                ->find($orderId);
+            $this->assertParticipant($actor, $order, true);
+
+            $event = $this->pendingApprovalEvent($order, $pickupLocationId);
+            $this->assertPendingApprovalActionable($event, $pickupLocationId, (int) ($payload['approval_event_id'] ?? 0));
+
+            $metadata = is_array($event->metadata) ? $event->metadata : [];
+            $reason = trim((string) ($payload['reason'] ?? '')) ?: 'Toko/resto pengganti terlalu jauh.';
+            $event->update(['metadata' => [
+                ...$metadata,
+                'status' => 'REJECTED',
+                'resolved_by_user_id' => (int) $actor->id,
+                'resolved_role' => 'driver',
+                'rejection_reason' => $reason,
+            ]]);
+
+            return [
+                'order_id' => (int) $order->id,
+                'old_merchant_name' => (string) data_get($metadata, 'old_merchant.name', 'Toko/resto'),
+                'new_merchant_name' => (string) data_get($metadata, 'merchant.name', 'Toko/resto'),
+                'reason' => $reason,
+            ];
+        }, attempts: 3);
+
+        $this->approvalNotifications->sendMerchantChangeApprovalResult(
+            Order::query()->with('user')->findOrFail($orderId),
+            false,
+            $rejection['old_merchant_name'],
+            $rejection['new_merchant_name'],
+            $rejection['reason'],
+        );
+
+        return [
+            'order_id' => $rejection['order_id'],
+            'pickup_location_id' => $pickupLocationId,
+            'status' => 'REJECTED',
+            'reason' => $rejection['reason'],
+        ];
+    }
+
+    private function pendingApprovalEvent(Order $order, int $pickupLocationId): ?OrderLog
+    {
+        return OrderLog::query()
+            ->where('order_id', $order->id)
+            ->where('event_type', ShoppingReplacementProjectionService::REPLACEMENT_PENDING_EVENT)
+            ->orderByDesc('id')
+            ->get()
+            ->first(fn (OrderLog $event): bool => (int) data_get($event->metadata, 'source_pickup_location_id', 0) === $pickupLocationId);
+    }
+
+    private function assertPendingApprovalActionable(?OrderLog $event, int $pickupLocationId, int $expectedEventId): void
+    {
+        if (! $event instanceof OrderLog
+            || (int) data_get($event->metadata, 'source_pickup_location_id', 0) !== $pickupLocationId
+            || strtoupper((string) data_get($event->metadata, 'status')) !== 'PENDING') {
+            throw new ApiException('Tidak ada permintaan penggantian toko/resto yang menunggu persetujuan.', 409);
+        }
+        if ($expectedEventId > 0 && (int) $event->id !== $expectedEventId) {
+            throw new ApiException('Permintaan penggantian sudah berubah. Muat ulang order.', 409, ['code' => 'STATE_CHANGED']);
+        }
+    }
+
+    /** @return array<string, mixed> */
+    private function pendingGateResult(Order $order, OrderLocation $pickup, OrderLog $event, float $distanceKm): array
+    {
+        return [
+            'order_id' => (int) $order->id,
+            'pickup_location_id' => (int) $pickup->id,
+            'status' => 'PENDING_DRIVER_APPROVAL',
+            'requires_driver_approval' => true,
+            'approval_event_id' => (int) $event->id,
+            'distance_km' => round($distanceKm, 2),
+            'idempotent_replay' => false,
+        ];
+    }
+
+    private function approvalRadiusKm(): float
+    {
+        $radius = (float) config('bangdeliv.shopping.merchant_replacement_approval_radius_km', 5);
+
+        return $radius > 0 ? $radius : 5.0;
+    }
+
+    private function haversineKm(float $lat1, float $lon1, float $lat2, float $lon2): float
+    {
+        $earthRadiusKm = 6371.0;
+        $deltaLat = deg2rad($lat2 - $lat1);
+        $deltaLon = deg2rad($lon2 - $lon1);
+        $haversine = sin($deltaLat / 2) ** 2
+            + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($deltaLon / 2) ** 2;
+        $safeHaversine = min(1.0, max(0.0, $haversine));
+
+        return $earthRadiusKm * 2 * atan2(sqrt($safeHaversine), sqrt(1 - $safeHaversine));
     }
 
     private function assertParticipant(User $actor, ?Order $order, bool $asDriver): void

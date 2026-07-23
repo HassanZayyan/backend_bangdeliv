@@ -10,6 +10,14 @@ class ShoppingReplacementProjectionService
 {
     public const REPLACEMENT_EVENT = 'SHOPPING_MERCHANT_REPLACEMENT';
 
+    /**
+     * Proposal penggantian toko/resto oleh customer yang menunggu persetujuan
+     * driver karena resto pengganti melewati radius. Statusnya (PENDING /
+     * APPROVED / REJECTED) disimpan di metadata; event terbaru per pickup yang
+     * menentukan state saat ini.
+     */
+    public const REPLACEMENT_PENDING_EVENT = 'SHOPPING_MERCHANT_REPLACEMENT_PENDING';
+
     public const FAILED_TRIP_EVENT = 'SHOPPING_FAILED_TRIP';
 
     public const CHECKPOINT_EVENT = 'SHOPPING_ROUTE_CHECKPOINT';
@@ -57,6 +65,7 @@ class ShoppingReplacementProjectionService
             ->where('order_id', $order->id)
             ->whereIn('event_type', [
                 self::REPLACEMENT_EVENT,
+                self::REPLACEMENT_PENDING_EVENT,
                 self::FAILED_TRIP_EVENT,
                 self::CHECKPOINT_EVENT,
                 self::CHAIN_ABANDONED_EVENT,
@@ -71,6 +80,7 @@ class ShoppingReplacementProjectionService
         $chainForPickup = [];
         $attemptForPickup = [];
         $stateVersionForPickup = [];
+        $pendingApprovalForPickup = [];
 
         foreach ($events as $event) {
             $metadata = $this->metadata($event);
@@ -78,6 +88,13 @@ class ShoppingReplacementProjectionService
             $sourceId = $this->positiveInt($metadata['source_pickup_location_id'] ?? null);
             $targetId = $this->positiveInt($metadata['replacement_pickup_location_id'] ?? null);
             $pickupId = $this->positiveInt($metadata['pickup_location_id'] ?? null);
+
+            if ($event->event_type === self::REPLACEMENT_PENDING_EVENT && $sourceId !== null) {
+                // Event terbaru per pickup menang: PENDING → menunggu driver,
+                // APPROVED/REJECTED → sudah selesai (tidak lagi menahan).
+                $pendingApprovalForPickup[$sourceId] = $metadata + ['event_id' => $eventId];
+                $stateVersionForPickup[$sourceId] = max($stateVersionForPickup[$sourceId] ?? 0, $eventId);
+            }
 
             if ($event->event_type === self::REPLACEMENT_EVENT && $sourceId !== null && $targetId !== null) {
                 $chainId = $this->text($metadata['chain_id'] ?? null) ?? $this->chainIdForPickup($sourceId);
@@ -192,12 +209,17 @@ class ShoppingReplacementProjectionService
             $failedCount = (int) $chain['failed_attempt_count'];
             $isUnavailableDecision = $status === 'ITEMS_PENDING_CUSTOMER';
             $isClosedReplaceable = $status === 'FAILED';
+            $pendingApproval = $this->pendingApprovalSnapshot($pendingApprovalForPickup[$pickupId] ?? null);
+            $hasPendingApproval = $pendingApproval !== null;
             // Penggantian bergantung pada kuota flat pesanan, bukan lagi pada
-            // batas kegagalan per-rantai.
+            // batas kegagalan per-rantai. Selama proposal customer masih
+            // menunggu persetujuan driver, penggantian lain diblok agar tak
+            // dobel-submit.
             $canReplace = $isCurrent
                 && ! $isTerminalOrder
                 && ($isUnavailableDecision || $isClosedReplaceable)
-                && ! $quotaExhausted;
+                && ! $quotaExhausted
+                && ! $hasPendingApproval;
 
             $pickupSnapshots[$pickupId] = [
                 'chain_id' => $chainId,
@@ -213,7 +235,10 @@ class ShoppingReplacementProjectionService
                     ? null
                     : ($isTerminalOrder
                         ? 'Order sudah berakhir.'
-                        : $this->replacementBlockReason($status, $isCurrent, $quotaExhausted)),
+                        : ($hasPendingApproval
+                            ? 'Menunggu persetujuan driver untuk toko/resto pengganti.'
+                            : $this->replacementBlockReason($status, $isCurrent, $quotaExhausted))),
+                'pending_replacement_approval' => $pendingApproval,
                 'replaced_from_pickup_location_id' => $this->positiveInt($replacementByTarget[$pickupId]['source_pickup_location_id'] ?? null),
                 'replacement_pickup_location_id' => $this->positiveInt($replacementBySource[$pickupId]['replacement_pickup_location_id'] ?? null),
                 'google_place_id' => $this->text($replacementByTarget[$pickupId]['merchant']['google_place_id'] ?? null),
@@ -246,6 +271,7 @@ class ShoppingReplacementProjectionService
             'state_version' => 0,
             'can_replace_merchant' => false,
             'replacement_block_reason' => 'State merchant belum tersedia.',
+            'pending_replacement_approval' => null,
         ];
     }
 
@@ -272,6 +298,32 @@ class ShoppingReplacementProjectionService
         $text = trim((string) ($value ?? ''));
 
         return $text !== '' ? $text : null;
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $metadata
+     * @return array<string, mixed>|null
+     */
+    private function pendingApprovalSnapshot(?array $metadata): ?array
+    {
+        if ($metadata === null) {
+            return null;
+        }
+        if (strtoupper(trim((string) ($metadata['status'] ?? ''))) !== 'PENDING') {
+            return null;
+        }
+
+        return [
+            'event_id' => $this->positiveInt($metadata['event_id'] ?? null),
+            'status' => 'PENDING',
+            'distance_km' => is_numeric($metadata['distance_km'] ?? null)
+                ? round((float) $metadata['distance_km'], 2)
+                : null,
+            'requested_by' => $this->text($metadata['requested_by'] ?? null),
+            'new_merchant' => is_array($metadata['merchant'] ?? null) ? $metadata['merchant'] : null,
+            'items' => is_array($metadata['items'] ?? null) ? array_values($metadata['items']) : [],
+            'payload_fingerprint' => $this->text($metadata['payload_fingerprint'] ?? null),
+        ];
     }
 
     private function replacementBlockReason(string $status, bool $isCurrent, bool $quotaExhausted): string
