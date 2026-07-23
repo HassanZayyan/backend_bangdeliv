@@ -13,37 +13,46 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 /**
- * Persamaan (6) model revisi: fee pembatalan = 0,5 x O(d_max), dengan d_max =
- * jarak RUTE JALAN terjauh dari lokasi customer ke salah satu toko/resto gagal
- * TERVERIFIKASI. Rute bolak-balik driver tidak diperhitungkan.
+ * Fee pembatalan Nitip (formula terpadu, Fase 2): fee = 0,5 x ongkir RUTE
+ * COMMITTED penuh (semua toko/resto yang didatangi -> antar, = estimasi
+ * chatbot), bukan lagi 0,5 x O(d_max) toko terjauh tunggal. Basis diambil dari
+ * ongkir committed yang dibekukan (penalty_base_delivery_fee) atau ongkir order
+ * terkini. d_max hanya dipertahankan sebagai gerbang kelayakan (ada kegagalan
+ * terverifikasi & ambang tiga).
  */
 class ShoppingCancellationFeeDMaxTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_fee_is_half_of_route_to_the_farthest_verified_store(): void
+    public function test_fee_is_half_of_committed_route_when_all_verified_failed(): void
     {
-        // Tiga toko gagal, jarak rute customer -> toko: 1.200, 2.000, 3.000 m.
-        // d_max = 3.000 -> O(3 km) = 5.000 + 3 x 2.000 = 11.000 -> fee 5.500.
+        // Tiga toko gagal & terverifikasi -> eligible. Basis = ongkir rute
+        // committed penuh (= ongkir order 15.000) -> fee 0,5 x 15.000 = 7.500.
         $order = $this->orderWithFailedStores([1200, 2000, 3000], verified: true);
 
         $summary = app(ShoppingFailedTripCompensationService::class)->summary($order->refresh());
 
         $this->assertTrue($summary['eligible']);
         $this->assertSame(3, $summary['verified_failed_trip_count']);
-        $this->assertSame(3000, $summary['customer_route_distance_meters'], 'd_max = toko terjauh');
-        $this->assertSame(11000.0, $summary['base_route_fee'], 'O(3 km)');
-        $this->assertSame(5500.0, $summary['amount'], '0,5 x O(d_max)');
+        $this->assertSame(15000.0, $summary['base_route_fee'], 'ongkir rute committed penuh');
+        $this->assertSame(7500.0, $summary['amount'], '0,5 x ongkir committed');
     }
 
-    public function test_roundtrip_is_ignored_only_the_farthest_leg_counts(): void
+    public function test_fee_uses_frozen_committed_route_base(): void
     {
-        // Toko terjauh 3.000 m; dua lainnya dekat. Meski driver bolak-balik,
-        // fee tetap 0,5 x O(3 km) = 5.500 -- bukan akumulasi segmen.
+        // Bila ongkir committed dibekukan (penalty_base_delivery_fee) berbeda dari
+        // ongkir kolom terkini, fee memakai nilai beku itu. Beku 30.000 -> 15.000.
         $order = $this->orderWithFailedStores([3000, 500, 500], verified: true);
+        \App\Models\OrderLog::query()->create([
+            'order_id' => $order->id,
+            'log_type' => 'SYSTEM_EVENT',
+            'trigger_type' => 'FAILED_ATTEMPT_PICKUP',
+            'note' => 'Basis ongkir committed dibekukan.',
+            'metadata' => ['penalty_base_delivery_fee' => 30000],
+        ]);
 
         $this->assertSame(
-            5500.0,
+            15000.0,
             app(ShoppingFailedTripCompensationService::class)->amount($order->refresh()),
         );
     }

@@ -113,9 +113,14 @@ class ShoppingFailedTripCompensationService
         $dMax = $this->maxVerifiedCustomerRouteDistanceMeters($order);
         $eligible = $gTotal >= ShoppingReplacementProjectionService::COMPENSATION_FAILURE_THRESHOLD && $dMax > 0;
 
-        $baseFee = $eligible
-            ? round((float) ($this->deliveryPricing->calculateFromDistanceMeters((float) $dMax)['total_fee'] ?? 0), 2)
-            : 0.0;
+        // Basis fee kini = ongkir RUTE COMMITTED penuh (semua toko/resto yang
+        // didatangi -> antar), identik dengan estimasi chatbot, bukan lagi
+        // O(d_max) toko terjauh tunggal. Nilai ini sudah dibekukan sebagai
+        // penalty_base_delivery_fee saat toko-toko gagal (= order->delivery_fee
+        // committed sebelum semua gugur), jadi tak perlu memanggil Maps ulang.
+        // d_max tetap dipakai hanya sebagai gerbang kelayakan (ada kegagalan
+        // terverifikasi).
+        $baseFee = $eligible ? $this->committedRouteBaseFee($order) : 0.0;
 
         return [
             'eligible' => $eligible,
@@ -130,6 +135,28 @@ class ShoppingFailedTripCompensationService
     public function amount(Order $order): float
     {
         return (float) $this->summary($order)['amount'];
+    }
+
+    /**
+     * Ongkir rute committed yang dibekukan (penalty_base_delivery_fee) saat
+     * toko-toko gagal -- sama dengan ongkir order sebelum semua toko gugur, yaitu
+     * tarif rute optimal melewati semua toko committed -> antar. Fallback ke
+     * ongkir order terkini bila belum ada snapshot.
+     */
+    private function committedRouteBaseFee(Order $order): float
+    {
+        $frozen = OrderLog::query()
+            ->where('order_id', $order->id)
+            ->latest('id')
+            ->get(['metadata'])
+            ->map(fn (OrderLog $event): mixed => data_get($event->metadata ?? [], 'penalty_base_delivery_fee'))
+            ->first(fn (mixed $amount): bool => is_numeric($amount) && (float) $amount > 0);
+
+        if (is_numeric($frozen)) {
+            return round((float) $frozen, 2);
+        }
+
+        return round(max(0.0, (float) $order->delivery_fee), 2);
     }
 
     /** @return array<string, mixed>|null */

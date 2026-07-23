@@ -124,15 +124,14 @@ return [
     | Nitip Merchant Replacement
     |--------------------------------------------------------------------------
     |
-    | Batas radius (km) penggantian toko/resto oleh CUSTOMER yang masih boleh
-    | diterapkan langsung. Bila resto pengganti lebih jauh dari radius ini
-    | (diukur garis lurus dari resto yang tutup), penggantian harus disetujui
-    | driver dulu supaya driver tidak dipaksa menempuh jarak jauh tanpa suara.
-    | Penggantian oleh driver sendiri tetap otomatis.
+    | Batas radius (km) penggantian toko/resto oleh CUSTOMER yang butuh
+    | persetujuan driver. DEFAULT 0 = TANPA BATAS: customer boleh ganti/tambah
+    | toko ke jarak berapa pun tanpa approval, karena toh membayar ongkir
+    | committed-nya. Setel > 0 untuk mengaktifkan kembali gerbang jarak.
     |
     */
     'shopping' => [
-        'merchant_replacement_approval_radius_km' => (float) env('SHOPPING_MERCHANT_REPLACEMENT_APPROVAL_RADIUS_KM', 5),
+        'merchant_replacement_approval_radius_km' => (float) env('SHOPPING_MERCHANT_REPLACEMENT_APPROVAL_RADIUS_KM', 0),
     ],
 
     'base_delivery_fee' => env('BASE_DELIVERY_FEE', 5000),         // Rp 5.000

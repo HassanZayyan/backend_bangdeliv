@@ -1061,6 +1061,39 @@ class DriverOrderRevisionEndpointsTest extends TestCase
         $this->assertNotNull($order->fresh()->cancelled_at);
     }
 
+    public function test_customer_cannot_cancel_nitip_order_from_delivery_fee_revision_after_driver_bought(): void
+    {
+        [$driverUser, $driver] = $this->createDriver();
+        $order = $this->createAssignedOrder($driver, 'SHOPPING', 'ARRIVED_MERCHANT', 15000);
+        $customer = User::query()->findOrFail($order->user_id);
+        // Harga toko sudah disetujui = driver sudah menalangi belanja.
+        $this->approveShoppingQuoteForTest($order, $driverUser, $customer, 50000);
+
+        Sanctum::actingAs($driverUser);
+        $this->postJson('/api/v1/driver/orders/'.$order->id.'/delivery-fee-override', [
+            'amount' => 25000,
+            'reason' => 'Total final perjalanan.',
+        ])->assertOk()
+            ->assertJsonPath('data.delivery_fee_negotiation.status', 'PENDING_CUSTOMER');
+
+        // Customer menolak revisi ongkir dengan membatalkan order -> DILARANG
+        // karena driver sudah beli. Customer tetap boleh COUNTER/APPROVE.
+        Sanctum::actingAs($customer);
+        $this->postJson('/api/v1/orders/'.$order->id.'/delivery-fee-override/respond', [
+            'action' => 'CANCEL_ORDER',
+        ])->assertConflict()
+            ->assertJsonPath('success', false);
+
+        $this->assertNotSame('CANCELLED', $order->fresh()->statusRef?->code);
+
+        // COUNTER tetap diperbolehkan agar customer punya jalur negosiasi.
+        $this->postJson('/api/v1/orders/'.$order->id.'/delivery-fee-override/respond', [
+            'action' => 'COUNTER',
+            'counter_amount' => 23000,
+        ])->assertOk()
+            ->assertJsonPath('data.delivery_fee_negotiation.status', 'PENDING_DRIVER');
+    }
+
     public function test_driver_can_record_transfer_payment(): void
     {
         [$driverUser, $driver] = $this->createDriver();
@@ -1725,10 +1758,16 @@ class DriverOrderRevisionEndpointsTest extends TestCase
 
         $endpoint = '/api/v1/orders/'.$order->id.'/shopping-stops/'.$pickup->id.'/replace';
         $response = $this->withHeader('Idempotency-Key', 'replace-customer-1')->postJson($endpoint, $payload);
-        $response->assertOk()
-            ->assertJsonPath('success', true)
-            ->assertJsonPath('data.shopping_stops.0.chain_attempt_no', 2)
-            ->assertJsonPath('data.delivery_fee_negotiation.note', 'Ongkir diperbarui karena toko/resto diganti.');
+        $response->assertOk()->assertJsonPath('success', true);
+        // Ongkir kini deterministik dari rute committed -- replacement TIDAK lagi
+        // membuat event negosiasi 'driver_manual'. Toko/resto pengganti tercatat
+        // sebagai attempt ke-2 pada rantainya.
+        $this->assertContains(
+            2,
+            collect($response->json('data.shopping_stops'))
+                ->pluck('chain_attempt_no')
+                ->all(),
+        );
         $this->assertDatabaseHas('order_locations', ['id' => $pickup->id, 'fulfillment_status' => 'REPLACED']);
         $this->assertDatabaseMissing('shopping_order_items', ['id' => $oldItem->id]);
         $this->assertDatabaseHas('order_events', [

@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Services\Driver\DriverOrderLifecycleService;
 use App\Services\Driver\DriverOrderPayloadFactory;
 use App\Services\Pricing\ShoppingPricingService;
+use App\Services\Shopping\ShoppingPriceNegotiationService;
 use Illuminate\Support\Facades\DB;
 
 final class DeliveryFeeNegotiationOrchestrator
@@ -369,6 +370,20 @@ final class DeliveryFeeNegotiationOrchestrator
 
     private function cancelOrderFromDeliveryFeeNegotiation(User $actor, Order $order, mixed &$statusChangeEventPayload): Order
     {
+        // Pesanan Nitip TIDAK BISA dibatalkan setelah driver membeli barang --
+        // kasihan driver yang sudah menalangi belanja. Sinyal "sudah beli" =
+        // harga toko sudah disetujui (checkout_allowed); pada tahap ini receipt
+        // final memang belum tersimpan karena revisi ongkir justru terjadi
+        // sebelum checkout. Setelah beli, customer hanya boleh setuju ongkir atau
+        // mengajukan tawaran, tak boleh membatalkan lewat jalur revisi ongkir.
+        if (strtoupper((string) ($order->serviceType->code ?? '')) === 'SHOPPING'
+            && app(ShoppingPriceNegotiationService::class)->isApproved($order)) {
+            throw new ApiException(
+                'Pesanan Nitip tidak bisa dibatalkan setelah driver membeli barang. Silakan setujui ongkir atau ajukan tawaran.',
+                409,
+            );
+        }
+
         $snapshot = $this->deliveryFeeNegotiationService->snapshot($order);
         if (($snapshot['status'] ?? null) !== 'PENDING_CUSTOMER') {
             throw new ApiException('Belum ada revisi ongkir yang bisa dibatalkan.', 409);

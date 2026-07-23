@@ -1850,7 +1850,14 @@ class DriverOrderWorkflowTest extends TestCase
             if ($index < 2) {
                 $response->assertOk()
                     ->assertJsonPath('data.status_ref.code', 'ARRIVED_MERCHANT');
-                $this->assertSame(30000.0, round((float) $order->refresh()->delivery_fee, 2));
+                // Formula ongkir terpadu (Fase 1): ongkir dihitung ULANG dari
+                // rute committed setiap kali sebuah tempat dibatalkan. Tempat
+                // yang dibatalkan customer TANPA driver benar-benar mendatanginya
+                // tidak lagi dihitung, jadi ongkir tak lagi ditahan di 30.000.
+                // Rute fake = 1.000 m/segmen: sisa 2 tempat -> 2 km -> Rp9.000;
+                // sisa 1 tempat -> 1 km -> Rp5.000 (dalam flat band).
+                $expected = $index === 0 ? 9000.0 : 5000.0;
+                $this->assertSame($expected, round((float) $order->refresh()->delivery_fee, 2));
             } else {
                 $response->assertOk()
                     ->assertJsonPath('data.status_ref.code', 'CANCELLED');

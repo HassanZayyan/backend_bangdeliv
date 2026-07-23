@@ -82,12 +82,14 @@ class ShoppingMerchantReplacementService
             throw new ApiException('Idempotency-Key wajib diisi dan maksimal 100 karakter.', 422);
         }
 
-        // Gerbang persetujuan: penggantian oleh CUSTOMER ke resto yang jauh
-        // (> radius dari resto lama) ditahan dulu untuk disetujui driver, bukan
-        // langsung dieksekusi. Eksekusi hasil-approval driver memakai
-        // bypass_approval agar tidak masuk gerbang lagi.
+        // Gerbang persetujuan jarak DINONAKTIFKAN secara default (radius 0):
+        // customer boleh ganti/tambah toko ke jarak berapa pun karena toh
+        // membayar ongkir committed-nya. Gerbang hanya aktif bila radius > 0
+        // (mis. disetel ulang lewat config); mekanismenya dipertahankan.
+        // Eksekusi hasil-approval driver memakai bypass_approval agar tidak
+        // masuk gerbang lagi.
         $bypassApproval = (bool) ($options['bypass_approval'] ?? false);
-        if (! $asDriver && ! $bypassApproval) {
+        if (! $asDriver && ! $bypassApproval && $this->approvalRadiusKm() > 0) {
             $gate = $this->evaluateApprovalGate($actor, $orderId, $pickupLocationId, $payload, $idempotencyKey);
             if ($gate !== null) {
                 return $gate;
@@ -212,16 +214,11 @@ class ShoppingMerchantReplacementService
             }
 
             $this->supersedePendingDeliveryFeeProposal($order, (int) $actor->id, (int) $event->id);
-            $routeFee = round((float) ($routePreview['delivery_fee'] ?? $order->delivery_fee), 2);
-            $oldDeliveryFee = round((float) $order->delivery_fee, 2);
-            if (abs($routeFee - $oldDeliveryFee) >= 0.01) {
-                $this->recordDeliveryFeeRevision($order, $actor, $routeFee, $oldDeliveryFee, $asDriver, (int) $event->id);
-            }
-            $this->routeService->applyRouteToOrder(
-                $order->refresh(),
-                $asDriver ? $oldDeliveryFee : null,
-                $asDriver ? 'PENDING_REPLACEMENT_ROUTE_APPROVAL' : null,
-            );
+            // Ongkir deterministik: dihitung ulang dari rute committed (yang kini
+            // menyertakan toko yang baru di-REPLACED, karena driver benar-benar
+            // mendatanginya). Tidak lagi mengunci selisih ongkir sebagai
+            // 'driver_manual', supaya konsisten dengan estimasi chatbot.
+            $this->routeService->applyRouteToOrder($order->refresh());
 
             $this->pricing->recalculate(
                 $order->refresh()->load(['items', 'statusRef', 'serviceType', 'shoppingReceipt', 'orderLocations']),
@@ -512,9 +509,8 @@ class ShoppingMerchantReplacementService
 
     private function approvalRadiusKm(): float
     {
-        $radius = (float) config('bangdeliv.shopping.merchant_replacement_approval_radius_km', 5);
-
-        return $radius > 0 ? $radius : 5.0;
+        // 0 (default) = gerbang jarak nonaktif / tanpa batas. > 0 = radius aktif.
+        return (float) config('bangdeliv.shopping.merchant_replacement_approval_radius_km', 0);
     }
 
     private function haversineKm(float $lat1, float $lon1, float $lat2, float $lon2): float
@@ -654,15 +650,18 @@ class ShoppingMerchantReplacementService
     private function routePreview(Order $order, OrderLocation $source, ShoppingMerchantCandidate $candidate): array
     {
         $order->loadMissing(['orderLocations.restaurant', 'items']);
+        // Preview memakai committed-set: SEMUA toko/resto yang jadi bagian order
+        // (termasuk sumber yang akan di-REPLACED dan yang sudah FAILED, karena
+        // driver mendatanginya) + kandidat pengganti. Dengan begitu ongkir yang
+        // dilihat customer sebelum konfirmasi = ongkir yang benar-benar ditagih
+        // (applyRouteToOrder juga memakai committed).
         $pickupPoints = $order->orderLocations
-            ->filter(function (OrderLocation $location) use ($source): bool {
-                if (strtoupper((string) $location->location_role) !== 'PICKUP' || (int) $location->id === (int) $source->id) {
+            ->filter(function (OrderLocation $location): bool {
+                if (strtoupper((string) $location->location_role) !== 'PICKUP') {
                     return false;
                 }
 
-                return ! in_array(strtoupper((string) ($location->fulfillment_status ?? 'PENDING')), [
-                    'FAILED', 'SKIPPED', 'REPLACED', 'ABANDONED_AFTER_LIMIT',
-                ], true);
+                return strtoupper((string) ($location->fulfillment_status ?? 'PENDING')) !== 'SKIPPED';
             })
             ->map(fn (OrderLocation $location): array => [
                 'id' => (int) $location->id,
@@ -727,26 +726,6 @@ class ShoppingMerchantReplacementService
             'Proposal ongkir lama digantikan karena merchant berubah.',
             ['replacement_event_id' => $replacementEventId, 'status' => 'SUPERSEDED']
         );
-    }
-
-    private function recordDeliveryFeeRevision(Order $order, User $actor, float $newFee, float $oldFee, bool $asDriver, int $replacementEventId): void
-    {
-        $trigger = $asDriver
-            ? DeliveryFeeNegotiationService::DRIVER_FEE_QUOTED
-            : DeliveryFeeNegotiationService::CUSTOMER_FEE_APPROVED;
-        $this->deliveryFeeNegotiation->record($order, $trigger, (int) $actor->id, 'Ongkir diperbarui karena toko/resto diganti.', [
-            'old_delivery_fee' => $oldFee,
-            'base_amount' => $newFee,
-            'quoted_amount' => $newFee,
-            'approved_amount' => $asDriver ? null : $newFee,
-            'final_amount' => $newFee,
-            'delivery_fee_source' => 'driver_manual',
-            'status' => $asDriver ? 'PENDING_CUSTOMER' : 'APPROVED',
-            'replacement_event_id' => $replacementEventId,
-        ]);
-        if (! $asDriver) {
-            $order->update(['delivery_fee' => $newFee, 'delivery_fee_source' => 'driver_manual']);
-        }
     }
 
     /** @return \Illuminate\Support\Collection<int, OrderItem> */

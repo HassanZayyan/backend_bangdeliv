@@ -5,6 +5,7 @@ namespace App\Services\Shopping;
 use App\Exceptions\ApiException;
 use App\Models\Order;
 use App\Models\OrderLocation;
+use App\Models\OrderLog;
 use App\Models\Restaurant;
 use App\Services\Geo\BangDelivServiceAreaService;
 use App\Services\Maps\GoogleMapsDistanceMatrixService;
@@ -145,28 +146,25 @@ class ShoppingRouteService
      */
     public function applyRouteToOrder(
         Order $order,
+        // DEPRECATED sejak formula ongkir terpadu: nilai carry-over diabaikan.
+        // Ongkir kini deterministik dari rute committed. Param dibiarkan agar
+        // pemanggil lama tak pecah.
         ?float $preservedDeliveryFee = null,
         ?string $preservedDeliveryFeeSource = null,
     ): ?array {
         $order->refresh()->load(['orderLocations.restaurant']);
-        $preservedDeliveryFee = is_numeric($preservedDeliveryFee) && $preservedDeliveryFee > 0
-            ? round((float) $preservedDeliveryFee, 2)
-            : null;
         $deliveryFeeLock = $this->deliveryFeeLockResolver->resolve($order);
-        // Kunci ongkir NYATA hasil edit manual driver / negosiasi, dipisahkan
-        // dari nilai carry-over ($preservedDeliveryFee) yang cuma dibawa terus
-        // sebagai basis penalti. Keduanya sempat bercampur; pemisahan ini yang
-        // memungkinkan ongkir carry-over dinolkan tanpa ikut menghapus
-        // kesepakatan ongkir manual driver.
+        // HANYA kunci ongkir NYATA hasil edit manual driver / negosiasi yang
+        // dihormati. Carry-over ($preservedDeliveryFee) sengaja diabaikan supaya
+        // ongkir mengikuti rute committed (tarif = estimasi chatbot) dan tak
+        // menahan nilai basi saat toko gagal/diganti.
         $manualLockedFee = ((bool) $deliveryFeeLock['is_locked']
             && is_numeric($deliveryFeeLock['amount'])
             && (float) $deliveryFeeLock['amount'] > 0)
             ? round((float) $deliveryFeeLock['amount'], 2)
             : null;
-        $lockedDeliveryFee = $preservedDeliveryFee ?? $manualLockedFee;
-        $deliveryFeeLockSource = $preservedDeliveryFee !== null
-            ? ($preservedDeliveryFeeSource ?: 'PRESERVED_DELIVERY_FEE')
-            : $deliveryFeeLock['source'];
+        $lockedDeliveryFee = $manualLockedFee;
+        $deliveryFeeLockSource = $deliveryFeeLock['source'];
 
         if ($this->activePickupLocations($order)->isEmpty()) {
             // Tidak ada merchant aktif berarti tidak ada rute pengantaran, jadi
@@ -248,7 +246,11 @@ class ShoppingRouteService
     {
         $order->loadMissing(['orderLocations.restaurant']);
 
-        $pickups = $this->activePickupLocations($order);
+        // Ongkir = tarif rute yang melewati SEMUA toko/resto committed (termasuk
+        // yang tutup/diganti tapi benar-benar didatangi driver), bukan hanya
+        // yang aktif. Ini menyamakan ongkir dengan estimasi chatbot dan tak lagi
+        // menyusut saat sebuah toko gagal.
+        $pickups = $this->committedPickupLocations($order);
 
         $dropoff = $order->orderLocations
             ->filter(fn (OrderLocation $location): bool => strtoupper((string) $location->location_role) === 'DROPOFF')
@@ -491,6 +493,80 @@ class ShoppingRouteService
             })
             ->sortBy([['sequence_no', 'asc'], ['id', 'asc']])
             ->values();
+    }
+
+    /**
+     * Himpunan pickup "committed" untuk perhitungan ongkir: SEMUA toko/resto yang
+     * jadi bagian order DAN benar-benar didatangi driver -- termasuk yang FAILED
+     * (tutup) dan REPLACED (diganti), karena driver tetap menempuhnya. Toko gagal
+     * yang TIDAK terverifikasi didatangi (mis. dilaporkan tutup dari jauh) tidak
+     * dihitung, supaya driver tidak mendapat ongkir gratis tanpa benar-benar ke
+     * sana. Verifikasi mengikuti radius di config (longgar saat demo).
+     *
+     * @return Collection<int, OrderLocation>
+     */
+    private function committedPickupLocations(Order $order): Collection
+    {
+        $order->loadMissing(['orderLocations.restaurant']);
+        $reached = $this->reachedPickupIds($order);
+
+        return $order->orderLocations
+            ->filter(function (OrderLocation $location) use ($reached): bool {
+                if (strtoupper((string) $location->location_role) !== 'PICKUP') {
+                    return false;
+                }
+                $status = strtoupper((string) ($location->fulfillment_status ?? 'PENDING'));
+                if ($status === 'SKIPPED') {
+                    return false;
+                }
+                if (in_array($status, ['FAILED', 'REPLACED', 'ABANDONED_AFTER_LIMIT'], true)) {
+                    return isset($reached[(int) $location->id]);
+                }
+
+                return true;
+            })
+            ->sortBy([['sequence_no', 'asc'], ['id', 'asc']])
+            ->values();
+    }
+
+    /**
+     * ID pickup yang terbukti didatangi driver: berstatus COMPLETED, atau punya
+     * event kegagalan terverifikasi (SHOPPING_FAILED_TRIP verified_for_compensation),
+     * atau dikonfirmasi buka di lokasi (MERCHANT_OPEN_CONFIRMED).
+     *
+     * @return array<int, bool>
+     */
+    private function reachedPickupIds(Order $order): array
+    {
+        $reached = [];
+        foreach ($order->orderLocations as $location) {
+            if (strtoupper((string) $location->location_role) === 'PICKUP'
+                && strtoupper((string) ($location->fulfillment_status ?? '')) === 'COMPLETED') {
+                $reached[(int) $location->id] = true;
+            }
+        }
+
+        $events = OrderLog::query()
+            ->where('order_id', $order->id)
+            ->whereIn('event_type', ['SHOPPING_FAILED_TRIP', 'SHOPPING_MERCHANT'])
+            ->get();
+        foreach ($events as $event) {
+            $metadata = is_array($event->metadata) ? $event->metadata : [];
+            $pickupId = (int) ($metadata['pickup_location_id'] ?? 0);
+            if ($pickupId <= 0) {
+                continue;
+            }
+            if ($event->event_type === 'SHOPPING_FAILED_TRIP'
+                && ($metadata['verified_for_compensation'] ?? false) === true) {
+                $reached[$pickupId] = true;
+            }
+            if ($event->event_type === 'SHOPPING_MERCHANT'
+                && strtoupper((string) $event->trigger_type) === 'MERCHANT_OPEN_CONFIRMED') {
+                $reached[$pickupId] = true;
+            }
+        }
+
+        return $reached;
     }
 
     private function hasAvailableItemsAtPickup(Order $order, OrderLocation $pickup): bool

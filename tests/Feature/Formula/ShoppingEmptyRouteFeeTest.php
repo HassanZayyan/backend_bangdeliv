@@ -60,14 +60,17 @@ class ShoppingEmptyRouteFeeTest extends TestCase
             $pickup = $this->pickup($order, 'Toko '.($index + 1), 'FAILED');
             $this->failedTripEvent($order, $pickup, $meters);
         }
+        // Basis ongkir committed dibekukan saat toko-toko gagal (= ongkir rute
+        // penuh 30.000 sebelum semua gugur).
+        $this->recordPenaltyBaseEvent($order, 30000);
 
         $this->routeService()->applyRouteToOrder($order, 30000.0, 'FAILED_ATTEMPT_PICKUP');
         $order->update(['status_id' => $this->statusId('CANCELLED_WITH_FEE')]);
 
-        // Ongkir kolom dinolkan, tetapi fee pembatalan tetap dari d_max:
-        // d_max = 3.000 -> O(3 km) = 11.000 -> 0,5 x = 5.500.
+        // Ongkir kolom dinolkan, tetapi fee pembatalan tetap = 0,5 x ongkir rute
+        // committed penuh yang dibekukan: 0,5 x 30.000 = 15.000.
         $penalty = app(ShoppingPricingService::class)->calculateCancellationPenalty($order->refresh());
-        $this->assertSame(5500.0, $penalty);
+        $this->assertSame(15000.0, $penalty);
     }
 
     private function failedTripEvent(Order $order, OrderLocation $pickup, int $routeMeters): void
@@ -119,6 +122,53 @@ class ShoppingEmptyRouteFeeTest extends TestCase
         // Ongkir manual driver dipertahankan, tidak ikut dinolkan seperti
         // nilai carry-over biasa.
         $this->assertSame(18000.0, round((float) $order->refresh()->delivery_fee, 2));
+    }
+
+    public function test_committed_route_includes_verified_failed_merchant(): void
+    {
+        // Formula terpadu (Fase 1): toko yang GAGAL tapi benar-benar didatangi
+        // driver (kegagalan terverifikasi) tetap dihitung di rute ongkir --
+        // tidak lagi dikeluarkan sehingga ongkir menciut. Fake rute = 1 km per
+        // titik committed, jadi 2 titik -> 2 km -> Rp9.000; kalau toko gagal
+        // diabaikan (perilaku lama) hanya 1 titik -> Rp5.000.
+        $order = $this->shoppingOrder(deliveryFee: 30000);
+        $near = $this->pickup($order, 'Toko Dekat', 'PRICE_APPROVED');
+        $farFailed = $this->pickup($order, 'Toko Jauh Tutup', 'FAILED');
+        $this->dropoff($order);
+        $this->availableItem($order, $near);
+        $this->failedTripEvent($order, $farFailed, 6000);
+
+        $service = new ShoppingRouteService(
+            new CountingShoppingRoute,
+            new DeliveryPricingService,
+            new ShoppingDeliveryFeeLockResolver,
+            new BangDelivServiceAreaService,
+        );
+        $service->applyRouteToOrder($order);
+
+        $this->assertSame(9000.0, round((float) $order->refresh()->delivery_fee, 2));
+    }
+
+    public function test_unverified_failed_merchant_is_excluded_from_committed_route(): void
+    {
+        // Anti-gaming: toko gagal yang TIDAK terverifikasi didatangi (mis.
+        // dilaporkan tutup dari jauh) tidak dihitung -> hanya 1 titik committed
+        // (toko dekat) -> Rp5.000.
+        $order = $this->shoppingOrder(deliveryFee: 30000);
+        $near = $this->pickup($order, 'Toko Dekat', 'PRICE_APPROVED');
+        $this->pickup($order, 'Toko Jauh Klaim Tutup', 'FAILED'); // tanpa event verified
+        $this->dropoff($order);
+        $this->availableItem($order, $near);
+
+        $service = new ShoppingRouteService(
+            new CountingShoppingRoute,
+            new DeliveryPricingService,
+            new ShoppingDeliveryFeeLockResolver,
+            new BangDelivServiceAreaService,
+        );
+        $service->applyRouteToOrder($order);
+
+        $this->assertSame(5000.0, round((float) $order->refresh()->delivery_fee, 2));
     }
 
     public function test_replacing_a_merchant_recomputes_the_route_instead_of_zeroing(): void
@@ -278,6 +328,49 @@ class FixedShoppingRoute extends GoogleMapsDistanceMatrixService
             'distance_text' => '4,2 km',
             'duration_seconds' => 600,
             'duration_text' => '10 menit',
+            'route_provider' => 'routes_api',
+            'route_status' => 'OK',
+            'ordered_pickup_location_ids' => $ids,
+            'segments' => [],
+        ];
+    }
+}
+
+/**
+ * Rute yang jaraknya sebanding dengan JUMLAH titik pickup committed (1 km per
+ * titik), supaya bisa membedakan committed-set 1 vs 2 toko lewat ongkir.
+ */
+class CountingShoppingRoute extends GoogleMapsDistanceMatrixService
+{
+    public function resolveRoute(float $originLat, float $originLng, float $destinationLat, float $destinationLng): array
+    {
+        return [
+            'distance_meters' => 1000,
+            'distance_km' => 1.0,
+            'distance_text' => '1 km',
+            'duration_seconds' => 120,
+            'duration_text' => '2 menit',
+            'route_provider' => 'routes_api',
+            'route_status' => 'OK',
+        ];
+    }
+
+    public function resolveOptimizedShoppingRoute(array $pickupPoints, array $dropoffPoint, int $maxOriginCandidates): array
+    {
+        $meters = 1000 * max(1, count($pickupPoints));
+        $ids = [];
+        foreach ($pickupPoints as $point) {
+            if (isset($point['id'])) {
+                $ids[] = (int) $point['id'];
+            }
+        }
+
+        return [
+            'distance_meters' => $meters,
+            'distance_km' => round($meters / 1000, 2),
+            'distance_text' => round($meters / 1000, 2).' km',
+            'duration_seconds' => 120 * max(1, count($pickupPoints)),
+            'duration_text' => '2 menit',
             'route_provider' => 'routes_api',
             'route_status' => 'OK',
             'ordered_pickup_location_ids' => $ids,

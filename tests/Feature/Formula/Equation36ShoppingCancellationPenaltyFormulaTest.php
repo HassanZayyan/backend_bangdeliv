@@ -33,16 +33,16 @@ class Equation36ShoppingCancellationPenaltyFormulaTest extends TestCase
         $this->assertSame(0.0, $service->calculateCancellationPenalty($order));
     }
 
-    public function test_penalty_is_half_of_route_to_the_farthest_verified_store(): void
+    public function test_penalty_is_half_of_committed_route_fee(): void
     {
         $service = app(ShoppingPricingService::class);
         $order = $this->createShoppingOrder();
-        // Tiga toko gagal terverifikasi; jarak rute customer->toko 1.200/2.000/3.000.
-        // d_max = 3.000 -> O(3 km) = 11.000 -> P = 5.500.
+        // Tiga toko gagal terverifikasi -> eligible. Basis = ongkir rute committed
+        // (= ongkir order 10.000) -> P = 0,5 x 10.000 = 5.000.
         $this->addFailedStores($order, [[1200, true], [2000, true], [3000, true]]);
 
         $this->assertSame(3, $service->failedAttemptCount($order));
-        $this->assertSame(5500.0, $service->calculateCancellationPenalty($order));
+        $this->assertSame(5000.0, $service->calculateCancellationPenalty($order));
     }
 
     public function test_unverified_failures_yield_zero_penalty(): void
