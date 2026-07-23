@@ -718,10 +718,11 @@ class Order extends Model
         $proofStatuses = app(AdminPaymentProofStatusService::class);
         $logs = $proofStatuses->decisionLogsForOrder($this);
         $payment = $this->resolvedLatestPayment();
+        $evidencePickupMap = $this->evidencePickupLocationMap();
 
         return $this->evidences
             ->sortByDesc(fn (OrderEvidence $evidence): int => $evidence->uploaded_at?->getTimestamp() ?? $evidence->created_at?->getTimestamp() ?? 0)
-            ->map(function (OrderEvidence $evidence) use ($proofStatuses, $logs, $payment): array {
+            ->map(function (OrderEvidence $evidence) use ($proofStatuses, $logs, $payment, $evidencePickupMap): array {
                 $decision = strtoupper((string) $evidence->evidence_type) === AdminPaymentProofStatusService::PAYMENT_TRANSFER_EVIDENCE_TYPE
                     ? $proofStatuses->decisionFor($evidence, $payment, $logs)
                     : null;
@@ -734,6 +735,7 @@ class Order extends Model
                     'evidence_type' => strtoupper((string) $evidence->evidence_type),
                     'photo_url' => $evidence->file_url,
                     'file_url' => $evidence->file_url,
+                    'pickup_location_id' => $evidencePickupMap[(int) $evidence->id] ?? null,
                     'status' => $decision['status'] ?? 'pending',
                     'verification_status' => $decision['status'] ?? 'pending',
                     'rejection_reason' => $decision['reason'] ?? null,
@@ -746,6 +748,31 @@ class Order extends Model
             })
             ->values()
             ->all();
+    }
+
+    /**
+     * Peta evidence_id -> pickup_location_id dari event kegagalan Nitip, supaya
+     * foto "toko tutup" bisa ditautkan ke stop yang benar di UI (order_evidence
+     * sendiri tidak menyimpan pickup_location_id).
+     *
+     * @return array<int, int>
+     */
+    private function evidencePickupLocationMap(): array
+    {
+        return OrderLog::query()
+            ->where('order_id', $this->id)
+            ->where('event_type', 'SHOPPING_FAILED_TRIP')
+            ->get()
+            ->reduce(function (array $carry, OrderLog $log): array {
+                $metadata = is_array($log->metadata) ? $log->metadata : [];
+                $evidenceId = (int) ($metadata['evidence_id'] ?? 0);
+                $pickupId = (int) ($metadata['pickup_location_id'] ?? 0);
+                if ($evidenceId > 0 && $pickupId > 0) {
+                    $carry[$evidenceId] = $pickupId;
+                }
+
+                return $carry;
+            }, []);
     }
 
     /**
