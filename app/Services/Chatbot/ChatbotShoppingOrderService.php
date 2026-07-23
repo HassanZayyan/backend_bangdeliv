@@ -991,7 +991,12 @@ class ChatbotShoppingOrderService
             || in_array('merchant_location', $missingFields, true);
         if (! $missingDeliveryAddress && ! $missingMerchantRoutePoint && $routePoints !== []) {
             try {
-                $route = $this->shoppingRouteService->calculateForPoints(
+                // Rute optimasi (bukan urutan naif) sama seperti calculateForOrder()
+                // yang dipakai sepanjang hidup order. Kalau quote awal pakai urutan
+                // naif, jaraknya ter-over-estimate lalu ongkir naif itu dikunci di
+                // order dan tak pernah sinkron dengan rute optimal yang sebenarnya
+                // (mis. rute 0,99 km tapi tetap ditagih 7.000, harusnya 5.000).
+                $route = $this->shoppingRouteService->calculateOptimizedForPoints(
                     $routePoints,
                     [
                         'label' => $delivery['address'] ?? 'Titik Antar',
