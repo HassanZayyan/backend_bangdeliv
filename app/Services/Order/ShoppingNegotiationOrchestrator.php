@@ -769,6 +769,58 @@ final class ShoppingNegotiationOrchestrator
         return $this->finalizeCustomerShoppingMerchantDecision($order, $actor, $statusChangeEventPayload);
     }
 
+    /**
+     * Pembatalan seluruh pesanan Nitip oleh customer saat BELUM ada toko yang
+     * dibeli (mis. satu-satunya toko tutup sehingga customer terjebak, atau
+     * customer menyerah sebelum ada pembelian). Gratis selama belum ada toko
+     * PRICE_APPROVED/COMPLETED; bila kegagalan terverifikasi sudah >=3 tetap
+     * kena fee trip-comp (mengikuti aturan yang sudah ada), tidak double-charge.
+     */
+    public function cancelShoppingOrderByCustomer(User $actor, int $orderId): Order
+    {
+        $statusChangeEventPayload = null;
+
+        $order = DB::transaction(function () use ($actor, $orderId, &$statusChangeEventPayload): Order {
+            $order = Order::query()
+                ->with(['statusRef', 'serviceType', 'orderLocations', 'items', 'shoppingReceipt'])
+                ->lockForUpdate()
+                ->find($orderId);
+
+            if (! $order || (int) $order->user_id !== (int) $actor->id) {
+                throw new ApiException('Order tidak ditemukan.', 404);
+            }
+
+            if (($order->serviceType->code ?? null) !== 'SHOPPING') {
+                throw new ApiException('Pembatalan ini hanya tersedia untuk order Nitip.', 409);
+            }
+
+            $status = strtoupper((string) ($order->statusRef->code ?? ''));
+            if (! in_array($status, ['DRIVER_ASSIGNED', 'ARRIVED_MERCHANT'], true)) {
+                throw new ApiException('Pesanan tidak bisa dibatalkan pada status saat ini.', 409);
+            }
+
+            // Gerbang keamanan: sekali ada toko yang dibeli/disetujui driver,
+            // pesanan tak boleh dibatalkan (mirror blok edit-ongkir & CANCEL_MERCHANT).
+            if ($this->hasCommittedShoppingMerchant($order)) {
+                throw new ApiException('Pesanan tidak bisa dibatalkan karena driver sudah membeli barang.', 409);
+            }
+
+            $withFee = (bool) $this->shoppingFailedTripCompensationService->summary($order)['eligible'];
+
+            return $this->cancelShoppingOrderWithOptionalFee(
+                $actor,
+                $order,
+                'Customer membatalkan pesanan Nitip.',
+                $withFee,
+                $withFee ? 'CUSTOMER_CANCEL_SHOPPING_ORDER_WITH_FEE' : 'CUSTOMER_CANCEL_SHOPPING_ORDER',
+                $statusChangeEventPayload,
+                'customer',
+            );
+        });
+
+        return $this->finalizeCustomerShoppingMerchantDecision($order, $actor, $statusChangeEventPayload);
+    }
+
     private function finalizeCustomerShoppingMerchantDecision(Order $order, User $actor, mixed $statusChangeEventPayload): Order
     {
         $this->orderRealtimeNotifier->broadcastOrderStatusChanged($statusChangeEventPayload);
@@ -1481,8 +1533,17 @@ final class ShoppingNegotiationOrchestrator
                 ->first(fn (OrderLocation $location): bool => strtoupper((string) $location->location_role) === 'PICKUP');
         }
 
-        if ($pickup instanceof OrderLocation && strtoupper((string) ($pickup->fulfillment_status ?? 'PENDING')) === 'FAILED') {
-            throw new ApiException('Merchant ini sudah ditandai Resto tutup/order batal.', 409);
+        if ($pickup instanceof OrderLocation) {
+            $pickupStatus = strtoupper((string) ($pickup->fulfillment_status ?? 'PENDING'));
+            if ($pickupStatus === 'FAILED') {
+                throw new ApiException('Merchant ini sudah ditandai Resto tutup/order batal.', 409);
+            }
+            // Toko yang barangnya sudah dibeli/disetujui tak boleh dibatalkan --
+            // kasihan driver yang sudah menalangi belanja. Ini menutup celah yang
+            // sebelumnya bisa membatalkan pesanan yang driver-nya sudah beli.
+            if (in_array($pickupStatus, ['PRICE_APPROVED', 'COMPLETED'], true)) {
+                throw new ApiException('Toko/resto ini tidak bisa dibatalkan karena barangnya sudah dibeli driver.', 409);
+            }
         }
 
         return $pickup instanceof OrderLocation ? $pickup : null;

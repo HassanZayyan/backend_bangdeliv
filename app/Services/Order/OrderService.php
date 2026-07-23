@@ -232,6 +232,11 @@ class OrderService
         return $this->shoppingNegotiationOrchestrator->respondShoppingPriceQuoteByCustomer($actor, $orderId, $payload);
     }
 
+    public function cancelShoppingOrderByCustomer(User $actor, int $orderId): Order
+    {
+        return $this->shoppingNegotiationOrchestrator->cancelShoppingOrderByCustomer($actor, $orderId);
+    }
+
     /**
      * @param  array<string, mixed>  $payload
      */

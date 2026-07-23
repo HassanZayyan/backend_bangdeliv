@@ -32,10 +32,18 @@ class ShoppingOrderCapabilityService
         $canCustomerDirectEditItems = $isShopping && $status === 'PENDING';
         $canCustomerAddShoppingMerchant = $canCustomerDirectEditItems
             && app(ShoppingPickupLocationService::class)->activePickupCount($order) < 3;
+        // Customer boleh menyerah/membatalkan seluruh pesanan Nitip secara gratis
+        // saat sudah tiba di merchant tetapi BELUM ada toko yang dibeli dan tak
+        // ada lagi toko aktif untuk dilanjutkan (mis. satu-satunya toko tutup).
+        $canCustomerCancelShoppingOrder = $isShopping
+            && $status === 'ARRIVED_MERCHANT'
+            && ! $this->hasCommittedMerchant($order)
+            && ! $this->hasNonTerminalMerchant($order);
 
         return [
             'can_customer_direct_edit_items' => $canCustomerDirectEditItems,
             'can_customer_add_shopping_merchant' => $canCustomerAddShoppingMerchant,
+            'can_customer_cancel_shopping_order' => $canCustomerCancelShoppingOrder,
             'can_customer_request_item_change' => $canEditUnavailableItems,
             'can_customer_request_add_stop' => false,
             'can_customer_edit_unavailable_items' => $canEditUnavailableItems,
@@ -133,6 +141,11 @@ class ShoppingOrderCapabilityService
     private function hasMerchantReadyForQuote(Order $order): bool
     {
         return $this->hasMerchantWithStatus($order, ['ITEMS_CONFIRMED']);
+    }
+
+    private function hasCommittedMerchant(Order $order): bool
+    {
+        return $this->hasMerchantWithStatus($order, ['PRICE_APPROVED', 'COMPLETED']);
     }
 
     private function hasNonTerminalMerchant(Order $order): bool

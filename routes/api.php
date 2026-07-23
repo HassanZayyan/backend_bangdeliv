@@ -70,6 +70,7 @@ Route::prefix('v1')->group(function () {
         Route::post('/orders/{orderId}/shopping-stops/{pickupLocationId}/replace', [OrderController::class, 'replaceShoppingMerchant'])->name('api.v1.orders.shopping-stops.replacement.store');
         Route::post('/orders/{orderId}/shopping-stops/{pickupLocationId}/skip', [OrderController::class, 'skipFailedShoppingStop'])->name('api.v1.orders.shopping-stops.skip');
         Route::post('/orders/{orderId}/shopping/price-quote/respond', [OrderController::class, 'respondShoppingPriceQuote'])->name('api.v1.orders.shopping.price-quote.respond');
+        Route::post('/orders/{orderId}/shopping/cancel', [OrderController::class, 'cancelShoppingOrder'])->name('api.v1.orders.shopping.cancel');
         Route::post('/orders/{orderId}/delivery-fee-override/respond', [OrderController::class, 'respondDeliveryFeeOverride'])->name('api.v1.orders.delivery-fee-override.respond');
     });
 

@@ -15,6 +15,7 @@ use App\Models\Restaurant;
 use App\Models\ServiceType;
 use App\Models\User;
 use App\Services\Pricing\ShoppingPricingService;
+use App\Services\Shopping\ShoppingOrderCapabilityService;
 use App\Services\Shopping\ShoppingReplacementProjectionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -1092,6 +1093,82 @@ class DriverOrderRevisionEndpointsTest extends TestCase
             'counter_amount' => 23000,
         ])->assertOk()
             ->assertJsonPath('data.delivery_fee_negotiation.status', 'PENDING_DRIVER');
+    }
+
+    public function test_customer_can_cancel_stranded_nitip_order_for_free_when_nothing_bought(): void
+    {
+        [$driverUser, $driver] = $this->createDriver();
+        $order = $this->createAssignedOrder($driver, 'SHOPPING', 'ARRIVED_MERCHANT', 8000);
+        $customer = User::query()->findOrFail($order->user_id);
+        // Satu-satunya toko tutup, tidak ada yang dibeli -> customer terjebak.
+        $this->createFailedPickup($order, 1);
+
+        $capabilities = app(ShoppingOrderCapabilityService::class)->capabilities(
+            $order->fresh(['serviceType', 'statusRef', 'orderLocations', 'items'])
+        );
+        $this->assertTrue($capabilities['can_customer_cancel_shopping_order']);
+
+        Sanctum::actingAs($customer);
+        $this->postJson('/api/v1/orders/'.$order->id.'/shopping/cancel')
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.status_ref.code', 'CANCELLED');
+
+        $this->assertDatabaseHas('orders', [
+            'id' => $order->id,
+            'cancelled_by' => 'customer',
+        ]);
+        $this->assertNotNull($order->fresh()->cancelled_at);
+    }
+
+    public function test_customer_cannot_cancel_nitip_order_after_a_store_is_bought(): void
+    {
+        [$driverUser, $driver] = $this->createDriver();
+        $order = $this->createAssignedOrder($driver, 'SHOPPING', 'ARRIVED_MERCHANT', 9000);
+        $customer = User::query()->findOrFail($order->user_id);
+        // Toko sudah disetujui harganya (driver menalangi) -> tak boleh batal.
+        $order->orderLocations()->create([
+            'location_role' => 'PICKUP',
+            'label' => 'Toko dibeli',
+            'full_address' => 'Jl. Toko',
+            'latitude' => -7.002,
+            'longitude' => 110.402,
+            'sequence_no' => 1,
+            'fulfillment_status' => 'PRICE_APPROVED',
+        ]);
+
+        Sanctum::actingAs($customer);
+        $this->postJson('/api/v1/orders/'.$order->id.'/shopping/cancel')
+            ->assertConflict()
+            ->assertJsonPath('success', false);
+
+        $this->assertNotSame('CANCELLED', $order->fresh()->statusRef?->code);
+    }
+
+    public function test_customer_cannot_cancel_merchant_after_it_is_bought(): void
+    {
+        [$driverUser, $driver] = $this->createDriver();
+        $order = $this->createAssignedOrder($driver, 'SHOPPING', 'ARRIVED_MERCHANT', 9000);
+        $customer = User::query()->findOrFail($order->user_id);
+        $pickup = $order->orderLocations()->create([
+            'location_role' => 'PICKUP',
+            'label' => 'Toko dibeli',
+            'full_address' => 'Jl. Toko',
+            'latitude' => -7.003,
+            'longitude' => 110.403,
+            'sequence_no' => 1,
+            'fulfillment_status' => 'PRICE_APPROVED',
+        ]);
+
+        // Celah lama: CANCEL_MERCHANT bisa membatalkan toko yang sudah dibeli.
+        Sanctum::actingAs($customer);
+        $this->postJson('/api/v1/orders/'.$order->id.'/shopping/price-quote/respond', [
+            'action' => 'CANCEL_MERCHANT',
+            'pickup_location_id' => $pickup->id,
+        ])->assertConflict()
+            ->assertJsonPath('success', false);
+
+        $this->assertSame('PRICE_APPROVED', $pickup->fresh()->fulfillment_status);
     }
 
     public function test_driver_can_record_transfer_payment(): void
