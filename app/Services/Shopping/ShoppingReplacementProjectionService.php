@@ -20,6 +20,14 @@ class ShoppingReplacementProjectionService
 
     public const MAX_FAILURES_PER_CHAIN = 3;
 
+    /**
+     * Kuota flat: paling banyak tiga toko/resto untuk SELURUH pesanan
+     * (jumlah toko awal + penggantian). Menggantikan model rantai bertingkat
+     * per-merchant. Order 3 toko dari awal berarti kuota penuh (tak bisa
+     * ganti); order 1 toko menyisakan dua kesempatan penggantian.
+     */
+    public const MAX_MERCHANTS_PER_ORDER = 3;
+
     public const COMPENSATION_FAILURE_THRESHOLD = 3;
 
     /**
@@ -28,7 +36,6 @@ class ShoppingReplacementProjectionService
      *   chains: array<string, array<string, mixed>>,
      *   order_failed_trip_count: int,
      *   verified_failed_trip_count: int,
-     *   verified_failed_distance_meters: int,
      *   legacy_failed_trip_count: int,
      *   uses_legacy_failure_fallback: bool,
      *   compensation_eligible: bool,
@@ -99,7 +106,6 @@ class ShoppingReplacementProjectionService
         $failedByChain = [];
         $failedPickupIds = [];
         $verifiedFailedPickupIds = [];
-        $verifiedDistanceMeters = 0;
         $latestEventId = 0;
         foreach ($events as $event) {
             $latestEventId = max($latestEventId, (int) $event->id);
@@ -117,13 +123,10 @@ class ShoppingReplacementProjectionService
                 ?? ($chainForPickup[$pickupId] ?? $this->chainIdForPickup($pickupId));
             $failedPickupIds[$pickupId] = true;
             $failedByChain[$chainId][$pickupId] = true;
+            // Jarak fee kini dibaca langsung dari event kegagalan oleh
+            // CompensationService (d_max), bukan diakumulasi di sini.
             if (($metadata['verified_for_compensation'] ?? false) === true) {
                 $verifiedFailedPickupIds[$pickupId] = true;
-                // Order lama belum punya compensable_distance_meters; untuk itu
-                // jarak penuh tetap dipakai agar angkanya tidak berubah surut.
-                $verifiedDistanceMeters += max(0, (int) (
-                    $metadata['compensable_distance_meters'] ?? $metadata['distance_meters'] ?? 0
-                ));
             }
         }
 
@@ -175,6 +178,9 @@ class ShoppingReplacementProjectionService
         $pickupSnapshots = [];
         $globalFailureCount = max(count($failedPickupIds), $legacyFailedTripCount);
         $verifiedFailureCount = count($verifiedFailedPickupIds);
+        // Kuota flat: total toko/resto yang pernah dicoba (semua pickup, apa pun
+        // statusnya). Bila sudah menyentuh kuota, tak ada penggantian lagi.
+        $quotaExhausted = $pickups->count() >= self::MAX_MERCHANTS_PER_ORDER;
         foreach ($pickups as $pickupId => $pickup) {
             $chainId = $chainForPickup[$pickupId] ?? $this->chainIdForPickup($pickupId);
             $chain = $chainSnapshots[$chainId] ?? [
@@ -186,14 +192,12 @@ class ShoppingReplacementProjectionService
             $failedCount = (int) $chain['failed_attempt_count'];
             $isUnavailableDecision = $status === 'ITEMS_PENDING_CUSTOMER';
             $isClosedReplaceable = $status === 'FAILED';
-            $failureAlreadyRecorded = isset($failedPickupIds[$pickupId]);
-            $wouldReachLimit = ! $failureAlreadyRecorded && $failedCount >= self::MAX_FAILURES_PER_CHAIN - 1;
+            // Penggantian bergantung pada kuota flat pesanan, bukan lagi pada
+            // batas kegagalan per-rantai.
             $canReplace = $isCurrent
                 && ! $isTerminalOrder
-                && ! $chain['is_abandoned']
                 && ($isUnavailableDecision || $isClosedReplaceable)
-                && ! ($isUnavailableDecision && $wouldReachLimit)
-                && $failedCount < self::MAX_FAILURES_PER_CHAIN;
+                && ! $quotaExhausted;
 
             $pickupSnapshots[$pickupId] = [
                 'chain_id' => $chainId,
@@ -209,7 +213,7 @@ class ShoppingReplacementProjectionService
                     ? null
                     : ($isTerminalOrder
                         ? 'Order sudah berakhir.'
-                        : $this->replacementBlockReason($status, $isCurrent, $chain['is_abandoned'], $wouldReachLimit)),
+                        : $this->replacementBlockReason($status, $isCurrent, $quotaExhausted)),
                 'replaced_from_pickup_location_id' => $this->positiveInt($replacementByTarget[$pickupId]['source_pickup_location_id'] ?? null),
                 'replacement_pickup_location_id' => $this->positiveInt($replacementBySource[$pickupId]['replacement_pickup_location_id'] ?? null),
                 'google_place_id' => $this->text($replacementByTarget[$pickupId]['merchant']['google_place_id'] ?? null),
@@ -221,7 +225,6 @@ class ShoppingReplacementProjectionService
             'chains' => $chainSnapshots,
             'order_failed_trip_count' => $globalFailureCount,
             'verified_failed_trip_count' => $verifiedFailureCount,
-            'verified_failed_distance_meters' => $verifiedDistanceMeters,
             'legacy_failed_trip_count' => $legacyFailedTripCount,
             'uses_legacy_failure_fallback' => $usesLegacyFailureFallback,
             'compensation_eligible' => $verifiedFailureCount >= self::COMPENSATION_FAILURE_THRESHOLD,
@@ -271,18 +274,18 @@ class ShoppingReplacementProjectionService
         return $text !== '' ? $text : null;
     }
 
-    private function replacementBlockReason(string $status, bool $isCurrent, bool $isAbandoned, bool $wouldReachLimit): string
+    private function replacementBlockReason(string $status, bool $isCurrent, bool $quotaExhausted): string
     {
         if (! $isCurrent) {
-            return 'Merchant ini sudah memiliki pengganti.';
+            return 'Toko/resto ini sudah memiliki pengganti.';
         }
-        if ($isAbandoned || $wouldReachLimit) {
-            return 'Batas tiga kegagalan untuk rantai merchant ini sudah tercapai.';
+        if ($quotaExhausted) {
+            return 'Kuota tiga toko/resto untuk pesanan ini sudah tercapai.';
         }
         if (! in_array($status, ['FAILED', 'ITEMS_PENDING_CUSTOMER'], true)) {
-            return 'Ganti merchant hanya tersedia setelah merchant gagal atau ada item tidak tersedia.';
+            return 'Ganti toko/resto hanya tersedia setelah gagal atau ada item tidak tersedia.';
         }
 
-        return 'Ganti merchant tidak tersedia pada state saat ini.';
+        return 'Ganti toko/resto tidak tersedia pada state saat ini.';
     }
 }

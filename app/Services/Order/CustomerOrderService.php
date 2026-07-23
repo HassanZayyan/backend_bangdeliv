@@ -445,27 +445,10 @@ final class CustomerOrderService
                     $evidence?->id,
                 );
 
-                $order->unsetRelation('orderLocations');
-                $order->load('orderLocations');
-                $chain = $this->shoppingReplacementProjectionService->forPickup($order, (int) $pickup->id);
-                if ((int) $chain['chain_failed_attempt_count'] >= ShoppingReplacementProjectionService::MAX_FAILURES_PER_CHAIN) {
-                    $removedItems = $this->shoppingNegotiationOrchestrator->unavailableShoppingItemSnapshotsForPickup($order, (int) $pickup->id);
-                    $pickup->update(['fulfillment_status' => 'ABANDONED_AFTER_LIMIT']);
-                    OrderLog::query()->create([
-                        'order_id' => $order->id,
-                        'event_type' => ShoppingReplacementProjectionService::CHAIN_ABANDONED_EVENT,
-                        'trigger_type' => 'SHOPPING_REPLACEMENT_CHAIN_LIMIT_REACHED',
-                        'changed_by_user_id' => $actor->id,
-                        'note' => 'Rantai merchant dihentikan setelah tiga kegagalan.',
-                        'metadata' => [
-                            'chain_id' => $chain['chain_id'],
-                            'pickup_location_id' => (int) $pickup->id,
-                            'failed_attempt_count' => (int) $chain['chain_failed_attempt_count'],
-                            'removed_items' => $removedItems,
-                        ],
-                    ]);
-                    $this->shoppingNegotiationOrchestrator->deleteShoppingItemsBySnapshots($order, $removedItems);
-                }
+                // Model kuota flat: toko/resto gagal cukup ditandai FAILED.
+                // Bila kuota tiga habis dan tak ada toko aktif tersisa, jalur
+                // "semua toko/resto gagal" di bawah yang membatalkan order.
+                // Tidak ada lagi status ABANDONED_AFTER_LIMIT per-rantai.
             }
 
             $order->refresh()->load(['orderLocations.restaurant', 'items', 'shoppingReceipt']);

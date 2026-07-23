@@ -192,7 +192,6 @@ class DriverOrderPayloadFactory
                 'cancellation_penalty' => $this->shoppingPricingService->feeLineAmount($order, 'CANCELLATION_PENALTY_AFTER_FAILED_ATTEMPTS'),
                 'cancellation_penalty_base_delivery_fee' => $this->shoppingPricingService->cancellationPenaltyBaseAmount($order),
                 'cancellation_penalty_percent' => $this->shoppingPricingService->cancellationPenaltyPercent(),
-                'failed_trip_compensation' => $this->shoppingPricingService->feeLineAmount($order, 'FAILED_TRIP_COMPENSATION'),
                 'recalculation_version' => $this->shoppingPricingService->latestRecalculationVersion($order),
                 'has_pending_manual_prices' => $hasPendingShoppingPrices,
                 'failed_attempt_count' => $this->shoppingPricingService->failedAttemptCount($order),

@@ -1301,25 +1301,9 @@ final class ShoppingNegotiationOrchestrator
         );
 
         $order->refresh()->load(['statusRef', 'serviceType', 'orderLocations.restaurant', 'items', 'shoppingReceipt']);
-        $chain = $this->shoppingReplacementProjectionService->forPickup($order, (int) $pickup->id);
-        if ((int) $chain['chain_failed_attempt_count'] >= ShoppingReplacementProjectionService::MAX_FAILURES_PER_CHAIN) {
-            $removedItems = $this->unavailableShoppingItemSnapshotsForPickup($order, (int) $pickup->id);
-            $pickup->update(['fulfillment_status' => 'ABANDONED_AFTER_LIMIT']);
-            OrderLog::query()->create([
-                'order_id' => $order->id,
-                'event_type' => ShoppingReplacementProjectionService::CHAIN_ABANDONED_EVENT,
-                'trigger_type' => 'SHOPPING_REPLACEMENT_CHAIN_LIMIT_REACHED',
-                'changed_by_user_id' => $actor->id,
-                'note' => 'Rantai merchant dihentikan setelah tiga kegagalan.',
-                'metadata' => [
-                    'chain_id' => $chain['chain_id'],
-                    'pickup_location_id' => (int) $pickup->id,
-                    'failed_attempt_count' => (int) $chain['chain_failed_attempt_count'],
-                    'removed_items' => $removedItems,
-                ],
-            ]);
-            $this->deleteShoppingItemsBySnapshots($order, $removedItems);
-        }
+        // Model kuota flat: toko/resto gagal cukup FAILED; tak ada lagi status
+        // ABANDONED_AFTER_LIMIT per-rantai. Pembatalan ditangani jalur "semua
+        // toko/resto gagal".
         $failedAttemptCount = $this->shoppingPricingService->failedAttemptCount($order);
 
         $this->shoppingRouteService->applyRouteToOrder(
@@ -1604,11 +1588,9 @@ final class ShoppingNegotiationOrchestrator
                 ]);
             }
 
-            $this->shoppingFailedTripCompensationService->recordCheckpoint(
-                $order,
-                $pickup,
-                (int) $actor->id,
-            );
+            // Checkpoint rute per-titik dihapus: fee tidak lagi mengakumulasi
+            // segmen, melainkan memakai jarak customer -> toko/resto terjauh
+            // yang dibekukan saat kegagalan.
 
             OrderLog::query()->create([
                 'order_id' => $order->id,

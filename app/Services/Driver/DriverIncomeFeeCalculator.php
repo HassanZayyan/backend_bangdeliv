@@ -56,22 +56,9 @@ class DriverIncomeFeeCalculator
             }
         }
 
+        // Pesanan yang berlanjut: pendapatan = ongkir saja. Kompensasi
+        // perjalanan gagal saat lanjut dihapus, jadi tidak ada tambahan.
         $deliveryFee = round((float) $order->delivery_fee, 2);
-        if ($serviceCode === ServiceTypeCode::Shopping->value) {
-            $failedTripCompensation = 0.0;
-            foreach ($this->shoppingPricingService->feeBreakdownForOrder($order) as $line) {
-                if (($line['code'] ?? null) !== 'FAILED_TRIP_COMPENSATION') {
-                    continue;
-                }
-                $failedTripCompensation = round((float) ($line['amount'] ?? 0), 2);
-                break;
-            }
-
-            $transportIncome = round(max(0.0, $deliveryFee) + max(0.0, $failedTripCompensation), 2);
-            if ($transportIncome > 0) {
-                return $transportIncome;
-            }
-        }
         if ($deliveryFee > 0) {
             return $deliveryFee;
         }

@@ -44,7 +44,10 @@ class ShoppingMerchantReplacementService
         $this->assertCandidateIsNew($order, $pickup, $candidate);
         $items = $this->normalizeItems($candidate, $payload['items'] ?? []);
         $route = $this->routePreview($order, $pickup, $candidate);
-        $compensation = $this->failedTrips->summary($order);
+        // Pesanan yang berlanjut (ganti toko/resto) tidak menagih fee: fee
+        // hanya muncul saat seluruh toko gagal (pembatalan). Preview cukup
+        // menampilkan ongkir aktif.
+        $activeDeliveryFee = round((float) ($route['delivery_fee'] ?? $order->delivery_fee), 2);
 
         return [
             'order_id' => (int) $order->id,
@@ -55,9 +58,8 @@ class ShoppingMerchantReplacementService
             'old_merchant' => $this->merchantSnapshot($pickup),
             'new_merchant' => $this->candidateSnapshot($candidate),
             'items' => $items,
-            'active_delivery_fee' => round((float) ($route['delivery_fee'] ?? $order->delivery_fee), 2),
-            'failed_trip_compensation' => round((float) $compensation['amount'], 2),
-            'total_transport' => round((float) ($route['delivery_fee'] ?? $order->delivery_fee) + (float) $compensation['amount'], 2),
+            'active_delivery_fee' => $activeDeliveryFee,
+            'total_transport' => $activeDeliveryFee,
             'route' => $route,
             'payload_fingerprint' => $this->fingerprint($candidatePayload, $items),
         ];

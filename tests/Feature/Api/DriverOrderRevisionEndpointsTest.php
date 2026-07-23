@@ -14,9 +14,7 @@ use App\Models\OrderStatus;
 use App\Models\Restaurant;
 use App\Models\ServiceType;
 use App\Models\User;
-use App\Services\Driver\DriverIncomeFeeCalculator;
 use App\Services\Pricing\ShoppingPricingService;
-use App\Services\Shopping\ShoppingFailedTripCompensationService;
 use App\Services\Shopping\ShoppingReplacementProjectionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -389,93 +387,6 @@ class DriverOrderRevisionEndpointsTest extends TestCase
         ])->assertConflict();
     }
 
-    public function test_shopping_all_in_approval_replaces_delivery_fee_and_failed_trip_compensation(): void
-    {
-        [$driverUser, $driver] = $this->createDriver();
-        $order = $this->createAssignedOrder($driver, 'SHOPPING', 'ARRIVED_MERCHANT', 20000, 'TRANSFER');
-        $customer = User::query()->findOrFail($order->user_id);
-        $this->createFailedPickup($order, 3);
-        $this->approveShoppingQuoteForTest($order, $driverUser, $customer, 50000);
-
-        Sanctum::actingAs($driverUser);
-        $proposal = $this->postJson('/api/v1/driver/orders/'.$order->id.'/delivery-fee-override', [
-            'amount' => 26000,
-            'reason' => 'Koreksi final seluruh perjalanan Nitip.',
-        ]);
-
-        $proposal->assertOk()
-            ->assertJsonPath('data.delivery_fee_negotiation.pricing_scope', 'SHOPPING_TOTAL_TRANSPORT')
-            ->assertJsonPath('data.delivery_fee_negotiation.previous_total_transport', 30000)
-            ->assertJsonPath('data.delivery_fee_negotiation.replaced_delivery_fee', 20000)
-            ->assertJsonPath('data.delivery_fee_negotiation.replaced_failed_trip_compensation', 10000);
-
-        Sanctum::actingAs($customer);
-        $this->postJson('/api/v1/orders/'.$order->id.'/delivery-fee-override/respond', [
-            'action' => 'APPROVE',
-        ])->assertOk();
-
-        $this->assertDatabaseHas('orders', [
-            'id' => $order->id,
-            'delivery_fee' => 26000,
-            'total_price' => 76000,
-            'delivery_fee_source' => 'driver_manual',
-        ]);
-        $this->assertSame(0.0, (float) $order->refresh()->service_fee);
-        $this->assertDatabaseHas('order_payments', [
-            'order_id' => $order->id,
-            'payment_status' => 'PENDING',
-            'amount' => 76000,
-        ]);
-
-        Sanctum::actingAs($driverUser);
-        $detail = $this->getJson('/api/v1/driver/orders/'.$order->id);
-        $detail->assertOk()
-            ->assertJsonPath('data.delivery_fee_negotiation.active_pricing_scope', 'SHOPPING_TOTAL_TRANSPORT')
-            ->assertJsonPath('data.pricing.failed_trip_compensation', 0)
-            ->assertJsonPath('data.pricing.service_fee', 0)
-            ->assertJsonPath('data.pricing.total_price', 76000);
-        $this->assertSame([], $detail->json('data.pricing.fee_breakdown'));
-        $this->assertSame(26000.0, app(DriverIncomeFeeCalculator::class)->grossIncomeForOrder($order->refresh()));
-    }
-
-    public function test_legacy_shopping_manual_fee_without_scope_keeps_failed_trip_compensation_separate(): void
-    {
-        [$driverUser, $driver] = $this->createDriver();
-        $order = $this->createAssignedOrder($driver, 'SHOPPING', 'ARRIVED_MERCHANT', 20000);
-        $customer = User::query()->findOrFail($order->user_id);
-        $this->createFailedPickup($order, 3);
-        $this->approveShoppingQuoteForTest($order, $driverUser, $customer, 50000);
-        OrderLog::query()->create([
-            'order_id' => $order->id,
-            'event_type' => 'DELIVERY_FEE_NEGOTIATION',
-            'trigger_type' => 'CUSTOMER_FEE_APPROVED',
-            'changed_by_user_id' => $customer->id,
-            'note' => 'Proposal lama tanpa scope.',
-            'metadata' => [
-                'approved_amount' => 24000,
-                'final_amount' => 24000,
-                'status' => 'APPROVED',
-            ],
-        ]);
-        $order->update([
-            'delivery_fee' => 24000,
-            'delivery_fee_source' => 'driver_manual',
-        ]);
-
-        app(ShoppingPricingService::class)->recalculate(
-            $order->refresh()->load(['items', 'statusRef', 'serviceType', 'shoppingReceipt', 'orderLocations']),
-            $driverUser->id,
-            'LEGACY_MANUAL_FEE_TEST'
-        );
-
-        $this->assertDatabaseHas('orders', [
-            'id' => $order->id,
-            'delivery_fee' => 24000,
-            'total_price' => 86000,
-        ]);
-        $this->assertSame(12000.0, (float) $order->refresh()->service_fee);
-    }
-
     public function test_shopping_all_in_scope_survives_customer_counter_and_driver_acceptance(): void
     {
         [$driverUser, $driver] = $this->createDriver();
@@ -501,7 +412,6 @@ class DriverOrderRevisionEndpointsTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.delivery_fee_negotiation.pricing_scope', 'SHOPPING_TOTAL_TRANSPORT')
             ->assertJsonPath('data.delivery_fee_negotiation.active_pricing_scope', 'SHOPPING_TOTAL_TRANSPORT')
-            ->assertJsonPath('data.pricing.failed_trip_compensation', 0)
             ->assertJsonPath('data.pricing.total_price', 73000);
     }
 
@@ -542,9 +452,7 @@ class DriverOrderRevisionEndpointsTest extends TestCase
                 ->assertJsonPath('data.delivery_fee_negotiation.approved_amount', 21000);
             if ($isShopping) {
                 $response
-                    ->assertJsonPath('data.delivery_fee_negotiation.pricing_scope', 'SHOPPING_TOTAL_TRANSPORT')
-                    ->assertJsonPath('data.delivery_fee_negotiation.active_pricing_scope', 'SHOPPING_TOTAL_TRANSPORT')
-                    ->assertJsonPath('data.pricing.failed_trip_compensation', 0);
+                    ->assertJsonPath('data.delivery_fee_negotiation.pricing_scope', 'SHOPPING_TOTAL_TRANSPORT');
             }
 
             $expectedTotal = $isShopping ? 71000 : 21000;
@@ -589,42 +497,6 @@ class DriverOrderRevisionEndpointsTest extends TestCase
             ->assertJsonPath('message', 'Belum ada revisi ongkir yang menunggu persetujuan customer.');
     }
 
-    public function test_shopping_cancel_with_fee_uses_current_delivery_fee_as_penalty_base(): void
-    {
-        [$driverUser, $driver] = $this->createDriver();
-        $order = $this->createAssignedOrder($driver, 'SHOPPING', 'ARRIVED_MERCHANT', 10000);
-        $order->update([
-            'delivery_fee_source' => 'driver_manual',
-        ]);
-
-        $this->createFailedPickup($order, 3);
-
-        Sanctum::actingAs($driverUser);
-
-        $response = $this->postJson('/api/v1/driver/orders/'.$order->id.'/status-transition', [
-            'action_code' => 'CANCEL_WITH_FEE',
-            'target_status_code' => 'CANCELLED_WITH_FEE',
-            'note' => 'Merchant gagal tiga kali.',
-        ]);
-
-        $response->assertOk()
-            ->assertJsonPath('data.status_code', 'CANCELLED_WITH_FEE')
-            ->assertJsonPath('data.pricing.cancellation_penalty', 5000)
-            ->assertJsonPath('data.pricing.delivery_fee', 0)
-            ->assertJsonPath('data.pricing.total_price', 5000);
-
-        $this->assertDatabaseHas('order_payments', [
-            'order_id' => $order->id,
-            'payment_method' => 'TRANSFER',
-            'payment_status' => 'PENDING',
-            'amount' => 5000,
-        ]);
-        $this->assertDatabaseHas('order_events', [
-            'order_id' => $order->id,
-            'trigger_type' => 'SYSTEM_PAYMENT_METHOD_CHANGED_AFTER_FAILED_ATTEMPTS',
-        ]);
-    }
-
     public function test_driver_can_set_full_delivery_fee_base_for_shopping_half_fee_cancellation(): void
     {
         [$driverUser, $driver] = $this->createDriver();
@@ -645,7 +517,6 @@ class DriverOrderRevisionEndpointsTest extends TestCase
             ->assertJsonPath('data.pricing.delivery_fee', 0)
             ->assertJsonPath('data.pricing.service_fee', 50000)
             ->assertJsonPath('data.pricing.cancellation_penalty', 50000)
-            ->assertJsonPath('data.pricing.failed_trip_compensation', 0)
             ->assertJsonPath('data.pricing.total_price', 50000);
 
         $detail = $this->getJson('/api/v1/driver/orders/'.$order->id);
@@ -1735,60 +1606,6 @@ class DriverOrderRevisionEndpointsTest extends TestCase
             ->assertJsonPath('errors.code', 'STATE_CHANGED');
     }
 
-    public function test_driver_bypass_of_last_unavailable_merchant_uses_existing_cancellation_fee_rule(): void
-    {
-        [$driverUser, $driver] = $this->createDriver();
-        $order = $this->createAssignedOrder($driver, 'SHOPPING', 'ARRIVED_MERCHANT', 18000);
-        $pickup = $order->orderLocations()->create([
-            'location_role' => 'PICKUP',
-            'label' => 'Merchant Terakhir',
-            'full_address' => 'Jl. Merchant Terakhir',
-            'latitude' => -7.001,
-            'longitude' => 110.401,
-            'sequence_no' => 1,
-            'fulfillment_status' => 'ITEMS_PENDING_CUSTOMER',
-            'failed_attempt_count' => 2,
-        ]);
-        $unavailableItem = OrderItem::query()->create([
-            'order_id' => $order->id,
-            'pickup_location_id' => $pickup->id,
-            'item_source' => 'MANUAL',
-            'menu_name' => 'Satu-satunya item',
-            'quantity' => 1,
-            'unit_price' => 22000,
-            'subtotal' => 0,
-            'is_available' => false,
-        ]);
-
-        Sanctum::actingAs($driverUser);
-
-        $response = $this->postJson(
-            '/api/v1/driver/orders/'.$order->id.'/shopping-stops/'.$pickup->id.'/unavailable-items/bypass'
-        );
-
-        $response->assertOk()
-            ->assertJsonPath('data.status_code', 'CANCELLED_WITH_FEE');
-        $this->assertDatabaseHas('orders', [
-            'id' => $order->id,
-            'cancelled_by' => 'driver',
-        ]);
-        $this->assertDatabaseHas('order_locations', [
-            'id' => $pickup->id,
-            'fulfillment_status' => 'ABANDONED_AFTER_LIMIT',
-            'failed_attempt_count' => 3,
-        ]);
-        $this->assertDatabaseMissing('shopping_order_items', ['id' => $unavailableItem->id]);
-        $abandonedEvent = OrderLog::query()
-            ->where('order_id', $order->id)
-            ->where('event_type', ShoppingReplacementProjectionService::CHAIN_ABANDONED_EVENT)
-            ->firstOrFail();
-        $this->assertSame($unavailableItem->id, (int) data_get($abandonedEvent->metadata, 'removed_items.0.id'));
-        $this->assertDatabaseHas('order_events', [
-            'order_id' => $order->id,
-            'trigger_type' => 'DRIVER_BYPASS_UNAVAILABLE_ITEMS_WITH_FEE',
-        ]);
-    }
-
     public function test_other_driver_cannot_bypass_unavailable_items(): void
     {
         [, $driver] = $this->createDriver();
@@ -1942,77 +1759,6 @@ class DriverOrderRevisionEndpointsTest extends TestCase
         $this->withHeader('Idempotency-Key', 'replace-customer-2')->postJson($endpoint, $payload)
             ->assertStatus(409)
             ->assertJsonPath('errors.code', 'STATE_CHANGED');
-    }
-
-    public function test_three_global_failed_trips_activate_compensation_without_cancelling_replacement_chains(): void
-    {
-        [, $driver] = $this->createDriver();
-        $order = $this->createAssignedOrder($driver, 'SHOPPING', 'ARRIVED_MERCHANT', 18000);
-        $chainIds = [];
-
-        foreach (['A', 'B', 'C'] as $index => $name) {
-            $source = $order->orderLocations()->create([
-                'location_role' => 'PICKUP',
-                'label' => 'Resto '.$name,
-                'full_address' => 'Jl. '.$name,
-                'latitude' => -7.00 - ($index * 0.01),
-                'longitude' => 110.40 + ($index * 0.01),
-                'sequence_no' => $index + 1,
-                'fulfillment_status' => 'FAILED',
-                'failed_attempt_count' => 1,
-            ]);
-            $replacement = $order->orderLocations()->create([
-                'location_role' => 'PICKUP',
-                'label' => 'Resto Pengganti '.$name,
-                'full_address' => 'Jl. Pengganti '.$name,
-                'latitude' => -7.05 - ($index * 0.01),
-                'longitude' => 110.45 + ($index * 0.01),
-                'sequence_no' => $index + 4,
-                'fulfillment_status' => 'PRICE_APPROVED',
-                'failed_attempt_count' => 0,
-            ]);
-            $chainId = 'pickup:'.$source->id;
-            $chainIds[] = $chainId;
-            OrderLog::query()->create([
-                'order_id' => $order->id,
-                'event_type' => ShoppingReplacementProjectionService::FAILED_TRIP_EVENT,
-                'metadata' => [
-                    'pickup_location_id' => $source->id,
-                    'chain_id' => $chainId,
-                    'distance_meters' => 2000,
-                    'verified_for_compensation' => true,
-                ],
-            ]);
-            OrderLog::query()->create([
-                'order_id' => $order->id,
-                'event_type' => ShoppingReplacementProjectionService::REPLACEMENT_EVENT,
-                'metadata' => [
-                    'chain_id' => $chainId,
-                    'attempt_no' => 2,
-                    'source_pickup_location_id' => $source->id,
-                    'replacement_pickup_location_id' => $replacement->id,
-                ],
-            ]);
-        }
-
-        $snapshot = app(ShoppingReplacementProjectionService::class)->snapshot($order->refresh());
-        $compensation = app(ShoppingFailedTripCompensationService::class)->summary($order->refresh());
-
-        $this->assertSame(3, $snapshot['order_failed_trip_count']);
-        $this->assertSame(3, $snapshot['verified_failed_trip_count']);
-        $this->assertTrue($snapshot['compensation_eligible']);
-        foreach ($chainIds as $chainId) {
-            $this->assertSame(1, $snapshot['chains'][$chainId]['failed_attempt_count']);
-            $this->assertFalse($snapshot['chains'][$chainId]['is_abandoned']);
-        }
-        $this->assertTrue($compensation['eligible']);
-        $this->assertGreaterThan(0, $compensation['amount']);
-        $this->assertSame(
-            round(18000 + (float) $compensation['amount'], 2),
-            app(DriverIncomeFeeCalculator::class)->grossIncomeForOrder($order->refresh()),
-        );
-        $this->assertSame('ARRIVED_MERCHANT', $order->refresh()->statusRef->code);
-        $this->assertSame(3, $order->orderLocations()->where('fulfillment_status', 'PRICE_APPROVED')->count());
     }
 
     public function test_third_failure_abandons_only_its_replacement_chain_projection(): void

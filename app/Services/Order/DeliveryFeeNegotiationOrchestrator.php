@@ -68,15 +68,12 @@ final class DeliveryFeeNegotiationOrchestrator
             $trigger = $this->deliveryFeeNegotiationService->nextDriverQuoteTrigger($order);
             $pricingScopeMetadata = [];
             if (($order->serviceType->code ?? null) === 'SHOPPING') {
-                $failedTripCompensation = $this->shoppingPricingService->feeLineAmount(
-                    $order,
-                    'FAILED_TRIP_COMPENSATION'
-                );
+                // Edit ongkir manual berlaku pada pesanan yang berlanjut; tidak
+                // ada lagi kompensasi perjalanan gagal yang melebur ke sini.
                 $pricingScopeMetadata = [
                     'pricing_scope' => DeliveryFeeNegotiationService::PRICING_SCOPE_SHOPPING_TOTAL_TRANSPORT,
-                    'previous_total_transport' => round((float) $order->delivery_fee + $failedTripCompensation, 2),
+                    'previous_total_transport' => round((float) $order->delivery_fee, 2),
                     'replaced_delivery_fee' => round((float) $order->delivery_fee, 2),
-                    'replaced_failed_trip_compensation' => round($failedTripCompensation, 2),
                 ];
             }
             $this->deliveryFeeNegotiationService->record(

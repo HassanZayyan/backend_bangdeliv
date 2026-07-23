@@ -7,7 +7,6 @@ use App\Models\OrderItem;
 use App\Models\OrderLog;
 use App\Services\Notification\OrderPricingPushNotificationService;
 use App\Services\Notification\OrderRealtimeBroadcaster;
-use App\Services\Order\DeliveryFeeNegotiationService;
 use App\Services\Order\OrderPaymentService;
 use App\Services\Shopping\ShoppingDeliveryFeeLockResolver;
 use App\Services\Shopping\ShoppingFailedTripCompensationService;
@@ -64,22 +63,20 @@ class ShoppingPricingService
             return 0.0;
         }
 
-        $failedTripCompensation = $this->chargeableFailedTripCompensationAmount($order);
+        // Biaya layanan hanya muncul pada pembatalan berbiaya (F = P). Tidak
+        // ada lagi kompensasi perjalanan gagal untuk pesanan yang berlanjut.
         if (strtoupper((string) ($order->statusRef?->code ?? '')) !== 'CANCELLED_WITH_FEE') {
-            return $failedTripCompensation;
+            return 0.0;
         }
 
         $subtotal = $this->subtotalAmount($order);
         $deliveryFee = round((float) $order->delivery_fee, 2);
         $totalPrice = round((float) $order->total_price, 2);
         $snapshotFee = round(max(0.0, $totalPrice - $deliveryFee - $subtotal), 2);
-        if ($deliveryFee > 0 && abs($totalPrice - $deliveryFee - $subtotal) <= 0.01) {
-            return $snapshotFee;
-        }
 
-        $calculatedPenalty = $this->calculateCancellationPenalty($order);
-
-        return max($failedTripCompensation, $calculatedPenalty, $snapshotFee);
+        return $snapshotFee > 0
+            ? $snapshotFee
+            : round($this->calculateCancellationPenalty($order), 2);
     }
 
     /**
@@ -93,7 +90,6 @@ class ShoppingPricingService
         float $cancellationPenalty = 0.0,
         ?float $subtotalOverride = null,
         bool $penaltyOnly = false,
-        float $failedTripCompensation = 0.0,
     ): array {
         $subtotal = 0.0;
         $totalItemQuantity = 0;
@@ -113,7 +109,6 @@ class ShoppingPricingService
 
         $subtotal = round($subtotal, 2);
         $cancellationPenalty = round(max(0.0, $cancellationPenalty), 2);
-        $failedTripCompensation = round(max(0.0, $failedTripCompensation), 2);
 
         if ($subtotalOverride !== null && $subtotalOverride > 0) {
             $subtotal = round($subtotalOverride, 2);
@@ -124,9 +119,10 @@ class ShoppingPricingService
             $deliveryFee = 0.0;
         }
 
-        $serviceFee = $penaltyOnly
-            ? max($cancellationPenalty, $failedTripCompensation)
-            : round($cancellationPenalty + $failedTripCompensation, 2);
+        // Persamaan (5): biaya layanan runtuh menjadi fee pembatalan tunggal
+        // (F = P). Kompensasi perjalanan gagal saat pesanan lanjut dihapus,
+        // jadi tidak ada lagi suku max(P, C).
+        $serviceFee = round($cancellationPenalty, 2);
         $totalPrice = round($subtotal + $deliveryFee + $serviceFee, 2);
 
         return [
@@ -136,7 +132,6 @@ class ShoppingPricingService
             'item_surcharge' => 0.0,
             'overweight_surcharge' => 0.0,
             'cancellation_penalty' => round($cancellationPenalty, 2),
-            'failed_trip_compensation' => $failedTripCompensation,
             'service_fee' => $serviceFee,
             'total_price' => $totalPrice,
             'has_overweight_item' => false,
@@ -168,7 +163,6 @@ class ShoppingPricingService
             ? $this->calculateCancellationPenalty($order)
             : 0.0;
         $penaltyOnly = $cancellationPenalty > 0 && $statusCode === 'CANCELLED_WITH_FEE';
-        $failedTripCompensation = $this->chargeableFailedTripCompensationAmount($order);
         $subtotalOverride = $penaltyOnly ? null : $this->approvedShoppingSubtotalAmount($order);
 
         $pricing = $this->calculateForItems(
@@ -178,7 +172,6 @@ class ShoppingPricingService
             $cancellationPenalty,
             $subtotalOverride,
             $penaltyOnly,
-            $failedTripCompensation,
         );
 
         $nextVersion = $this->latestRecalculationVersion($order) + 1;
@@ -208,7 +201,6 @@ class ShoppingPricingService
             'metadata' => [
                 'item_count' => $pricing['item_count'],
                 'has_overweight_item' => $pricing['has_overweight_item'],
-                'failed_trip_compensation' => $pricing['failed_trip_compensation'],
                 'trigger_type' => $triggerType,
                 'recalculation_version' => $nextVersion,
                 ...($penaltyBaseDeliveryFee !== null ? [
@@ -229,7 +221,6 @@ class ShoppingPricingService
                 'metadata' => [
                     'subtotal' => $pricing['subtotal'],
                     'service_fee' => $pricing['service_fee'],
-                    'failed_trip_compensation' => $pricing['failed_trip_compensation'],
                     'total_price' => $pricing['total_price'],
                     'recalculation_version' => $nextVersion,
                     ...($penaltyBaseDeliveryFee !== null ? [
@@ -279,26 +270,20 @@ class ShoppingPricingService
 
     public function calculateCancellationPenalty(Order $order): float
     {
+        // Persamaan (6): P = Pm (snapshot manual driver) berprioritas tertinggi;
+        // selain itu 0,5 x O(d_max) bila semua toko gagal (g>=3) dan ada
+        // kegagalan terverifikasi. summary()->amount sudah menerapkan syarat itu
+        // -- termasuk fee 0 saat tidak ada kegagalan terverifikasi.
         $manualPricing = $this->manualCancellationPricing($order);
         if ($manualPricing !== null) {
             return round((float) $manualPricing['cancellation_penalty'], 2);
         }
 
-        $threshold = self::CANCELLATION_FAILED_ATTEMPT_THRESHOLD;
-        $percent = self::CANCELLATION_PENALTY_PERCENT;
-
-        // Penalti selalu memakai basis ongkir terdaftar (Bp). Kompensasi
-        // perjalanan gagal tidak lagi mendahului di sini; keduanya dibandingkan
-        // lewat max(P, C) pada mode penaltyOnly (Persamaan 5), sehingga
-        // pembatalan menagih separuh ongkir yang disepakati -- atau separuh
-        // biaya rute gagal bila rute itu ternyata lebih panjang.
-        if ($this->failedAttemptCount($order) < $threshold || $percent <= 0) {
+        if (self::CANCELLATION_PENALTY_PERCENT <= 0) {
             return 0.0;
         }
 
-        $deliveryFee = $this->cancellationPenaltyBaseDeliveryFee($order);
-
-        return round($deliveryFee * ($percent / 100), 2);
+        return round($this->failedTripCompensationService->amount($order), 2);
     }
 
     public function calculateCancellationPenaltyFromBase(float $baseDeliveryFee): float
@@ -313,24 +298,21 @@ class ShoppingPricingService
 
     public function cancellationPenaltyBaseAmount(Order $order): float
     {
-        return $this->cancellationPenaltyBaseDeliveryFee($order);
+        // Basis fee kini O(d_max) (Persamaan 6), bukan ongkir terdaftar.
+        // Snapshot manual driver tetap berprioritas.
+        $manual = $this->manualCancellationPricing($order);
+        if ($manual !== null) {
+            return round((float) $manual['base_delivery_fee'], 2);
+        }
+
+        return round((float) $this->failedTripCompensationService->summary($order)['base_route_fee'], 2);
     }
 
     public function cancellationDriverFeeAmount(Order $order): float
     {
-        $stored = $this->storedCancellationPenaltyAmount($order);
-        if ($stored !== null) {
-            return $stored;
-        }
-
-        // Customer ditagih max(P, C) pada mode penaltyOnly (Persamaan 5), jadi
-        // driver menerima nominal yang sama. Sebelumnya driver hanya dibayar P
-        // sehingga saat kompensasi perjalanan gagal menang, selisihnya tidak
-        // pernah sampai ke pihak yang menempuh perjalanan itu.
-        return max(
-            $this->calculateCancellationPenalty($order),
-            $this->chargeableFailedTripCompensationAmount($order),
-        );
+        // Customer ditagih P (Persamaan 5), jadi driver menerima nominal sama.
+        return $this->storedCancellationPenaltyAmount($order)
+            ?? $this->calculateCancellationPenalty($order);
     }
 
     public function cancellationFailedAttemptThreshold(int $serviceTypeId): int
@@ -409,10 +391,8 @@ class ShoppingPricingService
 
     public function feeLineAmount(Order $order, string $code): float
     {
-        if (strtoupper($code) === 'FAILED_TRIP_COMPENSATION') {
-            return $this->chargeableFailedTripCompensationAmount($order);
-        }
-
+        // FAILED_TRIP_COMPENSATION sebagai baris terpisah dihapus: kini melebur
+        // ke fee pembatalan tunggal. Kode itu mengembalikan 0.
         if (strtoupper($code) !== self::CANCELLATION_PENALTY) {
             return 0.0;
         }
@@ -425,43 +405,19 @@ class ShoppingPricingService
      */
     public function feeBreakdownForOrder(Order $order): array
     {
-        $lines = [];
-        $chargeableFailedTripCompensation = $this->chargeableFailedTripCompensationAmount($order);
-        $failedTripLine = $chargeableFailedTripCompensation > 0
-            ? $this->failedTripCompensationService->feeLine($order)
-            : null;
-        if ($failedTripLine !== null) {
-            $failedTripLine['amount'] = $chargeableFailedTripCompensation;
-            $lines[] = $failedTripLine;
-        }
-
+        // Biaya layanan tunggal (F = P): fee pembatalan. Tidak ada lagi baris
+        // kompensasi perjalanan gagal terpisah.
         $penalty = $this->cancellationPenaltyAmount($order);
-        if ($penalty <= 0 || $failedTripLine !== null) {
-            return $lines;
+        if ($penalty <= 0) {
+            return [];
         }
 
-        $lines[] = [
+        return [[
             'code' => self::CANCELLATION_PENALTY,
             'label' => $this->feeLineLabel(self::CANCELLATION_PENALTY),
             'description' => $this->feeLineDescription(self::CANCELLATION_PENALTY),
             'amount' => $penalty,
-        ];
-
-        return $lines;
-    }
-
-    public function chargeableFailedTripCompensationAmount(Order $order): float
-    {
-        if ($this->manualCancellationPricing($order) !== null) {
-            return 0.0;
-        }
-
-        $lock = $this->deliveryFeeLockResolver->resolve($order);
-        if (($lock['pricing_scope'] ?? null) === DeliveryFeeNegotiationService::PRICING_SCOPE_SHOPPING_TOTAL_TRANSPORT) {
-            return 0.0;
-        }
-
-        return $this->failedTripCompensationService->amount($order);
+        ]];
     }
 
     /**

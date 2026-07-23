@@ -5,9 +5,14 @@ namespace Tests\Unit\Formula;
 use App\Services\Pricing\ShoppingPricingService;
 use Tests\TestCase;
 
+/**
+ * Persamaan (5) model revisi: H = round2(S + Oe + F), dengan F = P (fee
+ * pembatalan tunggal). Suku max(P, C) dihapus -- tidak ada lagi kompensasi
+ * perjalanan gagal sebagai komponen terpisah.
+ */
 class Equation35ShoppingTotalPriceFormulaTest extends TestCase
 {
-    public function test_equation_35_adds_subtotal_effective_delivery_fee_and_all_normal_service_fees(): void
+    public function test_total_is_subtotal_plus_delivery_fee_plus_cancellation_fee(): void
     {
         $pricing = app(ShoppingPricingService::class)->calculateForItems(
             1,
@@ -18,16 +23,15 @@ class Equation35ShoppingTotalPriceFormulaTest extends TestCase
             ],
             13000,
             cancellationPenalty: 1500,
-            failedTripCompensation: 2500,
         );
 
         $this->assertSame(25000.0, $pricing['subtotal']);
         $this->assertSame(13000.0, $pricing['delivery_fee']);
-        $this->assertSame(4000.0, $pricing['service_fee']);
-        $this->assertSame(42000.0, $pricing['total_price']);
+        $this->assertSame(1500.0, $pricing['service_fee'], 'F = P');
+        $this->assertSame(39500.0, $pricing['total_price']);
     }
 
-    public function test_equation_35_zeroes_subtotal_and_delivery_fee_and_uses_the_larger_fee_in_penalty_only_mode(): void
+    public function test_penalty_only_zeroes_subtotal_and_delivery_fee_and_charges_p(): void
     {
         $pricing = app(ShoppingPricingService::class)->calculateForItems(
             1,
@@ -37,12 +41,11 @@ class Equation35ShoppingTotalPriceFormulaTest extends TestCase
             7000,
             cancellationPenalty: 3000,
             penaltyOnly: true,
-            failedTripCompensation: 4000,
         );
 
         $this->assertSame(0.0, $pricing['subtotal']);
         $this->assertSame(0.0, $pricing['delivery_fee']);
-        $this->assertSame(4000.0, $pricing['service_fee']);
-        $this->assertSame(4000.0, $pricing['total_price']);
+        $this->assertSame(3000.0, $pricing['service_fee'], 'F = P, bukan max(P, C)');
+        $this->assertSame(3000.0, $pricing['total_price']);
     }
 }

@@ -14,6 +14,7 @@ use App\Services\Order\DeliveryFeeNegotiationService;
 use App\Services\Pricing\DeliveryPricingService;
 use App\Services\Pricing\ShoppingPricingService;
 use App\Services\Shopping\ShoppingDeliveryFeeLockResolver;
+use App\Services\Shopping\ShoppingReplacementProjectionService;
 use App\Services\Shopping\ShoppingRouteService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -50,22 +51,38 @@ class ShoppingEmptyRouteFeeTest extends TestCase
         $this->assertSame('NO_ACTIVE_PICKUPS', data_get($order->route_snapshot, 'route_status'));
     }
 
-    public function test_penalty_survives_the_zeroed_delivery_fee(): void
+    public function test_fee_survives_the_zeroed_delivery_fee(): void
     {
         $order = $this->shoppingOrder(deliveryFee: 30000);
-        foreach (['Cumi', 'Baloeng', 'Gecok'] as $name) {
-            $this->pickup($order, $name, 'FAILED');
-        }
         $this->dropoff($order);
-        $this->recordPenaltyBaseEvent($order, 30000);
+        // Tiga toko gagal terverifikasi; jarak rute customer->toko 1.200/2.000/3.000.
+        foreach ([1200, 2000, 3000] as $index => $meters) {
+            $pickup = $this->pickup($order, 'Toko '.($index + 1), 'FAILED');
+            $this->failedTripEvent($order, $pickup, $meters);
+        }
 
         $this->routeService()->applyRouteToOrder($order, 30000.0, 'FAILED_ATTEMPT_PICKUP');
         $order->update(['status_id' => $this->statusId('CANCELLED_WITH_FEE')]);
 
-        // Ongkir kolom sudah nol, tetapi basis penalti tetap ditemukan dari
-        // jejak event -> 0,5 x Rp30.000.
+        // Ongkir kolom dinolkan, tetapi fee pembatalan tetap dari d_max:
+        // d_max = 3.000 -> O(3 km) = 11.000 -> 0,5 x = 5.500.
         $penalty = app(ShoppingPricingService::class)->calculateCancellationPenalty($order->refresh());
-        $this->assertSame(15000.0, $penalty);
+        $this->assertSame(5500.0, $penalty);
+    }
+
+    private function failedTripEvent(Order $order, OrderLocation $pickup, int $routeMeters): void
+    {
+        OrderLog::query()->create([
+            'order_id' => $order->id,
+            'event_type' => ShoppingReplacementProjectionService::FAILED_TRIP_EVENT,
+            'trigger_type' => 'SHOPPING_FAILED_TRIP_RECORDED',
+            'note' => 'Toko tutup.',
+            'metadata' => [
+                'pickup_location_id' => $pickup->id,
+                'customer_route_distance_meters' => $routeMeters,
+                'verified_for_compensation' => true,
+            ],
+        ]);
     }
 
     public function test_route_is_not_zeroed_while_a_completed_merchant_still_has_items(): void

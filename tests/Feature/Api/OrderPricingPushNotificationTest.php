@@ -413,27 +413,6 @@ class OrderPricingPushNotificationTest extends TestCase
         $this->assertPaymentReminderQueued($order);
     }
 
-    public function test_shopping_cancelled_with_fee_qris_unpaid_order_schedules_payment_reminder_loop(): void
-    {
-        Queue::fake();
-        [$driverUser, , , $order] = $this->createAssignedOrder('SHOPPING', 'ARRIVED_MERCHANT', 5000);
-        $pickup = $order->orderLocations()->where('location_role', 'PICKUP')->firstOrFail();
-        $pickup->update(['failed_attempt_count' => 2]);
-
-        Sanctum::actingAs($driverUser);
-
-        $this->postJson('/api/v1/orders/'.$order->id.'/attempt-failed', [
-            'failure_type' => 'PICKUP',
-            'reason' => 'Merchant tutup.',
-            'pickup_location_id' => $pickup->id,
-        ])->assertOk()
-            ->assertJsonPath('data.status_ref.code', 'CANCELLED_WITH_FEE')
-            ->assertJsonPath('data.payment_method', 'TRANSFER')
-            ->assertJsonPath('data.payment_status', 'unpaid');
-
-        $this->assertPaymentReminderQueued($order);
-    }
-
     public function test_payment_reminder_scheduler_skips_ineligible_orders(): void
     {
         Queue::fake();
