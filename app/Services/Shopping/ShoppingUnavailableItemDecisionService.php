@@ -40,6 +40,7 @@ class ShoppingUnavailableItemDecisionService
             'can_customer_replace_merchant' => $canReplace && $order->user_id !== null,
             'can_driver_replace_merchant' => $canReplace && $order->driver_id !== null,
             'replacement_block_reason' => $replacement['replacement_block_reason'] ?? null,
+            'pending_replacement_approval' => $replacement['pending_replacement_approval'] ?? null,
             'chain_id' => $replacement['chain_id'],
             'chain_attempt_no' => $replacement['chain_attempt_no'],
             'chain_failed_attempt_count' => $replacement['chain_failed_attempt_count'],
