@@ -2,11 +2,13 @@
 
 namespace Tests\Feature\Api;
 
+use App\Mail\OtpCodeMail;
 use App\Models\PhoneVerificationCode;
 use App\Models\User;
+use App\Services\Auth\EmailOtpSender;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Mail;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -26,15 +28,9 @@ class AuthPhoneOtpTest extends TestCase
         ], $overrides));
     }
 
-    private function useFonnteToken(): void
+    public function test_send_otp_stores_hashed_code_and_emails_it(): void
     {
-        config(['bangdeliv.whatsapp.fonnte_token' => 'test-token']);
-    }
-
-    public function test_send_otp_stores_hashed_code_and_calls_gateway(): void
-    {
-        $this->useFonnteToken();
-        Http::fake(['api.fonnte.com/*' => Http::response(['status' => true], 200)]);
+        Mail::fake();
         $user = $this->unverifiedUser();
         Sanctum::actingAs($user);
 
@@ -51,29 +47,15 @@ class AuthPhoneOtpTest extends TestCase
         // Kode disimpan dalam bentuk hash, bukan teks polos.
         $this->assertFalse(Hash::check('000000', $record->code_hash));
 
-        Http::assertSent(function ($request) {
-            return $request->hasHeader('Authorization', 'test-token')
-                && $request['target'] === '081234567890'
-                && preg_match('/\b\d{6}\b/', (string) $request['message']) === 1;
+        Mail::assertSent(OtpCodeMail::class, function (OtpCodeMail $mail) {
+            return $mail->hasTo('budi@example.com')
+                && preg_match('/^\d{6}$/', $mail->code) === 1;
         });
-    }
-
-    public function test_send_otp_without_token_only_logs_and_skips_gateway(): void
-    {
-        config(['bangdeliv.whatsapp.fonnte_token' => '']);
-        Http::fake();
-        Sanctum::actingAs($this->unverifiedUser());
-
-        $this->postJson('/api/auth/otp/send')->assertOk();
-
-        Http::assertNothingSent();
-        $this->assertDatabaseCount('phone_verification_codes', 1);
     }
 
     public function test_send_otp_respects_resend_cooldown(): void
     {
-        $this->useFonnteToken();
-        Http::fake(['api.fonnte.com/*' => Http::response(['status' => true], 200)]);
+        Mail::fake();
         Sanctum::actingAs($this->unverifiedUser());
 
         $this->postJson('/api/auth/otp/send')->assertOk();
@@ -92,9 +74,9 @@ class AuthPhoneOtpTest extends TestCase
             ->assertJsonPath('message', 'Nomor WhatsApp belum diisi.');
     }
 
-    public function test_send_otp_is_noop_when_phone_already_verified(): void
+    public function test_send_otp_is_noop_when_already_verified(): void
     {
-        Http::fake();
+        Mail::fake();
         Sanctum::actingAs($this->unverifiedUser(['phone_verified_at' => now()]));
 
         $this->postJson('/api/auth/otp/send')
@@ -102,23 +84,26 @@ class AuthPhoneOtpTest extends TestCase
             ->assertJsonPath('data.already_verified', true);
 
         $this->assertDatabaseCount('phone_verification_codes', 0);
-        Http::assertNothingSent();
+        Mail::assertNothingSent();
     }
 
-    public function test_send_otp_reports_gateway_soft_failure_without_starting_cooldown(): void
+    public function test_send_otp_reports_delivery_failure_without_starting_cooldown(): void
     {
-        $this->useFonnteToken();
-        Http::fake(['api.fonnte.com/*' => Http::response(['status' => false, 'reason' => 'device not connected'], 200)]);
+        // Simulasikan kegagalan pengiriman email (SMTP down dsb.).
+        $this->mock(EmailOtpSender::class)
+            ->shouldReceive('send')
+            ->once()
+            ->andReturn(false);
         Sanctum::actingAs($this->unverifiedUser());
 
         $this->postJson('/api/auth/otp/send')
             ->assertStatus(503)
-            ->assertJsonPath('message', 'Gagal mengirim kode verifikasi WhatsApp. Coba lagi.');
+            ->assertJsonPath('message', 'Gagal mengirim kode verifikasi ke email. Coba lagi.');
 
         $this->assertDatabaseCount('phone_verification_codes', 0);
     }
 
-    public function test_verify_otp_marks_phone_verified_and_returns_profile(): void
+    public function test_verify_otp_marks_verified_and_returns_profile(): void
     {
         $user = $this->unverifiedUser();
         Sanctum::actingAs($user);
@@ -133,7 +118,7 @@ class AuthPhoneOtpTest extends TestCase
 
         $this->postJson('/api/auth/otp/verify', ['code' => '123456'])
             ->assertOk()
-            ->assertJsonPath('message', 'Nomor WhatsApp berhasil diverifikasi.')
+            ->assertJsonPath('message', 'Akun berhasil diverifikasi.')
             ->assertJsonPath('data.requires_phone_verification', false)
             ->assertJsonPath('data.requires_phone_completion', false);
 

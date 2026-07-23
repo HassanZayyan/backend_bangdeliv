@@ -12,8 +12,8 @@ use App\Models\OrderPayment;
 use App\Models\PhoneVerificationCode;
 use App\Models\User;
 use App\Services\Address\AddressService;
+use App\Services\Auth\EmailOtpSender;
 use App\Services\Auth\GoogleIdTokenVerifier;
-use App\Services\Auth\WhatsAppOtpSender;
 use App\Services\Driver\DriverIncomeFeeCalculator;
 use App\Services\Driver\DriverOnboardingService;
 use Illuminate\Http\Exceptions\HttpResponseException;
@@ -477,10 +477,11 @@ class AuthController extends Controller
     /**
      * Kirim kode OTP verifikasi ke nomor WhatsApp user yang sedang login.
      */
-    public function sendPhoneOtp(Request $request, WhatsAppOtpSender $sender)
+    public function sendPhoneOtp(Request $request, EmailOtpSender $sender)
     {
         $user = $request->user();
         $phone = trim((string) ($user->phone ?? ''));
+        $email = trim((string) ($user->email ?? ''));
 
         if ($phone === '') {
             return response()->json([
@@ -488,9 +489,15 @@ class AuthController extends Controller
             ], 422);
         }
 
+        if ($email === '') {
+            return response()->json([
+                'message' => 'Email belum diisi.',
+            ], 422);
+        }
+
         if ($user->phone_verified_at !== null) {
             return response()->json([
-                'message' => 'Nomor WhatsApp sudah terverifikasi.',
+                'message' => 'Akun sudah terverifikasi.',
                 'data' => [
                     'already_verified' => true,
                     'resend_available_in' => 0,
@@ -515,11 +522,11 @@ class AuthController extends Controller
 
         $code = (string) random_int(100000, 999999);
 
-        // Kirim dulu, simpan belakangan: kegagalan gateway tidak boleh
+        // Kirim dulu, simpan belakangan: kegagalan pengiriman tidak boleh
         // memulai cooldown sehingga user bisa langsung mencoba lagi.
-        if (! $sender->send($phone, $code)) {
+        if (! $sender->send($email, $code)) {
             return response()->json([
-                'message' => 'Gagal mengirim kode verifikasi WhatsApp. Coba lagi.',
+                'message' => 'Gagal mengirim kode verifikasi ke email. Coba lagi.',
             ], 503);
         }
 
@@ -535,7 +542,7 @@ class AuthController extends Controller
         );
 
         return response()->json([
-            'message' => 'Kode verifikasi telah dikirim ke WhatsApp Anda.',
+            'message' => 'Kode verifikasi telah dikirim ke email Anda.',
             'data' => [
                 'already_verified' => false,
                 'resend_available_in' => $cooldownSeconds,
@@ -565,7 +572,7 @@ class AuthController extends Controller
 
         if ($user->phone_verified_at !== null) {
             return response()->json([
-                'message' => 'Nomor WhatsApp sudah terverifikasi.',
+                'message' => 'Akun sudah terverifikasi.',
                 'data' => $this->buildProfilePayload($user->fresh(), $request),
             ]);
         }
@@ -607,7 +614,7 @@ class AuthController extends Controller
         $record->delete();
 
         return response()->json([
-            'message' => 'Nomor WhatsApp berhasil diverifikasi.',
+            'message' => 'Akun berhasil diverifikasi.',
             'data' => $this->buildProfilePayload($user->fresh(), $request),
         ]);
     }
