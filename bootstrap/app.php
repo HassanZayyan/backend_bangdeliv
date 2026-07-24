@@ -15,6 +15,10 @@ return Application::configure(basePath: dirname(__DIR__))
         'middleware' => ['api', 'auth:sanctum'],
     ])
     ->withMiddleware(function (Middleware $middleware): void {
+        // App berada di belakang reverse proxy (host nginx -> Docker nginx).
+        // Percaya header X-Forwarded-* agar Laravel tahu skema aslinya https.
+        $middleware->trustProxies(at: '*');
+
         $middleware->alias([
             'role' => \App\Http\Middleware\EnsureUserRole::class,
             'customer.ordering' => \App\Http\Middleware\EnsureCustomerOrderingAccess::class,
