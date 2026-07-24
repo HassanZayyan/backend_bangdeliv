@@ -197,4 +197,49 @@ class RestaurantMenuSeederTest extends TestCase
             'restaurants/63.JPG',
         ], $mamiYolla->gallery_images);
     }
+
+    public function test_it_preserves_admin_created_restaurants_and_menus_on_reseed(): void
+    {
+        // Seed katalog resmi terlebih dulu.
+        $this->seed(RestaurantMenuSeeder::class);
+        $this->assertSame(1293, Menu::query()->where('source', 'official')->count());
+
+        // Admin menambah resto + menu lewat panel (slug unik, source default 'admin',
+        // id auto-increment di luar rentang katalog).
+        $adminResto = Restaurant::query()->create([
+            'name' => 'Warung Admin Baru',
+            'slug' => 'warung-admin-baru',
+            'merchant_type' => 'warung',
+            'address' => 'Alamat admin',
+            'latitude' => -7.30000000,
+            'longitude' => 110.460,
+            'phone' => '081200000000',
+        ]);
+        $adminMenu = Menu::query()->create([
+            'restaurant_id' => $adminResto->id,
+            'name' => 'Menu Buatan Admin',
+            'price' => 15000,
+            'sort_order' => 1,
+        ]);
+
+        $this->assertSame('admin', $adminResto->refresh()->source);
+        $this->assertSame('admin', $adminMenu->refresh()->source);
+        $this->assertGreaterThan(1293, $adminMenu->id);
+
+        // Re-seed katalog (mensimulasikan seed manual) TIDAK boleh menghapus data admin.
+        $this->seed(RestaurantMenuSeeder::class);
+
+        $this->assertDatabaseHas('restaurants', ['slug' => 'warung-admin-baru']);
+        $this->assertNotNull(
+            Menu::query()->find($adminMenu->id),
+            'Menu buatan admin tidak boleh ter-hard-delete oleh RestaurantMenuSeeder.'
+        );
+        $this->assertDatabaseHas('menus', [
+            'id' => $adminMenu->id,
+            'name' => 'Menu Buatan Admin',
+            'source' => 'admin',
+        ]);
+        $this->assertSame(1293, Menu::query()->where('source', 'official')->count());
+        $this->assertSame(1, Menu::query()->where('source', 'admin')->count());
+    }
 }

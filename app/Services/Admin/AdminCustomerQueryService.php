@@ -31,7 +31,10 @@ class AdminCustomerQueryService
                 'orders as success_orders_count' => fn ($query) => $query->whereIn('status_id', $successStatusIds),
                 'orders as cancelled_orders_count' => fn ($query) => $query->whereIn('status_id', $cancelledStatusIds),
             ])
-            ->latest('created_at');
+            // Tiebreaker unik: created_at bisa seri (banyak akun dibuat berdekatan),
+            // sehingga ORDER BY created_at saja tidak deterministik antar-OFFSET.
+            ->latest('created_at')
+            ->orderByDesc('id');
 
         $this->applySearch($query, $search);
         $this->applyStatusFilter($query, $selectedStatus);

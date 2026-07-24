@@ -39,8 +39,9 @@ class DashboardWebTest extends TestCase
             ->actingAs($admin)
             ->get(route('admin.dashboard'))
             ->assertOk()
-            ->assertSee('Total Transaksi Bulan Ini')
-            ->assertSee('Rp 25.000');
+            ->assertSee('Pendapatan Ongkir (Bulan Ini)')
+            ->assertSee('Rp 25.000')
+            ->assertSee('data-period="weekly"', false);
     }
 
 }

@@ -54,8 +54,8 @@ class ThesisDatasetSeederTest extends TestCase
         $this->assertSame(5, Driver::query()->count());
         $this->assertSame(15, DriverDocument::query()->count());
         $this->assertSame(16, DB::table('device_tokens')->count());
-        $this->assertSame(27, DB::table('orders')->count());
-        $this->assertSame(27, DB::table('order_payments')->count());
+        $this->assertSame(29, DB::table('orders')->count());
+        $this->assertSame(29, DB::table('order_payments')->count());
         $this->assertSame(1293, Menu::query()->count());
 
         // Naufal Zayyan dihapus dari dataset.
@@ -119,7 +119,7 @@ class ThesisDatasetSeederTest extends TestCase
             ->all();
 
         $this->assertSame(
-            [1 => 4, 2 => 7, 3 => 3, 4 => 5, 5 => 3],
+            [1 => 4, 2 => 7, 3 => 5, 4 => 5, 5 => 3],
             $counts
         );
 

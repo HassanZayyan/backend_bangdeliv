@@ -10,6 +10,10 @@
     $serviceCode = $order->serviceType?->code ?? 'UNKNOWN';
     $paymentMethod = strtoupper((string) ($latestPayment?->payment_method ?? $order->payment_method ?? 'COD'));
     $paymentStatus = strtoupper((string) ($latestPayment?->payment_status ?? $order->payment_status ?? 'UNPAID'));
+    // Kartu Bukti QRIS hanya relevan bila butuh verifikasi non-tunai: pembayaran
+    // TRANSFER (mencakup penalti Nitip 50% yang di-switch backend ke TRANSFER),
+    // atau sudah ada bukti transfer terunggah. COD murni: tidak ada QRIS.
+    $needsQrisCard = $paymentMethod === 'TRANSFER' || $paymentProofs->isNotEmpty();
 @endphp
 
 <div class="page-actions">
@@ -32,6 +36,25 @@
             </div>
         </div>
         <div class="summary-grid">
+            @if($serviceCode === 'SHOPPING')
+                <div>
+                    <span>Subtotal makanan</span>
+                    <strong>Rp {{ number_format((float) $foodSubtotal, 0, ',', '.') }}</strong>
+                    @if($hasPendingPrices)
+                        <small>sebagian menunggu harga driver (sesuai nota)</small>
+                    @endif
+                </div>
+                <div>
+                    <span>Ongkir</span>
+                    <strong>Rp {{ number_format((float) $deliveryFee, 0, ',', '.') }}</strong>
+                </div>
+                @if($serviceFee > 0)
+                    <div>
+                        <span>Biaya pembatalan (50%)</span>
+                        <strong>Rp {{ number_format((float) $serviceFee, 0, ',', '.') }}</strong>
+                    </div>
+                @endif
+            @endif
             <div>
                 <span>Total</span>
                 <strong class="text-primary">Rp {{ number_format((float) $order->total_price, 0, ',', '.') }}</strong>
@@ -53,6 +76,7 @@
         </div>
     </section>
 
+    @if($needsQrisCard)
     <section class="panel" id="payment-proof">
         <div class="panel-header">
             <div>
@@ -123,6 +147,27 @@
             @endforelse
         </div>
     </section>
+    @else
+    <section class="panel">
+        <div class="panel-header">
+            <div>
+                <div class="panel-title">Pembayaran</div>
+                <div class="panel-description">Order COD ditagih tunai oleh driver — tidak ada bukti QRIS untuk diverifikasi.</div>
+            </div>
+            <span class="badge {{ $paymentStatus === 'PAID' ? 'badge-success' : 'badge-warning' }}">{{ $paymentLabels->paymentStatusLabel($paymentStatus) }}</span>
+        </div>
+        <div class="summary-grid">
+            <div>
+                <span>Metode</span>
+                <strong>{{ $paymentLabels->paymentMethodLabel($paymentMethod) }}</strong>
+            </div>
+            <div>
+                <span>Status</span>
+                <strong>{{ $paymentLabels->paymentStatusLabel($paymentStatus) }}</strong>
+            </div>
+        </div>
+    </section>
+    @endif
 </div>
 
 <div class="detail-grid secondary">
@@ -149,8 +194,20 @@
                                     <span class="td-sub">{{ $item->notes ?? '-' }}</span>
                                 </td>
                                 <td data-label="Jumlah">{{ $item->quantity }}</td>
-                                <td data-label="Harga">Rp {{ number_format((float) $item->unit_price, 0, ',', '.') }}</td>
-                                <td data-label="Subtotal">Rp {{ number_format((float) $item->subtotal, 0, ',', '.') }}</td>
+                                <td data-label="Harga">
+                                    @if($item->isPricePending())
+                                        <span class="td-sub" title="Harga diisi driver saat belanja (sesuai nota)">Menunggu harga driver</span>
+                                    @else
+                                        Rp {{ number_format((float) $item->unit_price, 0, ',', '.') }}
+                                    @endif
+                                </td>
+                                <td data-label="Subtotal">
+                                    @if($item->isPricePending())
+                                        <span class="td-sub">—</span>
+                                    @else
+                                        Rp {{ number_format((float) $item->subtotal, 0, ',', '.') }}
+                                    @endif
+                                </td>
                             </tr>
                         @empty
                             <tr>

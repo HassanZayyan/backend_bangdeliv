@@ -35,6 +35,10 @@ class RestaurantController extends Controller
                 });
             })
             ->latest('created_at')
+            // Tiebreaker unik: created_at bisa identik antar-baris (di-seed dalam
+            // satu loop), sehingga ORDER BY created_at saja tidak stabil antar
+            // OFFSET dan membuat baris duplikat lintas halaman pagination.
+            ->orderByDesc('id')
             ->paginate(AdminPagination::PER_PAGE)
             ->withQueryString();
 

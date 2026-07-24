@@ -63,4 +63,28 @@ return array (
     'created_at' => '2026-07-15 20:25:17',
     'updated_at' => '2026-07-15 20:25:17',
   ),
+  5 =>
+  array (
+    'id' => '8',
+    'order_id' => '33',
+    'user_id' => '18',
+    'evidence_type' => 'PICKUP_PHOTO',
+    'file_url' => 'http://43.129.55.16/storage/orders/33/proofs/Pk3rN9xQwJ2mHs7bV4tLdCf8YgUa1ZoErW6iMB0n.jpg',
+    'uploaded_at' => '2026-07-17 14:41:00',
+    'notes' => 'Bukti pengambilan',
+    'created_at' => '2026-07-17 14:41:00',
+    'updated_at' => '2026-07-17 14:41:00',
+  ),
+  6 =>
+  array (
+    'id' => '9',
+    'order_id' => '33',
+    'user_id' => '18',
+    'evidence_type' => 'DELIVERY_PHOTO',
+    'file_url' => 'http://43.129.55.16/storage/orders/33/proofs/Ht5yQ2vXwLpN8kZr3JdBmS6cGfUa9oEiRW4bTM1x.jpg',
+    'uploaded_at' => '2026-07-17 15:01:50',
+    'notes' => 'Bukti diterima',
+    'created_at' => '2026-07-17 15:01:50',
+    'updated_at' => '2026-07-17 15:01:50',
+  ),
 );

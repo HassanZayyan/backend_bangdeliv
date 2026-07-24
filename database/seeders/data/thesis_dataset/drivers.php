@@ -49,9 +49,9 @@ return array (
     'status' => 'offline',
     'latitude' => '-7.280',
     'longitude' => '110.416',
-    'location_updated_at' => '2026-07-17 10:05:00',
+    'location_updated_at' => '2026-07-17 15:02:00',
     'created_at' => '2026-07-15 19:55:36',
-    'updated_at' => '2026-07-17 10:05:00',
+    'updated_at' => '2026-07-17 15:02:00',
     'deleted_at' => NULL,
   ),
   3 => 

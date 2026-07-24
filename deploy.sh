@@ -46,7 +46,11 @@ until docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql
 done
 
 echo "Running Laravel deployment commands..."
-docker compose exec -T app php artisan migrate --seed --force
+# Katalog resmi TIDAK di-seed ulang tiap deploy: RestaurantMenuSeeder mem-prune
+# menu di luar katalog dan akan MENGHAPUS menu/resto buatan admin. Migrasi skema
+# tetap idempotent & aman dijalankan tiap deploy. Untuk memperbarui katalog resmi,
+# jalankan manual & sadar: docker compose exec -T app php artisan db:seed --class=RestaurantMenuSeeder --force
+docker compose exec -T app php artisan migrate --force
 docker compose exec -T app php artisan storage:link
 docker compose exec -T app sh -lc '
 if [ -f /var/www/html/storage/app/private/firebase/firebase-credentials.json ]; then

@@ -240,6 +240,53 @@ class AdminListingPolishTest extends TestCase
             ->assertDontSee('Menampilkan 1-8 dari 8 mitra restoran');
     }
 
+    public function test_restaurant_pagination_returns_unique_rows_across_pages_with_tied_timestamps(): void
+    {
+        $admin = User::factory()->create([
+            'role' => 'admin',
+            'phone' => '081300000014',
+        ]);
+
+        for ($i = 1; $i <= 8; $i++) {
+            Restaurant::query()->create([
+                'name' => "Resto Tie {$i}",
+                'slug' => "resto-tie-{$i}",
+                'address' => "Jl. Tie {$i}",
+                'latitude' => -6.2,
+                'longitude' => 106.8 + ($i / 1000),
+                'phone' => '08125555'.str_pad((string) $i, 4, '0', STR_PAD_LEFT),
+            ]);
+        }
+
+        // Paksa created_at identik untuk semua restoran (mensimulasikan data yang
+        // di-seed dalam satu loop). Tanpa tiebreaker unik (orderByDesc('id')),
+        // ORDER BY created_at saja bisa mengembalikan baris yang sama di banyak
+        // halaman — bug yang dilaporkan.
+        Restaurant::query()->update([
+            'created_at' => '2026-07-20 10:00:00',
+            'updated_at' => '2026-07-20 10:00:00',
+        ]);
+
+        $page1 = $this->actingAs($admin)->get(route('admin.restaurants.index'))->assertOk()->getContent();
+        $page2 = $this->actingAs($admin)->get(route('admin.restaurants.index', ['page' => 2]))->assertOk()->getContent();
+
+        $onPage = fn (string $html): array => collect(range(1, 8))
+            ->filter(fn (int $i): bool => str_contains($html, "Resto Tie {$i}"))
+            ->values()
+            ->all();
+
+        $names1 = $onPage($page1);
+        $names2 = $onPage($page2);
+
+        $this->assertCount(5, $names1, 'Halaman 1 harus menampilkan 5 restoran.');
+        $this->assertCount(3, $names2, 'Halaman 2 harus menampilkan 3 restoran.');
+        $this->assertEmpty(
+            array_intersect($names1, $names2),
+            'Tidak boleh ada restoran yang muncul di dua halaman (pagination harus deterministik).'
+        );
+        $this->assertSame(range(1, 8), collect($names1)->merge($names2)->sort()->values()->all());
+    }
+
     public function test_restaurant_list_shows_banner_thumbnail_and_icon_fallback(): void
     {
         Storage::fake('public');

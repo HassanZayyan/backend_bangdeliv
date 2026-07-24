@@ -1783,4 +1783,164 @@ return array (
     'metadata' => '{"action_code":"COMPLETE_ORDER","service_type":"SHOPPING"}',
     'created_at' => '2026-07-17 11:02:24',
   ),
+  178 =>
+  array (
+    'id' => '203',
+    'order_id' => '32',
+    'status_id' => '1',
+    'changed_by_user_id' => '29',
+    'note' => 'Order Nitip dibuat melalui chatbot.',
+    'metadata' => NULL,
+    'created_at' => '2026-07-17 13:20:00',
+  ),
+  179 =>
+  array (
+    'id' => '204',
+    'order_id' => '32',
+    'status_id' => '2',
+    'changed_by_user_id' => '18',
+    'note' => 'Order diterima oleh driver.',
+    'metadata' => '{"driver_snapshot":{"name":"Driver 03","phone":"081100000003","user_id":18,"driver_id":3,"vehicle_type":"Motor Matic","vehicle_brand":"Honda","vehicle_model":"Supra X","vehicle_plate":"H 1003 AA"}}',
+    'created_at' => '2026-07-17 13:21:30',
+  ),
+  180 =>
+  array (
+    'id' => '205',
+    'order_id' => '32',
+    'status_id' => '3',
+    'changed_by_user_id' => '18',
+    'note' => 'Driver mulai memproses merchant Nitip.',
+    'metadata' => '{"action_code":"MERCHANT_OPEN_CONFIRMED","pickup_location_id":71}',
+    'created_at' => '2026-07-17 13:24:00',
+  ),
+  181 =>
+  array (
+    'id' => '206',
+    'order_id' => '32',
+    'status_id' => '5',
+    'changed_by_user_id' => '18',
+    'note' => 'Driver action CONFIRM_PICKED_UP',
+    'metadata' => '{"action_code":"CONFIRM_PICKED_UP","service_type":"SHOPPING"}',
+    'created_at' => '2026-07-17 13:40:00',
+  ),
+  182 =>
+  array (
+    'id' => '207',
+    'order_id' => '32',
+    'status_id' => '6',
+    'changed_by_user_id' => '18',
+    'note' => 'Driver action START_DELIVERY',
+    'metadata' => '{"action_code":"START_DELIVERY","service_type":"SHOPPING"}',
+    'created_at' => '2026-07-17 13:40:20',
+  ),
+  183 =>
+  array (
+    'id' => '208',
+    'order_id' => '32',
+    'status_id' => '7',
+    'changed_by_user_id' => '18',
+    'note' => 'Driver action ARRIVE_DROPOFF',
+    'metadata' => '{"action_code":"ARRIVE_DROPOFF","service_type":"SHOPPING"}',
+    'created_at' => '2026-07-17 13:55:00',
+  ),
+  184 =>
+  array (
+    'id' => '209',
+    'order_id' => '32',
+    'status_id' => '8',
+    'changed_by_user_id' => '18',
+    'note' => 'Driver action CONFIRM_DELIVERED',
+    'metadata' => '{"action_code":"CONFIRM_DELIVERED","service_type":"SHOPPING"}',
+    'created_at' => '2026-07-17 13:57:30',
+  ),
+  185 =>
+  array (
+    'id' => '210',
+    'order_id' => '32',
+    'status_id' => '9',
+    'changed_by_user_id' => '18',
+    'note' => 'Driver action COMPLETE_ORDER',
+    'metadata' => '{"action_code":"COMPLETE_ORDER","service_type":"SHOPPING"}',
+    'created_at' => '2026-07-17 13:58:00',
+  ),
+  186 =>
+  array (
+    'id' => '211',
+    'order_id' => '33',
+    'status_id' => '1',
+    'changed_by_user_id' => '30',
+    'note' => 'Order kurir dibuat oleh customer melalui chatbot.',
+    'metadata' => NULL,
+    'created_at' => '2026-07-17 14:30:00',
+  ),
+  187 =>
+  array (
+    'id' => '212',
+    'order_id' => '33',
+    'status_id' => '2',
+    'changed_by_user_id' => '18',
+    'note' => 'Order diterima oleh driver.',
+    'metadata' => '{"driver_snapshot":{"name":"Driver 03","phone":"081100000003","user_id":18,"driver_id":3,"vehicle_type":"Motor Matic","vehicle_brand":"Honda","vehicle_model":"Supra X","vehicle_plate":"H 1003 AA"}}',
+    'created_at' => '2026-07-17 14:31:00',
+  ),
+  188 =>
+  array (
+    'id' => '213',
+    'order_id' => '33',
+    'status_id' => '4',
+    'changed_by_user_id' => '18',
+    'note' => 'Driver action ARRIVE_PICKUP',
+    'metadata' => '{"action_code":"ARRIVE_PICKUP","service_type":"COURIER"}',
+    'created_at' => '2026-07-17 14:40:00',
+  ),
+  189 =>
+  array (
+    'id' => '214',
+    'order_id' => '33',
+    'status_id' => '5',
+    'changed_by_user_id' => '18',
+    'note' => 'Driver action CONFIRM_PICKED_UP',
+    'metadata' => '{"action_code":"CONFIRM_PICKED_UP","service_type":"COURIER"}',
+    'created_at' => '2026-07-17 14:42:00',
+  ),
+  190 =>
+  array (
+    'id' => '215',
+    'order_id' => '33',
+    'status_id' => '6',
+    'changed_by_user_id' => '18',
+    'note' => 'Driver action START_DELIVERY',
+    'metadata' => '{"action_code":"START_DELIVERY","service_type":"COURIER"}',
+    'created_at' => '2026-07-17 14:42:20',
+  ),
+  191 =>
+  array (
+    'id' => '216',
+    'order_id' => '33',
+    'status_id' => '7',
+    'changed_by_user_id' => '18',
+    'note' => 'Driver action ARRIVE_DROPOFF',
+    'metadata' => '{"action_code":"ARRIVE_DROPOFF","service_type":"COURIER"}',
+    'created_at' => '2026-07-17 15:00:00',
+  ),
+  192 =>
+  array (
+    'id' => '217',
+    'order_id' => '33',
+    'status_id' => '8',
+    'changed_by_user_id' => '18',
+    'note' => 'Driver action CONFIRM_DELIVERED',
+    'metadata' => '{"action_code":"CONFIRM_DELIVERED","service_type":"COURIER"}',
+    'created_at' => '2026-07-17 15:01:30',
+  ),
+  193 =>
+  array (
+    'id' => '218',
+    'order_id' => '33',
+    'status_id' => '9',
+    'changed_by_user_id' => '18',
+    'note' => 'Driver action COMPLETE_ORDER',
+    'metadata' => '{"action_code":"COMPLETE_ORDER","service_type":"COURIER"}',
+    'created_at' => '2026-07-17 15:02:00',
+  ),
 );

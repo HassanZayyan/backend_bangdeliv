@@ -123,4 +123,14 @@ return array (
     'created_at' => '2026-07-17 10:28:41',
     'updated_at' => '2026-07-17 10:28:41',
   ),
+  12 =>
+  array (
+    'id' => '14',
+    'order_id' => '32',
+    'total_amount' => '30000.00',
+    'recorded_by_user_id' => '18',
+    'recorded_at' => '2026-07-17 13:35:00',
+    'created_at' => '2026-07-17 13:35:00',
+    'updated_at' => '2026-07-17 13:35:00',
+  ),
 );

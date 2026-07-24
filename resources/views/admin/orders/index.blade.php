@@ -104,6 +104,7 @@
                         </td>
                         <td data-label="Total & Pembayaran">
                             <span class="td-price">Rp {{ number_format((float) $order->total_price, 0, ',', '.') }}</span>
+                            <span class="td-sub">Ongkir platform: Rp {{ number_format((float) $order->delivery_fee, 0, ',', '.') }}</span>
                             <span class="td-sub">{{ $paymentLabels->paymentMethodLabel($paymentMethod) }} — {{ $paymentLabels->paymentStatusLabel($paymentStatus) }}</span>
                             @if($pendingProofCount > 0)
                                 <span class="badge badge-warning row-note">{{ $pendingProofCount }} bukti menunggu verifikasi</span>

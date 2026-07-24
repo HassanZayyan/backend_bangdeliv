@@ -5,6 +5,7 @@ namespace App\Services\Admin;
 use App\Models\Order;
 use App\Models\OrderStatus;
 use App\Models\ServiceType;
+use App\Services\Pricing\ShoppingPricingService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 
@@ -14,6 +15,7 @@ class AdminOrderQueryService
         private readonly AdminPaymentProofStatusService $proofStatuses,
         private readonly AdminServiceTypePresenter $serviceTypes,
         private readonly AdminOrderStatusPresenter $statuses,
+        private readonly ShoppingPricingService $shoppingPricing,
     ) {}
 
     /**
@@ -121,6 +123,12 @@ class AdminOrderQueryService
         return [
             'order' => $order,
             'backUrl' => $backUrl,
+            // Rincian uang: subtotal makanan (pass-through milik Toko/Resto),
+            // ongkir (pendapatan platform), dan biaya pembatalan 50% bila ada.
+            'foodSubtotal' => $this->shoppingPricing->subtotalAmount($order),
+            'deliveryFee' => (float) $order->delivery_fee,
+            'serviceFee' => $this->shoppingPricing->serviceFeeAmount($order),
+            'hasPendingPrices' => $this->shoppingPricing->hasPendingManualPrices($order),
             'serviceConfig' => $this->serviceTypes->badgeConfig((string) ($order->serviceType?->code ?? 'UNKNOWN')),
             'statusConfig' => $this->statuses->badgeConfig((string) ($order->statusRef?->code ?? 'UNKNOWN')),
             'locations' => $order->orderLocations->sortBy('sequence_no')->values(),

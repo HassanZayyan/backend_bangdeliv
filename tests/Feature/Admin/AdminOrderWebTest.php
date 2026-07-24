@@ -5,6 +5,7 @@ namespace Tests\Feature\Admin;
 use App\Models\Driver;
 use App\Models\Order;
 use App\Models\OrderEvidence;
+use App\Models\OrderItem;
 use App\Models\OrderLocation;
 use App\Models\OrderLog;
 use App\Models\OrderPayment;
@@ -213,6 +214,75 @@ class AdminOrderWebTest extends TestCase
         $this->postJson('/api/v1/admin/orders/'.$order->id.'/payment/record-cod', [
             'amount' => 10000,
         ])->assertNotFound();
+    }
+
+    public function test_cod_order_detail_hides_qris_card_and_shows_payment_summary(): void
+    {
+        $admin = $this->admin();
+        $customer = User::factory()->create(['role' => 'customer', 'phone' => '081300004444']);
+        $order = $this->baseOrder($customer, 'RIDE', 'DELIVERED');
+        OrderPayment::query()->create([
+            'order_id' => $order->id,
+            'payment_method' => 'COD',
+            'payment_status' => 'PAID',
+            'amount' => 27500,
+        ]);
+
+        $this->actingAs($admin)
+            ->get(route('admin.orders.show', $order))
+            ->assertOk()
+            ->assertDontSee('id="payment-proof"', false)
+            ->assertDontSee('Bukti QRIS')
+            ->assertSee('Order COD ditagih tunai oleh driver');
+    }
+
+    public function test_shopping_cancellation_penalty_order_detail_shows_qris_card(): void
+    {
+        $admin = $this->admin();
+        $customer = User::factory()->create(['role' => 'customer', 'phone' => '081300005555']);
+        $order = $this->baseOrder($customer, 'SHOPPING', 'CANCELLED_WITH_FEE');
+        $order->update(['delivery_fee' => 0, 'total_price' => 22000]);
+        OrderPayment::query()->create([
+            'order_id' => $order->id,
+            'payment_method' => 'TRANSFER',
+            'payment_status' => 'PENDING',
+            'amount' => 22000,
+        ]);
+
+        // Nitip kena penalti 50% -> payment_method TRANSFER -> kartu QRIS wajib tampil.
+        $this->actingAs($admin)
+            ->get(route('admin.orders.show', $order))
+            ->assertOk()
+            ->assertSee('id="payment-proof"', false)
+            ->assertSee('Bukti QRIS');
+    }
+
+    public function test_shopping_order_detail_labels_pending_item_price_and_splits_summary(): void
+    {
+        $admin = $this->admin();
+        $customer = User::factory()->create(['role' => 'customer', 'phone' => '081300006666']);
+        $order = $this->baseOrder($customer, 'SHOPPING', 'DELIVERED');
+        $order->update(['delivery_fee' => 9000, 'total_price' => 9000]);
+
+        // Item dari Toko/Resto tidak resmi: harga belum diketahui (sesuai nota).
+        OrderItem::query()->create([
+            'order_id' => $order->id,
+            'item_source' => 'MANUAL',
+            'menu_name' => 'Nasi Padang',
+            'quantity' => 2,
+            'unit_price' => 0,
+            'subtotal' => 0,
+            'is_available' => true,
+            'metadata' => ['price_status' => 'PENDING_DRIVER_INPUT'],
+        ]);
+
+        $this->actingAs($admin)
+            ->get(route('admin.orders.show', $order))
+            ->assertOk()
+            ->assertSee('Menunggu harga driver')
+            ->assertSee('Subtotal makanan')
+            ->assertSee('Ongkir')
+            ->assertSee('sebagian menunggu harga driver (sesuai nota)');
     }
 
     private function admin(): User

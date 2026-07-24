@@ -8,7 +8,7 @@
 @section('content')
 {{-- KPI Cards Row --}}
 <div class="stat-cards-wrapper">
-    <x-stat-card title="Total Transaksi Bulan Ini" value="Rp {{ number_format((float) $gmvMonth, 0, ',', '.') }}" icon="bx-money" color="primary" change="Data terkini" change-type="positive" />
+    <x-stat-card title="Pendapatan Ongkir (Bulan Ini)" value="Rp {{ number_format((float) $revenueMonth, 0, ',', '.') }}" icon="bx-money" color="primary" change="Data terkini" change-type="positive" />
     <x-stat-card title="Total Pesanan (Bulan Ini)" value="{{ number_format($totalOrdersMonth, 0, ',', '.') }}" icon="bx-receipt" color="info" change="Data terkini" change-type="positive" />
     <x-stat-card title="Pesanan Batal (Bulan Ini)" value="{{ number_format($cancelledOrdersMonth, 0, ',', '.') }}" icon="bx-x-circle" color="danger" change="Data terkini" change-type="negative" />
     <x-stat-card title="Pengguna Baru (Bulan Ini)" value="{{ number_format($newUsersMonth, 0, ',', '.') }}" icon="bx-user-plus" color="success" change="Data terkini" change-type="positive" />
@@ -18,11 +18,11 @@
 <div class="dashboard-grid dashboard-chart-grid">
     <div class="panel">
         <div class="panel-header dashboard-panel-header">
-            <div class="panel-title">Tren Pendapatan & Pesanan (7 Hari Terakhir)</div>
+            <div class="panel-title" id="revenueChartTitle">Tren Pendapatan Ongkir & Pesanan (7 Hari Terakhir)</div>
             <div class="dashboard-chart-controls" aria-label="Rentang grafik pendapatan">
-                <button class="tab-btn active" type="button">Harian</button>
-                <button class="tab-btn" type="button">Mingguan</button>
-                <button class="tab-btn" type="button">Bulanan</button>
+                <button class="tab-btn active" type="button" data-period="daily">Harian</button>
+                <button class="tab-btn" type="button" data-period="weekly">Mingguan</button>
+                <button class="tab-btn" type="button" data-period="monthly">Bulanan</button>
             </div>
         </div>
         <div class="dashboard-chart-frame dashboard-line-chart-frame">
@@ -129,20 +129,27 @@ document.addEventListener('DOMContentLoaded', () => {
     const isCompactChart = window.matchMedia('(max-width: 640px)').matches;
     const revenueCanvas = document.getElementById('revenueChart');
     const revenueContext = revenueCanvas?.getContext('2d');
+    const revenueTrends = @json($revenueTrends);
+    const revenueTitles = {
+        daily: 'Tren Pendapatan Ongkir & Pesanan (7 Hari Terakhir)',
+        weekly: 'Tren Pendapatan Ongkir & Pesanan (8 Minggu Terakhir)',
+        monthly: 'Tren Pendapatan Ongkir & Pesanan (6 Bulan Terakhir)',
+    };
+    let revenueChart = null;
 
     if (revenueContext) {
         const gradient = revenueContext.createLinearGradient(0, 0, 0, 270);
         gradient.addColorStop(0, 'rgba(240,91,36,0.24)');
         gradient.addColorStop(1, 'rgba(240,91,36,0)');
 
-        new Chart(revenueContext, {
+        revenueChart = new Chart(revenueContext, {
             type: 'line',
             data: {
-                labels: @json($dailyLabels),
+                labels: revenueTrends.daily.labels,
                 datasets: [
                     {
-                        label: 'Pendapatan (Rp)',
-                        data: @json(collect($dailyData)->pluck('revenue')->values()),
+                        label: 'Pendapatan Ongkir (Rp)',
+                        data: revenueTrends.daily.revenue,
                         borderColor: '#F05B24',
                         backgroundColor: gradient,
                         borderWidth: isCompactChart ? 2 : 2.5,
@@ -155,7 +162,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     },
                     {
                         label: 'Jumlah Pesanan',
-                        data: @json(collect($dailyData)->pluck('orders')->values()),
+                        data: revenueTrends.daily.orders,
                         borderColor: '#F59E0B',
                         backgroundColor: 'transparent',
                         borderWidth: 2,
@@ -194,7 +201,12 @@ document.addEventListener('DOMContentLoaded', () => {
                         ticks: {
                             color: labelColor,
                             maxTicksLimit: isCompactChart ? 4 : 6,
-                            callback: value => 'Rp ' + (Number(value) / 1000000).toFixed(1) + 'M',
+                            callback: value => {
+                                const n = Number(value);
+                                if (Math.abs(n) >= 1000000) return 'Rp ' + (n / 1000000).toFixed(1) + 'jt';
+                                if (Math.abs(n) >= 1000) return 'Rp ' + Math.round(n / 1000) + 'rb';
+                                return 'Rp ' + n;
+                            },
                         },
                         position: 'left',
                     },
@@ -225,6 +237,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 },
             },
         });
+    }
+
+    if (revenueChart) {
+        const applyPeriod = (period) => {
+            const series = revenueTrends[period];
+            if (!series) return;
+            revenueChart.data.labels = series.labels;
+            revenueChart.data.datasets[0].data = series.revenue;
+            revenueChart.data.datasets[1].data = series.orders;
+            revenueChart.update();
+            const titleEl = document.getElementById('revenueChartTitle');
+            if (titleEl && revenueTitles[period]) titleEl.textContent = revenueTitles[period];
+            document.querySelectorAll('.dashboard-chart-controls .tab-btn')
+                .forEach((btn) => btn.classList.toggle('active', btn.dataset.period === period));
+        };
+        document.querySelectorAll('.dashboard-chart-controls .tab-btn')
+            .forEach((btn) => btn.addEventListener('click', () => applyPeriod(btn.dataset.period)));
     }
 
     const statusCanvas = document.getElementById('orderStatusChart');

@@ -66,4 +66,28 @@ class OrderItem extends Model
         return $this->belongsTo(OrderLocation::class, 'pickup_location_id');
     }
 
+    /**
+     * Status harga item Nitip. Sumber kebenaran = metadata.price_status; fallback
+     * mengikuti logika kanonik DriverOrderPayloadFactory::shoppingItemPriceStatus():
+     * item MANUAL yang tersedia namun belum berharga (unit_price <= 0) berarti
+     * menunggu input harga driver (bukan harga Rp 0 yang benar). CATATAN: nilai
+     * unit_price 0 pada item MENU_DB yang CONFIRMED memang gratis — jangan pakai
+     * unit_price==0 sebagai penanda pending.
+     */
+    public function priceStatus(): string
+    {
+        $status = (string) data_get($this->metadata, 'price_status', '');
+        if ($status !== '') {
+            return $status;
+        }
+
+        return $this->item_source === 'MANUAL' && (bool) $this->is_available && (float) $this->unit_price <= 0
+            ? 'PENDING_DRIVER_INPUT'
+            : 'CONFIRMED';
+    }
+
+    public function isPricePending(): bool
+    {
+        return $this->priceStatus() === 'PENDING_DRIVER_INPUT';
+    }
 }

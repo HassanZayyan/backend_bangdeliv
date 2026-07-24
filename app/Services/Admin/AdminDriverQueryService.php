@@ -28,7 +28,9 @@ class AdminDriverQueryService
         $query = Driver::query()
             ->with('user')
             ->withCount('orders')
-            ->latest('created_at');
+            // Tiebreaker unik agar pagination deterministik (created_at bisa seri).
+            ->latest('created_at')
+            ->orderByDesc('id');
 
         $this->applySearch($query, $search);
         $this->applyStatusFilter($query, $selectedStatus);

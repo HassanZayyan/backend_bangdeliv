@@ -60,6 +60,7 @@ class RestaurantMenuSeeder extends Seeder
                 $menuRows[] = [
                     'id' => $menuId,
                     'restaurant_id' => $restaurant->id,
+                    'source' => 'official',
                     'name' => (string) $menu['name'],
                     'price' => $price === null ? null : (float) $price,
                     'image' => null,
@@ -86,7 +87,11 @@ class RestaurantMenuSeeder extends Seeder
      */
     private function syncMenus(array $menuRows): void
     {
+        // Prune HANYA baris katalog resmi (source=official) yang sudah tidak ada
+        // di katalog terbaru. Menu buatan admin (source=admin) TIDAK PERNAH
+        // disentuh — inilah perbaikan penyebab menu admin hilang tiap re-seed.
         DB::table('menus')
+            ->where('source', 'official')
             ->whereNotIn('id', array_column($menuRows, 'id'))
             ->delete();
 
@@ -94,7 +99,7 @@ class RestaurantMenuSeeder extends Seeder
             DB::table('menus')->upsert(
                 $chunk,
                 ['id'],
-                ['restaurant_id', 'name', 'price', 'image', 'is_available', 'sort_order', 'deleted_at', 'updated_at']
+                ['restaurant_id', 'source', 'name', 'price', 'image', 'is_available', 'sort_order', 'deleted_at', 'updated_at']
             );
         }
     }
@@ -164,6 +169,7 @@ class RestaurantMenuSeeder extends Seeder
         }
 
         $restaurant->fill([
+            'source' => 'official',
             'name' => (string) $restoData['name'],
             'slug' => (string) $restoData['slug'],
             'merchant_type' => (string) $restoData['merchant_type'],
