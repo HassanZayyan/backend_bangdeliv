@@ -307,6 +307,8 @@ final class CustomerOrderService
             'payment_status' => 'unpaid',
         ]);
         broadcast(new AdminNotificationUpdated(app(AdminNotificationService::class)->summary()));
+        // Beri tahu driver bahwa customer sudah mengunggah bukti QRIS.
+        $this->orderRealtimeNotifier->notifyPaymentProofUploaded($order, $user);
 
         return $order->fresh([
             'restaurant',

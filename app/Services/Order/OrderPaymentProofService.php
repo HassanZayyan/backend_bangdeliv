@@ -426,6 +426,8 @@ final class OrderPaymentProofService
             'payment_method' => OrderPaymentService::METHOD_TRANSFER,
         ]);
         broadcast(new AdminNotificationUpdated(app(AdminNotificationService::class)->summary()));
+        // Beri tahu customer bahwa bukti QRIS ditolak agar bisa mengirim ulang.
+        $this->orderRealtimeNotifier->notifyPaymentProofRejected($order, $actor, $reason);
 
         return $this->driverOrderPayloadFactory->serialize(
             $order->fresh($this->driverOrderPayloadFactory->relations()),

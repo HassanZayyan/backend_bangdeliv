@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Services\Notification\OrderPricingPushNotificationService;
 use App\Services\Notification\OrderRealtimeBroadcaster;
 use App\Services\Notification\OrderStatusPushNotificationService;
+use App\Services\Notification\PaymentProofPushNotificationService;
 use App\Services\Shopping\ShoppingPriceNegotiationService;
 use Illuminate\Support\Facades\DB;
 
@@ -18,7 +19,8 @@ final class OrderRealtimeNotifier
         private readonly OrderStatusPushNotificationService $orderStatusPushNotificationService,
         private readonly OrderPricingPushNotificationService $orderPricingPushNotificationService,
         private readonly ShoppingPriceNegotiationService $shoppingPriceNegotiationService,
-        private readonly DeliveryFeeNegotiationService $deliveryFeeNegotiationService
+        private readonly DeliveryFeeNegotiationService $deliveryFeeNegotiationService,
+        private readonly PaymentProofPushNotificationService $paymentProofPushNotificationService,
     ) {}
 
     public function buildOrderStatusBroadcastPayload(
@@ -176,6 +178,24 @@ final class OrderRealtimeNotifier
             actor: $actor,
             priceEventId: $this->negotiationEventId($snapshot),
         );
+    }
+
+    /** Customer mengunggah bukti QRIS -> beri tahu driver untuk memverifikasi. */
+    public function notifyPaymentProofUploaded(Order $order, User $actor): void
+    {
+        $freshOrder = $order->fresh(['user', 'driver.user']);
+        if ($freshOrder instanceof Order) {
+            $this->paymentProofPushNotificationService->notifyProofUploadedToDriver($freshOrder, $actor);
+        }
+    }
+
+    /** Driver menolak bukti QRIS -> beri tahu customer untuk mengirim ulang. */
+    public function notifyPaymentProofRejected(Order $order, User $actor, ?string $reason = null): void
+    {
+        $freshOrder = $order->fresh(['user', 'driver.user']);
+        if ($freshOrder instanceof Order) {
+            $this->paymentProofPushNotificationService->notifyProofRejectedToCustomer($freshOrder, $actor, $reason);
+        }
     }
 
     /**

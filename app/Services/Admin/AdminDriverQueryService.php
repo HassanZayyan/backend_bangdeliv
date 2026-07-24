@@ -234,8 +234,11 @@ class AdminDriverQueryService
      */
     private function incomeStatusIds(): array
     {
+        // Pendapatan driver = order selesai (COMPLETED) + pembatalan BERBIAYA
+        // (CANCELLED_WITH_FEE, kompensasi). Pembatalan biasa (CANCELLED) tidak
+        // menghasilkan apa pun, jadi tidak ikut dihitung sebagai pendapatan.
         return OrderStatus::query()
-            ->whereIn('code', ['COMPLETED', 'CANCELLED'])
+            ->whereIn('code', ['COMPLETED', 'CANCELLED_WITH_FEE'])
             ->pluck('id')
             ->map(fn ($id): int => (int) $id)
             ->all();

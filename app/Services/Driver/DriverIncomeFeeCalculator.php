@@ -2,6 +2,7 @@
 
 namespace App\Services\Driver;
 
+use App\Enums\OrderStatusCode;
 use App\Enums\ServiceTypeCode;
 use App\Models\Order;
 use App\Services\Pricing\ShoppingPricingService;
@@ -49,14 +50,24 @@ class DriverIncomeFeeCalculator
         $serviceCode = ServiceTypeCode::normalize((string) $order->serviceType->code);
         $statusCode = strtoupper((string) $order->statusRef->code);
 
-        if ($serviceCode === ServiceTypeCode::Shopping->value && $statusCode === 'CANCELLED_WITH_FEE') {
+        if ($serviceCode === ServiceTypeCode::Shopping->value && $statusCode === OrderStatusCode::CancelledWithFee->value) {
             $driverFee = $this->shoppingPricingService->cancellationDriverFeeAmount($order);
             if ($driverFee > 0) {
                 return round($driverFee, 2);
             }
         }
 
-        // Pesanan yang berlanjut: pendapatan = ongkir saja. Kompensasi
+        // Pembatalan BIASA (CANCELLED, tanpa biaya) TIDAK menghasilkan pendapatan:
+        // perjalanan tidak terjadi. Tanpa penjaga ini, order batal jatuh ke
+        // fallback delivery_fee (ongkir pra-negosiasi) dan kartu riwayat driver
+        // salah menampilkan penghasilan. CANCELLED_WITH_FEE DIKECUALIKAN — itu
+        // justru berbiaya: Nitip lewat kompensasi (cabang di atas), layanan lain
+        // lewat delivery_fee penalti (fallback di bawah).
+        if ($statusCode === OrderStatusCode::Cancelled->value) {
+            return 0.0;
+        }
+
+        // Pesanan yang berlanjut/selesai: pendapatan = ongkir saja. Kompensasi
         // perjalanan gagal saat lanjut dihapus, jadi tidak ada tambahan.
         $deliveryFee = round((float) $order->delivery_fee, 2);
         if ($deliveryFee > 0) {
