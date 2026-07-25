@@ -165,7 +165,8 @@ class ChatbotController extends Controller
     {
         $validated = $request->validate([
             'service_type' => ['required', Rule::in(['nitip'])],
-            'mode' => ['nullable', Rule::in(['select', 'add'])],
+            'mode' => ['nullable', Rule::in(['select', 'add', 'replace'])],
+            'replace_target' => ['nullable', 'string', 'max:100', 'required_if:mode,replace'],
             'merchant_id' => ['nullable', 'integer', 'min:1'],
             'merchant_place' => ['nullable', 'array', 'required_without:merchant_id'],
             'merchant_place.place_id' => ['nullable', 'string', 'max:255'],
@@ -199,7 +200,8 @@ class ChatbotController extends Controller
                 $user,
                 $normalizedSessionId,
                 $merchantPayload,
-                (string) ($validated['mode'] ?? 'select')
+                (string) ($validated['mode'] ?? 'select'),
+                isset($validated['replace_target']) ? (string) $validated['replace_target'] : null,
             );
         } catch (ApiException $exception) {
             return response()->json([
@@ -222,7 +224,11 @@ class ChatbotController extends Controller
         $this->persistChatbotDraftTurn(
             $user,
             $normalizedSessionId,
-            ($mode === 'add' ? '[MERCHANT_PICKER] tambah tempat => ' : '[MERCHANT_PICKER] tempat => ')
+            (match ($mode) {
+                'add' => '[MERCHANT_PICKER] tambah tempat => ',
+                'replace' => '[MERCHANT_PICKER] ganti tempat => ',
+                default => '[MERCHANT_PICKER] tempat => ',
+            })
                 .($merchantName !== '' ? $merchantName : 'Tempat dipilih'),
             $assistantText,
             $patchedPayload,

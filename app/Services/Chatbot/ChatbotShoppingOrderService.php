@@ -137,13 +137,19 @@ class ChatbotShoppingOrderService
      * @param  array<string, mixed>  $merchantPayload
      * @return array<string, mixed>
      */
-    public function applyMerchantPatch(User $user, string $sessionId, array $merchantPayload, string $mode = 'select'): array
+    public function applyMerchantPatch(User $user, string $sessionId, array $merchantPayload, string $mode = 'select', ?string $targetStopId = null): array
     {
         $this->assertCustomerCanOrder($user);
 
         $candidate = $this->merchantCandidateResolver->resolveStandalone($merchantPayload);
         $incomingSeed = $this->draftSeedFromCandidate($candidate);
-        $incomingSeed['merchant_mode'] = $mode === 'add' ? 'add' : 'select';
+        $normalizedMode = in_array($mode, ['add', 'replace'], true) ? $mode : 'select';
+        $incomingSeed['merchant_mode'] = $normalizedMode;
+        if ($normalizedMode === 'replace') {
+            // "Ganti Toko/Resto": ganti slot toko target secara eksplisit (by stop_id),
+            // bukan menebak dari toko aktif/terakhir.
+            $incomingSeed['replace_target_stop_id'] = $this->normalizeOptionalString($targetStopId);
+        }
         $draftSeed = $this->mergeDraftSeed(
             $this->resolveLatestDraftSeed($user, $sessionId),
             $incomingSeed,
@@ -485,7 +491,8 @@ class ChatbotShoppingOrderService
             $merged = $this->mergeIncomingStop(
                 $merged,
                 $incomingStop,
-                (string) ($incoming['merchant_mode'] ?? 'auto')
+                (string) ($incoming['merchant_mode'] ?? 'auto'),
+                $this->normalizeOptionalString($incoming['replace_target_stop_id'] ?? null),
             );
         }
 
@@ -563,6 +570,16 @@ class ChatbotShoppingOrderService
             ));
         }
 
+        // Pertahankan id slot stabil (hanya untuk stop nyata) agar aksi
+        // "Ganti Toko/Resto" bisa menarget toko spesifik secara deterministik
+        // lintas merge & re-index array.
+        if ($stop !== []) {
+            $stopId = $this->normalizeOptionalString($seed['stop_id'] ?? null);
+            if ($stopId !== null) {
+                $stop = ['stop_id' => $stopId] + $stop;
+            }
+        }
+
         return $stop;
     }
 
@@ -571,7 +588,7 @@ class ChatbotShoppingOrderService
      * @param  array<string, mixed>  $incomingStop
      * @return array<string, mixed>
      */
-    private function mergeIncomingStop(array $draft, array $incomingStop, string $mode): array
+    private function mergeIncomingStop(array $draft, array $incomingStop, string $mode, ?string $targetStopId = null): array
     {
         $incomingStop = $this->normalizeStopSeed($incomingStop);
         if ($incomingStop === []) {
@@ -579,6 +596,38 @@ class ChatbotShoppingOrderService
         }
 
         $stops = is_array($draft['stops'] ?? null) ? $draft['stops'] : [];
+
+        // GANTI TOKO/RESTO (deterministik): ganti persis slot dengan stop_id target,
+        // kosongkan item lama (milik toko lama), dan pertahankan id slot. Tidak
+        // bergantung pada active_stop_index, sehingga bisa menarget toko mana pun.
+        // Tolak (422) bila target sudah tidak ada di draft.
+        if ($mode === 'replace' && $targetStopId !== null && $targetStopId !== '') {
+            $targetIndex = null;
+            foreach ($stops as $index => $stop) {
+                if (is_array($stop)
+                    && $this->normalizeOptionalString($stop['stop_id'] ?? null) === $targetStopId) {
+                    $targetIndex = $index;
+                    break;
+                }
+            }
+
+            if ($targetIndex === null) {
+                throw new ApiException('Toko yang ingin diganti tidak lagi ada di draft. Muat ulang lalu coba lagi.', 422);
+            }
+
+            $stops[$targetIndex] = array_filter([
+                'stop_id' => $targetStopId,
+                'merchant_id' => $incomingStop['merchant_id'] ?? null,
+                'merchant_name' => $incomingStop['merchant_name'] ?? null,
+                'merchant_place' => $incomingStop['merchant_place'] ?? null,
+            ], fn (mixed $value): bool => $value !== null && $value !== []);
+            $draft['stops'] = array_values($stops);
+            $draft['active_stop_index'] = $targetIndex;
+            unset($draft['draft_action']);
+
+            return $draft;
+        }
+
         $incomingMerchantKey = $this->merchantSeedKey($incomingStop);
         $incomingItems = is_array($incomingStop['items'] ?? null) ? $incomingStop['items'] : [];
         $targetIndex = null;
@@ -938,6 +987,7 @@ class ChatbotShoppingOrderService
             }
 
             $resolvedStops[] = [
+                'stop_id' => $this->normalizeOptionalString($stopSeed['stop_id'] ?? null) ?? (string) Str::uuid(),
                 'index' => $stopNumber,
                 'is_active' => $index === $activeStopIndex,
                 'merchant' => $merchantPayload,
@@ -1769,6 +1819,7 @@ class ChatbotShoppingOrderService
                 $stopMerchant = is_array($stop['merchant'] ?? null) ? $stop['merchant'] : [];
                 $stopItems = is_array($stop['items'] ?? null) ? $stop['items'] : [];
                 $stops[] = [
+                    'stop_id' => $this->normalizeOptionalString($stop['stop_id'] ?? null),
                     'merchant_id' => $stopMerchant['id'] ?? null,
                     'merchant_name' => $stopMerchant['name'] ?? null,
                     'merchant_place' => is_array($stopMerchant['merchant_place'] ?? null) ? $stopMerchant['merchant_place'] : null,

@@ -398,6 +398,119 @@ class ChatbotShoppingFlowTest extends TestCase
             ->assertJsonPath('data.validation.next_actions.0', 'OPEN_ADD_MERCHANT_PICKER');
     }
 
+    public function test_chatbot_shopping_replace_merchant_targets_specific_stop_without_adding(): void
+    {
+        Config::set('bangdeliv.google_maps_api_key', 'test-key');
+        Config::set('bangdeliv.routes.optimize_shopping_waypoints', false);
+
+        $customer = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        Address::query()->create([
+            'user_id' => $customer->id,
+            'label' => 'Rumah',
+            'recipient_name' => 'Customer Test',
+            'phone' => '081200000077',
+            'full_address' => 'Jl. Customer No. 77',
+            'latitude' => -7.003,
+            'longitude' => 110.403,
+            'is_default' => true,
+        ]);
+
+        $sate = Restaurant::query()->create([
+            'name' => 'Sate Ayam Cak Sabari',
+            'slug' => 'sate-ayam-cak-sabari-replace-test',
+            'merchant_type' => 'warung',
+            'address' => 'Jl. Sate No. 1',
+            'latitude' => -7.001,
+            'longitude' => 110.401,
+            'phone' => '081200000078',
+        ]);
+        $rendys = Restaurant::query()->create([
+            'name' => "Rendy's Chicken",
+            'slug' => 'rendys-chicken-replace-test',
+            'merchant_type' => 'restaurant',
+            'address' => 'Jl. Rendy No. 1',
+            'latitude' => -7.002,
+            'longitude' => 110.402,
+            'phone' => '081200000079',
+        ]);
+
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'merchant' => null,
+            'items' => [],
+        ], 1000);
+
+        Sanctum::actingAs($customer);
+        $sessionId = 'shopping-replace-merchant-session';
+
+        // Toko #1: Sate Ayam Cak Sabari.
+        $this->postJson("/api/chatbot/sessions/{$sessionId}/merchant", [
+            'service_type' => 'nitip',
+            'merchant_id' => $sate->id,
+        ])->assertOk()
+            ->assertJsonPath('data.shopping.stops.0.merchant.name', 'Sate Ayam Cak Sabari');
+
+        // Toko #2: Rendy's Chicken (mode add) -> jadi 2 toko.
+        $addResponse = $this->postJson("/api/chatbot/sessions/{$sessionId}/merchant", [
+            'service_type' => 'nitip',
+            'mode' => 'add',
+            'merchant_id' => $rendys->id,
+        ]);
+        $addResponse->assertOk()
+            ->assertJsonCount(2, 'data.shopping.stops')
+            ->assertJsonPath('data.shopping.stops.0.merchant.name', 'Sate Ayam Cak Sabari')
+            ->assertJsonPath('data.shopping.stops.1.merchant.name', "Rendy's Chicken");
+
+        $sateStopId = (string) $addResponse->json('data.shopping.stops.0.stop_id');
+        $rendysStopId = (string) $addResponse->json('data.shopping.stops.1.stop_id');
+        $this->assertNotSame('', $rendysStopId);
+        $this->assertNotSame($sateStopId, $rendysStopId);
+
+        // GANTI Rendy's -> Brownies (via Maps / merchant_place). HARUS TETAP 2 toko,
+        // Rendy's tergantikan Brownies (bug: sebelumnya jadi 3 toko / menambah).
+        $replaceResponse = $this->postJson("/api/chatbot/sessions/{$sessionId}/merchant", [
+            'service_type' => 'nitip',
+            'mode' => 'replace',
+            'replace_target' => $rendysStopId,
+            'merchant_place' => [
+                'place_id' => 'google-place-brownies-singasari',
+                'name' => 'Brownies Singasari, Salatiga',
+                'address' => 'Jl. Singasari, Salatiga',
+                'latitude' => -7.004,
+                'longitude' => 110.404,
+                'types' => ['bakery', 'store'],
+            ],
+        ]);
+
+        $replaceResponse->assertOk()
+            ->assertJsonCount(2, 'data.shopping.stops')
+            ->assertJsonPath('data.shopping.stops.0.merchant.name', 'Sate Ayam Cak Sabari')
+            ->assertJsonPath('data.shopping.stops.1.merchant.name', 'Brownies Singasari, Salatiga');
+
+        $names = collect($replaceResponse->json('data.shopping.stops'))
+            ->pluck('merchant.name')
+            ->all();
+        $this->assertNotContains("Rendy's Chicken", $names);
+
+        // Slot yang sama diganti (stop_id target dipertahankan), toko #1 tak tersentuh.
+        $this->assertSame($rendysStopId, (string) $replaceResponse->json('data.shopping.stops.1.stop_id'));
+        $this->assertSame($sateStopId, (string) $replaceResponse->json('data.shopping.stops.0.stop_id'));
+
+        // Target tak dikenal -> 422 (tidak diam-diam menambah).
+        $this->postJson("/api/chatbot/sessions/{$sessionId}/merchant", [
+            'service_type' => 'nitip',
+            'mode' => 'replace',
+            'replace_target' => 'stop-tidak-ada',
+            'merchant_id' => $sate->id,
+        ])->assertStatus(422);
+    }
+
     public function test_chatbot_shopping_patch_google_place_merchant_completes_external_merchant_draft(): void
     {
         Config::set('bangdeliv.google_maps_api_key', 'test-key');
