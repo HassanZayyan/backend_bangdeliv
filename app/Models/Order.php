@@ -100,6 +100,7 @@ class Order extends Model
         'shopping_negotiation',
         'shopping_item_change_request',
         'shopping_capabilities',
+        'shopping_cancellation_fee',
         'delivery_distance_km',
         'delivery_distance_text',
         'pricing_snapshot',
@@ -645,6 +646,41 @@ class Order extends Model
     public function getShoppingCapabilitiesAttribute(): array
     {
         return app(ShoppingOrderCapabilityService::class)->capabilities($this);
+    }
+
+    /**
+     * Fee pembatalan Nitip (fee 50%) untuk sisi customer. Diekspos supaya
+     * customer bisa menampilkan ANGKA ESTIMASI sebelum driver konfirmasi
+     * (tanpa QRIS), lalu nominal final saat sudah dikonfirmasi (QRIS).
+     * Perhitungan berat dibatasi hanya pada jendela status yang relevan.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function getShoppingCancellationFeeAttribute(): ?array
+    {
+        $statusCode = strtoupper((string) ($this->statusRef?->code ?? ''));
+        if (! in_array($statusCode, ['ARRIVED_MERCHANT', 'CANCELLED_WITH_FEE'], true)) {
+            return null;
+        }
+        if (strtoupper((string) ($this->serviceType?->code ?? '')) !== 'SHOPPING') {
+            return null;
+        }
+
+        $pricing = app(ShoppingPricingService::class);
+        if (! $pricing->isCancellationPenaltyEligible($this)) {
+            return null;
+        }
+
+        $isConfirmed = $statusCode === 'CANCELLED_WITH_FEE';
+
+        return [
+            'is_eligible' => true,
+            'is_confirmed' => $isConfirmed,
+            'requires_qris' => $isConfirmed,
+            'percent' => $pricing->cancellationPenaltyPercent(),
+            'base_delivery_fee' => $pricing->cancellationPenaltyBaseAmount($this),
+            'estimated_amount' => round($pricing->calculateCancellationPenalty($this), 2),
+        ];
     }
 
     /**

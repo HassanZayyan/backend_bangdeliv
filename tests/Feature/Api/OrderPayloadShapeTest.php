@@ -122,6 +122,7 @@ class OrderPayloadShapeTest extends TestCase
                 'service_fee',
                 'service_type',
                 'service_type_id',
+                'shopping_cancellation_fee',
                 'shopping_capabilities',
                 'shopping_item_change_request',
                 'shopping_negotiation',

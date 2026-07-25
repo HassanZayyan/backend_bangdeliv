@@ -36,7 +36,11 @@ class ShoppingOrderCapabilityService
         // mengonfirmasi (dan boleh mengoreksi basis ongkirnya) lewat aksi
         // CANCEL_WITH_FEE. Selama itu customer tidak boleh mendahului, supaya fee
         // yang ditagihkan bukan hasil hitungan yang belum sempat dikoreksi.
+        // Dibatasi ke status ARRIVED_MERCHANT: begitu driver konfirmasi (order
+        // jadi CANCELLED_WITH_FEE) flag ini HARUS mati, agar customer berhenti
+        // melihat "driver sedang menghitung" dan beralih ke pembayaran QRIS.
         $awaitsDriverCancellationFeeReview = $isShopping
+            && $status === 'ARRIVED_MERCHANT'
             && app(ShoppingPricingService::class)->isCancellationPenaltyEligible($order);
         // Customer boleh menyerah/membatalkan seluruh pesanan Nitip secara gratis
         // saat sudah tiba di merchant tetapi BELUM ada toko yang dibeli dan tak
@@ -58,6 +62,10 @@ class ShoppingOrderCapabilityService
             'can_customer_add_shopping_merchant' => $canCustomerAddShoppingMerchant,
             'can_customer_cancel_shopping_order' => $canCustomerCancelShoppingOrder,
             'awaits_driver_cancellation_fee_review' => $awaitsDriverCancellationFeeReview,
+            // Semua toko/resto sudah terminal (tak ada lagi yang bisa dibelanjakan).
+            // Dipakai UI driver untuk mempersempit menu "Laporkan masalah" menjadi
+            // hanya "Batalkan Order dengan Fee 50%".
+            'all_merchants_terminal' => $isShopping && ! $this->hasNonTerminalMerchant($order),
             'can_driver_cancel_shopping_order' => $canDriverCancelShoppingOrder,
             'can_customer_request_item_change' => $canEditUnavailableItems,
             'can_customer_request_add_stop' => false,

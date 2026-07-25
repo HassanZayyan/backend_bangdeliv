@@ -45,6 +45,47 @@ class ShoppingCancellationWithFeeEndpointTest extends TestCase
             ->assertJsonFragment(['action_code' => 'CANCEL_WITH_FEE']);
     }
 
+    public function test_customer_sees_estimate_before_confirmation_then_flag_clears_after(): void
+    {
+        [$order] = $this->failAllStores();
+        $customer = User::query()->findOrFail($order->user_id);
+        $driverUser = User::query()->where('role', 'driver')->firstOrFail();
+
+        // PRA-KONFIRMASI: customer melihat ESTIMASI fee (tanpa QRIS), flag
+        // "menunggu driver" masih ON, dan semua toko sudah terminal.
+        Sanctum::actingAs($customer);
+        $this->getJson('/api/v1/orders/'.$order->id)
+            ->assertOk()
+            ->assertJsonPath('data.status_ref.code', 'ARRIVED_MERCHANT')
+            ->assertJsonPath('data.shopping_capabilities.awaits_driver_cancellation_fee_review', true)
+            ->assertJsonPath('data.shopping_capabilities.all_merchants_terminal', true)
+            ->assertJsonPath('data.shopping_cancellation_fee.is_eligible', true)
+            ->assertJsonPath('data.shopping_cancellation_fee.is_confirmed', false)
+            ->assertJsonPath('data.shopping_cancellation_fee.requires_qris', false)
+            ->assertJsonPath(
+                'data.shopping_cancellation_fee.estimated_amount',
+                fn ($amount): bool => (float) $amount === 5500.0,
+            );
+
+        // Driver mengonfirmasi fee 50%.
+        Sanctum::actingAs($driverUser);
+        $this->postJson('/api/v1/driver/orders/'.$order->id.'/status-transition', [
+            'action_code' => 'CANCEL_WITH_FEE',
+            'target_status_code' => 'CANCELLED_WITH_FEE',
+            'note' => 'Semua toko tutup, order dibatalkan.',
+        ])->assertOk();
+
+        // PASCA-KONFIRMASI: flag "menunggu" MATI (perbaikan urutan "menghitung"),
+        // fee terkonfirmasi dan siap dibayar via QRIS.
+        Sanctum::actingAs($customer);
+        $this->getJson('/api/v1/orders/'.$order->id)
+            ->assertOk()
+            ->assertJsonPath('data.status_ref.code', 'CANCELLED_WITH_FEE')
+            ->assertJsonPath('data.shopping_capabilities.awaits_driver_cancellation_fee_review', false)
+            ->assertJsonPath('data.shopping_cancellation_fee.is_confirmed', true)
+            ->assertJsonPath('data.shopping_cancellation_fee.requires_qris', true);
+    }
+
     public function test_driver_cancel_with_fee_charges_half_of_dmax_route_fee(): void
     {
         [$order] = $this->failAllStores();
