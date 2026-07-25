@@ -723,11 +723,15 @@ class ChatbotShoppingOrderService
                     return $draft;
                 }
 
+                // JANGAN set item di sini. Penambahan item ditangani sekali oleh
+                // mergeItems() di bawah (baris ~748). Bila incomingItems ikut
+                // dipasang di stop baru ini, mergeItems akan menggabungkannya lagi
+                // (currentQty + incomingQty) sehingga kuantitas DOBEL untuk setiap
+                // toko/resto yang baru ditambahkan (tempat ke-2, ke-3, dst).
                 $stops[] = array_filter([
                     'merchant_id' => $incomingStop['merchant_id'] ?? null,
                     'merchant_name' => $incomingStop['merchant_name'] ?? null,
                     'merchant_place' => $incomingStop['merchant_place'] ?? null,
-                    'items' => $incomingItems,
                 ], fn (mixed $value): bool => $value !== null && $value !== []);
                 $targetIndex = count($stops) - 1;
             }

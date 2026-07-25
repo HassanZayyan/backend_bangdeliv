@@ -511,6 +511,92 @@ class ChatbotShoppingFlowTest extends TestCase
         ])->assertStatus(422);
     }
 
+    public function test_chatbot_shopping_added_stop_does_not_double_item_quantities(): void
+    {
+        Config::set('bangdeliv.google_maps_api_key', 'test-key');
+        Config::set('bangdeliv.routes.optimize_shopping_waypoints', false);
+
+        $customer = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        Address::query()->create([
+            'user_id' => $customer->id,
+            'label' => 'Rumah',
+            'recipient_name' => 'Customer Test',
+            'phone' => '081200000088',
+            'full_address' => 'Jl. Customer No. 88',
+            'latitude' => -7.003,
+            'longitude' => 110.403,
+            'is_default' => true,
+        ]);
+
+        $nasgor = Restaurant::query()->create([
+            'name' => 'Nasgor Gajah',
+            'slug' => 'nasgor-gajah-double-test',
+            'merchant_type' => 'warung',
+            'address' => 'Jl. Nasgor No. 1',
+            'latitude' => -7.001,
+            'longitude' => 110.401,
+            'phone' => '081200000089',
+        ]);
+        Restaurant::query()->create([
+            'name' => 'Aneka Kripik Cap Gajah',
+            'slug' => 'aneka-kripik-double-test',
+            'merchant_type' => 'warung',
+            'address' => 'Jl. Kripik No. 1',
+            'latitude' => -7.002,
+            'longitude' => 110.402,
+            'phone' => '081200000090',
+        ]);
+
+        Sanctum::actingAs($customer);
+
+        // Pesan multi-tempat sekaligus (sesi baru): Gemini mengembalikan `stops`
+        // dengan dua toko. Merge menambahkan tempat ke-2 -> di sinilah dulu item
+        // tempat ke-2 dobel (1x jadi 2x).
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'merchant' => null,
+            'items' => [],
+            'stops' => [
+                [
+                    'merchant' => 'Nasgor Gajah',
+                    'items' => [
+                        ['name' => 'Nasi Goreng', 'quantity' => 1],
+                        ['name' => 'Es Teh', 'quantity' => 1],
+                    ],
+                ],
+                [
+                    'merchant' => 'Aneka Kripik Cap Gajah',
+                    'items' => [
+                        ['name' => 'kripik', 'quantity' => 1],
+                    ],
+                ],
+            ],
+        ], 1000);
+
+        $response = $this->postJson('/api/chatbot/process', [
+            'session_id' => 'shopping-double-item-session',
+            'service_type' => 'nitip',
+            'message' => 'beli nasi goreng 1, es teh 1 di nasgor gajah dan beli kripik 1 di Aneka Kripik Cap Gajah',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonCount(2, 'data.shopping.stops')
+            ->assertJsonPath('data.shopping.stops.0.merchant.name', 'Nasgor Gajah')
+            ->assertJsonPath('data.shopping.stops.1.merchant.name', 'Aneka Kripik Cap Gajah');
+
+        // Tempat 1 (aktif pertama) benar.
+        $this->assertSame(1, (int) $response->json('data.shopping.stops.0.items.0.quantity'));
+        $this->assertSame(1, (int) $response->json('data.shopping.stops.0.items.1.quantity'));
+        // REGRESI: tempat ke-2 yang ditambahkan tidak boleh dobel (dulu jadi 2).
+        $this->assertSame(1, (int) $response->json('data.shopping.stops.1.items.0.quantity'));
+    }
+
     public function test_chatbot_shopping_patch_google_place_merchant_completes_external_merchant_draft(): void
     {
         Config::set('bangdeliv.google_maps_api_key', 'test-key');
