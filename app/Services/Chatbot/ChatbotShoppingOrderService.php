@@ -181,6 +181,12 @@ class ChatbotShoppingOrderService
         if ($this->isAddMerchantCommand($message, $nluPayload)) {
             return ['draft_action' => 'add_merchant'];
         }
+        // WAJIB dicek SEBELUM parser item: frasa "tidak jadi/batalkan ... di X"
+        // kalau tidak, keburu ditangkap sebagai OP_REMOVE item (dan nama tempatnya
+        // dibuang) -> jatuh ke klarifikasi item yang salah.
+        if ($this->isRemoveMerchantCommand($message, $nluPayload)) {
+            return $this->buildRemoveMerchantSeed($message, $nluPayload);
+        }
 
         $paymentMethod = $this->extractPaymentMethod($message)
             ?? $this->normalizePaymentMethodOrNull($nluPayload['payment_method'] ?? null);
@@ -213,6 +219,20 @@ class ChatbotShoppingOrderService
         ];
         if ($incomingStops !== []) {
             $seed['stops'] = $incomingStops;
+        }
+
+        // Deteksi toko DETERMINISTIK & tak bergantung kapitalisasi: bila parser
+        // lokal menghasilkan item TAPI Gemini tak mengisi merchant, pakai ekor
+        // "di/dari <tempat>" sebagai nama toko target. Downstream (merchantSeedKey /
+        // resolveMerchantCandidate) sudah lower-case, jadi "baloeng gajah" dan
+        // "Baloeng Gajah" konsisten. Ini juga jadi target routing edit item (#4).
+        if ($parsedItemIntents !== []
+            && $incomingStops === []
+            && $this->normalizeOptionalString($seed['merchant_name'] ?? null) === null) {
+            $merchantTail = $this->itemIntentParser->extractMerchantTail($message);
+            if ($merchantTail !== null) {
+                $seed['merchant_name'] = $merchantTail;
+            }
         }
 
         $deliveryAddress = $this->normalizeOptionalString($nluPayload['delivery_address'] ?? null);
@@ -468,6 +488,10 @@ class ChatbotShoppingOrderService
             return $merged;
         }
 
+        if (($incoming['draft_action'] ?? null) === 'remove_merchant') {
+            return $this->applyRemoveMerchant($merged, $incoming);
+        }
+
         $incomingStops = is_array($incoming['stops'] ?? null) ? $incoming['stops'] : [];
         if ($incomingStops !== []) {
             foreach ($incomingStops as $incomingStop) {
@@ -632,8 +656,23 @@ class ChatbotShoppingOrderService
         $incomingItems = is_array($incomingStop['items'] ?? null) ? $incomingStop['items'] : [];
         $targetIndex = null;
         $ignoreIncomingMerchant = false;
+        $preserveActiveIndex = false;
+        $originalActiveIndex = isset($draft['active_stop_index']) && is_numeric($draft['active_stop_index'])
+            ? max(0, (int) $draft['active_stop_index'])
+            : max(0, count($stops) - 1);
 
-        if ($incomingItems !== [] && $mode === 'auto') {
+        // #4: Operasi edit (hapus/kurangi/set) diarahkan ke stop yang BENAR, bukan
+        // selalu stop aktif. (a) toko disebut "di X" -> stop itu (number-aware);
+        // (b) tanpa toko, item ada di TEPAT SATU stop -> stop itu. Fokus aktif tak
+        // dipindah. Bila tak jelas -> fallback lama (klarifikasi item).
+        $editTargetIndex = $this->resolveEditTargetIndex($stops, $incomingStop, $incomingMerchantKey);
+        if ($editTargetIndex !== null) {
+            $targetIndex = $editTargetIndex;
+            $ignoreIncomingMerchant = true;
+            $preserveActiveIndex = true;
+        }
+
+        if ($targetIndex === null && $incomingItems !== [] && $mode === 'auto') {
             foreach ($stops as $index => $stop) {
                 if (! is_array($stop)) {
                     continue;
@@ -763,10 +802,125 @@ class ChatbotShoppingOrderService
 
         $stops[$targetIndex] = $targetStop;
         $draft['stops'] = array_values($stops);
-        $draft['active_stop_index'] = $targetIndex;
+        $draft['active_stop_index'] = $preserveActiveIndex
+            ? min($originalActiveIndex, max(0, count($stops) - 1))
+            : $targetIndex;
         unset($draft['draft_action']);
 
         return $draft;
+    }
+
+    /**
+     * Menentukan stop tujuan untuk operasi EDIT item (hapus/kurangi/set).
+     * Mengembalikan null bila incoming bukan operasi edit murni atau target tak
+     * bisa dipastikan (biar fallback lama menampilkan klarifikasi).
+     *
+     * @param  array<int, array<string, mixed>>  $stops
+     * @param  array<string, mixed>  $incomingStop
+     */
+    private function resolveEditTargetIndex(array $stops, array $incomingStop, ?string $incomingMerchantKey): ?int
+    {
+        $items = is_array($incomingStop['items'] ?? null) ? $incomingStop['items'] : [];
+        if ($items === [] || $stops === []) {
+            return null;
+        }
+
+        foreach ($items as $item) {
+            $operation = ChatbotShoppingItemNormalizer::operation(
+                is_array($item) ? ($item['operation'] ?? null) : null
+            );
+            if (! in_array($operation, [
+                ChatbotShoppingItemIntentParser::OP_REMOVE,
+                ChatbotShoppingItemIntentParser::OP_DECREMENT,
+                ChatbotShoppingItemIntentParser::OP_SET,
+            ], true)) {
+                return null;
+            }
+        }
+
+        // (a) Toko disebut eksplisit -> stop yang cocok (number-aware).
+        if ($incomingMerchantKey !== null) {
+            return $this->matchStopIndexByMerchant($stops, $incomingStop);
+        }
+
+        // (b) Tanpa toko -> cari stop yang MEMUAT semua item edit. Persis satu -> target.
+        $itemKeys = [];
+        foreach ($items as $item) {
+            $name = $this->normalizeOptionalString(
+                is_array($item) ? ($item['name'] ?? $item['menu_name'] ?? null) : null
+            );
+            if ($name !== null) {
+                $itemKeys[] = ChatbotShoppingItemNormalizer::itemKey($name);
+            }
+        }
+        $itemKeys = array_values(array_unique($itemKeys));
+        if ($itemKeys === []) {
+            return null;
+        }
+
+        $matches = [];
+        foreach ($stops as $index => $stop) {
+            if (! is_array($stop)) {
+                continue;
+            }
+            $stopKeys = [];
+            foreach ((is_array($stop['items'] ?? null) ? $stop['items'] : []) as $stopItem) {
+                $stopName = $this->normalizeOptionalString(
+                    is_array($stopItem) ? ($stopItem['name'] ?? $stopItem['menu_name'] ?? null) : null
+                );
+                if ($stopName !== null) {
+                    $stopKeys[] = ChatbotShoppingItemNormalizer::itemKey($stopName);
+                }
+            }
+            if (array_diff($itemKeys, $stopKeys) === []) {
+                $matches[] = $index;
+            }
+        }
+
+        return count($matches) === 1 ? $matches[0] : null;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $stops
+     * @param  array<string, mixed>  $incomingStop
+     */
+    private function matchStopIndexByMerchant(array $stops, array $incomingStop): ?int
+    {
+        foreach ($stops as $index => $stop) {
+            if (is_array($stop) && $this->sameMerchantSeed($stop, $incomingStop)) {
+                return $index;
+            }
+        }
+
+        $incomingName = $this->normalizeOptionalString(
+            $incomingStop['merchant_name'] ?? data_get($incomingStop, 'merchant_place.name')
+        );
+        if ($incomingName === null) {
+            return null;
+        }
+        $incomingNorm = Str::of($incomingName)->lower()->squish()->toString();
+
+        $bestIndex = null;
+        $bestScore = 0.0;
+        foreach ($stops as $index => $stop) {
+            if (! is_array($stop)) {
+                continue;
+            }
+            $stopName = $this->normalizeOptionalString($stop['merchant_name'] ?? data_get($stop, 'merchant_place.name'));
+            if ($stopName === null && isset($stop['merchant_id']) && is_numeric($stop['merchant_id'])) {
+                $stopName = Restaurant::query()->find((int) $stop['merchant_id'])?->name;
+            }
+            if ($stopName === null) {
+                continue;
+            }
+            $score = $this->scoreRestaurantName($incomingNorm, Str::of($stopName)->lower()->squish()->toString());
+            if ($score > $bestScore) {
+                $bestScore = $score;
+                $bestIndex = $index;
+            }
+        }
+
+        return $bestScore >= 1.5 ? $bestIndex : null;
     }
 
     /**
@@ -1286,17 +1440,122 @@ class ChatbotShoppingOrderService
         $normalized = Str::of($merchantName)->lower()->squish()->toString();
         $slug = Str::slug($merchantName);
 
-        $merchant = Restaurant::query()
-            ->where(function (Builder $query) use ($merchantName, $normalized, $slug): void {
+        // Ambil kandidat (jangan collapse di SQL) lalu skor di PHP dengan bobot
+        // token + DISKRIMINATOR ANGKA, supaya "bakmi remaja 3" tidak salah pilih
+        // "Bakmi Remaja 6". Prefilter token signifikan pertama agar kedua cabang
+        // sama-sama masuk himpunan kandidat.
+        $firstToken = $this->firstSignificantNameToken($normalized);
+        $candidates = Restaurant::query()
+            ->where(function (Builder $query) use ($normalized, $slug, $firstToken): void {
                 $query
                     ->whereRaw('LOWER(name) = ?', [$normalized])
-                    ->orWhere('slug', $slug)
-                    ->orWhere('name', 'like', '%'.$merchantName.'%');
+                    ->orWhere('slug', $slug);
+                if ($firstToken !== null) {
+                    $query->orWhere('name', 'like', '%'.$firstToken.'%');
+                }
             })
-            ->orderByRaw('CASE WHEN LOWER(name) = ? THEN 0 ELSE 1 END', [$normalized])
-            ->first();
+            ->limit(30)
+            ->get();
+
+        if ($candidates->isEmpty()) {
+            return null;
+        }
+
+        $scored = $candidates
+            ->map(function (Restaurant $restaurant) use ($normalized, $slug): array {
+                $candidateName = Str::of((string) $restaurant->name)->lower()->squish()->toString();
+                $score = $this->scoreRestaurantName($normalized, $candidateName);
+                if ($candidateName === $normalized) {
+                    $score += 5.0;
+                }
+                if ((string) $restaurant->slug === $slug && $slug !== '') {
+                    $score += 3.0;
+                }
+
+                return ['restaurant' => $restaurant, 'score' => $score];
+            })
+            ->sortByDesc('score')
+            ->values();
+
+        $best = $scored->first();
+        if (! is_array($best) || (float) $best['score'] <= 0.0) {
+            return null;
+        }
+
+        $merchant = $best['restaurant'];
 
         return $merchant instanceof Restaurant ? ShoppingMerchantCandidate::fromRestaurant($merchant) : null;
+    }
+
+    /**
+     * Skor kecocokan nama toko (0..~). Membobot cakupan token-kata dan memberi
+     * REWARD/PENALTI besar pada token angka pembeda (mis. "3" vs "6") agar
+     * cabang bernomor tidak tertukar.
+     */
+    private function scoreRestaurantName(string $input, string $candidate): float
+    {
+        $inputTokens = $this->nameTokens($input);
+        $candidateTokens = $this->nameTokens($candidate);
+        if ($inputTokens === [] || $candidateTokens === []) {
+            return 0.0;
+        }
+
+        $inputWords = array_values(array_filter($inputTokens, fn (string $t): bool => ! ctype_digit($t)));
+        $inputNumbers = array_values(array_filter($inputTokens, 'ctype_digit'));
+        $candidateWords = array_values(array_filter($candidateTokens, fn (string $t): bool => ! ctype_digit($t)));
+        $candidateNumbers = array_values(array_filter($candidateTokens, 'ctype_digit'));
+
+        // (a) Cakupan token-kata input yang ada di kandidat.
+        $wordHits = count(array_intersect($inputWords, $candidateWords));
+        $wordCoverage = $inputWords === [] ? 0.0 : $wordHits / count($inputWords);
+
+        // (b) Diskriminator angka (inti fix #1).
+        $numberScore = 0.0;
+        if ($inputNumbers !== []) {
+            if (array_intersect($inputNumbers, $candidateNumbers) !== []) {
+                $numberScore = 3.0;
+            } elseif ($candidateNumbers !== []) {
+                $numberScore = -3.0;
+            }
+        }
+
+        // (c) Tie-break kemiripan string ternormalisasi.
+        $similarity = $this->nameSimilarity($input, $candidate);
+
+        return ($wordCoverage * 2.0) + $numberScore + ($similarity * 0.5);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function nameTokens(string $value): array
+    {
+        $tokens = preg_split('/[^\p{L}\p{N}]+/u', Str::of($value)->lower()->toString()) ?: [];
+
+        return array_values(array_filter($tokens, fn (string $t): bool => $t !== ''));
+    }
+
+    private function firstSignificantNameToken(string $value): ?string
+    {
+        foreach ($this->nameTokens($value) as $token) {
+            if (mb_strlen($token) >= 3 && ! ctype_digit($token)) {
+                return $token;
+            }
+        }
+
+        return $this->nameTokens($value)[0] ?? null;
+    }
+
+    private function nameSimilarity(string $left, string $right): float
+    {
+        $left = Str::of($left)->lower()->squish()->toString();
+        $right = Str::of($right)->lower()->squish()->toString();
+        $maxLength = max(mb_strlen($left), mb_strlen($right));
+        if ($maxLength === 0) {
+            return 0.0;
+        }
+
+        return 1.0 - (levenshtein($left, $right) / $maxLength);
     }
 
     /**
@@ -2251,6 +2510,188 @@ class ChatbotShoppingOrderService
 
         return preg_match('/\b(?:tambah|nambah|add)\s+(?:tempat|merchant|toko|resto|restaurant|warung|minimarket|order)\b/u', $normalized) === 1
             || preg_match('/\border\s+baru\b/u', $normalized) === 1;
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $nluPayload
+     */
+    private function isRemoveMerchantCommand(string $message, ?array $nluPayload = null): bool
+    {
+        $command = strtolower(trim((string) ($nluPayload['command'] ?? '')));
+        if (in_array($command, ['remove_merchant', 'hapus_tempat', 'hapus_merchant', 'batalkan_tempat'], true)) {
+            return true;
+        }
+
+        $normalized = $this->normalizeWhitespace(
+            strtolower(trim((string) preg_replace('/[^\p{L}\p{N}\s]+/u', ' ', $message)))
+        );
+
+        // "hapus/batalkan/hilangkan tempat|toko|resto ..."
+        if (preg_match('/\b(?:hapus|hapuskan|hilangkan|batalkan|batal)\s+(?:tempat|toko|resto|restoran|warung|merchant)\b/u', $normalized) === 1) {
+            return true;
+        }
+
+        // "tidak/gak/nggak jadi ..." + penanda tempat (di / tempat / toko / resto).
+        return preg_match('/\b(?:tidak|nggak|ngga|gak|ga|enggak)\s+jadi\b/u', $normalized) === 1
+            && preg_match('/\b(?:di|tempat|toko|resto|restoran|warung)\b/u', $normalized) === 1;
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $nluPayload
+     * @return array<string, mixed>
+     */
+    private function buildRemoveMerchantSeed(string $message, ?array $nluPayload): array
+    {
+        $seed = ['draft_action' => 'remove_merchant'];
+
+        $geminiTarget = $this->normalizeOptionalString(
+            $nluPayload['target_merchant'] ?? $nluPayload['merchant'] ?? null
+        );
+        $geminiOrdinal = isset($nluPayload['target_stop']) && is_numeric($nluPayload['target_stop'])
+            ? (int) $nluPayload['target_stop']
+            : null;
+
+        $normalized = $this->normalizeWhitespace(
+            strtolower(trim((string) preg_replace('/[^\p{L}\p{N}\s]+/u', ' ', $message)))
+        );
+        $ordinal = $geminiOrdinal ?? $this->extractStopOrdinal($normalized);
+        $name = $geminiTarget;
+        $active = false;
+
+        if ($name === null) {
+            $candidate = $this->itemIntentParser->extractMerchantTail($message);
+            if ($candidate === null
+                && preg_match('/\b(?:tempat|toko|resto|restoran|warung)\s+([\pL\pN\s.&\'-]+)$/u', $normalized, $match) === 1) {
+                $candidate = trim($match[1]);
+            }
+
+            if ($candidate !== null
+                && preg_match('/^(?:tempat\s+|toko\s+|resto\s+|restoran\s+|warung\s+)?(?:itu|ini|tadi|tersebut|tsb|nya)$/u', trim($candidate)) === 1) {
+                $active = true;
+            } elseif ($candidate !== null) {
+                $name = $candidate;
+            }
+        }
+
+        if ($name !== null) {
+            $seed['remove_target_name'] = $name;
+        }
+        if ($ordinal !== null) {
+            $seed['remove_target_ordinal'] = $ordinal;
+        }
+        if ($active) {
+            $seed['remove_target_active'] = true;
+        }
+
+        return $seed;
+    }
+
+    private function extractStopOrdinal(string $normalized): ?int
+    {
+        $words = ['pertama' => 1, 'kesatu' => 1, 'kedua' => 2, 'ketiga' => 3];
+        foreach ($words as $word => $number) {
+            if (preg_match('/\b(?:tempat|toko|resto|restoran|warung)\s+'.$word.'\b/u', $normalized) === 1) {
+                return $number;
+            }
+        }
+        if (preg_match('/\b(?:tempat|toko|resto|restoran|warung)\s+([1-3])\b/u', $normalized, $match) === 1) {
+            return (int) $match[1];
+        }
+
+        return null;
+    }
+
+    /**
+     * Menghapus satu stop dari draft (fitur "hapus tempat"). Menolak bila hanya
+     * tersisa 1 tempat (keputusan produk) atau target tak jelas.
+     *
+     * @param  array<string, mixed>  $draft
+     * @param  array<string, mixed>  $incoming
+     * @return array<string, mixed>
+     */
+    private function applyRemoveMerchant(array $draft, array $incoming): array
+    {
+        $stops = is_array($draft['stops'] ?? null) ? array_values($draft['stops']) : [];
+        $realCount = 0;
+        foreach ($stops as $stop) {
+            if (is_array($stop) && $this->merchantSeedKey($stop) !== null) {
+                $realCount++;
+            }
+        }
+        if ($realCount === 0) {
+            $draft['item_edit_error'] = 'Belum ada tempat di draft yang bisa dihapus.';
+
+            return $draft;
+        }
+
+        $activeIndex = isset($draft['active_stop_index']) && is_numeric($draft['active_stop_index'])
+            ? min(max(0, (int) $draft['active_stop_index']), max(0, count($stops) - 1))
+            : max(0, count($stops) - 1);
+
+        $targetIndex = $this->resolveRemoveTargetIndex($stops, $incoming, $activeIndex);
+        if ($targetIndex === null) {
+            $draft['item_edit_error'] = 'Tempat yang mau dihapus belum jelas. Sebutkan namanya, mis. "hapus tempat Baloeng Gajah".';
+
+            return $draft;
+        }
+
+        if ($realCount <= 1) {
+            $draft['item_edit_error'] = 'Minimal ada 1 tempat di draft. Untuk membatalkan seluruh pesanan Nitip, ketik "batal".';
+
+            return $draft;
+        }
+
+        $removedName = $this->stopDisplayName(is_array($stops[$targetIndex] ?? null) ? $stops[$targetIndex] : []);
+        array_splice($stops, $targetIndex, 1);
+        $draft['stops'] = array_values($stops);
+        $draft['active_stop_index'] = max(0, min($targetIndex, count($stops) - 1));
+        $draft['item_edit_error'] = $removedName !== null
+            ? sprintf('Tempat "%s" sudah dihapus dari draft.', $removedName)
+            : 'Tempat sudah dihapus dari draft.';
+        unset($draft['draft_action']);
+
+        return $this->syncLegacySeedFields($draft);
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $stops
+     * @param  array<string, mixed>  $incoming
+     */
+    private function resolveRemoveTargetIndex(array $stops, array $incoming, int $activeIndex): ?int
+    {
+        $ordinal = isset($incoming['remove_target_ordinal']) && is_numeric($incoming['remove_target_ordinal'])
+            ? (int) $incoming['remove_target_ordinal']
+            : null;
+        if ($ordinal !== null && $ordinal >= 1 && $ordinal <= count($stops)) {
+            return $ordinal - 1;
+        }
+
+        $name = $this->normalizeOptionalString($incoming['remove_target_name'] ?? null);
+        if ($name !== null) {
+            return $this->matchStopIndexByMerchant($stops, ['merchant_name' => $name]);
+        }
+
+        if (($incoming['remove_target_active'] ?? false) === true) {
+            return min(max(0, $activeIndex), max(0, count($stops) - 1));
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $stop
+     */
+    private function stopDisplayName(array $stop): ?string
+    {
+        $name = $this->normalizeOptionalString($stop['merchant_name'] ?? data_get($stop, 'merchant_place.name'));
+        if ($name !== null) {
+            return $name;
+        }
+        if (isset($stop['merchant_id']) && is_numeric($stop['merchant_id'])) {
+            return Restaurant::query()->find((int) $stop['merchant_id'])?->name;
+        }
+
+        return null;
     }
 
     private function extractPaymentMethod(string $message): ?string

@@ -597,6 +597,350 @@ class ChatbotShoppingFlowTest extends TestCase
         $this->assertSame(1, (int) $response->json('data.shopping.stops.1.items.0.quantity'));
     }
 
+    public function test_chatbot_shopping_lowercase_di_merchant_opens_new_stop(): void
+    {
+        // REGRESI #2: "di <tempat>" harus membuka tempat baru TERLEPAS kapitalisasi.
+        // Dulu "baloeng gajah" (huruf kecil) malah jadi ITEM di tempat aktif.
+        Config::set('bangdeliv.google_maps_api_key', 'test-key');
+        Config::set('bangdeliv.routes.optimize_shopping_waypoints', false);
+
+        $customer = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+        Address::query()->create([
+            'user_id' => $customer->id,
+            'label' => 'Rumah',
+            'recipient_name' => 'Customer Test',
+            'phone' => '081200000091',
+            'full_address' => 'Jl. Customer No. 91',
+            'latitude' => -7.003,
+            'longitude' => 110.403,
+            'is_default' => true,
+        ]);
+        $sate = Restaurant::query()->create([
+            'name' => 'Sate Cak Sabari',
+            'slug' => 'sate-cak-sabari-lowercase-test',
+            'merchant_type' => 'warung',
+            'address' => 'Jl. Sate No. 1',
+            'latitude' => -7.001,
+            'longitude' => 110.401,
+            'phone' => '081200000092',
+        ]);
+        Restaurant::query()->create([
+            'name' => 'Baloeng Gajah',
+            'slug' => 'baloeng-gajah-lowercase-test',
+            'merchant_type' => 'warung',
+            'address' => 'Jl. Baloeng No. 1',
+            'latitude' => -7.002,
+            'longitude' => 110.402,
+            'phone' => '081200000093',
+        ]);
+
+        Sanctum::actingAs($customer);
+        $sessionId = 'shopping-lowercase-di-session';
+
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'merchant' => null,
+            'items' => [],
+        ], 1000);
+        $this->postJson("/api/chatbot/sessions/{$sessionId}/merchant", [
+            'service_type' => 'nitip',
+            'merchant_id' => $sate->id,
+        ])->assertOk();
+
+        // Isi item tempat 1 supaya stop aktif punya item (bukan slot kosong).
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'merchant' => null,
+            'items' => [['name' => 'sate ayam', 'quantity' => 1]],
+        ], 1000);
+        $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'sate ayam 1',
+        ])->assertOk()
+            ->assertJsonPath('data.shopping.stops.0.items.0.name', 'sate ayam');
+
+        // Tempat 2 lewat chat, HURUF KECIL "di baloeng gajah", Gemini TIDAK isi
+        // merchant (null) -> backend harus tetap membuka stop baru dari ekor "di".
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'merchant' => null,
+            'items' => [['name' => 'sum sum goreng', 'quantity' => 1]],
+        ], 1000);
+        $response = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'beli sum sum goreng 1 di baloeng gajah',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonCount(2, 'data.shopping.stops')
+            ->assertJsonPath('data.shopping.stops.1.merchant.name', 'Baloeng Gajah')
+            ->assertJsonPath('data.shopping.stops.1.items.0.name', 'sum sum goreng');
+        // Tempat 1 tak kemasukan item tempat 2.
+        $this->assertCount(1, (array) $response->json('data.shopping.stops.0.items'));
+    }
+
+    public function test_chatbot_shopping_resolves_numbered_merchant_branch_correctly(): void
+    {
+        // REGRESI #1: "bakmi remaja 3" harus resolve ke cabang bernomor "3",
+        // bukan "6" (dulu pilih id terkecil karena tak membobot angka).
+        Config::set('bangdeliv.google_maps_api_key', 'test-key');
+        Config::set('bangdeliv.routes.optimize_shopping_waypoints', false);
+
+        $customer = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+        Address::query()->create([
+            'user_id' => $customer->id,
+            'label' => 'Rumah',
+            'recipient_name' => 'Customer Test',
+            'phone' => '081200000094',
+            'full_address' => 'Jl. Customer No. 94',
+            'latitude' => -7.003,
+            'longitude' => 110.403,
+            'is_default' => true,
+        ]);
+        // Cabang 6 dibuat lebih dulu (id lebih kecil) -> bug lama memilihnya.
+        Restaurant::query()->create([
+            'name' => 'Bakmi Remaja 6 Perumahan Sraten',
+            'slug' => 'bakmi-remaja-6-numbered-test',
+            'merchant_type' => 'warung',
+            'address' => 'Jl. Bakmi No. 6',
+            'latitude' => -7.001,
+            'longitude' => 110.401,
+            'phone' => '081200000095',
+        ]);
+        Restaurant::query()->create([
+            'name' => 'Bakmi Remaja 3 Perumahan Sraten',
+            'slug' => 'bakmi-remaja-3-numbered-test',
+            'merchant_type' => 'warung',
+            'address' => 'Jl. Bakmi No. 3',
+            'latitude' => -7.002,
+            'longitude' => 110.402,
+            'phone' => '081200000096',
+        ]);
+
+        Sanctum::actingAs($customer);
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'merchant' => 'bakmi remaja 3',
+            'items' => [['name' => 'mie yamin', 'quantity' => 1]],
+        ], 1000);
+
+        $response = $this->postJson('/api/chatbot/process', [
+            'session_id' => 'shopping-numbered-merchant-session',
+            'service_type' => 'nitip',
+            'message' => 'beli mie yamin 1 di bakmi remaja 3',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.shopping.stops.0.merchant.name', 'Bakmi Remaja 3 Perumahan Sraten');
+    }
+
+    public function test_chatbot_shopping_removes_item_from_non_active_stop(): void
+    {
+        // REGRESI #4: "hapus <item>" harus menyasar stop yang MEMUAT item itu,
+        // bukan hanya stop aktif. Dulu item di tempat non-aktif gagal dihapus.
+        Config::set('bangdeliv.google_maps_api_key', 'test-key');
+        Config::set('bangdeliv.routes.optimize_shopping_waypoints', false);
+
+        $customer = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+        Address::query()->create([
+            'user_id' => $customer->id,
+            'label' => 'Rumah',
+            'recipient_name' => 'Customer Test',
+            'phone' => '081200000097',
+            'full_address' => 'Jl. Customer No. 97',
+            'latitude' => -7.003,
+            'longitude' => 110.403,
+            'is_default' => true,
+        ]);
+        $tahu = Restaurant::query()->create([
+            'name' => 'Tahu Crispy Sraten',
+            'slug' => 'tahu-crispy-edit-test',
+            'merchant_type' => 'warung',
+            'address' => 'Jl. Tahu No. 1',
+            'latitude' => -7.001,
+            'longitude' => 110.401,
+            'phone' => '081200000098',
+        ]);
+        $bakmi = Restaurant::query()->create([
+            'name' => 'Bakmi Remaja Sraten',
+            'slug' => 'bakmi-remaja-edit-test',
+            'merchant_type' => 'warung',
+            'address' => 'Jl. Bakmi No. 1',
+            'latitude' => -7.002,
+            'longitude' => 110.402,
+            'phone' => '081200000099',
+        ]);
+
+        Sanctum::actingAs($customer);
+        $sessionId = 'shopping-edit-nonactive-session';
+
+        // Tempat 1: Tahu Crispy + tahu gejrot.
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order', 'command' => 'none', 'merchant' => null, 'items' => [],
+        ], 1000);
+        $this->postJson("/api/chatbot/sessions/{$sessionId}/merchant", [
+            'service_type' => 'nitip', 'merchant_id' => $tahu->id,
+        ])->assertOk();
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order', 'command' => 'none', 'merchant' => null,
+            'items' => [['name' => 'tahu gejrot', 'quantity' => 5]],
+        ], 1000);
+        $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId, 'service_type' => 'nitip', 'message' => 'tahu gejrot 5',
+        ])->assertOk()->assertJsonPath('data.shopping.stops.0.items.0.name', 'tahu gejrot');
+
+        // Tempat 2: Bakmi Remaja + mie yamin (jadi stop aktif).
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order', 'command' => 'none', 'merchant' => null, 'items' => [],
+        ], 1000);
+        $this->postJson("/api/chatbot/sessions/{$sessionId}/merchant", [
+            'service_type' => 'nitip', 'mode' => 'add', 'merchant_id' => $bakmi->id,
+        ])->assertOk();
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order', 'command' => 'none', 'merchant' => null,
+            'items' => [['name' => 'mie yamin', 'quantity' => 1]],
+        ], 1000);
+        $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId, 'service_type' => 'nitip', 'message' => 'mie yamin 1',
+        ])->assertOk()->assertJsonPath('data.shopping.stops.1.items.0.name', 'mie yamin');
+
+        // HAPUS item milik Tempat 1 (non-aktif). Harus terhapus dari Tempat 1.
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order', 'command' => 'none', 'merchant' => null, 'items' => [],
+        ], 1000);
+        $response = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId, 'service_type' => 'nitip', 'message' => 'hapus tahu gejrot',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonCount(2, 'data.shopping.stops')
+            ->assertJsonPath('data.shopping.stops.0.merchant.name', 'Tahu Crispy Sraten')
+            ->assertJsonPath('data.shopping.stops.1.items.0.name', 'mie yamin');
+        // Tempat 1 kosong (item terhapus); Tempat 2 tak tersentuh.
+        $this->assertCount(0, (array) $response->json('data.shopping.stops.0.items'));
+        $this->assertCount(1, (array) $response->json('data.shopping.stops.1.items'));
+    }
+
+    public function test_chatbot_shopping_remove_merchant_from_draft_via_chat(): void
+    {
+        // #3: "tidak jadi pesan di X" harus MENGHAPUS tempat X dari draft, dan
+        // menolak bila hanya tersisa 1 tempat.
+        Config::set('bangdeliv.google_maps_api_key', 'test-key');
+        Config::set('bangdeliv.routes.optimize_shopping_waypoints', false);
+
+        $customer = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+        Address::query()->create([
+            'user_id' => $customer->id,
+            'label' => 'Rumah',
+            'recipient_name' => 'Customer Test',
+            'phone' => '081200000100',
+            'full_address' => 'Jl. Customer No. 100',
+            'latitude' => -7.003,
+            'longitude' => 110.403,
+            'is_default' => true,
+        ]);
+        $tahu = Restaurant::query()->create([
+            'name' => 'Tahu Crispy Sraten',
+            'slug' => 'tahu-crispy-remove-test',
+            'merchant_type' => 'warung',
+            'address' => 'Jl. Tahu No. 1',
+            'latitude' => -7.001,
+            'longitude' => 110.401,
+            'phone' => '081200000101',
+        ]);
+        $baloeng = Restaurant::query()->create([
+            'name' => 'Baloeng Gajah',
+            'slug' => 'baloeng-gajah-remove-test',
+            'merchant_type' => 'warung',
+            'address' => 'Jl. Baloeng No. 1',
+            'latitude' => -7.002,
+            'longitude' => 110.402,
+            'phone' => '081200000102',
+        ]);
+
+        Sanctum::actingAs($customer);
+        $sessionId = 'shopping-remove-merchant-session';
+        $benign = [
+            'intent' => 'shopping_order', 'command' => 'none', 'merchant' => null, 'items' => [],
+        ];
+
+        // Dua tempat + item.
+        $this->fakeGeminiAndDistance($benign, 1000);
+        $this->postJson("/api/chatbot/sessions/{$sessionId}/merchant", [
+            'service_type' => 'nitip', 'merchant_id' => $tahu->id,
+        ])->assertOk();
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order', 'command' => 'none', 'merchant' => null,
+            'items' => [['name' => 'tahu gejrot', 'quantity' => 5]],
+        ], 1000);
+        $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId, 'service_type' => 'nitip', 'message' => 'tahu gejrot 5',
+        ])->assertOk();
+
+        $this->fakeGeminiAndDistance($benign, 1000);
+        $this->postJson("/api/chatbot/sessions/{$sessionId}/merchant", [
+            'service_type' => 'nitip', 'mode' => 'add', 'merchant_id' => $baloeng->id,
+        ])->assertOk();
+        $this->fakeGeminiAndDistance([
+            'intent' => 'shopping_order', 'command' => 'none', 'merchant' => null,
+            'items' => [['name' => 'sum sum goreng', 'quantity' => 1]],
+        ], 1000);
+        $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId, 'service_type' => 'nitip', 'message' => 'sum sum goreng 1',
+        ])->assertOk()->assertJsonCount(2, 'data.shopping.stops');
+
+        // HAPUS tempat "baloeng gajah" via chat.
+        $this->fakeGeminiAndDistance($benign, 1000);
+        $removeResponse = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId, 'service_type' => 'nitip', 'message' => 'tidak jadi pesan di baloeng gajah',
+        ]);
+        $removeResponse->assertOk()
+            ->assertJsonCount(1, 'data.shopping.stops')
+            ->assertJsonPath('data.shopping.stops.0.merchant.name', 'Tahu Crispy Sraten');
+        $this->assertStringContainsString(
+            'Baloeng Gajah',
+            (string) $removeResponse->json('data.assistant_text')
+        );
+        $this->assertStringContainsString(
+            'dihapus',
+            (string) $removeResponse->json('data.assistant_text')
+        );
+
+        // Menghapus SATU-SATUNYA tempat tersisa harus DITOLAK.
+        $this->fakeGeminiAndDistance($benign, 1000);
+        $rejectResponse = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId, 'service_type' => 'nitip', 'message' => 'hapus tempat tahu crispy',
+        ]);
+        $rejectResponse->assertOk()
+            ->assertJsonCount(1, 'data.shopping.stops');
+        $this->assertStringContainsString(
+            'Minimal ada 1 tempat',
+            (string) $rejectResponse->json('data.assistant_text')
+        );
+    }
+
     public function test_chatbot_shopping_patch_google_place_merchant_completes_external_merchant_draft(): void
     {
         Config::set('bangdeliv.google_maps_api_key', 'test-key');

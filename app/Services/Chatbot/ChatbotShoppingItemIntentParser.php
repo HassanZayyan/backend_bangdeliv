@@ -251,6 +251,24 @@ class ChatbotShoppingItemIntentParser
         );
     }
 
+    /**
+     * Kebalikan stripMerchantTail: mengembalikan nama tempat pada ekor
+     * "di/dari <tempat>" (span yang sama yang dibuang stripMerchantTail),
+     * ternormalisasi lowercase. Dipakai untuk routing toko/stop yang benar
+     * (buka/edit/hapus tempat) tanpa bergantung kapitalisasi. null bila tak ada.
+     */
+    public function extractMerchantTail(string $value): ?string
+    {
+        $normalized = $this->normalize($value);
+        if (preg_match('/\b(?:di|dari)\s+([\pL\pN\s.&\'\x{2019}-]+)$/iu', $normalized, $match) !== 1) {
+            return null;
+        }
+
+        $tail = $this->normalize((string) $match[1]);
+
+        return $tail === '' ? null : $tail;
+    }
+
     private function normalize(string $value): string
     {
         return Str::of($value)->lower()->squish()->toString();

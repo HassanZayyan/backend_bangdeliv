@@ -24,6 +24,8 @@ class ChatbotGeminiService
                 'resto' => ['type' => 'STRING', 'nullable' => true],
                 'menu_search' => ['type' => 'STRING', 'nullable' => true],
                 'delivery_address' => ['type' => 'STRING', 'nullable' => true],
+                'target_merchant' => ['type' => 'STRING', 'nullable' => true],
+                'target_stop' => ['type' => 'INTEGER', 'nullable' => true],
                 'items' => [
                     'type' => 'ARRAY',
                     'items' => [
@@ -76,6 +78,8 @@ class ChatbotGeminiService
             'resto' => null,
             'menu_search' => null,
             'delivery_address' => null,
+            'target_merchant' => null,
+            'target_stop' => null,
             'items' => [],
             'stops' => [],
         ], $context);
@@ -302,6 +306,8 @@ class ChatbotGeminiService
             'resto' => $merchant,
             'menu_search' => $this->normalizeOptionalString($payload['menu_search'] ?? null),
             'delivery_address' => $this->normalizeOptionalString($payload['delivery_address'] ?? null),
+            'target_merchant' => $this->normalizeOptionalString($payload['target_merchant'] ?? null),
+            'target_stop' => is_numeric($payload['target_stop'] ?? null) ? (int) $payload['target_stop'] : null,
             'items' => $items,
             'stops' => $stops,
         ];
@@ -360,6 +366,7 @@ class ChatbotGeminiService
         return match ($normalized) {
             'confirm', 'konfirmasi', 'lanjut' => 'confirm',
             'add_merchant', 'tambah_merchant', 'tambah merchant', 'tambah toko', 'tambah resto', 'tambah order', 'order baru' => 'add_merchant',
+            'remove_merchant', 'hapus_tempat', 'hapus tempat', 'hapus toko', 'hapus resto', 'batalkan_tempat', 'batalkan tempat' => 'remove_merchant',
             'show_menu', 'lihat_menu', 'tampilkan_menu' => 'show_menu',
             'menu_next', 'menu_berikutnya', 'menu_selanjutnya' => 'menu_next',
             'menu_previous', 'menu_sebelumnya' => 'menu_previous',

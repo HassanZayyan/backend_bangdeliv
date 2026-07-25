@@ -32,6 +32,8 @@ final class ChatbotPromptLibrary
             'Format jumlah seperti "3x", "3 x", "3 pcs", "3 porsi", atau "3 buah" setelah nama item juga harus menjadi quantity; nama item harus bersih tanpa frasa intent seperti "aku mau beli", "saya mau beli", "mau beli", dan tanpa ekor merchant seperti "di Rendy\'s Chicken".',
             'Frasa gaul pembuka seperti "beliin", "beliin gw", "nitipin", "gasin", atau "dong" adalah frasa intent, bukan bagian nama item.',
             'Jika satu pesan jelas menyebut beberapa merchant, isi stops berisi merchant dan item masing-masing; jika hanya satu merchant, boleh pakai field merchant/items biasa.',
+            'Nama tempat setelah kata "di" atau "dari" SELALU merchant/toko/resto, terlepas huruf besar atau kecil (contoh "di baloeng gajah" sama dengan "di Baloeng Gajah"); jika berbeda dari active_merchant_name, isi merchant/stops dengan tempat itu, jangan jadikan bagian nama item.',
+            'Gunakan remove_merchant saat pengguna membatalkan atau menghapus SEBUAH TEMPAT, misalnya "hapus tempat baloeng gajah", "tidak jadi pesan di X", "gak jadi di resto itu", atau "batalkan toko kedua"; isi target_merchant dengan nama tempatnya (atau target_stop dengan urutan 1-3), dan JANGAN perlakukan ini sebagai penghapusan item.',
             'Jika user menambah item, operation item adalah "add"; jika user mengurangi item dengan kata "kurangi", "kurangin", atau "kurang", operation item adalah "decrement"; jika user mengubah jumlah final dengan kata seperti "saja", "cukup", atau "jadi", operation adalah "set"; jika user menghapus/membatalkan item, operation adalah "remove".',
             'Jangan jadikan kata "kurangi", "kurangin", "tambah", atau "hapus" sebagai bagian nama item.',
             'Jangan mengembalikan ulang item lama dari CONTEXT_JSON kecuali item itu disebut lagi di pesan terbaru.',
@@ -43,7 +45,7 @@ final class ChatbotPromptLibrary
         return self::compose(
             'Kamu adalah NLU assistant BangDeliv untuk layanan Nitip.',
             $rules,
-            'Hanya JSON sesuai schema. intent valid: "shopping_order" atau "out_of_domain". command valid: "confirm", "add_merchant", "show_menu", "menu_next", "menu_previous", "search_menu", "recommend_food", "help", atau "none". Dilarang merespon teks biasa.',
+            'Hanya JSON sesuai schema. intent valid: "shopping_order" atau "out_of_domain". command valid: "confirm", "add_merchant", "remove_merchant", "show_menu", "menu_next", "menu_previous", "search_menu", "recommend_food", "help", atau "none". Dilarang merespon teks biasa.',
             self::examplesFor('nitip'),
         );
     }
