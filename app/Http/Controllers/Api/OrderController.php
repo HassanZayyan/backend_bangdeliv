@@ -440,6 +440,20 @@ class OrderController extends Controller
         }
     }
 
+    public function cancelShoppingOrderByDriver(Request $request, int $orderId): JsonResponse
+    {
+        try {
+            $this->orderService->cancelShoppingOrderByDriver($request->user(), $orderId);
+
+            return $this->success(
+                $this->orderService->driverOrderDetail($request->user(), $orderId),
+                'Pesanan Nitip berhasil dibatalkan.',
+            );
+        } catch (ApiException $exception) {
+            return $this->error($exception->getMessage(), $exception->status(), $exception->errors());
+        }
+    }
+
     public function updateDriverShoppingItems(UpdateDriverShoppingItemsRequest $request, int $orderId): JsonResponse
     {
         try {

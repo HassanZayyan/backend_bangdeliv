@@ -540,12 +540,21 @@ final class CustomerOrderService
                 // cancelShoppingOrderWithOptionalFee() tidak melempar 409.
                 $withFee = $this->shoppingPricingService->calculateCancellationPenalty($recalculated) > 0;
 
+                // Pembatalan berbiaya tidak lagi otomatis. Order dibiarkan aktif
+                // supaya driver mengonfirmasi lewat aksi CANCEL_WITH_FEE -- di
+                // sana basis ongkir bisa dikoreksi dulu bila hasil hitungan
+                // otomatisnya meleset. Tanpa fee tak ada yang perlu dikoreksi,
+                // jadi pembatalan gratis tetap berjalan otomatis.
+                if ($withFee) {
+                    return $recalculated;
+                }
+
                 return $this->shoppingNegotiationOrchestrator->cancelShoppingOrderWithOptionalFee(
                     $actor,
                     $recalculated,
                     'Semua merchant Nitip gagal/tutup.',
-                    $withFee,
-                    $withFee ? 'ALL_SHOPPING_MERCHANTS_FAILED_WITH_FEE' : 'ALL_SHOPPING_MERCHANTS_FAILED',
+                    false,
+                    'ALL_SHOPPING_MERCHANTS_FAILED',
                     $statusChangeEventPayload,
                     $actor->role === 'driver' ? 'driver' : 'admin'
                 );

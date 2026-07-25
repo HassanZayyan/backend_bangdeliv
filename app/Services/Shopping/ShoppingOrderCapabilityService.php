@@ -32,18 +32,33 @@ class ShoppingOrderCapabilityService
         $canCustomerDirectEditItems = $isShopping && $status === 'PENDING';
         $canCustomerAddShoppingMerchant = $canCustomerDirectEditItems
             && app(ShoppingPickupLocationService::class)->activePickupCount($order) < 3;
+        // Saat semua toko/resto sudah gagal, pembatalan berbiaya menunggu driver
+        // mengonfirmasi (dan boleh mengoreksi basis ongkirnya) lewat aksi
+        // CANCEL_WITH_FEE. Selama itu customer tidak boleh mendahului, supaya fee
+        // yang ditagihkan bukan hasil hitungan yang belum sempat dikoreksi.
+        $awaitsDriverCancellationFeeReview = $isShopping
+            && app(ShoppingPricingService::class)->isCancellationPenaltyEligible($order);
         // Customer boleh menyerah/membatalkan seluruh pesanan Nitip secara gratis
         // saat sudah tiba di merchant tetapi BELUM ada toko yang dibeli dan tak
         // ada lagi toko aktif untuk dilanjutkan (mis. satu-satunya toko tutup).
         $canCustomerCancelShoppingOrder = $isShopping
             && $status === 'ARRIVED_MERCHANT'
+            && ! $awaitsDriverCancellationFeeReview
             && ! $this->hasCommittedMerchant($order)
             && ! $this->hasNonTerminalMerchant($order);
+        // Driver butuh jalan keluar yang lebih longgar daripada customer: kasus
+        // utamanya customer chat "tidak jadi". Cukup belum ada transaksi yang
+        // berhasil -- tidak perlu menunggu semua toko/resto habis.
+        $canDriverCancelShoppingOrder = $isShopping
+            && in_array($status, ['DRIVER_ASSIGNED', 'ARRIVED_MERCHANT'], true)
+            && ! $this->hasCommittedMerchant($order);
 
         return [
             'can_customer_direct_edit_items' => $canCustomerDirectEditItems,
             'can_customer_add_shopping_merchant' => $canCustomerAddShoppingMerchant,
             'can_customer_cancel_shopping_order' => $canCustomerCancelShoppingOrder,
+            'awaits_driver_cancellation_fee_review' => $awaitsDriverCancellationFeeReview,
+            'can_driver_cancel_shopping_order' => $canDriverCancelShoppingOrder,
             'can_customer_request_item_change' => $canEditUnavailableItems,
             'can_customer_request_add_stop' => false,
             'can_customer_edit_unavailable_items' => $canEditUnavailableItems,
@@ -104,6 +119,11 @@ class ShoppingOrderCapabilityService
     public function canDriverUploadReceipt(Order $order): bool
     {
         return $this->capabilities($order)['can_driver_upload_receipt'];
+    }
+
+    public function canDriverCancelShoppingOrder(Order $order): bool
+    {
+        return $this->capabilities($order)['can_driver_cancel_shopping_order'];
     }
 
     public function isShopping(Order $order): bool

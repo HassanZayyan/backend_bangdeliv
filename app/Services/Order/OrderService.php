@@ -237,6 +237,11 @@ class OrderService
         return $this->shoppingNegotiationOrchestrator->cancelShoppingOrderByCustomer($actor, $orderId);
     }
 
+    public function cancelShoppingOrderByDriver(User $actor, int $orderId): Order
+    {
+        return $this->shoppingNegotiationOrchestrator->cancelShoppingOrderByDriver($actor, $orderId);
+    }
+
     /**
      * @param  array<string, mixed>  $payload
      */

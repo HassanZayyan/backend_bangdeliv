@@ -102,6 +102,7 @@ Route::prefix('v1')->group(function () {
             Route::post('/driver/orders/{orderId}/shopping/price-quote/bypass', [OrderController::class, 'bypassShoppingPriceQuote'])->name('api.v1.driver.orders.shopping.price-quote.bypass');
             Route::post('/driver/orders/{orderId}/shopping/price-quote/accept-counter', [OrderController::class, 'acceptShoppingCounter'])->name('api.v1.driver.orders.shopping.price-quote.accept-counter');
             Route::post('/driver/orders/{orderId}/shopping/item-change-request/respond', [OrderController::class, 'respondShoppingItemChange'])->name('api.v1.driver.orders.shopping.item-change-request.respond');
+            Route::post('/driver/orders/{orderId}/shopping/cancel', [OrderController::class, 'cancelShoppingOrderByDriver'])->name('api.v1.driver.orders.shopping.cancel');
             Route::post('/driver/orders/{orderId}/delivery-fee-override', [OrderController::class, 'updateDeliveryFeeOverride'])->name('api.v1.driver.orders.delivery-fee-override');
             Route::post('/driver/orders/{orderId}/delivery-fee-override/bypass', [OrderController::class, 'bypassDeliveryFeeOverride'])->name('api.v1.driver.orders.delivery-fee-override.bypass');
             Route::post('/driver/orders/{orderId}/delivery-fee-override/accept-counter', [OrderController::class, 'acceptDeliveryFeeCounter'])->name('api.v1.driver.orders.delivery-fee-override.accept-counter');

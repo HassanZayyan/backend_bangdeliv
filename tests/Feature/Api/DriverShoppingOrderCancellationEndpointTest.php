@@ -18,47 +18,45 @@ use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 /**
- * Alur end-to-end model revisi: tiga toko/resto gagal terverifikasi (driver di
- * radius + foto bukti) menyentuh kuota tiga -> order siap dibatalkan berbiaya,
- * dengan fee = 0,5 x O(d_max). d_max = jarak rute terjauh customer -> toko
- * gagal. Pembatalannya sendiri menunggu konfirmasi driver supaya basis ongkir
- * sempat dikoreksi sebelum customer ditagih.
+ * Driver punya jalan keluar penuh untuk order Nitip selama belum ada toko/resto
+ * yang dibeli -- kasus utamanya customer chat "tidak jadi". Aturan feenya sama
+ * dengan pembatalan oleh customer: gratis sebelum kuota kegagalan tercapai,
+ * berbiaya sesudahnya.
  */
-class ShoppingCancellationWithFeeEndpointTest extends TestCase
+class DriverShoppingOrderCancellationEndpointTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_three_verified_failed_stores_await_driver_cancellation_decision(): void
+    public function test_driver_cancels_for_free_before_any_store_is_purchased(): void
     {
-        [$order, $lastResponse] = $this->failAllStores();
+        [$driverUser, $order] = $this->arrangeOrder();
+        Sanctum::actingAs($driverUser);
 
-        // Order sengaja dibiarkan aktif: fee 50% baru ditagihkan setelah driver
-        // mengonfirmasi lewat CANCEL_WITH_FEE.
-        $lastResponse->assertOk()
-            ->assertJsonPath('data.status_ref.code', 'ARRIVED_MERCHANT');
-
-        $this->getJson('/api/v1/driver/orders/'.$order->id)
+        $this->postJson('/api/v1/driver/orders/'.$order->id.'/shopping/cancel')
             ->assertOk()
-            ->assertJsonPath('data.pricing.can_cancel_with_fee', true)
-            ->assertJsonPath('data.shopping_capabilities.awaits_driver_cancellation_fee_review', true)
-            ->assertJsonPath('data.shopping_capabilities.can_customer_cancel_shopping_order', false)
-            ->assertJsonFragment(['action_code' => 'CANCEL_WITH_FEE']);
-    }
-
-    public function test_driver_cancel_with_fee_charges_half_of_dmax_route_fee(): void
-    {
-        [$order] = $this->failAllStores();
-
-        $this->postJson('/api/v1/driver/orders/'.$order->id.'/status-transition', [
-            'action_code' => 'CANCEL_WITH_FEE',
-            'target_status_code' => 'CANCELLED_WITH_FEE',
-            'note' => 'Semua toko tutup, order dibatalkan.',
-        ])->assertOk();
+            ->assertJsonPath('data.status_code', 'CANCELLED');
 
         $order->refresh()->load('statusRef');
-        $this->assertSame('CANCELLED_WITH_FEE', (string) $order->statusRef->code);
-        $this->assertSame(0.0, (float) $order->delivery_fee);
-        $this->assertSame(5500.0, (float) $order->service_fee);
+        $this->assertSame('CANCELLED', (string) $order->statusRef->code);
+        $this->assertSame('driver', (string) $order->cancelled_by);
+        // Gratis: tidak ada tagihan transfer yang dibuat untuk customer.
+        $this->assertDatabaseMissing('order_payments', [
+            'order_id' => $order->id,
+            'payment_method' => 'TRANSFER',
+        ]);
+    }
+
+    public function test_driver_cancel_charges_the_fee_once_the_failure_quota_is_reached(): void
+    {
+        [$driverUser, $order, $pickups] = $this->arrangeOrder();
+        Sanctum::actingAs($driverUser);
+        $this->failAllStores($order, $pickups);
+
+        $this->postJson('/api/v1/driver/orders/'.$order->id.'/shopping/cancel')
+            ->assertOk()
+            ->assertJsonPath('data.status_code', 'CANCELLED_WITH_FEE');
+
+        $order->refresh();
         $this->assertSame(5500.0, (float) $order->total_price);
         $this->assertDatabaseHas('order_payments', [
             'order_id' => $order->id,
@@ -66,35 +64,52 @@ class ShoppingCancellationWithFeeEndpointTest extends TestCase
         ]);
     }
 
-    public function test_driver_can_correct_the_base_delivery_fee_before_charging_customer(): void
+    public function test_driver_cannot_cancel_once_a_store_has_been_purchased(): void
     {
-        [$order] = $this->failAllStores();
+        [$driverUser, $order, $pickups] = $this->arrangeOrder();
+        $pickups[0]->update(['fulfillment_status' => 'PRICE_APPROVED']);
+        Sanctum::actingAs($driverUser);
 
-        // Basis ongkir otomatis 11.000 dinilai meleset; driver mengoreksinya ke
-        // 20.000 sehingga customer ditagih 10.000, bukan 5.500.
-        $this->postJson('/api/v1/driver/orders/'.$order->id.'/status-transition', [
-            'action_code' => 'CANCEL_WITH_FEE',
-            'target_status_code' => 'CANCELLED_WITH_FEE',
-            'note' => 'Ongkir otomatis tidak akurat, rute sebenarnya lebih jauh.',
-            'cancellation_penalty_base_delivery_fee' => 20000,
-        ])->assertOk();
+        $this->postJson('/api/v1/driver/orders/'.$order->id.'/shopping/cancel')
+            ->assertStatus(409);
 
-        $order->refresh();
-        $this->assertSame(10000.0, (float) $order->service_fee);
-        $this->assertSame(10000.0, (float) $order->total_price);
+        $this->assertSame(
+            'ARRIVED_MERCHANT',
+            (string) $order->refresh()->load('statusRef')->statusRef->code,
+        );
     }
 
-    public function test_driver_cancel_with_fee_requires_a_reason_when_base_is_corrected(): void
+    public function test_cancel_action_is_hidden_once_a_store_has_been_purchased(): void
     {
-        [$order] = $this->failAllStores();
+        [$driverUser, $order, $pickups] = $this->arrangeOrder();
+        Sanctum::actingAs($driverUser);
 
-        $this->postJson('/api/v1/driver/orders/'.$order->id.'/status-transition', [
-            'action_code' => 'CANCEL_WITH_FEE',
-            'target_status_code' => 'CANCELLED_WITH_FEE',
-            'cancellation_penalty_base_delivery_fee' => 20000,
-        ])->assertStatus(422);
+        $this->getJson('/api/v1/driver/orders/'.$order->id)
+            ->assertOk()
+            ->assertJsonPath('data.shopping_capabilities.can_driver_cancel_shopping_order', true);
 
-        // Order tetap aktif -- tidak ada tagihan yang terlanjur dikirim.
+        $pickups[0]->update(['fulfillment_status' => 'PRICE_APPROVED']);
+
+        $this->getJson('/api/v1/driver/orders/'.$order->id)
+            ->assertOk()
+            ->assertJsonPath('data.shopping_capabilities.can_driver_cancel_shopping_order', false);
+    }
+
+    public function test_another_driver_cannot_cancel_the_order(): void
+    {
+        [, $order] = $this->arrangeOrder();
+        $otherDriverUser = User::factory()->create(['role' => 'driver']);
+        Driver::query()->create($this->driverAttributes([
+            'user_id' => $otherDriverUser->id,
+            'vehicle_plate' => 'H '.random_int(1000, 9999).' OTH',
+            'registration_status' => 'active',
+            'status' => 'available',
+        ]));
+        Sanctum::actingAs($otherDriverUser);
+
+        $this->postJson('/api/v1/driver/orders/'.$order->id.'/shopping/cancel')
+            ->assertStatus(403);
+
         $this->assertSame(
             'ARRIVED_MERCHANT',
             (string) $order->refresh()->load('statusRef')->statusRef->code,
@@ -102,19 +117,17 @@ class ShoppingCancellationWithFeeEndpointTest extends TestCase
     }
 
     /**
-     * Gagalkan ketiga toko/resto dengan bukti foto sehingga kuota tiga tercapai
-     * dan kompensasi trip gagal menjadi eligible.
+     * Gagalkan ketiga toko/resto dengan bukti foto sehingga kuota tiga tercapai.
+     * Rute customer -> toko dipatok 3.000 m sehingga O(d_max) = 11.000 dan fee
+     * 50%-nya 5.500.
      *
-     * @return array{0: Order, 1: \Illuminate\Testing\TestResponse}
+     * @param  array<int, OrderLocation>  $pickups
      */
-    private function failAllStores(): array
+    private function failAllStores(Order $order, array $pickups): void
     {
         Storage::fake('public');
-        // Radius dilonggarkan agar kegagalan terverifikasi tanpa harus persis
-        // di titik toko (sama seperti mode peragaan).
         Config::set('bangdeliv.failed_trip.verification_radius_meters', 50000);
-        // Semua rute customer -> toko dikembalikan 3.000 m -> d_max = 3.000 m
-        // -> O(3 km) = 11.000 -> fee 5.500.
+        Config::set('bangdeliv.google_maps_api_key', 'test-key');
         Http::fake([
             'https://routes.googleapis.com/directions/v2:computeRoutes*' => Http::response([
                 'routes' => [[
@@ -124,22 +137,15 @@ class ShoppingCancellationWithFeeEndpointTest extends TestCase
                 ]],
             ]),
         ]);
-        Config::set('bangdeliv.google_maps_api_key', 'test-key');
 
-        [$driverUser, $order, $pickups] = $this->arrangeOrder();
-        Sanctum::actingAs($driverUser);
-
-        $lastResponse = null;
         foreach ($pickups as $pickup) {
-            $lastResponse = $this->post('/api/v1/orders/'.$order->id.'/attempt-failed', [
+            $this->post('/api/v1/orders/'.$order->id.'/attempt-failed', [
                 'failure_type' => 'PICKUP',
                 'reason' => 'Tempat tutup saat driver tiba.',
                 'pickup_location_id' => $pickup->id,
                 'merchant_closed_photo' => UploadedFile::fake()->image('closed.jpg'),
-            ]);
+            ])->assertOk();
         }
-
-        return [$order, $lastResponse];
     }
 
     /**
@@ -150,17 +156,16 @@ class ShoppingCancellationWithFeeEndpointTest extends TestCase
         $driverUser = User::factory()->create(['role' => 'driver']);
         $driver = Driver::query()->create($this->driverAttributes([
             'user_id' => $driverUser->id,
-            'vehicle_plate' => 'H '.random_int(1000, 9999).' FEE',
+            'vehicle_plate' => 'H '.random_int(1000, 9999).' CNL',
             'registration_status' => 'active',
             'status' => 'busy',
-            // Lokasi driver segar di sekitar area layanan (dalam radius lebar).
             'latitude' => -7.010,
             'longitude' => 110.410,
             'location_updated_at' => now(),
         ]));
 
         $order = Order::query()->create([
-            'order_number' => 'BD-FEE-'.strtoupper(substr(md5((string) random_int(1, 999999)), 0, 8)),
+            'order_number' => 'BD-CNL-'.strtoupper(substr(md5((string) random_int(1, 999999)), 0, 8)),
             'user_id' => User::factory()->create(['role' => 'customer'])->id,
             'service_type_id' => (int) ServiceType::query()->where('code', 'SHOPPING')->value('id'),
             'driver_id' => $driver->id,

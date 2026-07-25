@@ -119,7 +119,6 @@ final class ShoppingNegotiationOrchestrator
                     reason: 'Driver membatalkan toko/resto karena item tidak tersedia.',
                     failureType: 'DRIVER_CANCEL_UNAVAILABLE_MERCHANT',
                     negotiationTrigger: 'DRIVER_CANCEL_UNAVAILABLE_MERCHANT',
-                    cancellationWithFeeTrigger: 'DRIVER_CANCEL_UNAVAILABLE_MERCHANT_WITH_FEE',
                     cancellationLastMerchantTrigger: 'DRIVER_CANCEL_LAST_UNAVAILABLE_MERCHANT',
                     cancelledBy: 'driver',
                     statusChangeEventPayload: $statusChangeEventPayload,
@@ -472,7 +471,6 @@ final class ShoppingNegotiationOrchestrator
                     reason: 'Semua item merchant tidak tersedia dan dibypass driver.',
                     failureType: ShoppingPriceNegotiationService::DRIVER_BYPASS_UNAVAILABLE_ITEMS,
                     negotiationTrigger: ShoppingPriceNegotiationService::DRIVER_BYPASS_UNAVAILABLE_ITEMS,
-                    cancellationWithFeeTrigger: 'DRIVER_BYPASS_UNAVAILABLE_ITEMS_WITH_FEE',
                     cancellationLastMerchantTrigger: 'DRIVER_BYPASS_LAST_UNAVAILABLE_MERCHANT',
                     cancelledBy: 'driver',
                     statusChangeEventPayload: $statusChangeEventPayload,
@@ -815,6 +813,64 @@ final class ShoppingNegotiationOrchestrator
                 $withFee ? 'CUSTOMER_CANCEL_SHOPPING_ORDER_WITH_FEE' : 'CUSTOMER_CANCEL_SHOPPING_ORDER',
                 $statusChangeEventPayload,
                 'customer',
+            );
+        });
+
+        return $this->finalizeCustomerShoppingMerchantDecision($order, $actor, $statusChangeEventPayload);
+    }
+
+    /**
+     * Pembatalan seluruh pesanan Nitip oleh driver. Berguna saat customer chat
+     * "tidak jadi" -- driver tak perlu memaksa ganti toko/resto. Aturan fee-nya
+     * identik dengan jalur customer: gratis selama belum ada toko yang dibeli,
+     * kena fee trip-comp bila kegagalan terverifikasi sudah >=3.
+     *
+     * Beda dengan gate customer: driver tidak perlu menunggu semua toko habis --
+     * cukup belum ada transaksi yang berhasil (PRICE_APPROVED/COMPLETED).
+     */
+    public function cancelShoppingOrderByDriver(User $actor, int $orderId): Order
+    {
+        $driver = $this->driverOrderResolver->resolveActiveDriverProfile($actor);
+        $statusChangeEventPayload = null;
+
+        $order = DB::transaction(function () use ($actor, $driver, $orderId, &$statusChangeEventPayload): Order {
+            $order = $this->driverOrderResolver->lockedAssignedDriverOrder(
+                $orderId,
+                $driver->id,
+                ['statusRef', 'serviceType', 'orderLocations', 'items', 'shoppingReceipt', 'payments'],
+            );
+
+            if (($order->serviceType->code ?? null) !== 'SHOPPING') {
+                throw new ApiException('Pembatalan ini hanya tersedia untuk order Nitip.', 409);
+            }
+
+            $status = strtoupper((string) ($order->statusRef->code ?? ''));
+            if (! in_array($status, ['DRIVER_ASSIGNED', 'ARRIVED_MERCHANT'], true)) {
+                throw new ApiException('Pesanan tidak bisa dibatalkan pada status saat ini.', 409);
+            }
+
+            // Gerbang keamanan: sekali ada toko yang dibeli/disetujui driver,
+            // pesanan tak boleh dibatalkan (mirror gate customer & CANCEL_MERCHANT).
+            if ($this->hasCommittedShoppingMerchant($order)) {
+                throw new ApiException('Pesanan tidak bisa dibatalkan karena barang sudah dibeli.', 409);
+            }
+
+            // Sejajar dengan guard CANCEL_WITH_FEE: order yang sudah lunas tidak
+            // boleh dibatalkan sepihak oleh driver.
+            if ($this->orderPaymentService->isPaid($order)) {
+                throw new ApiException('Order sudah memiliki pembayaran lunas dan tidak bisa dibatalkan.', 409);
+            }
+
+            $withFee = (bool) $this->shoppingFailedTripCompensationService->summary($order)['eligible'];
+
+            return $this->cancelShoppingOrderWithOptionalFee(
+                $actor,
+                $order,
+                'Driver membatalkan pesanan Nitip.',
+                $withFee,
+                $withFee ? 'DRIVER_CANCEL_SHOPPING_ORDER_WITH_FEE' : 'DRIVER_CANCEL_SHOPPING_ORDER',
+                $statusChangeEventPayload,
+                'driver',
             );
         });
 
@@ -1321,7 +1377,6 @@ final class ShoppingNegotiationOrchestrator
             reason: 'Resto tutup/order batal.',
             failureType: 'CUSTOMER_CANCEL_MERCHANT',
             negotiationTrigger: ShoppingPriceNegotiationService::CUSTOMER_CANCEL_MERCHANT,
-            cancellationWithFeeTrigger: 'CUSTOMER_CANCEL_MERCHANT_WITH_FEE',
             cancellationLastMerchantTrigger: 'CUSTOMER_CANCEL_LAST_MERCHANT',
             cancelledBy: 'customer',
             statusChangeEventPayload: $statusChangeEventPayload,
@@ -1335,7 +1390,6 @@ final class ShoppingNegotiationOrchestrator
         string $reason,
         string $failureType,
         string $negotiationTrigger,
-        string $cancellationWithFeeTrigger,
         string $cancellationLastMerchantTrigger,
         string $cancelledBy,
         mixed &$statusChangeEventPayload,
@@ -1403,13 +1457,16 @@ final class ShoppingNegotiationOrchestrator
 
         $hasActivePickup = $this->shoppingPickupLocationService->hasActivePickupWithAvailableItems($order);
         $withFee = (bool) $this->shoppingFailedTripCompensationService->summary($order)['eligible'];
-        if (! $hasActivePickup && ! $this->hasCommittedShoppingMerchant($order)) {
+        // Pembatalan berbiaya ditahan supaya driver mengonfirmasi lewat aksi
+        // CANCEL_WITH_FEE dan sempat mengoreksi basis ongkirnya. Pembatalan
+        // gratis tetap otomatis -- tak ada nominal yang perlu ditinjau.
+        if (! $hasActivePickup && ! $withFee && ! $this->hasCommittedShoppingMerchant($order)) {
             return $this->cancelShoppingOrderWithOptionalFee(
                 $actor,
                 $order,
                 'Semua merchant Nitip batal/gagal.',
-                $withFee,
-                $withFee ? $cancellationWithFeeTrigger : $cancellationLastMerchantTrigger,
+                false,
+                $cancellationLastMerchantTrigger,
                 $statusChangeEventPayload,
                 $cancelledBy,
             );
