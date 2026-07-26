@@ -37,7 +37,8 @@ class ProductionSeederTest extends TestCase
         $this->runSeeder(DatabaseSeeder::class);
 
         $this->assertSame(29, User::query()->count());
-        $this->assertSame(18, Address::query()->count());
+        // 19: +1 alamat Pelanggan 19 (sebelumnya responden kuesioner tanpa alamat).
+        $this->assertSame(19, Address::query()->count());
         $this->assertSame(5, Driver::query()->count());
         $this->assertSame(15, DriverDocument::query()->count());
 

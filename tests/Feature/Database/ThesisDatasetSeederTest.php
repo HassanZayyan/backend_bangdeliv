@@ -50,12 +50,16 @@ class ThesisDatasetSeederTest extends TestCase
         $this->assertSame(29, DB::table('users')->count()); // admin + 5 driver + 23 customer
         $this->assertSame(5, User::query()->where('role', 'driver')->count());
         $this->assertSame(23, User::query()->where('role', 'customer')->count());
-        $this->assertSame(18, DB::table('addresses')->count());
+        // 19: +1 alamat Pelanggan 19, yang sebelumnya mengisi kuesioner tanpa
+        // pernah punya alamat maupun order.
+        $this->assertSame(19, DB::table('addresses')->count());
         $this->assertSame(5, Driver::query()->count());
         $this->assertSame(15, DriverDocument::query()->count());
         $this->assertSame(16, DB::table('device_tokens')->count());
-        $this->assertSame(29, DB::table('orders')->count());
-        $this->assertSame(29, DB::table('order_payments')->count());
+        // 31: +2 order baru (Pelanggan 04 & Pelanggan 19) agar tiap responden
+        // kuesioner punya order selesai sebelum mengisi form.
+        $this->assertSame(31, DB::table('orders')->count());
+        $this->assertSame(31, DB::table('order_payments')->count());
         $this->assertSame(1293, Menu::query()->count());
 
         // Naufal Zayyan dihapus dari dataset.
@@ -94,12 +98,14 @@ class ThesisDatasetSeederTest extends TestCase
 
         $this->assertSame(3, DB::table('orders')->where('driver_id', 5)->count());
         $this->assertSame(
-            ['BD-150726-023', 'BD-160726-001', 'BD-170726-002'],
+            ['BD-160726-004', 'BD-170726-003', 'BD-170726-005'],
             DB::table('orders')->where('driver_id', 5)->orderBy('id')->pluck('order_number')->all()
         );
 
+        // Order 33 (Pelanggan 23) — order Faiz paling akhir; order 23 kini dipegang
+        // Akhmad karena 6 customer riil wajib dilayani driver riil BangDeliv.
         $snapshot = DB::table('order_status_histories')
-            ->where('order_id', 23)
+            ->where('order_id', 33)
             ->where('status_id', 2)
             ->value('metadata');
         $this->assertStringContainsString('Driver 05', (string) $snapshot);
@@ -118,8 +124,10 @@ class ThesisDatasetSeederTest extends TestCase
             ->map(fn ($n) => (int) $n)
             ->all();
 
+        // Akhmad(1) & Atok(4) menanggung porsi terbesar karena 6 customer riil
+        // wajib dilayani driver riil BangDeliv; 2/3/5 hanya driver simulasi.
         $this->assertSame(
-            [1 => 4, 2 => 7, 3 => 5, 4 => 5, 5 => 3],
+            [1 => 9, 2 => 4, 3 => 2, 4 => 8, 5 => 3],
             $counts
         );
 

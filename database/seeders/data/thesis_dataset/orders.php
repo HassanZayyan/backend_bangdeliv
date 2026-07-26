@@ -26,7 +26,7 @@ return array (
   1 => 
   array (
     'id' => '2',
-    'order_number' => 'BD-150726-002',
+    'order_number' => 'BD-150726-003',
     'user_id' => '11',
     'service_type_id' => '3',
     'driver_id' => '2',
@@ -46,11 +46,11 @@ return array (
   2 => 
   array (
     'id' => '3',
-    'order_number' => 'BD-150726-003',
+    'order_number' => 'BD-150726-002',
     'user_id' => '3',
     'service_type_id' => '1',
-    'driver_id' => '2',
-    'assigned_at' => '2026-07-15 11:56:54',
+    'driver_id' => '1',
+    'assigned_at' => '2026-07-15 10:05:54',
     'delivery_fee' => '17000.00',
     'total_price' => '17000.00',
     'delivery_fee_source' => 'system',
@@ -58,10 +58,10 @@ return array (
     'cancelled_by' => NULL,
     'cancellation_reason' => NULL,
     'cancelled_at' => NULL,
-    'delivered_at' => '2026-07-15 12:20:30',
+    'delivered_at' => '2026-07-15 10:29:30',
     'status_id' => '9',
-    'created_at' => '2026-07-15 11:56:18',
-    'updated_at' => '2026-07-15 12:20:30',
+    'created_at' => '2026-07-15 10:05:18',
+    'updated_at' => '2026-07-15 10:29:30',
   ),
   3 => 
   array (
@@ -69,7 +69,7 @@ return array (
     'order_number' => 'BD-150726-004',
     'user_id' => '12',
     'service_type_id' => '1',
-    'driver_id' => '2',
+    'driver_id' => '4',
     'assigned_at' => '2026-07-15 12:21:50',
     'delivery_fee' => '11000.00',
     'total_price' => '11000.00',
@@ -149,8 +149,8 @@ return array (
     'order_number' => 'BD-150726-008',
     'user_id' => '5',
     'service_type_id' => '3',
-    'driver_id' => '2',
-    'assigned_at' => '2026-07-15 17:32:33',
+    'driver_id' => '1',
+    'assigned_at' => '2026-07-15 16:20:13',
     'delivery_fee' => '5000.00',
     'total_price' => '31000.00',
     'delivery_fee_source' => 'system',
@@ -158,15 +158,15 @@ return array (
     'cancelled_by' => NULL,
     'cancellation_reason' => NULL,
     'cancelled_at' => NULL,
-    'delivered_at' => '2026-07-15 18:03:12',
+    'delivered_at' => '2026-07-15 16:50:52',
     'status_id' => '9',
-    'created_at' => '2026-07-15 17:32:20',
-    'updated_at' => '2026-07-15 18:03:12',
+    'created_at' => '2026-07-15 16:20:00',
+    'updated_at' => '2026-07-15 16:50:52',
   ),
   8 => 
   array (
     'id' => '9',
-    'order_number' => 'BD-150726-009',
+    'order_number' => 'BD-150726-012',
     'user_id' => '16',
     'service_type_id' => '3',
     'driver_id' => '2',
@@ -186,7 +186,7 @@ return array (
   9 => 
   array (
     'id' => '10',
-    'order_number' => 'BD-150726-010',
+    'order_number' => 'BD-150726-014',
     'user_id' => '17',
     'service_type_id' => '3',
     'driver_id' => '1',
@@ -206,7 +206,7 @@ return array (
   10 => 
   array (
     'id' => '11',
-    'order_number' => 'BD-150726-011',
+    'order_number' => 'BD-150726-010',
     'user_id' => '19',
     'service_type_id' => '1',
     'driver_id' => NULL,
@@ -226,7 +226,7 @@ return array (
   11 => 
   array (
     'id' => '12',
-    'order_number' => 'BD-150726-012',
+    'order_number' => 'BD-150726-011',
     'user_id' => '19',
     'service_type_id' => '2',
     'driver_id' => '4',
@@ -266,7 +266,7 @@ return array (
   13 => 
   array (
     'id' => '14',
-    'order_number' => 'BD-150726-014',
+    'order_number' => 'BD-150726-015',
     'user_id' => '14',
     'service_type_id' => '3',
     'driver_id' => '4',
@@ -286,7 +286,7 @@ return array (
   14 => 
   array (
     'id' => '15',
-    'order_number' => 'BD-150726-015',
+    'order_number' => 'BD-150726-016',
     'user_id' => '15',
     'service_type_id' => '3',
     'driver_id' => '4',
@@ -306,27 +306,27 @@ return array (
   15 => 
   array (
     'id' => '16',
-    'order_number' => 'BD-150726-016',
+    'order_number' => 'BD-150726-009',
     'user_id' => '23',
     'service_type_id' => '3',
     'driver_id' => '1',
-    'assigned_at' => '2026-07-15 19:34:25',
+    'assigned_at' => '2026-07-15 17:38:45',
     'delivery_fee' => '9000.00',
-    'total_price' => '29000.00',
-    'delivery_fee_source' => 'driver_manual',
-    'route_snapshot' => '{"segments": [{"to_label": "Titik Antar", "from_label": "Soto Pak Biron", "distance_km": 2.43, "distance_text": "2.43 km", "duration_text": "5 menit", "distance_meters": 2427, "duration_seconds": 299}], "distance_km": 2.43, "travel_mode": "TWO_WHEELER", "delivery_fee": 9000, "route_status": "OK", "distance_text": "2,43 km", "duration_text": "5 menit", "route_provider": "routes_api", "distance_meters": 2427, "duration_seconds": 299, "encoded_polyline": "vosk@_nhaTVBfBEr@KjCw@jHgCdFqApCiA~Ac@b@O|@KFx@?Vj@lHfApLDzCDjIG~Bk@vF[pB_@nDc@pHWpGA|BD`@TpA~@EtBBBqB", "routing_preference": "TRAFFIC_AWARE", "ordered_pickup_location_ids": [40]}',
+    'total_price' => '14000.00',
+    'delivery_fee_source' => 'system',
+    'route_snapshot' => '{"segments":[{"to_label":"Soto Seger Mbak Rum Sraten","from_label":"Soto Pak Biron","distance_km":1.99,"distance_text":"1.99 km","duration_text":"4 menit","distance_meters":1985,"duration_seconds":241},{"to_label":"Titik Antar","from_label":"Soto Seger Mbak Rum Sraten","distance_km":0.45,"distance_text":"0.45 km","duration_text":"2 menit","distance_meters":452,"duration_seconds":95}],"distance_km":2.44,"travel_mode":"TWO_WHEELER","delivery_fee":9000,"route_status":"OK","distance_text":"2,44 km","duration_text":"6 menit","route_provider":"routes_api","distance_meters":2437,"delivery_pricing":{"base_fee":5000,"billed_km":2,"total_fee":9000,"distance_km":2.44,"rate_per_km":2000,"distance_fee":4000,"fee_breakdown":[{"code":"base_fee","label":"Tarif dasar","amount":5000},{"code":"distance_fee","label":"Ongkir jarak","amount":4000,"billed_km":2,"rate_per_km":2000}],"distance_meters":2437},"duration_seconds":336,"encoded_polyline":"vosk@_nhaTVBfBEr@KjCw@jHgCdFqApCiA~Ac@b@O|@KFx@?Vj@lHfApLDzCDjIG~Bk@vF[pB_@nDc@pHWpGA|BD`@TpA~@EtBBBqB","routing_preference":"TRAFFIC_AWARE","ordered_pickup_location_ids":[40,35]}',
     'cancelled_by' => NULL,
     'cancellation_reason' => NULL,
     'cancelled_at' => NULL,
-    'delivered_at' => '2026-07-15 20:07:45',
+    'delivered_at' => '2026-07-15 18:26:15',
     'status_id' => '9',
-    'created_at' => '2026-07-15 19:33:42',
-    'updated_at' => '2026-07-15 20:07:45',
+    'created_at' => '2026-07-15 17:38:00',
+    'updated_at' => '2026-07-15 18:26:15',
   ),
   16 => 
   array (
     'id' => '17',
-    'order_number' => 'BD-150726-017',
+    'order_number' => 'BD-150726-019',
     'user_id' => '23',
     'service_type_id' => '3',
     'driver_id' => '4',
@@ -346,7 +346,7 @@ return array (
   17 => 
   array (
     'id' => '18',
-    'order_number' => 'BD-150726-018',
+    'order_number' => 'BD-150726-017',
     'user_id' => '23',
     'service_type_id' => '1',
     'driver_id' => NULL,
@@ -366,7 +366,7 @@ return array (
   18 => 
   array (
     'id' => '19',
-    'order_number' => 'BD-150726-019',
+    'order_number' => 'BD-150726-018',
     'user_id' => '23',
     'service_type_id' => '2',
     'driver_id' => NULL,
@@ -386,11 +386,11 @@ return array (
   19 => 
   array (
     'id' => '20',
-    'order_number' => 'BD-150726-020',
+    'order_number' => 'BD-160726-002',
     'user_id' => '22',
     'service_type_id' => '1',
-    'driver_id' => '3',
-    'assigned_at' => '2026-07-15 20:02:52',
+    'driver_id' => '1',
+    'assigned_at' => '2026-07-16 18:20:28',
     'delivery_fee' => '11000.00',
     'total_price' => '11000.00',
     'delivery_fee_source' => 'system',
@@ -398,15 +398,15 @@ return array (
     'cancelled_by' => NULL,
     'cancellation_reason' => NULL,
     'cancelled_at' => NULL,
-    'delivered_at' => '2026-07-15 20:14:50',
+    'delivered_at' => '2026-07-16 18:32:26',
     'status_id' => '9',
-    'created_at' => '2026-07-15 20:02:24',
-    'updated_at' => '2026-07-15 20:14:50',
+    'created_at' => '2026-07-16 18:20:00',
+    'updated_at' => '2026-07-16 18:32:26',
   ),
   20 => 
   array (
     'id' => '21',
-    'order_number' => 'BD-150726-021',
+    'order_number' => 'BD-150726-020',
     'user_id' => '23',
     'service_type_id' => '1',
     'driver_id' => NULL,
@@ -426,11 +426,11 @@ return array (
   21 => 
   array (
     'id' => '22',
-    'order_number' => 'BD-150726-022',
+    'order_number' => 'BD-160726-003',
     'user_id' => '22',
     'service_type_id' => '2',
-    'driver_id' => '3',
-    'assigned_at' => '2026-07-15 20:16:08',
+    'driver_id' => '1',
+    'assigned_at' => '2026-07-16 18:45:22',
     'delivery_fee' => '9000.00',
     'total_price' => '9000.00',
     'delivery_fee_source' => 'system',
@@ -438,18 +438,18 @@ return array (
     'cancelled_by' => NULL,
     'cancellation_reason' => NULL,
     'cancelled_at' => NULL,
-    'delivered_at' => '2026-07-15 20:25:50',
+    'delivered_at' => '2026-07-16 18:55:04',
     'status_id' => '9',
-    'created_at' => '2026-07-15 20:15:46',
-    'updated_at' => '2026-07-15 20:25:50',
+    'created_at' => '2026-07-16 18:45:00',
+    'updated_at' => '2026-07-16 18:55:04',
   ),
   22 => 
   array (
     'id' => '23',
-    'order_number' => 'BD-150726-023',
+    'order_number' => 'BD-150726-021',
     'user_id' => '24',
     'service_type_id' => '1',
-    'driver_id' => '5',
+    'driver_id' => '1',
     'assigned_at' => '2026-07-15 20:27:29',
     'delivery_fee' => '7000.00',
     'total_price' => '7000.00',
@@ -466,7 +466,7 @@ return array (
   23 => 
   array (
     'id' => '24',
-    'order_number' => 'BD-160726-002',
+    'order_number' => 'BD-160726-005',
     'user_id' => '8',
     'service_type_id' => '1',
     'driver_id' => NULL,
@@ -486,7 +486,7 @@ return array (
   24 => 
   array (
     'id' => '25',
-    'order_number' => 'BD-160726-001',
+    'order_number' => 'BD-160726-004',
     'user_id' => '8',
     'service_type_id' => '1',
     'driver_id' => '5',
@@ -526,7 +526,7 @@ return array (
   26 => 
   array (
     'id' => '31',
-    'order_number' => 'BD-170726-002',
+    'order_number' => 'BD-170726-003',
     'user_id' => '28',
     'service_type_id' => '3',
     'driver_id' => '5',
@@ -543,14 +543,14 @@ return array (
     'created_at' => '2026-07-17 10:15:00',
     'updated_at' => '2026-07-17 11:02:24',
   ),
-  27 =>
+  27 => 
   array (
     'id' => '32',
-    'order_number' => 'BD-170726-003',
+    'order_number' => 'BD-170726-004',
     'user_id' => '29',
     'service_type_id' => '3',
     'driver_id' => '3',
-    'assigned_at' => '2026-07-17 13:21:30',
+    'assigned_at' => '2026-07-17 11:46:30',
     'delivery_fee' => '11000.00',
     'total_price' => '41000.00',
     'delivery_fee_source' => 'system',
@@ -558,19 +558,19 @@ return array (
     'cancelled_by' => NULL,
     'cancellation_reason' => NULL,
     'cancelled_at' => NULL,
-    'delivered_at' => '2026-07-17 13:58:00',
+    'delivered_at' => '2026-07-17 12:23:00',
     'status_id' => '9',
-    'created_at' => '2026-07-17 13:20:00',
-    'updated_at' => '2026-07-17 13:58:00',
+    'created_at' => '2026-07-17 11:45:00',
+    'updated_at' => '2026-07-17 12:23:00',
   ),
-  28 =>
+  28 => 
   array (
     'id' => '33',
-    'order_number' => 'BD-170726-004',
+    'order_number' => 'BD-170726-005',
     'user_id' => '30',
     'service_type_id' => '2',
-    'driver_id' => '3',
-    'assigned_at' => '2026-07-17 14:31:00',
+    'driver_id' => '5',
+    'assigned_at' => '2026-07-17 12:31:00',
     'delivery_fee' => '9000.00',
     'total_price' => '9000.00',
     'delivery_fee_source' => 'system',
@@ -578,9 +578,49 @@ return array (
     'cancelled_by' => NULL,
     'cancellation_reason' => NULL,
     'cancelled_at' => NULL,
-    'delivered_at' => '2026-07-17 15:02:00',
+    'delivered_at' => '2026-07-17 13:02:00',
     'status_id' => '9',
-    'created_at' => '2026-07-17 14:30:00',
-    'updated_at' => '2026-07-17 15:02:00',
+    'created_at' => '2026-07-17 12:30:00',
+    'updated_at' => '2026-07-17 13:02:00',
+  ),
+  29 => 
+  array (
+    'id' => '34',
+    'order_number' => 'BD-160726-001',
+    'user_id' => '6',
+    'service_type_id' => '3',
+    'driver_id' => '4',
+    'assigned_at' => '2026-07-16 17:41:30',
+    'delivery_fee' => '5000.00',
+    'total_price' => '23000.00',
+    'delivery_fee_source' => 'system',
+    'route_snapshot' => '{"segments":[{"to_label":"Titik Antar","from_label":"Pickup","distance_km":0.28,"distance_text":"0.28 km","duration_text":"4 menit","distance_meters":280,"duration_seconds":240}],"distance_km":0.28,"travel_mode":"TWO_WHEELER","delivery_fee":5000,"route_status":"OK","distance_text":"0.28 km","duration_text":"4 menit","route_provider":"routes_api","distance_meters":280,"delivery_pricing":{"base_fee":5000,"billed_km":0,"total_fee":5000,"distance_km":0.28,"rate_per_km":2000,"distance_fee":0,"fee_breakdown":[{"code":"base_fee","label":"Tarif dasar","amount":5000},{"code":"distance_fee","label":"Ongkir jarak","amount":0,"billed_km":0,"rate_per_km":2000}],"distance_meters":280},"duration_seconds":240,"routing_preference":"TRAFFIC_AWARE","ordered_pickup_location_ids":[75]}',
+    'cancelled_by' => NULL,
+    'cancellation_reason' => NULL,
+    'cancelled_at' => NULL,
+    'delivered_at' => '2026-07-16 18:10:14',
+    'status_id' => '9',
+    'created_at' => '2026-07-16 17:35:00',
+    'updated_at' => '2026-07-16 18:10:14',
+  ),
+  30 => 
+  array (
+    'id' => '35',
+    'order_number' => 'BD-170726-002',
+    'user_id' => '26',
+    'service_type_id' => '3',
+    'driver_id' => '4',
+    'assigned_at' => '2026-07-17 09:51:30',
+    'delivery_fee' => '5000.00',
+    'total_price' => '15000.00',
+    'delivery_fee_source' => 'system',
+    'route_snapshot' => '{"segments":[{"to_label":"Titik Antar","from_label":"Pickup","distance_km":0.31,"distance_text":"0.31 km","duration_text":"4 menit","distance_meters":310,"duration_seconds":240}],"distance_km":0.31,"travel_mode":"TWO_WHEELER","delivery_fee":5000,"route_status":"OK","distance_text":"0.31 km","duration_text":"4 menit","route_provider":"routes_api","distance_meters":310,"delivery_pricing":{"base_fee":5000,"billed_km":0,"total_fee":5000,"distance_km":0.31,"rate_per_km":2000,"distance_fee":0,"fee_breakdown":[{"code":"base_fee","label":"Tarif dasar","amount":5000},{"code":"distance_fee","label":"Ongkir jarak","amount":0,"billed_km":0,"rate_per_km":2000}],"distance_meters":310},"duration_seconds":240,"routing_preference":"TRAFFIC_AWARE","ordered_pickup_location_ids":[77]}',
+    'cancelled_by' => NULL,
+    'cancellation_reason' => NULL,
+    'cancelled_at' => NULL,
+    'delivered_at' => '2026-07-17 10:20:14',
+    'status_id' => '9',
+    'created_at' => '2026-07-17 09:45:00',
+    'updated_at' => '2026-07-17 10:20:14',
   ),
 );

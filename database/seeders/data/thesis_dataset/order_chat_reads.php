@@ -7,7 +7,7 @@ return array (
   array (
     'id' => '1',
     'order_id' => '4',
-    'user_id' => '9',
+    'user_id' => '20',
     'last_read_message_id' => '2',
     'read_at' => '2026-07-15 12:43:52',
     'created_at' => '2026-07-15 12:43:51',
@@ -17,11 +17,11 @@ return array (
   array (
     'id' => '2',
     'order_id' => '8',
-    'user_id' => '9',
+    'user_id' => '2',
     'last_read_message_id' => '6',
-    'read_at' => '2026-07-15 18:02:06',
-    'created_at' => '2026-07-15 17:36:30',
-    'updated_at' => '2026-07-15 18:02:06',
+    'read_at' => '2026-07-15 16:49:46',
+    'created_at' => '2026-07-15 16:24:10',
+    'updated_at' => '2026-07-15 16:49:46',
   ),
   2 => 
   array (
@@ -29,9 +29,9 @@ return array (
     'order_id' => '8',
     'user_id' => '5',
     'last_read_message_id' => '6',
-    'read_at' => '2026-07-15 17:48:55',
-    'created_at' => '2026-07-15 17:36:34',
-    'updated_at' => '2026-07-15 17:48:55',
+    'read_at' => '2026-07-15 16:36:35',
+    'created_at' => '2026-07-15 16:24:14',
+    'updated_at' => '2026-07-15 16:36:35',
   ),
   3 => 
   array (
@@ -78,20 +78,20 @@ return array (
     'id' => '8',
     'order_id' => '16',
     'user_id' => '23',
-    'last_read_message_id' => '18',
-    'read_at' => '2026-07-15 20:07:53',
-    'created_at' => '2026-07-15 19:34:46',
-    'updated_at' => '2026-07-15 20:07:53',
+    'last_read_message_id' => '41',
+    'read_at' => '2026-07-15 18:26:15',
+    'created_at' => '2026-07-15 17:39:20',
+    'updated_at' => '2026-07-15 18:26:15',
   ),
   8 => 
   array (
     'id' => '9',
     'order_id' => '16',
     'user_id' => '2',
-    'last_read_message_id' => '17',
-    'read_at' => '2026-07-15 19:43:00',
-    'created_at' => '2026-07-15 19:34:54',
-    'updated_at' => '2026-07-15 19:43:00',
+    'last_read_message_id' => '41',
+    'read_at' => '2026-07-15 17:55:30',
+    'created_at' => '2026-07-15 17:39:30',
+    'updated_at' => '2026-07-15 17:55:30',
   ),
   9 => 
   array (
@@ -119,15 +119,15 @@ return array (
     'order_id' => '20',
     'user_id' => '22',
     'last_read_message_id' => '22',
-    'read_at' => '2026-07-15 20:07:12',
-    'created_at' => '2026-07-15 20:07:07',
-    'updated_at' => '2026-07-15 20:07:12',
+    'read_at' => '2026-07-16 18:24:48',
+    'created_at' => '2026-07-16 18:24:43',
+    'updated_at' => '2026-07-16 18:24:48',
   ),
   12 => 
   array (
     'id' => '13',
     'order_id' => '23',
-    'user_id' => '25',
+    'user_id' => '2',
     'last_read_message_id' => '24',
     'read_at' => '2026-07-15 20:32:20',
     'created_at' => '2026-07-15 20:28:04',

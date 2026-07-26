@@ -255,4 +255,18 @@ return array (
     'created_at' => '2026-07-17 10:13:53',
     'updated_at' => '2026-07-17 10:13:53',
   ),
+  18 => 
+  array (
+    'id' => '20',
+    'user_id' => '26',
+    'label' => 'Rumah',
+    'recipient_name' => 'Pelanggan 19',
+    'phone' => '081200000019',
+    'full_address' => 'Sraten, Kec. Tuntang, Kabupaten Semarang, Jawa Tengah, 50773',
+    'latitude' => '-7.319',
+    'longitude' => '110.467',
+    'is_default' => '1',
+    'created_at' => '2026-07-16 23:56:18',
+    'updated_at' => '2026-07-16 23:56:18',
+  ),
 );

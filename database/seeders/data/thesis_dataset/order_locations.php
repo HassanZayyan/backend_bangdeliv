@@ -80,8 +80,8 @@ return array (
     'sequence_no' => '1',
     'fulfillment_status' => 'PENDING',
     'failed_attempt_count' => '0',
-    'created_at' => '2026-07-15 11:56:18',
-    'updated_at' => '2026-07-15 11:56:18',
+    'created_at' => '2026-07-15 10:05:18',
+    'updated_at' => '2026-07-15 10:05:18',
   ),
   5 => 
   array (
@@ -96,8 +96,8 @@ return array (
     'sequence_no' => '2',
     'fulfillment_status' => 'PENDING',
     'failed_attempt_count' => '0',
-    'created_at' => '2026-07-15 11:56:18',
-    'updated_at' => '2026-07-15 11:56:18',
+    'created_at' => '2026-07-15 10:05:18',
+    'updated_at' => '2026-07-15 10:05:18',
   ),
   6 => 
   array (
@@ -240,8 +240,8 @@ return array (
     'sequence_no' => '1',
     'fulfillment_status' => 'COMPLETED',
     'failed_attempt_count' => '0',
-    'created_at' => '2026-07-15 17:32:20',
-    'updated_at' => '2026-07-15 17:48:34',
+    'created_at' => '2026-07-15 16:20:00',
+    'updated_at' => '2026-07-15 16:36:14',
   ),
   15 => 
   array (
@@ -256,8 +256,8 @@ return array (
     'sequence_no' => '2',
     'fulfillment_status' => 'COMPLETED',
     'failed_attempt_count' => '0',
-    'created_at' => '2026-07-15 17:32:20',
-    'updated_at' => '2026-07-15 17:48:34',
+    'created_at' => '2026-07-15 16:20:00',
+    'updated_at' => '2026-07-15 16:36:14',
   ),
   16 => 
   array (
@@ -272,8 +272,8 @@ return array (
     'sequence_no' => '3',
     'fulfillment_status' => 'PENDING',
     'failed_attempt_count' => '0',
-    'created_at' => '2026-07-15 17:32:20',
-    'updated_at' => '2026-07-15 17:32:20',
+    'created_at' => '2026-07-15 16:20:00',
+    'updated_at' => '2026-07-15 16:20:00',
   ),
   17 => 
   array (
@@ -557,11 +557,11 @@ return array (
     'full_address' => 'Jl. Raya Sraten, Sraten Dua, Sraten, Kec. Tuntang, Kabupaten Semarang, Jawa Tengah 50773',
     'latitude' => '-7.320',
     'longitude' => '110.469',
-    'sequence_no' => '2',
-    'fulfillment_status' => 'REPLACED',
-    'failed_attempt_count' => '1',
-    'created_at' => '2026-07-15 19:33:42',
-    'updated_at' => '2026-07-15 19:44:51',
+    'sequence_no' => '3',
+    'fulfillment_status' => 'COMPLETED',
+    'failed_attempt_count' => '0',
+    'created_at' => '2026-07-15 17:55:00',
+    'updated_at' => '2026-07-15 18:18:40',
   ),
   35 => 
   array (
@@ -573,11 +573,11 @@ return array (
     'full_address' => 'Sraten, Kec. Tuntang, Kabupaten Semarang, Jawa Tengah, 50773',
     'latitude' => '-7.321',
     'longitude' => '110.465',
-    'sequence_no' => '3',
+    'sequence_no' => '2',
     'fulfillment_status' => 'PENDING',
     'failed_attempt_count' => '0',
-    'created_at' => '2026-07-15 19:33:42',
-    'updated_at' => '2026-07-15 19:44:51',
+    'created_at' => '2026-07-15 17:38:00',
+    'updated_at' => '2026-07-15 17:38:00',
   ),
   36 => 
   array (
@@ -638,10 +638,10 @@ return array (
     'latitude' => '-7.314',
     'longitude' => '110.477',
     'sequence_no' => '1',
-    'fulfillment_status' => 'COMPLETED',
-    'failed_attempt_count' => '0',
-    'created_at' => '2026-07-15 19:44:51',
-    'updated_at' => '2026-07-15 19:58:23',
+    'fulfillment_status' => 'REPLACED',
+    'failed_attempt_count' => '1',
+    'created_at' => '2026-07-15 17:38:00',
+    'updated_at' => '2026-07-15 17:55:00',
   ),
   40 => 
   array (
@@ -720,8 +720,8 @@ return array (
     'sequence_no' => '1',
     'fulfillment_status' => 'PENDING',
     'failed_attempt_count' => '0',
-    'created_at' => '2026-07-15 20:02:24',
-    'updated_at' => '2026-07-15 20:02:24',
+    'created_at' => '2026-07-16 18:20:00',
+    'updated_at' => '2026-07-16 18:20:00',
   ),
   45 => 
   array (
@@ -736,8 +736,8 @@ return array (
     'sequence_no' => '2',
     'fulfillment_status' => 'PENDING',
     'failed_attempt_count' => '0',
-    'created_at' => '2026-07-15 20:02:24',
-    'updated_at' => '2026-07-15 20:02:24',
+    'created_at' => '2026-07-16 18:20:00',
+    'updated_at' => '2026-07-16 18:20:00',
   ),
   46 => 
   array (
@@ -784,8 +784,8 @@ return array (
     'sequence_no' => '1',
     'fulfillment_status' => 'PENDING',
     'failed_attempt_count' => '0',
-    'created_at' => '2026-07-15 20:15:46',
-    'updated_at' => '2026-07-15 20:15:46',
+    'created_at' => '2026-07-16 18:45:00',
+    'updated_at' => '2026-07-16 18:45:00',
   ),
   49 => 
   array (
@@ -800,8 +800,8 @@ return array (
     'sequence_no' => '2',
     'fulfillment_status' => 'PENDING',
     'failed_attempt_count' => '0',
-    'created_at' => '2026-07-15 20:15:46',
-    'updated_at' => '2026-07-15 20:15:46',
+    'created_at' => '2026-07-16 18:45:00',
+    'updated_at' => '2026-07-16 18:45:00',
   ),
   50 => 
   array (
@@ -963,7 +963,7 @@ return array (
     'created_at' => '2026-07-17 10:15:00',
     'updated_at' => '2026-07-17 10:15:00',
   ),
-  60 =>
+  60 => 
   array (
     'id' => '71',
     'order_id' => '32',
@@ -976,10 +976,10 @@ return array (
     'sequence_no' => '1',
     'fulfillment_status' => 'COMPLETED',
     'failed_attempt_count' => '0',
-    'created_at' => '2026-07-17 13:20:00',
-    'updated_at' => '2026-07-17 13:35:00',
+    'created_at' => '2026-07-17 11:45:00',
+    'updated_at' => '2026-07-17 12:00:00',
   ),
-  61 =>
+  61 => 
   array (
     'id' => '72',
     'order_id' => '32',
@@ -992,10 +992,10 @@ return array (
     'sequence_no' => '2',
     'fulfillment_status' => 'PENDING',
     'failed_attempt_count' => '0',
-    'created_at' => '2026-07-17 13:20:00',
-    'updated_at' => '2026-07-17 13:20:00',
+    'created_at' => '2026-07-17 11:45:00',
+    'updated_at' => '2026-07-17 11:45:00',
   ),
-  62 =>
+  62 => 
   array (
     'id' => '73',
     'order_id' => '33',
@@ -1008,10 +1008,10 @@ return array (
     'sequence_no' => '1',
     'fulfillment_status' => 'PENDING',
     'failed_attempt_count' => '0',
-    'created_at' => '2026-07-17 14:30:00',
-    'updated_at' => '2026-07-17 14:30:00',
+    'created_at' => '2026-07-17 12:30:00',
+    'updated_at' => '2026-07-17 12:30:00',
   ),
-  63 =>
+  63 => 
   array (
     'id' => '74',
     'order_id' => '33',
@@ -1024,7 +1024,71 @@ return array (
     'sequence_no' => '2',
     'fulfillment_status' => 'PENDING',
     'failed_attempt_count' => '0',
-    'created_at' => '2026-07-17 14:30:00',
-    'updated_at' => '2026-07-17 14:30:00',
+    'created_at' => '2026-07-17 12:30:00',
+    'updated_at' => '2026-07-17 12:30:00',
+  ),
+  64 => 
+  array (
+    'id' => '75',
+    'order_id' => '34',
+    'restaurant_id' => '31',
+    'location_role' => 'PICKUP',
+    'label' => 'Kedai El-Sha',
+    'full_address' => 'Jl. Sukri, Sraten Tiga, Gedangan, Kec. Tuntang, Kabupaten Semarang, Jawa Tengah 50773',
+    'latitude' => '-7.321',
+    'longitude' => '110.468',
+    'sequence_no' => '1',
+    'fulfillment_status' => 'COMPLETED',
+    'failed_attempt_count' => '0',
+    'created_at' => '2026-07-16 17:35:00',
+    'updated_at' => '2026-07-16 17:55:19',
+  ),
+  65 => 
+  array (
+    'id' => '76',
+    'order_id' => '34',
+    'restaurant_id' => NULL,
+    'location_role' => 'DROPOFF',
+    'label' => 'Titik Antar',
+    'full_address' => 'Sraten, Kec. Tuntang, Kabupaten Semarang, Jawa Tengah, 50773',
+    'latitude' => '-7.320',
+    'longitude' => '110.471',
+    'sequence_no' => '2',
+    'fulfillment_status' => 'PENDING',
+    'failed_attempt_count' => '0',
+    'created_at' => '2026-07-16 17:35:00',
+    'updated_at' => '2026-07-16 17:35:00',
+  ),
+  66 => 
+  array (
+    'id' => '77',
+    'order_id' => '35',
+    'restaurant_id' => '42',
+    'location_role' => 'PICKUP',
+    'label' => 'Soto Seger Mbak Rum Sraten',
+    'full_address' => 'Jl. Raya Sraten, Sraten Dua, Sraten, Kec. Tuntang, Kabupaten Semarang, Jawa Tengah 50773',
+    'latitude' => '-7.320',
+    'longitude' => '110.469',
+    'sequence_no' => '1',
+    'fulfillment_status' => 'COMPLETED',
+    'failed_attempt_count' => '0',
+    'created_at' => '2026-07-17 09:45:00',
+    'updated_at' => '2026-07-17 10:05:19',
+  ),
+  67 => 
+  array (
+    'id' => '78',
+    'order_id' => '35',
+    'restaurant_id' => NULL,
+    'location_role' => 'DROPOFF',
+    'label' => 'Titik Antar',
+    'full_address' => 'Sraten, Kec. Tuntang, Kabupaten Semarang, Jawa Tengah, 50773',
+    'latitude' => '-7.319',
+    'longitude' => '110.467',
+    'sequence_no' => '2',
+    'fulfillment_status' => 'PENDING',
+    'failed_attempt_count' => '0',
+    'created_at' => '2026-07-17 09:45:00',
+    'updated_at' => '2026-07-17 09:45:00',
   ),
 );

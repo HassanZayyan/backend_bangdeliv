@@ -38,10 +38,10 @@ return array (
     'id' => '4',
     'order_id' => '8',
     'total_amount' => '26000.00',
-    'recorded_by_user_id' => '9',
-    'recorded_at' => '2026-07-15 17:48:34',
-    'created_at' => '2026-07-15 17:48:34',
-    'updated_at' => '2026-07-15 17:48:34',
+    'recorded_by_user_id' => '2',
+    'recorded_at' => '2026-07-15 16:36:14',
+    'created_at' => '2026-07-15 16:36:14',
+    'updated_at' => '2026-07-15 16:36:14',
   ),
   4 => 
   array (
@@ -97,11 +97,11 @@ return array (
   array (
     'id' => '10',
     'order_id' => '16',
-    'total_amount' => '20000.00',
+    'total_amount' => '5000.00',
     'recorded_by_user_id' => '2',
-    'recorded_at' => '2026-07-15 19:58:23',
-    'created_at' => '2026-07-15 19:58:23',
-    'updated_at' => '2026-07-15 19:58:23',
+    'recorded_at' => '2026-07-15 18:18:40',
+    'created_at' => '2026-07-15 18:18:40',
+    'updated_at' => '2026-07-15 18:18:40',
   ),
   10 => 
   array (
@@ -123,14 +123,34 @@ return array (
     'created_at' => '2026-07-17 10:28:41',
     'updated_at' => '2026-07-17 10:28:41',
   ),
-  12 =>
+  12 => 
   array (
     'id' => '14',
     'order_id' => '32',
     'total_amount' => '30000.00',
     'recorded_by_user_id' => '18',
-    'recorded_at' => '2026-07-17 13:35:00',
-    'created_at' => '2026-07-17 13:35:00',
-    'updated_at' => '2026-07-17 13:35:00',
+    'recorded_at' => '2026-07-17 12:00:00',
+    'created_at' => '2026-07-17 12:00:00',
+    'updated_at' => '2026-07-17 12:00:00',
+  ),
+  13 => 
+  array (
+    'id' => '15',
+    'order_id' => '34',
+    'total_amount' => '18000.00',
+    'recorded_by_user_id' => '20',
+    'recorded_at' => '2026-07-16 17:55:19',
+    'created_at' => '2026-07-16 17:55:19',
+    'updated_at' => '2026-07-16 17:55:19',
+  ),
+  14 => 
+  array (
+    'id' => '16',
+    'order_id' => '35',
+    'total_amount' => '10000.00',
+    'recorded_by_user_id' => '20',
+    'recorded_at' => '2026-07-17 10:05:19',
+    'created_at' => '2026-07-17 10:05:19',
+    'updated_at' => '2026-07-17 10:05:19',
   ),
 );

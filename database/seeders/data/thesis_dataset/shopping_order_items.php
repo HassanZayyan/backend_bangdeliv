@@ -170,8 +170,8 @@ return array (
     'notes' => NULL,
     'metadata' => '{"source": "CHATBOT_MENU_MATCH", "price_status": "CONFIRMED", "restaurant_id": 50}',
     'is_available' => '1',
-    'created_at' => '2026-07-15 17:32:20',
-    'updated_at' => '2026-07-15 17:32:20',
+    'created_at' => '2026-07-15 16:20:00',
+    'updated_at' => '2026-07-15 16:20:00',
   ),
   10 => 
   array (
@@ -187,8 +187,8 @@ return array (
     'notes' => NULL,
     'metadata' => '{"source": "CHATBOT_MENU_MATCH", "price_status": "CONFIRMED", "restaurant_id": 10}',
     'is_available' => '1',
-    'created_at' => '2026-07-15 17:32:20',
-    'updated_at' => '2026-07-15 17:32:20',
+    'created_at' => '2026-07-15 16:20:00',
+    'updated_at' => '2026-07-15 16:20:00',
   ),
   11 => 
   array (
@@ -381,18 +381,18 @@ return array (
   array (
     'id' => '27',
     'order_id' => '16',
-    'menu_id' => NULL,
-    'pickup_location_id' => '40',
-    'item_source' => 'MANUAL',
-    'menu_name' => 'sing penting soto',
+    'menu_id' => '972',
+    'pickup_location_id' => '35',
+    'item_source' => 'MENU_DB',
+    'menu_name' => 'Soto Seger',
     'quantity' => '1',
-    'unit_price' => '0.00',
-    'subtotal' => '0.00',
-    'notes' => NULL,
-    'metadata' => '{"name": "Soto Pak Biron", "types": ["establishment", "food", "point_of_interest", "restaurant"], "source": "CUSTOMER_GOOGLE_PLACE", "address": "Jl. Lkr. Sel. Salatiga, Pulutan, Kec. Sidorejo, Kota Salatiga, Jawa Tengah 50716", "latitude": -7.314, "place_id": "ChIJWdwCull4ei4R8z6KzX_HXkw", "longitude": 110.477, "price_status": "PENDING_DRIVER_INPUT", "replaced_from_pickup_location_id": 35}',
+    'unit_price' => '5000.00',
+    'subtotal' => '5000.00',
+    'notes' => 'sambal dipisah',
+    'metadata' => '{"source":"CHATBOT_MENU_MATCH","price_status":"CONFIRMED","restaurant_id":42,"replaced_from_pickup_location_id":40}',
     'is_available' => '1',
-    'created_at' => '2026-07-15 19:44:51',
-    'updated_at' => '2026-07-15 19:44:51',
+    'created_at' => '2026-07-15 17:55:00',
+    'updated_at' => '2026-07-15 18:04:00',
   ),
   23 => 
   array (
@@ -479,7 +479,7 @@ return array (
     'created_at' => '2026-07-17 10:15:00',
     'updated_at' => '2026-07-17 10:15:00',
   ),
-  28 =>
+  28 => 
   array (
     'id' => '41',
     'order_id' => '32',
@@ -493,10 +493,10 @@ return array (
     'notes' => NULL,
     'metadata' => '{"source": "CHATBOT_MENU_MATCH", "price_status": "CONFIRMED", "restaurant_id": 49}',
     'is_available' => '1',
-    'created_at' => '2026-07-17 13:20:00',
-    'updated_at' => '2026-07-17 13:20:00',
+    'created_at' => '2026-07-17 11:45:00',
+    'updated_at' => '2026-07-17 11:45:00',
   ),
-  29 =>
+  29 => 
   array (
     'id' => '42',
     'order_id' => '32',
@@ -510,7 +510,41 @@ return array (
     'notes' => NULL,
     'metadata' => '{"source": "CHATBOT_MENU_MATCH", "price_status": "CONFIRMED", "restaurant_id": 49}',
     'is_available' => '1',
-    'created_at' => '2026-07-17 13:20:00',
-    'updated_at' => '2026-07-17 13:20:00',
+    'created_at' => '2026-07-17 11:45:00',
+    'updated_at' => '2026-07-17 11:45:00',
+  ),
+  30 => 
+  array (
+    'id' => '43',
+    'order_id' => '34',
+    'menu_id' => '710',
+    'pickup_location_id' => '75',
+    'item_source' => 'MENU_DB',
+    'menu_name' => 'Ayam Crispy Paha Atas',
+    'quantity' => '2',
+    'unit_price' => '9000.00',
+    'subtotal' => '18000.00',
+    'notes' => NULL,
+    'metadata' => '{"source":"CHATBOT_MENU_MATCH","price_status":"CONFIRMED","restaurant_id":31}',
+    'is_available' => '1',
+    'created_at' => '2026-07-16 17:35:00',
+    'updated_at' => '2026-07-16 17:35:00',
+  ),
+  31 => 
+  array (
+    'id' => '44',
+    'order_id' => '35',
+    'menu_id' => '972',
+    'pickup_location_id' => '77',
+    'item_source' => 'MENU_DB',
+    'menu_name' => 'Soto Seger',
+    'quantity' => '2',
+    'unit_price' => '5000.00',
+    'subtotal' => '10000.00',
+    'notes' => NULL,
+    'metadata' => '{"source":"CHATBOT_MENU_MATCH","price_status":"CONFIRMED","restaurant_id":42}',
+    'is_available' => '1',
+    'created_at' => '2026-07-17 09:45:00',
+    'updated_at' => '2026-07-17 09:45:00',
   ),
 );
