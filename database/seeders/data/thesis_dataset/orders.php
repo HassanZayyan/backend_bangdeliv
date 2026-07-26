@@ -6,7 +6,7 @@ return array (
   0 => 
   array (
     'id' => '1',
-    'order_number' => 'BD-150726-001',
+    'order_number' => 'BD-150726-002',
     'user_id' => '10',
     'service_type_id' => '1',
     'driver_id' => '1',
@@ -26,7 +26,7 @@ return array (
   1 => 
   array (
     'id' => '2',
-    'order_number' => 'BD-150726-003',
+    'order_number' => 'BD-150726-004',
     'user_id' => '11',
     'service_type_id' => '3',
     'driver_id' => '2',
@@ -46,7 +46,7 @@ return array (
   2 => 
   array (
     'id' => '3',
-    'order_number' => 'BD-150726-002',
+    'order_number' => 'BD-150726-003',
     'user_id' => '3',
     'service_type_id' => '1',
     'driver_id' => '1',
@@ -66,11 +66,11 @@ return array (
   3 => 
   array (
     'id' => '4',
-    'order_number' => 'BD-150726-004',
+    'order_number' => 'BD-150726-001',
     'user_id' => '12',
     'service_type_id' => '1',
     'driver_id' => '4',
-    'assigned_at' => '2026-07-15 12:21:50',
+    'assigned_at' => '2026-07-15 09:03:20',
     'delivery_fee' => '11000.00',
     'total_price' => '11000.00',
     'delivery_fee_source' => 'system',
@@ -78,10 +78,10 @@ return array (
     'cancelled_by' => NULL,
     'cancellation_reason' => NULL,
     'cancelled_at' => NULL,
-    'delivered_at' => '2026-07-15 12:43:59',
+    'delivered_at' => '2026-07-15 09:21:00',
     'status_id' => '9',
-    'created_at' => '2026-07-15 12:21:44',
-    'updated_at' => '2026-07-15 12:43:59',
+    'created_at' => '2026-07-15 09:03:00',
+    'updated_at' => '2026-07-15 09:21:00',
   ),
   4 => 
   array (

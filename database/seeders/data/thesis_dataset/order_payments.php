@@ -54,10 +54,10 @@ return array (
     'amount' => '11000.00',
     'recorded_by_user_id' => '20',
     'driver_id' => '4',
-    'paid_at' => '2026-07-15 12:43:56',
+    'paid_at' => '2026-07-15 09:20:15',
     'metadata' => '{"extra":null,"source":"DRIVER_COLLECTION","recorded_by_role":"driver"}',
-    'created_at' => '2026-07-15 12:21:44',
-    'updated_at' => '2026-07-15 12:43:56',
+    'created_at' => '2026-07-15 09:03:00',
+    'updated_at' => '2026-07-15 09:20:15',
   ),
   4 => 
   array (

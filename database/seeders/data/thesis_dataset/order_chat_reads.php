@@ -9,9 +9,9 @@ return array (
     'order_id' => '4',
     'user_id' => '20',
     'last_read_message_id' => '2',
-    'read_at' => '2026-07-15 12:43:52',
-    'created_at' => '2026-07-15 12:43:51',
-    'updated_at' => '2026-07-15 12:43:52',
+    'read_at' => '2026-07-15 09:20:06',
+    'created_at' => '2026-07-15 09:20:00',
+    'updated_at' => '2026-07-15 09:20:06',
   ),
   1 => 
   array (
