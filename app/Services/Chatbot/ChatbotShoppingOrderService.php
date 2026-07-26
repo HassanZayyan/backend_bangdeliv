@@ -3,6 +3,7 @@
 namespace App\Services\Chatbot;
 
 use App\Exceptions\ApiException;
+use App\Models\Menu;
 use App\Models\Order;
 use App\Models\OrderStatus;
 use App\Models\OrderStatusHistory;
@@ -20,12 +21,19 @@ use App\Services\Shopping\ShoppingMerchantCandidate;
 use App\Services\Shopping\ShoppingMerchantCandidateResolver;
 use App\Services\Shopping\ShoppingRouteService;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class ChatbotShoppingOrderService
 {
     private const MAX_MERCHANT_STOPS = 3;
+
+    /**
+     * Sapaan/frasa intent yang tidak mungkin menjadi nama makanan atau barang.
+     * Kemunculannya di nama item = parser regex gagal membersihkan pesan.
+     */
+    private const ITEM_INTENT_NOISE_PATTERN = '/\b(?:mas|mbak|bang|bro|sis|kak|min|woy|tolong|belikan|beliin|titipin|nitipin|pesenin|gasin)\b/iu';
 
     /**
      * @var array<int, string>
@@ -206,6 +214,10 @@ class ChatbotShoppingOrderService
                 $this->shouldParseImplicitItem($currentDraftSeed),
                 $allowBareTrailingQuantity
             );
+            $parsedItemIntents = $this->reconcileParsedItemsWithModel(
+                $parsedItemIntents,
+                $nluPayload['items'] ?? []
+            );
         }
         $incomingStops = $parsedItemIntents === []
             ? $this->normalizeIncomingStops($nluPayload['stops'] ?? [])
@@ -256,6 +268,107 @@ class ChatbotShoppingOrderService
     private function itemEditClarificationMessage(): string
     {
         return 'Tulis item yang mau diubah, contoh: kurangi mie gacoan level 4 1x.';
+    }
+
+    /**
+     * Parser regex bekerja dari daftar tertutup (pemisah, unit, frasa intent),
+     * jadi gaya bahasa di luar daftar bisa lolos menjadi satu item berisi
+     * kalimat utuh. Di kasus itu hasil model dipakai — TAPI hanya bila terbukti
+     * merupakan pemecahan dari teks yang sama, bukan item karangan. Dengan
+     * begitu format daftar terstruktur (yang dicontohkan bot sendiri) tetap
+     * ditangani parser deterministik dan tidak bergantung ketersediaan API.
+     *
+     * @param  array<int, array<string, mixed>>  $parsedItems
+     * @return array<int, array<string, mixed>>
+     */
+    private function reconcileParsedItemsWithModel(array $parsedItems, mixed $modelItems): array
+    {
+        if ($parsedItems === []) {
+            return $parsedItems;
+        }
+
+        $modelItems = ChatbotShoppingItemNormalizer::geminiItems($modelItems);
+        if ($modelItems === []) {
+            return $parsedItems;
+        }
+
+        if (! $this->modelItemsSplitSingleParsedItem($parsedItems, $modelItems)
+            && ! $this->parsedItemsCarryIntentNoise($parsedItems)) {
+            return $parsedItems;
+        }
+
+        // Operasi (kurangi/hapus/set) tetap diambil dari parser bila model tidak
+        // menyebutkannya, supaya alur edit item tidak berubah jadi penambahan.
+        $fallbackOperation = $this->firstNonAddParsedOperation($parsedItems);
+
+        return array_map(static fn (array $item): array => [
+            'name' => (string) $item['name'],
+            'quantity' => ChatbotShoppingItemNormalizer::quantity($item),
+            'operation' => ChatbotShoppingItemNormalizer::operation($item['operation'] ?? null)
+                ?? $fallbackOperation,
+            'notes' => ChatbotShoppingItemNormalizer::optionalString($item['notes'] ?? null),
+        ], $modelItems);
+    }
+
+    /**
+     * Gejala parser gagal MEMISAH: regex hanya dapat satu item, sedangkan model
+     * memecahnya menjadi beberapa item yang semuanya masih bagian teks itu.
+     *
+     * @param  array<int, array<string, mixed>>  $parsedItems
+     * @param  array<int, array<string, mixed>>  $modelItems
+     */
+    private function modelItemsSplitSingleParsedItem(array $parsedItems, array $modelItems): bool
+    {
+        if (count($parsedItems) !== 1 || count($modelItems) < 2) {
+            return false;
+        }
+
+        $parsedName = ChatbotShoppingItemNormalizer::itemKey((string) ($parsedItems[0]['name'] ?? ''));
+        if ($parsedName === '') {
+            return false;
+        }
+
+        foreach ($modelItems as $modelItem) {
+            $modelName = ChatbotShoppingItemNormalizer::itemKey((string) ($modelItem['name'] ?? ''));
+            if ($modelName === '' || ! str_contains($parsedName, $modelName)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Gejala parser gagal MEMBERSIHKAN: nama item masih memuat sapaan atau
+     * frasa intent.
+     *
+     * @param  array<int, array<string, mixed>>  $parsedItems
+     */
+    private function parsedItemsCarryIntentNoise(array $parsedItems): bool
+    {
+        foreach ($parsedItems as $parsedItem) {
+            $name = ChatbotShoppingItemNormalizer::itemKey((string) ($parsedItem['name'] ?? ''));
+            if ($name !== '' && preg_match(self::ITEM_INTENT_NOISE_PATTERN, $name) === 1) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $parsedItems
+     */
+    private function firstNonAddParsedOperation(array $parsedItems): string
+    {
+        foreach ($parsedItems as $parsedItem) {
+            $operation = ChatbotShoppingItemNormalizer::operation($parsedItem['operation'] ?? null);
+            if ($operation !== null && $operation !== ChatbotShoppingItemIntentParser::OP_ADD) {
+                return $operation;
+            }
+        }
+
+        return ChatbotShoppingItemIntentParser::OP_ADD;
     }
 
     /**
@@ -1747,7 +1860,13 @@ class ChatbotShoppingOrderService
 
             $quantity = max(1, (int) ($seed['quantity'] ?? 1));
             $notes = $this->normalizeOptionalString($seed['notes'] ?? null);
-            $menu = $menusByName->get(Str::of($name)->lower()->squish()->toString());
+            $normalizedName = Str::of($name)->lower()->squish()->toString();
+            $menu = $menusByName->get($normalizedName);
+            $matchMode = 'EXACT';
+            if ($menu === null) {
+                $menu = $this->uniqueCatalogAliasMenu($menusByName, $normalizedName);
+                $matchMode = 'CATALOG_ALIAS';
+            }
 
             if ($menu !== null) {
                 $hasReferencePrice = $menu->price !== null;
@@ -1767,6 +1886,7 @@ class ChatbotShoppingOrderService
                     'metadata' => [
                         'price_status' => $hasReferencePrice ? 'CONFIRMED' : 'PENDING_DRIVER_INPUT',
                         'source' => $hasReferencePrice ? 'CHATBOT_MENU_MATCH' : 'CHATBOT_MENU_MATCH_PENDING_PRICE',
+                        'match_mode' => $matchMode,
                         ...(! $hasReferencePrice ? ['catalog_menu_id' => (int) $menu->id] : []),
                     ],
                 ];
@@ -1792,6 +1912,31 @@ class ChatbotShoppingOrderService
         }
 
         return $items;
+    }
+
+    /**
+     * Pencocokan katalog cadangan setelah nama persis gagal: dipakai bila nama
+     * yang diketik user adalah bentuk SINGKAT dari satu nama menu, misalnya
+     * "gacoan level 1" untuk menu "Mie Gacoan Level 1".
+     *
+     * Sengaja hanya satu arah. Nama user yang lebih PANJANG dari nama menu
+     * tidak dicocokkan, karena imbuhan seperti "spesial pedas" bisa merujuk
+     * varian lain — salah harga lebih mahal akibatnya daripada membiarkan
+     * driver mengonfirmasi harga. Kandidat ganda juga ditolak.
+     *
+     * @param  Collection<string, Menu>  $menusByName
+     */
+    private function uniqueCatalogAliasMenu(Collection $menusByName, string $normalizedName): ?Menu
+    {
+        if (mb_strlen($normalizedName) < 4) {
+            return null;
+        }
+
+        $candidates = $menusByName->filter(
+            static fn (Menu $menu, string $menuKey): bool => str_contains($menuKey, $normalizedName)
+        );
+
+        return $candidates->count() === 1 ? $candidates->first() : null;
     }
 
     /**

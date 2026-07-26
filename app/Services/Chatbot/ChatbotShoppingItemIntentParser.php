@@ -15,6 +15,12 @@ class ChatbotShoppingItemIntentParser
     public const OP_DECREMENT = 'decrement';
 
     /**
+     * Kata kerja "beli" beserta ragam gaulnya. Alternatif terpanjang lebih
+     * dulu supaya "beliin" tidak keburu tertangkap sebagai "beli".
+     */
+    private const BUY_VERBS = '(?:belikan|beliin|beli|titipin|nitipin|titip|pesenin|pesan|gasin)';
+
+    /**
      * @return array<int, array{name: string, quantity: int, operation: string, notes: null}>
      */
     public function parse(
@@ -123,7 +129,7 @@ class ChatbotShoppingItemIntentParser
             }
 
             $line = $this->mergeQuantityOnlyCommaSegments($line);
-            $segments = preg_split('/(?:,|\+|\bdan\b)/iu', $line) ?: [$line];
+            $segments = preg_split($this->itemSeparatorPattern(), $line) ?: [$line];
             foreach ($segments as $segment) {
                 $segment = trim((string) $segment);
                 if ($segment !== '') {
@@ -205,10 +211,13 @@ class ChatbotShoppingItemIntentParser
         $value = $this->regexReplace('/\b(?:nggak|gak|tidak)\s+jadi\b/iu', ' ', $value);
         $value = $this->regexReplace('/\b(?:batalkan\s+item|ganti\s+jumlah)\b/iu', ' ', $value);
         $value = $this->regexReplace('/\b(?:tambah(?:kan)?|plus|sekalian|kurangi|kurangin|kurang(?:kan)?|hapus|hilangkan|batalkan|cukup|jadi|ubah|ganti)\b/iu', ' ', $value);
-        $value = $this->regexReplace('/^(?:aku|saya|gue|gua)\s+(?:mau|ingin|pengen|pingin)\s+(?:beli|belikan|pesan|titip)\s+/iu', ' ', $value);
-        $value = $this->regexReplace('/^(?:mau|ingin|pengen|pingin)\s+(?:beli|belikan|pesan|titip)\s+/iu', ' ', $value);
-        $value = $this->regexReplace('/^(?:tolong|coba)\s+(?:beli|belikan|pesan|titip)\s+/iu', ' ', $value);
-        $value = $this->regexReplace('/^(?:titip|belikan|beli|pesan|mau|tolong)\s+/iu', ' ', $value);
+        // Wajib di-squish ulang: pembersih di bawah di-anchor ke ^, jadi sisa
+        // spasi dari penghapusan sapaan akan membuat semuanya gagal match.
+        $value = $this->normalize($this->stripLeadingVocative($value));
+        $value = $this->regexReplace('/^(?:aku|saya|gue|gua)\s+(?:mau|ingin|pengen|pingin)\s+'.self::BUY_VERBS.'\s+/iu', ' ', $value);
+        $value = $this->regexReplace('/^(?:mau|ingin|pengen|pingin)\s+'.self::BUY_VERBS.'\s+/iu', ' ', $value);
+        $value = $this->regexReplace('/^(?:tolong|coba)\s+'.self::BUY_VERBS.'\s+/iu', ' ', $value);
+        $value = $this->regexReplace('/^(?:'.self::BUY_VERBS.'|mau|tolong)\s+/iu', ' ', $value);
         $value = $this->regexReplace('/\b([\pL\pN]+)nya\b/u', '$1', $value);
         $value = $this->regexReplace('/\b(?:eh|dong|lagi|saja|aja|item|menu|jumlah)\b/iu', ' ', $value);
 
@@ -230,6 +239,30 @@ class ChatbotShoppingItemIntentParser
         return $this->regexReplace(
             '/,\s*(\d+\s*(?:x|porsi|pcs?|buah|paket|bungkus|bks|botol|gelas|cup|kotak|pack|biji)?)(?=\s*(?:,|\+|\bdan\b|$))/iu',
             ' $1',
+            $value
+        );
+    }
+
+    /**
+     * Pemisah antar item. Selain koma/plus, bahasa sehari-hari juga memakai
+     * "sama"/"ama"/"terus"/"trus" dengan makna yang sama seperti "dan"
+     * ("mie gacoan level 1 sama udang keju 1" = dua item, bukan satu).
+     */
+    private function itemSeparatorPattern(): string
+    {
+        return '/(?:,|\+|&|\b(?:dan|sama|ama|terus|trus)\b)/iu';
+    }
+
+    /**
+     * Sapaan pembuka ("mas", "bang", "eh mbak") harus dibuang lebih dulu,
+     * kalau tidak pembersih frasa intent di bawah yang di-anchor ke ^
+     * ikut gagal dan "tolong belikan" masuk ke nama item.
+     */
+    private function stripLeadingVocative(string $value): string
+    {
+        return $this->regexReplace(
+            '/^(?:(?:mas|mbak|bang|bro|sis|kak|min|woy|eh|hei|hai)\s+)+/iu',
+            ' ',
             $value
         );
     }

@@ -37,6 +37,8 @@ final class ChatbotPromptLibrary
             'Jika user menambah item, operation item adalah "add"; jika user mengurangi item dengan kata "kurangi", "kurangin", atau "kurang", operation item adalah "decrement"; jika user mengubah jumlah final dengan kata seperti "saja", "cukup", atau "jadi", operation adalah "set"; jika user menghapus/membatalkan item, operation adalah "remove".',
             'Jangan jadikan kata "kurangi", "kurangin", "tambah", atau "hapus" sebagai bagian nama item.',
             'Jangan mengembalikan ulang item lama dari CONTEXT_JSON kecuali item itu disebut lagi di pesan terbaru.',
+            'Jika CONTEXT_JSON memuat available_menus (katalog menu toko aktif), samakan nama item dengan salah satu nama di daftar itu SECARA PERSIS bila jelas merujuk menu yang sama, termasuk untuk singkatan dan salah tulis, contoh "gacoan lvl 1" menjadi "Mie Gacoan Level 1"; angka level/varian tetap ikut nama menu.',
+            'Kalau tidak ada nama di available_menus yang cocok, tulis nama item apa adanya seperti yang diketik pengguna dan JANGAN mengarang nama menu yang tidak ada di daftar itu.',
             'Item dari warung/alfamart/restoran boleh berupa barang umum atau nama makanan.',
             'Jangan menentukan item berat; berat akan dikonfirmasi driver.',
             'Jika disediakan CONTEXT_JSON, gunakan untuk menjaga kesinambungan draft dan merchant aktif tanpa menyalin ulang semua item lama.',

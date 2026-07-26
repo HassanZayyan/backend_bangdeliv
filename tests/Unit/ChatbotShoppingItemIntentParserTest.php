@@ -314,6 +314,68 @@ class ChatbotShoppingItemIntentParserTest extends TestCase
         ], $items);
     }
 
+    public function test_splits_items_on_colloquial_connector_after_leading_vocative(): void
+    {
+        $items = (new ChatbotShoppingItemIntentParser)->parse(
+            'mas tolong belikan mie gacoan level 1 sama udang keju 1',
+            allowImplicitSingleItem: true,
+            allowBareTrailingQuantity: true
+        );
+
+        $this->assertSame([
+            [
+                'name' => 'mie gacoan level 1',
+                'quantity' => 1,
+                'operation' => ChatbotShoppingItemIntentParser::OP_ADD,
+                'notes' => null,
+            ],
+            [
+                'name' => 'udang keju',
+                'quantity' => 1,
+                'operation' => ChatbotShoppingItemIntentParser::OP_ADD,
+                'notes' => null,
+            ],
+        ], $items);
+    }
+
+    #[DataProvider('colloquialItemPhraseProvider')]
+    public function test_strips_colloquial_vocative_and_buy_verb(string $message): void
+    {
+        $items = (new ChatbotShoppingItemIntentParser)->parse(
+            $message,
+            allowImplicitSingleItem: true,
+            allowBareTrailingQuantity: true
+        );
+
+        $this->assertSame([
+            [
+                'name' => 'nasi goreng',
+                'quantity' => 2,
+                'operation' => ChatbotShoppingItemIntentParser::OP_ADD,
+                'notes' => null,
+            ],
+            [
+                'name' => 'es teh',
+                'quantity' => 1,
+                'operation' => ChatbotShoppingItemIntentParser::OP_ADD,
+                'notes' => null,
+            ],
+        ], $items);
+    }
+
+    /**
+     * @return array<string, array{message: string}>
+     */
+    public static function colloquialItemPhraseProvider(): array
+    {
+        return [
+            'vocative + terus' => ['message' => 'eh mbak titip nasi goreng 2 terus es teh 1'],
+            'vocative + beliin + sama' => ['message' => 'bang beliin nasi goreng 2 sama es teh 1'],
+            'nitipin + ama' => ['message' => 'nitipin nasi goreng 2 ama es teh 1'],
+            'ampersand separator' => ['message' => 'nasi goreng 2 & es teh 1'],
+        ];
+    }
+
     public function test_keeps_level_number_inside_single_item(): void
     {
         $items = (new ChatbotShoppingItemIntentParser)->parse('ayam krispi level 6 1x di resto');

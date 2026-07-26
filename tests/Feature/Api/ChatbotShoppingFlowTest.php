@@ -1281,6 +1281,306 @@ class ChatbotShoppingFlowTest extends TestCase
         );
     }
 
+    public function test_chatbot_shopping_uses_model_items_when_parser_fails_to_split_sentence(): void
+    {
+        $sessionId = 'shopping-model-rescue-split-session';
+
+        // "juga" bukan pemisah yang dikenal parser, jadi regex hanya dapat satu
+        // item berisi kalimat utuh. Model memecahnya dengan benar, dan setiap
+        // nama masih bagian dari teks yang sama -> hasil model dipakai.
+        $this->prepareExternalMerchantSession($sessionId, '081200000041', 'google-place-model-rescue-split', [
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'merchant' => null,
+            'items' => [
+                ['name' => 'mie gacoan level 1', 'quantity' => 1],
+                ['name' => 'udang keju', 'quantity' => 1],
+            ],
+        ]);
+
+        $response = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'mie gacoan level 1 juga udang keju 1',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonCount(2, 'data.shopping.stops.0.items')
+            ->assertJsonPath('data.shopping.stops.0.items.0.name', 'mie gacoan level 1')
+            ->assertJsonPath('data.shopping.stops.0.items.1.name', 'udang keju');
+        $this->assertSame(
+            ['mie gacoan level 1' => 1, 'udang keju' => 1],
+            $this->shoppingItemQuantities($response)
+        );
+    }
+
+    public function test_chatbot_shopping_keeps_parser_items_when_model_items_are_not_in_message(): void
+    {
+        $sessionId = 'shopping-model-rescue-guard-session';
+
+        // Item model tidak ada di teks user -> dianggap karangan, parser menang.
+        $this->prepareExternalMerchantSession($sessionId, '081200000042', 'google-place-model-rescue-guard', [
+            'intent' => 'shopping_order',
+            'command' => 'none',
+            'merchant' => null,
+            'items' => [
+                ['name' => 'es teh', 'quantity' => 1],
+                ['name' => 'ayam goreng', 'quantity' => 2],
+            ],
+        ]);
+
+        $response = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'mie gacoan level 1 juga udang keju 1',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonCount(1, 'data.shopping.stops.0.items')
+            ->assertJsonPath(
+                'data.shopping.stops.0.items.0.name',
+                'mie gacoan level 1 juga udang keju'
+            );
+    }
+
+    public function test_chatbot_shopping_sends_active_merchant_menu_catalog_to_model(): void
+    {
+        $restaurant = $this->prepareOfficialMerchantSession(
+            'shopping-menu-catalog-context-session',
+            '081200000043',
+            'mie-gacoan-catalog-context',
+            ['Mie Gacoan Level 1' => 12000, 'Udang Keju' => 9000],
+            [
+                'intent' => 'shopping_order',
+                'command' => 'none',
+                'merchant' => null,
+                'items' => [['name' => 'Mie Gacoan Level 1', 'quantity' => 1]],
+            ]
+        );
+
+        $this->postJson('/api/chatbot/process', [
+            'session_id' => 'shopping-menu-catalog-context-session',
+            'service_type' => 'nitip',
+            'message' => 'gacoan lvl 1 1x',
+        ])->assertOk();
+
+        Http::assertSent(static function ($request): bool {
+            if (! str_contains($request->url(), 'generativelanguage.googleapis.com')) {
+                return false;
+            }
+
+            $body = (string) $request->body();
+
+            return str_contains($body, 'available_menus')
+                && str_contains($body, 'Mie Gacoan Level 1')
+                && str_contains($body, 'Udang Keju');
+        });
+
+        $this->assertNotNull($restaurant->id);
+    }
+
+    public function test_chatbot_shopping_resolves_abbreviated_item_name_to_catalog_menu(): void
+    {
+        $sessionId = 'shopping-catalog-alias-session';
+        $this->prepareOfficialMerchantSession(
+            $sessionId,
+            '081200000044',
+            'mie-gacoan-catalog-alias',
+            ['Mie Gacoan Level 1' => 12000, 'Es Teh Manis' => 5000],
+            [
+                'intent' => 'shopping_order',
+                'command' => 'none',
+                'merchant' => null,
+                // Model tidak mengembalikan nama kanonik -> canonicalisasi katalog
+                // di resolveItems yang harus menyelamatkan harga.
+                'items' => [['name' => 'gacoan level 1', 'quantity' => 2]],
+            ]
+        );
+
+        $response = $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'gacoan level 1 2x',
+        ]);
+
+        $response->assertOk()
+            ->assertJsonPath('data.shopping.stops.0.items.0.name', 'Mie Gacoan Level 1')
+            ->assertJsonPath('data.shopping.stops.0.items.0.item_source', 'MENU_DB')
+            ->assertJsonPath('data.shopping.stops.0.items.0.unit_price', 12000)
+            ->assertJsonPath('data.shopping.stops.0.items.0.subtotal', 24000)
+            ->assertJsonPath('data.shopping.stops.0.items.0.metadata.price_status', 'CONFIRMED')
+            ->assertJsonPath('data.shopping.stops.0.items.0.metadata.match_mode', 'CATALOG_ALIAS');
+    }
+
+    public function test_chatbot_shopping_keeps_ambiguous_or_extended_item_name_manual(): void
+    {
+        $sessionId = 'shopping-catalog-alias-guard-session';
+        $this->prepareOfficialMerchantSession(
+            $sessionId,
+            '081200000045',
+            'mie-gacoan-catalog-alias-guard',
+            ['Udang Keju' => 9000, 'Udang Rambutan' => 9500],
+            [
+                'intent' => 'shopping_order',
+                'command' => 'none',
+                'merchant' => null,
+                'items' => [['name' => 'udang', 'quantity' => 2]],
+            ]
+        );
+
+        // "udang" cocok ke dua menu -> ambigu -> jangan tebak harga.
+        $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'udang 2x',
+        ])->assertOk()
+            ->assertJsonPath('data.shopping.stops.0.items.0.name', 'udang')
+            ->assertJsonPath('data.shopping.stops.0.items.0.item_source', 'MANUAL')
+            ->assertJsonPath('data.shopping.stops.0.items.0.unit_price', 0)
+            ->assertJsonPath('data.shopping.stops.0.items.0.metadata.price_status', 'PENDING_DRIVER_INPUT');
+    }
+
+    public function test_chatbot_shopping_keeps_item_name_longer_than_catalog_menu_manual(): void
+    {
+        $sessionId = 'shopping-catalog-alias-extended-session';
+        $this->prepareOfficialMerchantSession(
+            $sessionId,
+            '081200000046',
+            'mie-gacoan-catalog-alias-extended',
+            ['Udang Keju' => 9000],
+            [
+                'intent' => 'shopping_order',
+                'command' => 'none',
+                'merchant' => null,
+                'items' => [['name' => 'udang keju spesial pedas', 'quantity' => 1]],
+            ]
+        );
+
+        // Imbuhan "spesial pedas" bisa varian lain -> biarkan driver konfirmasi.
+        $this->postJson('/api/chatbot/process', [
+            'session_id' => $sessionId,
+            'service_type' => 'nitip',
+            'message' => 'udang keju spesial pedas 1x',
+        ])->assertOk()
+            ->assertJsonPath('data.shopping.stops.0.items.0.name', 'udang keju spesial pedas')
+            ->assertJsonPath('data.shopping.stops.0.items.0.item_source', 'MANUAL')
+            ->assertJsonPath('data.shopping.stops.0.items.0.unit_price', 0);
+    }
+
+    /**
+     * @param  array<string, int>  $menus  nama menu => harga
+     * @param  array<string, mixed>  $geminiPayload
+     */
+    private function prepareOfficialMerchantSession(
+        string $sessionId,
+        string $phone,
+        string $slug,
+        array $menus,
+        array $geminiPayload
+    ): Restaurant {
+        Config::set('bangdeliv.google_maps_api_key', 'test-key');
+
+        $customer = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        Address::query()->create([
+            'user_id' => $customer->id,
+            'label' => 'Rumah',
+            'recipient_name' => 'Customer Test',
+            'phone' => $phone,
+            'full_address' => 'baskoro raya, Bejalen, Kec. Ambarawa, Kabupaten Semarang, Jawa Tengah, 50611',
+            'latitude' => -7.003,
+            'longitude' => 110.403,
+            'is_default' => true,
+        ]);
+
+        $restaurant = Restaurant::query()->create([
+            'name' => 'Mie Gacoan Salatiga',
+            'slug' => $slug,
+            'merchant_type' => 'restaurant',
+            'address' => 'Jl. Patimura, Salatiga',
+            'latitude' => -7.004,
+            'longitude' => 110.404,
+            'phone' => $phone,
+        ]);
+
+        $sortOrder = 1;
+        foreach ($menus as $menuName => $price) {
+            Menu::query()->create([
+                'restaurant_id' => $restaurant->id,
+                'name' => $menuName,
+                'price' => $price,
+                'is_available' => true,
+                'sort_order' => $sortOrder++,
+            ]);
+        }
+
+        Sanctum::actingAs($customer);
+
+        $this->fakeGeminiAndDistance($geminiPayload);
+
+        $this->postJson("/api/chatbot/sessions/{$sessionId}/merchant", [
+            'service_type' => 'nitip',
+            'merchant_id' => $restaurant->id,
+        ])->assertOk()
+            ->assertJsonPath('data.shopping.stops.0.merchant.id', $restaurant->id);
+
+        return $restaurant;
+    }
+
+    /**
+     * Catatan: Http::fake() menumpuk stub dan yang MENANG adalah yang terdaftar
+     * pertama, jadi payload Gemini harus didaftarkan sekali di awal. Endpoint
+     * pemilihan toko tidak memanggil Gemini, jadi aman.
+     *
+     * @param  array<string, mixed>  $geminiPayload
+     */
+    private function prepareExternalMerchantSession(
+        string $sessionId,
+        string $phone,
+        string $placeId,
+        array $geminiPayload
+    ): void {
+        Config::set('bangdeliv.google_maps_api_key', 'test-key');
+
+        $customer = User::factory()->create([
+            'role' => 'customer',
+            'is_active' => true,
+            'is_blacklisted' => false,
+        ]);
+
+        Address::query()->create([
+            'user_id' => $customer->id,
+            'label' => 'Rumah',
+            'recipient_name' => 'Customer Test',
+            'phone' => $phone,
+            'full_address' => 'baskoro raya, Bejalen, Kec. Ambarawa, Kabupaten Semarang, Jawa Tengah, 50611',
+            'latitude' => -7.003,
+            'longitude' => 110.403,
+            'is_default' => true,
+        ]);
+
+        Sanctum::actingAs($customer);
+
+        $this->fakeGeminiAndDistance($geminiPayload);
+
+        $this->postJson("/api/chatbot/sessions/{$sessionId}/merchant", [
+            'service_type' => 'nitip',
+            'merchant_place' => [
+                'place_id' => $placeId,
+                'name' => 'Mie Gacoan Salatiga',
+                'address' => 'Jl. Patimura, Salatiga',
+                'latitude' => -7.004,
+                'longitude' => 110.404,
+                'types' => ['restaurant', 'food', 'establishment'],
+            ],
+        ])->assertOk()
+            ->assertJsonPath('data.shopping.stops.0.merchant.name', 'Mie Gacoan Salatiga');
+    }
+
     public function test_chatbot_shopping_creates_menu_database_restaurant_order_after_confirmation(): void
     {
         $this->travelTo(Carbon::create(2026, 6, 29, 10, 15, 0, 'Asia/Jakarta'));

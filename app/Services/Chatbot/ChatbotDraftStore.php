@@ -2,12 +2,19 @@
 
 namespace App\Services\Chatbot;
 
+use App\Models\Menu;
 use App\Models\User;
 use Illuminate\Support\Facades\Cache;
 
 class ChatbotDraftStore
 {
     private const MAX_CONTEXT_TURNS = 8;
+
+    /**
+     * Batas nama menu yang dikirim ke model. Cukup untuk toko biasa, dan
+     * menahan prompt tetap kecil untuk toko dengan katalog panjang.
+     */
+    private const MAX_CONTEXT_MENUS = 60;
 
     /**
      * @return array<string, mixed>|null
@@ -208,6 +215,7 @@ class ChatbotDraftStore
                 'active_merchant_name' => $this->normalizeOptionalContextString(
                     is_array($activeStop) ? data_get($activeStop, 'merchant.name') : null
                 ),
+                'available_menus' => $this->activeMerchantMenuNames($activeStop, $merchant),
                 'delivery_address' => $this->normalizeOptionalContextString($delivery['address'] ?? null),
                 'item_count' => count($items),
                 'stops' => collect($stops)
@@ -234,6 +242,41 @@ class ChatbotDraftStore
         }
 
         return $summary;
+    }
+
+    /**
+     * Nama menu toko aktif untuk disertakan ke CONTEXT_JSON. Tanpa ini model
+     * harus menebak nama menu tanpa pernah melihat katalognya, sehingga item
+     * nyaris selalu jatuh ke MANUAL walau menunya ada di database.
+     *
+     * Hanya toko resmi (punya merchant.id) yang punya katalog; toko dari Google
+     * Place mengembalikan array kosong dan perilakunya tidak berubah.
+     *
+     * @param  array<string, mixed>  $merchant
+     * @return array<int, string>
+     */
+    private function activeMerchantMenuNames(mixed $activeStop, array $merchant): array
+    {
+        $merchantId = is_array($activeStop) ? data_get($activeStop, 'merchant.id') : null;
+        if (! is_numeric($merchantId)) {
+            $merchantId = $merchant['id'] ?? null;
+        }
+
+        if (! is_numeric($merchantId) || (int) $merchantId <= 0) {
+            return [];
+        }
+
+        return Menu::query()
+            ->where('restaurant_id', (int) $merchantId)
+            ->where('is_available', true)
+            ->orderBy('sort_order')
+            ->orderBy('name')
+            ->limit(self::MAX_CONTEXT_MENUS)
+            ->pluck('name')
+            ->map(static fn (mixed $name): string => trim((string) $name))
+            ->filter(static fn (string $name): bool => $name !== '')
+            ->values()
+            ->all();
     }
 
     /**
