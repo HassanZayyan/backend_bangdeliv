@@ -1,0 +1,22 @@
+{
+    "no_kasus": "1",
+    "instruction_set": "Nitip",
+    "no_aturan": "1",
+    "kutipan_aturan": "Gunakan confirm hanya untuk pesan konfirmasi singkat seperti \"konfirmasi\", \"confirm\", atau \"lanjut\".",
+    "pesan_uji": "konfirmasi",
+    "konteks_json": null,
+    "ulangan": 1,
+    "model_dikunci": "gemini-2.5-flash-lite",
+    "model_menjawab": "gemini-2.5-flash-lite",
+    "status_http": 403,
+    "respons_http_mentah": "{\n  \"error\": {\n    \"code\": 403,\n    \"message\": \"Lightning dunning decision is deny for project: projects/660829316792\",\n    \"status\": \"PERMISSION_DENIED\"\n  }\n}\n",
+    "keluaran_mentah_teks": null,
+    "keluaran_mentah_terurai": null,
+    "json_terurai": false,
+    "payload_setelah_normalisasi": null,
+    "galat": "Layanan AI sedang sibuk atau melampaui batas kuota harian. Silakan coba beberapa saat lagi.",
+    "field_diperiksa": "command;intent",
+    "nilai_diharapkan": "confirm;shopping_order",
+    "nilai_sistem": "ERROR: Layanan AI sedang sibuk atau melampaui batas kuota harian. Silakan coba beberapa saat lagi.",
+    "patuh": false
+}

@@ -62,8 +62,8 @@ class ThesisDatasetSeederTest extends TestCase
         $this->assertSame(31, DB::table('order_payments')->count());
         $this->assertSame(1293, Menu::query()->count());
 
-        // Naufal Zayyan dihapus dari dataset.
-        $this->assertDatabaseMissing('users', ['email' => 'naufalzayyan@gmail.com']);
+        // Responden yang dikecualikan dihapus dari dataset.
+        $this->assertDatabaseMissing('users', ['email' => 'responden-dikecualikan@example.test']);
         $this->assertDatabaseMissing('addresses', ['id' => 22]);
 
         // Timestamp admin di-pin agar tidak menampilkan waktu fresh seed.
@@ -72,7 +72,7 @@ class ThesisDatasetSeederTest extends TestCase
         $this->assertSame(ThesisDatasetSeeder::ADMIN_UPDATED_AT, $admin->updated_at?->format('Y-m-d H:i:s'));
     }
 
-    public function test_muhammad_faiz_is_a_verified_driver_with_three_orders(): void
+    public function test_driver_05_is_a_verified_driver_with_three_orders(): void
     {
         $this->seedAll();
 
@@ -102,8 +102,8 @@ class ThesisDatasetSeederTest extends TestCase
             DB::table('orders')->where('driver_id', 5)->orderBy('id')->pluck('order_number')->all()
         );
 
-        // Order 33 (Pelanggan 23) — order Faiz paling akhir; order 23 kini dipegang
-        // Akhmad karena 6 customer riil wajib dilayani driver riil BangDeliv.
+        // Order 33 (Pelanggan 23) — order Driver 05 paling akhir; order 23 kini dipegang
+        // Driver 01 karena 6 customer riil wajib dilayani driver riil BangDeliv.
         $snapshot = DB::table('order_status_histories')
             ->where('order_id', 33)
             ->where('status_id', 2)
@@ -124,7 +124,7 @@ class ThesisDatasetSeederTest extends TestCase
             ->map(fn ($n) => (int) $n)
             ->all();
 
-        // Akhmad(1) & Atok(4) menanggung porsi terbesar karena 6 customer riil
+        // Driver 01(1) & Driver 04(4) menanggung porsi terbesar karena 6 customer riil
         // wajib dilayani driver riil BangDeliv; 2/3/5 hanya driver simulasi.
         $this->assertSame(
             [1 => 9, 2 => 4, 3 => 2, 4 => 8, 5 => 3],

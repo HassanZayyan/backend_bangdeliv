@@ -412,7 +412,7 @@ class DriverOrderWorkflowTest extends TestCase
     {
         $this->seed(AccessAccountSeeder::class);
 
-        $driverUser = User::query()->where('email', 'zaky@gmail.com')->firstOrFail();
+        $driverUser = User::query()->where('email', 'zaky@example.test')->firstOrFail();
         $driver = Driver::query()->where('user_id', $driverUser->id)->firstOrFail();
         $order = $this->createShoppingOrder($driver, 'DRIVER_ASSIGNED');
 

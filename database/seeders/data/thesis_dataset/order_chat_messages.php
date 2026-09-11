@@ -205,7 +205,7 @@ return array (
     'body' => 'Foto order',
     'client_message_id' => 'order-chat-17-1784121959534791-831037716',
     'attachment_type' => 'image',
-    'attachment_url' => 'http://43.129.55.16/storage/orders/17/chat/YWMy4LxT1XUr42YAmHWrrpPzcc8GG9KhH63Oe9tR.jpg',
+    'attachment_url' => 'http://localhost/storage/orders/17/chat/YWMy4LxT1XUr42YAmHWrrpPzcc8GG9KhH63Oe9tR.jpg',
     'attachment_mime_type' => 'image/jpeg',
     'attachment_size' => '86911',
     'created_at' => '2026-07-15 20:25:59',

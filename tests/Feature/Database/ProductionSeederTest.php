@@ -139,7 +139,7 @@ class ProductionSeederTest extends TestCase
             'role' => 'customer',
         ]);
         $this->assertDatabaseHas('users', [
-            'email' => 'zaky@gmail.com',
+            'email' => 'zaky@example.test',
             'role' => 'driver',
         ]);
         $this->assertSame(1, Driver::query()->count());
@@ -169,7 +169,7 @@ class ProductionSeederTest extends TestCase
         return [
             'customer@bangdeliv.com',
             'mhnzayyan@gmail.com',
-            'zaky@gmail.com',
+            'zaky@example.test',
             'hassan@bangdeliv.com',
             'sari@bangdeliv.com',
             'budi@bangdeliv.com',

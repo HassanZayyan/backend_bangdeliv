@@ -29,7 +29,7 @@ class AccessAccountSeeder extends Seeder
         );
 
         $driverUser = User::updateOrCreate(
-            ['email' => 'zaky@gmail.com'],
+            ['email' => 'zaky@example.test'],
             [
                 'name' => 'Zaky Driver',
                 'phone' => '081399990002',

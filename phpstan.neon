@@ -4,4 +4,8 @@ includes:
 parameters:
     paths:
         - app/Services/Order/OrderService.php
+    # Helper pengujian dimuat saat runtime lewat require_once, bukan lewat
+    # autoload composer, sehingga perlu didaftarkan agar dikenali analisis.
+    scanFiles:
+        - tools/pengujian/helper_pengujian.php
     level: 5

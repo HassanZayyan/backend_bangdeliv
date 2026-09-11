@@ -2591,7 +2591,7 @@ Prinsip utama refactor:
 ## Backend_Bangdeliv/database/seeders/AccessAccountSeeder.php
 
 - Fungsi: membuat akun akses demo tetap untuk customer dan driver.
-- Logic penting: customer `mhnzayyan@gmail.com`; driver `zaky@gmail.com`; password demo `password`; driver dibuat active/available dengan kendaraan; dokumen ktp/sim/selfie dibuat approved dengan path dummy `driver-docs/{id}/{type}.jpg`.
+- Logic penting: customer `mhnzayyan@gmail.com`; driver `zaky@example.test`; password demo `password`; driver dibuat active/available dengan kendaraan; dokumen ktp/sim/selfie dibuat approved dengan path dummy `driver-docs/{id}/{type}.jpg`.
 - Redundansi/minimalisasi: overlap dengan `UserSeeder`/`CustomerSeeder` sebagai akun demo, tapi punya tujuan khusus access account. Bisa dipertahankan jika memang dipakai presentasi/demo; lebih baik beri dokumentasi kredensial demo terpusat.
 - Service fee notice: tidak ada service fee/careful-carry/heavy.
 - Risiko: sedang; seeder menyimpan akun demo dan password predictable, aman untuk local/TA tapi jangan dipakai produksi.
